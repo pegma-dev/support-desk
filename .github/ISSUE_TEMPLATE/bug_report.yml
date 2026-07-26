@@ -1,0 +1,81 @@
+name: Bug report
+description: Report incorrect ticket, message, queue, or adapter behavior
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve Support Desk. Use synthetic data only.
+        Report security vulnerabilities through private vulnerability reporting.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Ticket workflow
+        - Customer web flow
+        - Staff queue
+        - Email ingestion or threading
+        - Notification delivery or templates
+        - Authorization
+        - Storage adapter
+        - Documentation or examples
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Use synthetic tickets, addresses, messages, and identifiers.
+      render: typescript
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Support Desk version or commit
+      placeholder: 0.1.0 or commit SHA
+    validations:
+      required: true
+
+  - type: input
+    id: runtime
+    attributes:
+      label: Runtime
+      placeholder: Node.js 22 on Windows, Linux, or macOS
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Customer, authorization, or delivery impact
+      description: Could this expose a message, grant access, lose a reply, or create duplicates?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for the same behavior.
+          required: true
+        - label: This report contains no secrets, real addresses, or customer content.
+          required: true
+        - label: This is not a privately reportable security vulnerability.
+          required: true

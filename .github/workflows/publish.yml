@@ -1,0 +1,73 @@
+# Publishes every public workspace package to npm.
+#
+# Runs when a GitHub release is published, so the tag, the release notes, and
+# the published version are one action rather than three.
+#
+# AUTHENTICATION
+#
+# This package is configured on npmjs.com to accept publishes only from a
+# trusted publisher: this repository, this workflow file. Authentication is a
+# short-lived OIDC token minted per run, so there is no long-lived credential
+# to leak, rotate, or forget to delete. `--provenance` additionally attaches a
+# signed attestation tying the tarball to the commit that built it.
+#
+# There is deliberately no token fallback. If OIDC fails, the publish should
+# fail loudly rather than quietly reaching for a secret.
+#
+# Bootstrapping a NEW package is the one case this cannot cover: npm will not
+# let you configure a trusted publisher for a package that does not exist yet
+# (https://github.com/npm/cli/issues/8544). Publish version 0.1.0 once from a
+# workstation with `npm publish -w <package>`, add the trusted publisher on
+# npmjs.com, and every release after that runs here.
+
+name: Publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OIDC: trusted publishing and provenance attestation
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or newer, which is ahead of what
+      # some Node images bundle.
+      - name: Use a current npm
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Publishing runs the same gate as CI. A release should never ship
+      # something that would have failed a pull request.
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Check types
+        run: npm run check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Publish
+        run: npm publish --workspaces --provenance

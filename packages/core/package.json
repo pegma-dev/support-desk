@@ -1,0 +1,38 @@
+{
+  "name": "@pegma/support-desk-core",
+  "version": "0.0.0",
+  "description": "Pure ticket creation and workflow transitions for Support Desk.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist/**/*.d.ts",
+    "dist/**/*.d.ts.map",
+    "dist/**/*.js",
+    "dist/**/*.js.map"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pegma-dev/support-desk.git",
+    "directory": "packages/core"
+  },
+  "dependencies": {
+    "@pegma/support-desk-contracts": "0.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit"
+  }
+}

@@ -1,0 +1,69 @@
+name: Feature request
+description: Propose a provider-neutral support capability or adapter
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What customer or support-team problem needs to be solved?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Core contracts or workflow
+        - Customer web experience
+        - Staff queue
+        - Email channel
+        - Notification templates
+        - Access adapter
+        - Storage adapter
+        - Knowledge pipeline
+        - AI assistance
+        - Documentation or examples
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe observable behavior and boundaries, not only a vendor API.
+    validations:
+      required: true
+
+  - type: textarea
+    id: trust
+    attributes:
+      label: Authorization, privacy, and abuse considerations
+      description: What data is trusted, who may act, and how could the feature be abused?
+    validations:
+      required: true
+
+  - type: textarea
+    id: delivery
+    attributes:
+      label: Retry and compatibility considerations
+      description: Could retries duplicate work, or does this alter public contracts?
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and the planning documents.
+          required: true
+        - label: The generic core does not require RetireGolden-specific plans, branding, or providers.
+          required: true
