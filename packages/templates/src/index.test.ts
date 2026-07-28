@@ -77,6 +77,44 @@ describe("safe templates", () => {
     ).toThrow(/safe subset/);
   });
 
+  it("rejects overlapping, mixed-case, entity, attribute, and URL-context markup attacks", () => {
+    const attacks = [
+      "<p><scr<script>ipt>alert(1)</scr</script>ipt></p>",
+      "<p><ScRiPt>alert(1)</ScRiPt></p>",
+      "<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>",
+      "<p>&#60;script&#62;alert(1)&#60;/script&#62;</p>",
+      '<p onmouseover="alert(1)">Unsafe</p>',
+      '<a href="{{url}}" onclick="alert(1)">Open</a>',
+      '<a href="javascript&#58;alert(1)">Open</a>',
+      "<p><strong>misnested</p></strong>",
+    ];
+    for (const html of attacks) {
+      expect(() =>
+        defineTemplate({
+          id: "adversarial",
+          version: 1,
+          variables: ["url"],
+          httpsUrlVariables: ["url"],
+          plainText: "Safe",
+          html,
+        }),
+      ).toThrow();
+    }
+  });
+
+  it("keeps percent-encoded angle brackets inert as text", () => {
+    const encoded = defineTemplate({
+      id: "encoded.text",
+      version: 1,
+      variables: [],
+      plainText: "Encoded text",
+      html: "<p>%3Cscript%3Ealert(1)%3C/script%3E</p>",
+    });
+    const rendered = renderTemplate(encoded, {});
+    expect(rendered.html).toBe("<p>%3Cscript%3Ealert(1)%3C/script%3E</p>");
+    expect(rendered.html).not.toContain("<script>");
+  });
+
   it("revalidates raw structural definitions at render time", () => {
     expect(() =>
       renderTemplate(

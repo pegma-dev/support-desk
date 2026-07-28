@@ -141,30 +141,85 @@ function validateConstrainedHtml(
   source: string,
   httpsUrlVariables: ReadonlySet<string>,
 ): void {
-  const withoutTags = source.replaceAll(/<[^>]*>/g, "");
-  if (withoutTags.includes("<") || withoutTags.includes(">")) {
-    throw new TypeError("template.html contains malformed or literal markup");
-  }
-  for (const match of source.matchAll(/<[^>]*>/g)) {
-    const tag = match[0];
-    if (
-      /^<\/(?:p|a|strong|em|ul|ol|li|code)>$/.test(tag) ||
-      /^<(?:p|strong|em|ul|ol|li|code)>$/.test(tag) ||
-      /^<br\s*\/?>$/.test(tag)
-    ) {
+  const openTags = new Set([
+    "p",
+    "a",
+    "strong",
+    "em",
+    "ul",
+    "ol",
+    "li",
+    "code",
+  ]);
+  const stack: string[] = [];
+  let position = 0;
+  while (position < source.length) {
+    const character = source[position] as string;
+    if (character === "&") {
+      throw new TypeError(
+        "template.html literal character references are not allowed",
+      );
+    }
+    if (character === ">") {
+      throw new TypeError("template.html contains malformed literal markup");
+    }
+    if (character !== "<") {
+      position += 1;
       continue;
     }
+
+    const end = source.indexOf(">", position + 1);
+    if (end === -1) {
+      throw new TypeError("template.html contains unterminated markup");
+    }
+    const tag = source.slice(position, end + 1);
+    if (tag === "<br>" || tag === "<br/>" || tag === "<br />") {
+      position = end + 1;
+      continue;
+    }
+
+    const plainOpen = /^<([a-z]+)>$/.exec(tag);
+    if (plainOpen !== null) {
+      const name = plainOpen[1] as string;
+      if (!openTags.has(name) || name === "a") {
+        throw new TypeError(
+          "template.html uses markup or attributes outside the safe subset",
+        );
+      }
+      stack.push(name);
+      position = end + 1;
+      continue;
+    }
+
     const anchor =
       /^<a href=(?:"\{\{([a-z][a-z0-9_]*)\}\}"|'\{\{([a-z][a-z0-9_]*)\}\}')>$/.exec(
         tag,
       );
     const variable = anchor?.[1] ?? anchor?.[2];
     if (variable !== undefined && httpsUrlVariables.has(variable)) {
+      stack.push("a");
+      position = end + 1;
       continue;
     }
+
+    const close = /^<\/([a-z]+)>$/.exec(tag);
+    if (close !== null) {
+      const name = close[1] as string;
+      if (!openTags.has(name) || stack.pop() !== name) {
+        throw new TypeError(
+          "template.html contains unbalanced or disallowed markup",
+        );
+      }
+      position = end + 1;
+      continue;
+    }
+
     throw new TypeError(
       "template.html uses markup or attributes outside the safe subset",
     );
+  }
+  if (stack.length > 0) {
+    throw new TypeError("template.html contains unclosed markup");
   }
 }
 
