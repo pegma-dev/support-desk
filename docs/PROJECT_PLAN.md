@@ -3,10 +3,14 @@
 ## Status
 
 **Stage:** The customer-facing Phase 1/2 application slice and the source
-portion of Phase 6 are implemented. Phase 2 abuse limits and all deployment
-phases remain open; every `@pegma/support-desk-*` package is unpublished.
+portion of Phase 6 are implemented. Ecosystem alignment, staff services,
+host-applied abuse limits, and every deployment phase remain open; every
+`@pegma/support-desk-*` package is unpublished.
 
-**Initial reference application:** RetireGolden
+**Initial reference applications:** retiregolden.org for paid customer support
+on Azure, and pegma.dev for authenticated product feedback on Cloudflare. The
+two hosts compose isolated Support Desk instances; shared packages do not imply
+shared data or a multi-tenant service.
 
 **License:** MIT
 
@@ -26,8 +30,16 @@ conformance cases, not to work around here.
 
 **Access:** Permissions come from
 [`@pegma/authorization-core`](https://github.com/pegma-dev/authorization-core)
-rather than a bespoke access package. The planned EntitleKit access adapter was
-removed on 2026-07-26; EntitleKit is now Authorization Core.
+rather than a bespoke access package. Buildout Task 1 upgrades the repository's
+current exact `0.1.0` dependency to the next planned exact target, `0.1.2`. The
+planned EntitleKit access adapter was removed on 2026-07-26; EntitleKit is now
+Authorization Core.
+
+**Audit:** Durable accepted-change records come from
+[`@pegma/audit`](https://github.com/pegma-dev/audit) and are embedded in the
+ticket partition. Buildout Task 1 adds the next planned exact dependency,
+`0.1.0`, and replaces the current pre-release private audit-row shape before
+staff commands are added.
 
 **Shared types:** `PrincipalId`, the clock, the logger, and typed event
 definitions come from [`@pegma/spine`](https://github.com/pegma-dev/spine).
@@ -50,12 +62,16 @@ the provider-neutral Phase 6 outbound-mail integration:
   `AccessContext`, require Support Desk's exact permission names, and confirm
   requester ownership against the authoritative ticket rather than trusting
   the principal index.
+- The current pre-release customer methods still expose the authoritative
+  `Ticket` shape, including staff metadata. Buildout Task 2 replaces that with
+  explicit safe customer DTOs and a customer-visible update timestamp before
+  any host route is built.
 - Customer commands are idempotent by command ID and a SHA-256 request
   fingerprint. Reply transactions use an opaque version read immediately
   before the transaction and retry conflicts without losing messages.
 - Subject and message-body size limits are configurable application seams.
-  Durable rate limiting remains intentionally pending integration with
-  `@pegma/rate-limit`; this repository does not build a private limiter.
+  Durable request limiting remains host composition work using published exact
+  `@pegma/rate-limit@0.1.0`; this repository does not build a private limiter.
 - `@pegma/support-desk-templates` implements immutable versioned templates,
   explicit variable allowlists, HTML-context escaping, and synthetic preview.
   The RetireGolden-branded pack is a separate export from the generic renderer.
@@ -72,7 +88,9 @@ the provider-neutral Phase 6 outbound-mail integration:
 Phases 3, 4, and 5 are not complete. There is no durable reference deployment,
 customer web UI, or staff queue/API in this repository yet. Phase 6 source is
 implemented, but selecting and operating a provider adapter remains host work,
-and no package is published before Phase 8.
+and no package is published yet. The ordered implementation handoff is
+[`BUILDOUT.md`](BUILDOUT.md); it must be followed one task and one pull request
+at a time.
 
 ## Vision
 
@@ -84,7 +102,7 @@ The system should be useful to a small SaaS with one support person while
 preserving the boundaries needed by a larger support team:
 
 - customers can move between web and email without splitting the conversation;
-- staff work one auditable queue;
+- staff work one auditable queue per isolated host instance;
 - hosts choose identity, billing, and mail providers, supply permissions
   through Authorization Core, and supply a storage-core `Store`;
 - unknown prospective customers can still reach support;
@@ -111,6 +129,9 @@ preserving the boundaries needed by a larger support team:
    not have sent.
 8. **AI earns responsibility gradually.** Retrieval and drafts precede
    customer-visible automation or account actions.
+9. **Reuse code, isolate deployments.** RetireGolden and pegma.dev use the same
+   packages with separate stores, queues, mail channels, policies, secrets,
+   cursors, and retention rules. Multi-tenancy is not an MVP shortcut.
 
 ## Repository strategy
 
@@ -137,6 +158,11 @@ types come from `@pegma/spine`.
 
 ## Delivery phases
 
+These phases group product outcomes; they are not the safe commit order. Phase
+6 source already preceded Phases 3–5. Follow `BUILDOUT.md` for dependency order,
+including the early exact package release required before either separate host
+repository can consume Support Desk without an unpublished dependency.
+
 ### Foundation — repository and domain core
 
 **Goal:** Establish project boundaries and executable workflow behavior.
@@ -149,7 +175,7 @@ types come from `@pegma/spine`.
 - [x] Workflow and rejection tests
 - [x] MVP, architecture, security, and contribution documentation
 - [x] CI, dependency updates, and CodeQL
-- [ ] Validate the contracts against RetireGolden's intended support flow
+- [ ] Validate the contracts against both launch profiles in `BUILDOUT.md`
 
 **Exit criterion:** Tests can represent an authenticated web ticket, an
 unverified email ticket, staff replies, customer follow-up, assignment,
@@ -170,9 +196,9 @@ without building a storage layer here.
   request.
 - Implement idempotency for customer commands and provider events with
   `insertIfAbsent` keyed by the external identifier.
-- Define read paths that are key lookups or whole-partition reads, and
-  maintain an explicit index collection wherever a second access path is
-  needed.
+- Define customer/detail reads as key lookups or whole-partition reads. A
+  second access path is an explicit bounded projection with authoritative
+  confirmation and a cursor-aware repair loop.
 - Add structured audit events written in the same transaction as the state
   change they describe.
 
@@ -182,68 +208,76 @@ messages, or provider dependencies.
 
 ### Phase 2 — Authorization Core access and customer ticket API
 
-**Goal:** Let authorized paid customers exercise ticket operations end-to-end
-against reference adapters.
+**Goal:** Let authorized authenticated requesters exercise ticket operations
+end-to-end against reference adapters.
 
 - Consume `@pegma/authorization-core` permissions and `@pegma/spine`
   `PrincipalId` values.
 - Map RetireGolden paid entitlements to `support.ticket.create` in RetireGolden
   policy, not here.
+- Grant pegma.dev's authenticated accounts the same exact customer permissions
+  through pegma.dev policy defaults, not a fake paid entitlement.
 - Add create, list, read, and reply endpoints.
 - Enforce permission plus requester ownership.
-- Add rate and size limits.
+- Apply published `@pegma/rate-limit` at each host's HTTP boundary and retain
+  Support Desk's own size and per-principal/ticket storage bounds.
 
-**Exit criterion:** Against the in-memory `Store`, a paid customer can work
-only their own tickets, an unpaid account cannot open a gated web ticket, and
+**Exit criterion:** Against the in-memory `Store`, both host policy profiles
+can work only their own tickets, an unpaid RetireGolden account cannot open a
+gated web ticket, an authenticated pegma.dev account can submit feedback, and
 authorization tests cover cross-account access attempts.
 
 ### Phase 3 — durable deployment
 
-**Goal:** Run the reference API against a durable `Store` supplied by the host.
+**Goal:** Run the same application contracts against durable `Store` instances
+supplied by both hosts.
 
 - Measure access patterns from the reference API and its tests, and confirm
   every one of them is a key read, a partition read, or a maintained index.
-- Select the storage-core adapter the reference deployment will use and let the
-  host construct the `Store`.
+- Use Azure Tables for retiregolden.org and D1 for pegma.dev, with each host
+  constructing and namespacing its own `Store`.
 - Document provisioning, namespace binding, and configuration for the reference
   deployment.
 - Report any expressiveness gap to `storage-core` as a conformance case rather
   than working around it here.
 
-**Exit criterion:** The reference API runs unchanged against a durable `Store`
-with no lost updates under concurrent load and no Support Desk code that knows
-which backend it is.
+**Exit criterion:** The same public application tests run against the Azure and
+D1 compositions with no lost updates under concurrent load and no Support Desk
+code that knows which backend it is.
 
 ### Phase 4 — customer web experience
 
-**Goal:** Let paid customers use Support Desk through retiregolden.org.
+**Goal:** Let authenticated users use Support Desk through both launch hosts.
 
-- Add customer-facing UI within the existing site.
+- Add paid-customer support UI within retiregolden.org.
+- Add authenticated feedback, bug, feature-request, documentation, and question
+  submission and tracking within pegma.dev.
 - Add safe message rendering.
 - Verify abuse limits end-to-end.
-- Launch to paid customers.
+- Keep tickets private; pegma.dev feedback is not automatically a public
+  roadmap item or GitHub Issue.
 
-**Exit criterion:** A paid customer can create, follow, and reply to their own
-tickets on retiregolden.org backed by a durable `Store`.
+**Exit criterion:** An eligible RetireGolden customer and an authenticated
+pegma.dev user can each create, follow, and reply to their own tickets in
+separate durable instances.
 
 ### Phase 5 — staff queue
 
-**Goal:** Provide the minimum useful central operator experience.
+**Goal:** Provide the minimum useful per-instance operator experience.
 
-- Add queue read and detail endpoints backed by partition reads and the queue
-  index collection.
+- Add detail endpoints and a bounded, scanned queue projection that is repaired
+  from authoritative ticket rows.
 - Add Support and Admin permission integration.
-- Apply status, priority, association, and assignee filtering in the
-  application after reading a partition, and add an index collection for any
-  access path a partition read cannot serve at the expected queue size.
+- Apply status, priority, category, association, channel, and assignee filtering
+  only after the projection row is confirmed against the authoritative ticket.
 - Implement public replies and internal notes.
 - Implement assignment, priority, resolution, closure, and reopening.
 - Add safe audit views.
 - Add basic operational metrics without message content.
 
-**Exit criterion:** One or more authorized staff members can work the queue
-without direct database or mailbox access, and internal notes never reach
-customers.
+**Exit criterion:** Authorized staff can work each host's isolated queue
+without direct database or mailbox access, projection gaps converge after a
+complete repair cycle, and internal notes never reach customers.
 
 ### Phase 6 — outbound email and branded templates
 
@@ -260,6 +294,8 @@ customers.
 - Generate and store outbound `Message-ID` metadata.
 - Add delivery callbacks, bounded retry, and dead-letter handling.
 - Supply a RetireGolden-branded template pack outside the generic core.
+- Supply a Pegma-branded template pack and keep both packs outside the generic
+  renderer.
 
 **Exit criterion:** Ticket creation and replies succeed even during a mail
 provider outage, and retries do not duplicate customer messages.
@@ -282,7 +318,7 @@ provider outage, and retries do not duplicate customer messages.
 one unverified ticket, duplicate deliveries are harmless, and email matching
 cannot grant website access.
 
-### Phase 8 — production hardening and first public release
+### Phase 8 — release and production hardening
 
 **Goal:** Operate the core ticket system safely at modest production volume.
 
@@ -294,11 +330,13 @@ cannot grant website access.
 - Publish mail and template adapter conformance tests. Storage conformance
   belongs to `storage-core`.
 - Document installation and provider integration.
-- Configure npm publishing access and publish signed packages with provenance.
-- Release the first useful `0.x` version.
+- Configure npm publishing access and publish a signed exact `0.x` package set
+  with provenance before either host deployment depends on it.
+- Do not make a host use a Git branch, copied source, local path, or unpublished
+  tarball as its production dependency.
 
-**Exit criterion:** The RetireGolden deployment has documented recovery,
-privacy, and incident procedures and can be installed from public
+**Exit criterion:** Both launch deployments have documented recovery, privacy,
+and incident procedures and install exact public versions from public
 documentation.
 
 ### Phase 9 — attachments and operational features
@@ -311,7 +349,7 @@ Candidate work:
 - isolated object storage and authorized downloads;
 - type and size policies plus malware scanning;
 - response templates or macros;
-- tags and categories;
+- tags and category changes beyond the launch allowlists;
 - collision indicators for staff;
 - configurable queue routing;
 - business hours and simple response targets;
@@ -398,6 +436,32 @@ The RetireGolden host owns:
 
 Support Desk owns generic ticket, message, queue, channel, and adapter behavior.
 
+## pegma.dev integration decisions
+
+The pegma.dev host owns:
+
+- first-party Identity verification and server-side Sessions resolution;
+- Authorization Core policy that grants customer permissions to authenticated
+  accounts without inventing a paid entitlement;
+- staff role assignment;
+- the D1-backed `@pegma/storage-core` `Store` and a Support Desk-only namespace;
+- durable `@pegma/rate-limit` policies at create and reply endpoints;
+- Pegma brand assets, template content, URLs, and the `[PEG-…]` subject marker;
+- the feedback, bug, feature-request, documentation, and question category
+  allowlist;
+- provider credentials, callbacks, worker schedules, and Support Desk-specific
+  cursors that are not shared with Identity mail;
+- privacy and retention policy for submitted feedback.
+
+pegma.dev tickets remain private conversations. Publication to the roadmap,
+documentation, or GitHub Issues is a later explicit staff action with
+redaction and confirmation, never an automatic side effect.
+
+The two launch hosts do not share a Store, ticket-number counter, queue,
+mailbox, template activation, authorization cache, retention job, or worker
+cursor. A unified operator surface is deferred until it can be designed as a
+separately authorized service rather than as accidental multi-tenancy.
+
 ## Security milestones
 
 Before web production:
@@ -440,50 +504,49 @@ Before the first public package release:
 - data model and API reference;
 - host wiring guide covering the `Store`, the permission source, and the clock;
 - declared-collection reference: partitions, keys, and codecs;
-- mail adapter guide;
 - template and branding guide;
-- security model and deployment checklist;
-- RetireGolden reference integration;
 - complete local example with synthetic data;
 - migration and upgrade policy.
 
+Before the first production-ready release:
+
+- mail adapter and worker-operations guide;
+- security model and deployment checklist;
+- RetireGolden and pegma.dev reference integrations;
+- retention, recovery, export, redaction, and deletion procedures;
+- provider outage and poison-message recovery evidence.
+
 ## Open questions
 
-These should be resolved through the reference implementation:
+These should be resolved through the two reference implementations:
 
-- Which partition layout keeps every transaction inside one collection and one
-  partition while keeping queue reads a sensible size?
-- Which secondary access paths justify a maintained index collection, and which
-  are better served by filtering a partition read in the application?
-- Should ticket numbers be global, tenant-scoped, or channel-scoped, given that
-  minting one is a `transact` on whatever partition holds the counter?
 - Which inbound and outbound mail provider offers the simplest reliable
-  reference adapter?
+  RetireGolden adapter? pegma.dev already proves outbound Resend composition,
+  but provider choice remains a host decision rather than a Support Desk
+  contract.
 - Should matched-email tickets appear in an authenticated account only after a
   separate verification or customer claim flow?
 - How long should resolved tickets remain reopenable by email?
-- Should internal notes and assignment changes update the customer-visible
-  last-updated time, or only staff queue ordering?
-- Which template format is expressive enough without becoming executable code?
 - What retention period is appropriate for sensitive support conversations?
-- When is a separate Support Desk deployment operationally worthwhile?
+- Which evidence would justify a separately deployed, multi-host Support Desk
+  service instead of the two isolated embedded instances?
 
 ## Near-term backlog
 
-1. Build the Phase 3 durable reference deployment against a host-supplied
-   `Store` and run the existing application/mail suite without backend-aware
-   Support Desk code.
-2. Build the Phase 4 customer web experience against the implemented
-   authorized customer services.
-3. Build the Phase 5 staff queue and internal-note boundary.
-4. Select and operate an outbound provider at the host composition root,
-   exercising Support Desk's projection over published `@pegma/mail`,
-   persisted cursors, callbacks, and dead-letter acknowledgement in the
-   durable deployment.
-5. Implement Phase 7 inbound mailbox verification, normalization, threading,
-   deduplication, and bounce/auto-reply controls.
-6. Begin Phase 8 release hardening only after the deployed phases provide
-   recovery, privacy, retention, and operational evidence.
+Execute [`BUILDOUT.md`](BUILDOUT.md) in order:
 
-The backlog should remain intentionally small until the first integration
-reveals which abstractions are reusable.
+1. align with Audit and current Authorization Core;
+2. finish the dual-host customer contract;
+3. own instance-scoped ticket-number reservation;
+4. implement staff detail and mutation services;
+5. implement the staff queue as a repairable projection;
+6. close the host-neutral release candidate;
+7. integrate retiregolden.org customer support;
+8. integrate pegma.dev feedback;
+9. build the two isolated staff surfaces;
+10. operate each host's outbound provider;
+11. implement inbound mail;
+12. complete the first production-ready release.
+
+One numbered Buildout task is one pull request. Do not parallelize adjacent
+tasks that change the same public contract or durable record union.

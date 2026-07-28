@@ -26,14 +26,15 @@ ordinary. Novel structure is harder for both people and models to read.
 `@pegma/storage-core` and take a `Store` from the host. The port surface is
 keyed access, `update` with a decider that re-runs on every conflict,
 `putIfUnchanged` and `deleteIfUnchanged` for a version read earlier,
-`list`/`listVersioned` over one partition, and `transact(partition, actions)`
-scoped to one collection and one partition. There is deliberately no
-cross-partition atomicity and no version-conditional delete inside a
-transaction; a conditional removal is a `putIfUnchanged` to a tombstone your
-codec understands. If storage cannot express something you need, that is a gap
-to fix in `storage-core` with conformance cases, not to work around here. A
-private repository, a cache with its own file, a "just for tests" in-memory
-table — all of those are the same mistake wearing different names.
+`list`/`listVersioned` over one partition, bounded opaque-cursor `scan`, and
+`transact(partition, actions)` scoped to one collection and one partition.
+There is deliberately no cross-partition atomicity and no version-conditional
+delete inside a transaction; a conditional removal is a `putIfUnchanged` to a
+tombstone your codec understands. If storage cannot express something you
+need, that is a gap to fix in `storage-core` with conformance cases, not to work
+around here. A private repository, a cache with its own file, a "just for
+tests" in-memory table — all of those are the same mistake wearing different
+names.
 
 **Never build an access model in this repository.** Ask
 `@pegma/authorization-core` whether a `PrincipalId` holds a named permission.
@@ -43,6 +44,13 @@ never proves a ticket belongs to the caller. It does not own roles, plans,
 entitlements, policy, or an access port. EntitleKit is now Authorization Core;
 if you find the old name anywhere, it is stale.
 
+**Never build a second audit contract or request limiter here.** Accepted
+changes embed `@pegma/audit` actions in the ticket transaction. Buildout Task 1
+replaces the remaining pre-release private audit row before any staff command
+is added. Expensive HTTP entry points use the host's
+`@pegma/rate-limit` durable tier; Support Desk keeps only record size and
+capacity limits.
+
 **Do not redeclare what `@pegma/spine` already names.** `PrincipalId`,
 `IsoTimestamp`, `Clock`, `Logger`, and event definitions come from spine and
 are re-exported by `@pegma/support-desk-contracts`. A locally declared
@@ -50,16 +58,21 @@ are re-exported by `@pegma/support-desk-contracts`. A locally declared
 principal Authorization Core resolved is the principal this queue stores. This
 repository already declared its own once; it was replaced on 2026-07-26.
 
-**Reads are one key or one whole partition.** There is no server-side
-filtering, ordering, or secondary index, and a listed partition is not a
-snapshot. Filtering happens in the application after the read. A second access
-path is a maintained index collection that Support Desk writes itself, and an
-index row is a hint confirmed against the authoritative record — never an
-ownership or authorization answer. A partition that grows without bound is a
-design error now, not a scaling problem later.
+**Reads are explicit and bounded.** There is no server-side filtering,
+ordering, or secondary index, and a listed partition or scanned collection is
+not a snapshot. Customer and detail reads are one key or one whole partition.
+Collection-wide scans are repeating cursor-aware worker or queue-projection
+loops, never hidden queries. Filtering happens in the application after the
+read. A second access path is a maintained projection that Support Desk writes
+and repairs itself, and a projection row is a hint confirmed against the
+authoritative record — never ownership or authorization evidence. A read that
+can grow without a configured bound is a design error now, not a scaling
+problem later. A scan bound counts every adapter-returned physical record and
+page before application filtering; counting only returned matches is not a
+bound.
 
 **Everything a state change must commit with, it must share a partition with.**
-A ticket, its messages, its events, and its outbox rows live together for
+A ticket, its messages, its Audit events, and its outbox rows live together for
 exactly this reason: `transact` is what makes a reply and the notification it
 triggers one commit. If a new record needs to land atomically with a ticket
 change and cannot share that partition, the partition layout is wrong — do not
@@ -76,6 +89,12 @@ and not sufficient to read or modify anything.
 **One conversation model for web and email.** Channels are transports. Do not
 add an email-shaped ticket, an email-only status, or a parallel message type. A
 customer moving between the website and their inbox stays in one thread.
+
+**The first two hosts are isolated instances, not tenants.** retiregolden.org
+and pegma.dev use the same exact packages with separate stores, namespaces,
+queues, number counters, mail channels, policies, secrets, cursors, and
+retention. Do not add `tenantId`, a cross-cloud database, or a shared control
+plane to join them.
 
 **Human support first.** AI may summarize, retrieve, and draft for staff. It is
 never the authority for a customer-impacting action, it cannot increase a
@@ -114,8 +133,10 @@ changed workspace package with a provenance attestation. A brand-new package
 cannot use trusted publishing for its first version and needs one manual
 `npm publish` plus a trusted-publisher configuration afterwards.
 
-Nothing in this repository is published yet. The project plan holds that until
-Phase 8.
+Nothing in this repository is published yet. A host production dependency must
+wait for the exact public release described by Buildout Task 6; Git branches,
+copied source, unpublished tarballs, and local filesystem dependencies are not
+release substitutes.
 
 ## Where things stand
 
@@ -127,9 +148,12 @@ persistence remain composition work. Phase 6's provider-neutral outbound-mail
 source is implemented against exact `@pegma/mail@0.1.0`, with Support-owned
 projection, templates, threading metadata, and callback receipts.
 
-Nothing in this repository is published. Phases 3–5 still require a durable
-reference deployment, customer web experience, and staff queue; provider
-selection and operation remain host work.
+Nothing in this repository is published. The remaining private audit row must
+move to exact `@pegma/audit@0.1.0` and Authorization Core must align to exact
+`0.1.2` before staff work. Customer services must also stop returning the full
+authoritative ticket shape before a host route uses them. Phases 3–5 still
+require Azure and D1 host compositions, two customer web experiences, and
+isolated staff queues; provider selection and operation remain host work.
 
 This project was developed under the `@support-desk` scope and moved into Pegma
 on 2026-07-26. The git history begins at that move, nothing was published under
@@ -139,9 +163,11 @@ were deleted rather than renamed.
 ## Reading order
 
 `docs/PROJECT_PLAN.md` is the source of truth for scope, phases, and decisions
-already made. Then `docs/ARCHITECTURE.md` for the boundaries and the
-persistence and delivery model, and `docs/MVP_SPEC.md` for the product behavior
-the first release owes.
+already made. `docs/BUILDOUT.md` is the one-task-per-pull-request implementation
+handoff; give an implementation agent one task from it, never the whole
+roadmap. Then read `docs/ARCHITECTURE.md` for boundaries and persistence,
+`docs/MVP_SPEC.md` for product behavior, and `docs/COLLECTIONS.md` before any
+durable layout change.
 
 Siblings: [storage-core](https://github.com/pegma-dev/storage-core),
 [authorization-core](https://github.com/pegma-dev/authorization-core),

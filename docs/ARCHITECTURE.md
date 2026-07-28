@@ -2,12 +2,12 @@
 
 ## Architectural style
 
-Support Desk starts as an embedded set of TypeScript packages plus a reference
-API. The host application owns deployment, authentication, policy, provider
-credentials, the `Store`, and product-specific configuration.
+Support Desk starts as an embedded set of TypeScript packages plus reference
+compositions. The host application owns deployment, authentication, policy,
+provider credentials, the `Store`, and product-specific configuration.
 
 Support Desk is one component of **Pegma**, a family of MIT-licensed packages a
-host composes. Three of the boundaries below are not Support Desk's to design:
+host composes. The ecosystem boundaries below are not Support Desk's to design:
 
 - persistence is
   [`@pegma/storage-core`](https://github.com/pegma-dev/storage-core);
@@ -15,6 +15,10 @@ host composes. Three of the boundaries below are not Support Desk's to design:
   [`@pegma/authorization-core`](https://github.com/pegma-dev/authorization-core);
 - `PrincipalId`, the clock, the logger, and typed event definitions are
   [`@pegma/spine`](https://github.com/pegma-dev/spine).
+- accepted-change audit records are
+  [`@pegma/audit`](https://github.com/pegma-dev/audit);
+- provider-neutral outbound delivery state is
+  [`@pegma/mail`](https://github.com/pegma-dev/mail).
 
 The architecture uses ports and adapters for what remains:
 
@@ -33,6 +37,23 @@ Web/API controllers ───>│ Application services │<── Inbound mail w
 ```
 
 No provider SDK types cross into the core contracts.
+
+### Launch composition
+
+retiregolden.org and pegma.dev embed the same published Support Desk packages
+as two isolated instances. RetireGolden supplies Azure Tables, its existing
+verified session and paid-entitlement policy, RetireGolden templates, and its
+mail channel. pegma.dev supplies D1, its existing Identity/Sessions and
+Authorization composition, Pegma templates, and its own mail channel.
+
+They do not share a `Store`, namespace, ticket-number counter, queue, mailbox,
+authorization cache, retention job, secret, or worker cursor. This proves
+portability across Azure and Cloudflare without adding `tenantId` to every
+contract or creating an always-on Support Desk service.
+
+Both initial web entry points are authenticated. Unknown requesters enter
+through verified inbound email later; anonymous browser submission is not part
+of the first launch.
 
 ## Modules
 
@@ -84,6 +105,31 @@ The application service performs resource checks in addition to permission
 checks. `support.ticket.read.own` alone never proves that a ticket belongs to
 the principal.
 
+Sessions and identity remain outside this boundary. A host resolves a trusted
+session to `PrincipalId`, loads trusted role and entitlement facts, resolves an
+`AccessContext`, and only then calls Support Desk. RetireGolden may grant create
+from a paid entitlement while pegma.dev grants it as an authenticated-user
+default; Support Desk sees only the resulting permission.
+
+### Audit
+
+Support Desk embeds `@pegma/audit`'s event in its heterogeneous ticket record
+union and drops Audit's transaction action into the same ticket transaction as
+the accepted state change. Audit owns no collection or Store, so this preserves
+single-partition atomicity.
+
+The pure core `TicketEvent` and durable `AuditEvent` are different concepts.
+The first asks the workflow to transition. The second records that an
+authorized, idempotent command was accepted. Support Desk must not maintain a
+parallel private audit event shape.
+
+### Abuse limits
+
+Support Desk enforces record-shape and per-principal/ticket capacity limits.
+Each host applies exact `@pegma/rate-limit` durable policies at its HTTP
+boundary before expensive create and reply commands. The limiter key and
+policy are host concerns; neither package owns HTTP middleware.
+
 ### Persistence
 
 Support Desk does not implement storage. It declares collections against
@@ -125,9 +171,11 @@ in `storage-core`, not a private persistence layer in this repository.
 
 ### Reads
 
-There is no server-side filtering, ordering, or secondary index. Every read is
-either one key or one whole partition, and a listed partition is not a
-snapshot.
+There is no server-side filtering, ordering, or secondary index. Customer and
+ticket-detail reads use one key or one whole partition, and a listed partition
+is not a snapshot. Bounded collection-wide `scan` is reserved for repeating
+workers and the staff queue's repairable projection; it is not a hidden query
+language.
 
 That has three consequences the design must respect:
 
@@ -136,16 +184,43 @@ That has three consequences the design must respect:
    to solve later.
 2. Filtering by status, priority, association, channel, or assignee happens in
    the application after a partition read.
-3. Any access path a partition read cannot serve is a **maintained index
-   collection**: Support Desk writes the index rows itself, in the same
-   transaction as the record they point at when they share a partition, and
-   with the record's own consistency rules when they do not. An index that can
-   drift must read as a hint that is confirmed against the authoritative record,
-   never as an authorization or ownership answer.
+3. Any access path a partition read cannot serve is a **maintained projection
+   collection**. A different collection cannot share the ticket transaction,
+   so Support Desk invokes projection by ticket ID after commit and repairs it
+   from a repeating authoritative scan. The projector reloads current
+   authoritative state rather than accepting a ticket snapshot, and revision
+   fences prevent an old row from overtaking a new one. A projection is always
+   a hint confirmed against the authoritative record, never authorization or
+   ownership evidence.
 
-Retention and deletion are sweeps: list a partition, then `deleteIfUnchanged`
-each record with the version that listing returned, so a record that became
-live again between enumeration and removal is left alone.
+A failed projection attempt is logged and reflected in projection health but
+does not turn the already committed ticket command into a failure. Idempotent
+command replay and the repair loop make recovery safe.
+
+The initial staff queue stores one projection row partitioned by ticket ID and
+uses a bounded collection-wide scan. It confirms every candidate ticket before
+filtering and sorting in application memory. Separate configured maxima bound
+physical rows, scan pages, and confirmed active results; every adapter-returned
+physical record counts before authoritative confirmation or application
+filtering, a codec failure aborts safely, and exhausting any budget returns no
+partial result. A dedicated repair loop scans authoritative ticket rows and
+converges any write missed between the ticket commit and projection update. The
+repair cursor is host-persisted after complete pages. An online queue read
+starts from a null cursor and consumes one complete projection scan with
+request-local cursors only while all budgets hold; it never resumes another
+request's scan.
+
+Projection, repair, and inactive-row sweeping share one terminal-retention
+cutoff. An authoritative resolved/closed ticket beyond it causes queue state to
+remain absent or be deleted conditionally, not recreated as another inactive
+row. A sweep reloads the ticket before deletion. A delayed projector also
+reloads current state, so it cannot resurrect an old snapshot after
+reclamation; a genuine later reopen recreates an active row.
+
+Retention and deletion are sweeps: enumerate with `listVersioned` or a bounded
+authoritative scan, then `deleteIfUnchanged` each record with the version that
+enumeration returned, so a record that became live again before removal is left
+alone.
 
 ### Mail ingestion adapter
 
@@ -154,13 +229,22 @@ content, extracts threading metadata, and returns provider-neutral input.
 Ticket matching and account association happen in application services under
 explicit policy.
 
+Support Desk's inbound receipts are not replaced with `@pegma/webhooks`.
+Webhooks deliberately provides sequential deduplication while allowing
+overlapping deliveries to process concurrently; inbound mail needs a
+channel-bound processing reservation, external message binding, and a durable
+ticket/message result that a retry can return.
+
 Potential providers should be evaluated later; the core will not select one.
 
-### Notification adapter
+### Outbound mail projection
 
-The notification port accepts a rendered plain-text and HTML message plus
-provider-neutral routing metadata. Provider callbacks update delivery state
-through idempotent application services.
+Support Desk consumes exact `@pegma/mail`. It projects generic mail jobs into
+its ticket record union, resolves immutable rendered content from the causal
+message, and delegates claims, submission generations, retries,
+reconciliation, acknowledgements, and terminal states to Mail. Provider
+adapters, credentials, authenticated callbacks, sender domains, and schedules
+remain host concerns.
 
 ### Template service
 
@@ -201,11 +285,12 @@ Support Desk uses current-state records plus append-only supporting records. It
 does not require full event sourcing.
 
 These are declared collections, not tables. The ticket, its messages, its
-events, and its outbox rows share one partition keyed by the ticket, because a
-transaction reaches exactly one collection and one partition and those records
-must commit together. Records that cannot share that partition — inbound
-receipts keyed by provider event, and queue index rows keyed by the queue they
-order — are separate collections with their own consistency rules.
+Audit events, and its outbox rows share one partition keyed by the ticket,
+because a transaction reaches exactly one collection and one partition and
+those records must commit together. Records that cannot share that transaction
+— inbound receipts keyed by provider event, customer indexes, and staff queue
+projections — are separate collections with their own consistency and repair
+rules.
 
 Ordering is the application's job. `list` returns a partition in unspecified
 order, so anything that must read in sequence carries an explicit ordinal in
@@ -221,8 +306,14 @@ Current queue state:
 - status and priority;
 - assignee;
 - channel;
-- creation and update timestamps;
+- creation, staff update, and customer-visible update timestamps;
 - optimistic-concurrency revision.
+
+The authoritative ticket is never returned directly from a customer
+application service. Customer DTOs omit requester evidence, priority, assignee,
+staff update time, revision, and operational state. `customerUpdatedAt`
+advances only for customer-visible messages and lifecycle changes; internal
+notes, assignment, and priority changes advance staff `updatedAt` only.
 
 ### Message
 
@@ -239,15 +330,16 @@ Canonical conversation content:
 
 ### Ticket event
 
-Append-only audit entry:
+Pure workflow input:
 
-- unique event ID;
-- ticket ID and resulting revision;
 - event type;
-- actor principal or trusted system identity;
-- before and after state summary;
-- occurrence and recording times;
-- correlation and idempotency identifiers.
+- trusted occurrence time;
+- actor principal when the event is a staff action;
+- transition-specific values such as assignee or priority.
+
+The durable accepted-change record is a generic `@pegma/audit` `AuditEvent`
+with ticket ID as subject, resulting ticket revision as sequence, and
+correlation/command information in bounded safe details.
 
 ### Delivery
 
@@ -296,12 +388,14 @@ the domain concept a transition increments and an audit event records; the
 storage version is the backend's token for the write that landed. Do not parse,
 compare, or order storage versions, and do not derive one from the other.
 
-The revision check belongs inside the `update` decider, which sees the ticket
-as it exists right now and re-runs on every conflict. A decider that reads the
-ticket, applies the transition, and returns `keep` when the transition no
-longer applies is how a stale command becomes a no-op rather than an error.
-`putIfUnchanged` is for the other case: a client that read a version in an
-earlier request and hands it back, which the decider never sees.
+A ticket mutation also writes messages, Audit actions, command receipts, and
+possibly Mail actions. It therefore reads the opaque ticket version, rebuilds
+the whole proposed single-partition transaction from that authoritative
+attempt, and uses `putIfUnchanged` for the ticket action. A conflict re-reads,
+re-applies the domain transition, re-clamps time, and rebuilds the transaction.
+An `update` decider remains correct for a truly single-record transition such
+as a projection fence, because its rule re-runs against fresh state. Do not
+read a ticket, decide once, then retry the same stale transaction.
 
 ## Transaction and delivery pattern
 
@@ -532,7 +626,9 @@ Suggested metrics:
 
 ### Initial
 
-Embedded packages and handlers inside the host's existing API deployment.
+Embedded packages and handlers inside each host's existing API deployment:
+Azure for retiregolden.org and Cloudflare Workers for pegma.dev. The
+compositions are isolated even though their package versions match.
 
 ### Growing usage
 
@@ -541,9 +637,11 @@ same application contracts and the same `Store`.
 
 ### Multiple applications
 
-A separately deployed Support Desk API may become worthwhile when several host
-applications need the same queue. That service must accept narrowly scoped,
-short-lived access grants rather than becoming a new identity provider.
+A separately deployed Support Desk API may become worthwhile only when evidence
+shows that several host applications need one operator queue rather than merely
+the same code. That service must accept narrowly scoped, short-lived access
+grants rather than becoming a new identity provider. Do not pre-build it as a
+shortcut for the two launch instances.
 
 ## Architectural invariants
 
@@ -553,19 +651,24 @@ short-lived access grants rather than becoming a new identity provider.
    belong to sibling packages.
 4. Shared identity, time, logging, and event types are imported from
    `@pegma/spine` and never redeclared.
-5. Browser fields never establish principal, role, entitlement, or priority.
-6. Email matching assists routing but does not authenticate.
-7. Internal notes never enter customer-visible output.
-8. Duplicate provider events are safe.
-9. Ticket updates go through an `update` decider that re-runs on conflict, or
-   through `putIfUnchanged` with a version the caller supplied.
-10. A state change and the outbox record it causes commit in one `transact` on
+5. Accepted-change history uses `@pegma/audit` in the ticket transaction;
+   Support Desk does not own a competing audit contract.
+6. Browser fields never establish principal, role, entitlement, or priority.
+7. Email matching assists routing but does not authenticate.
+8. Internal notes never enter customer-visible output.
+9. Duplicate provider events are safe.
+10. Ticket updates go through an `update` decider that re-runs on conflict, or
+    through `putIfUnchanged` with a version the caller supplied.
+11. A state change and the outbox record it causes commit in one `transact` on
     one partition, or the design is wrong.
-11. Outbox discovery comes from authoritative rows or an adapter-native
+12. Outbox discovery comes from authoritative rows or an adapter-native
     transactionally maintained feed, never a separate post-commit hint.
-12. Every application read is one key or one whole partition. A second access path is a
-    maintained index collection, and an index is a hint rather than an
+13. Customer and detail reads are keyed or partition reads. Bounded scans are
+    explicit cursor-aware loops; every projection remains a hint rather than an
     authorization answer.
-13. Delivery is asynchronous and retry-safe.
-14. Authorization precedes resource loading or mutation where practical.
-15. AI cannot increase a caller's permissions.
+14. Delivery is asynchronous and retry-safe.
+15. Hosts apply durable request limits at the HTTP boundary; Support Desk does
+    not implement a private limiter.
+16. Authorization precedes resource loading or mutation where practical.
+17. The two launch hosts share package code and no operational state.
+18. AI cannot increase a caller's permissions.
