@@ -1,7 +1,7 @@
 {
-  "name": "@pegma/support-desk-contracts",
+  "name": "@pegma/support-desk-templates",
   "version": "0.0.0",
-  "description": "Provider-neutral ticket and message contracts for Support Desk.",
+  "description": "Safe, versioned notification templates for Support Desk.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -18,6 +18,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./retiregolden": {
+      "types": "./dist/retiregolden.d.ts",
+      "import": "./dist/retiregolden.js"
     }
   },
   "engines": {
@@ -26,14 +30,11 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/pegma-dev/support-desk.git",
-    "directory": "packages/contracts"
+    "directory": "packages/templates"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "prepack": "npm run build"
-  },
-  "dependencies": {
-    "@pegma/spine": "0.1.1"
   }
 }

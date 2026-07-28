@@ -1,7 +1,7 @@
 {
-  "name": "@pegma/support-desk-contracts",
+  "name": "@pegma/support-desk-application",
   "version": "0.0.0",
-  "description": "Provider-neutral ticket and message contracts for Support Desk.",
+  "description": "Authorized application services, declared collections, and durable outbox records for Support Desk.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -26,7 +26,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/pegma-dev/support-desk.git",
-    "directory": "packages/contracts"
+    "directory": "packages/application"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -34,6 +34,10 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@pegma/spine": "0.1.1"
+    "@pegma/authorization-core": "0.1.0",
+    "@pegma/spine": "0.1.1",
+    "@pegma/storage-core": "0.3.0",
+    "@pegma/support-desk-contracts": "0.0.0",
+    "@pegma/support-desk-core": "0.0.0"
   }
 }

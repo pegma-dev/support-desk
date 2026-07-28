@@ -2,7 +2,7 @@
 
 ## Status
 
-**Stage:** Foundation (`0.x`, public API unstable)
+**Stage:** Application and outbound-mail source (`0.x`, public API unstable)
 
 **Initial reference application:** RetireGolden
 
@@ -34,6 +34,41 @@ Support Desk does not redeclare them.
 The project starts as embedded TypeScript packages and a reference
 implementation. It may become independently deployable later, but the MVP
 should not introduce another always-on service merely to separate repositories.
+
+### Implementation status (2026-07-27)
+
+The repository now proves the customer-facing Phase 1/2 application slice and
+the provider-neutral Phase 6 outbound-mail extraction source:
+
+- `@pegma/support-desk-application` declares one authoritative heterogeneous
+  collection whose ticket, messages, audit events, command receipts, and
+  delivery jobs share the ticket partition. Customer create and reply commit
+  their complete record set in one transaction.
+- Create, list, read, and reply consume an Authorization Core
+  `AccessContext`, require Support Desk's exact permission names, and confirm
+  requester ownership against the authoritative ticket rather than trusting
+  the principal index.
+- Customer commands are idempotent by command ID and a SHA-256 request
+  fingerprint. Reply transactions use an opaque version read immediately
+  before the transaction and retry conflicts without losing messages.
+- Subject and message-body size limits are configurable application seams.
+  Durable rate limiting remains intentionally pending integration with
+  `@pegma/rate-limit`; this repository does not build a private limiter.
+- `@pegma/support-desk-templates` implements immutable versioned templates,
+  explicit variable allowlists, HTML-context escaping, and synthetic preview.
+  The RetireGolden-branded pack is a separate export from the generic renderer.
+- `@pegma/support-desk-mail` defines the idempotent delivery port, normalized
+  callback port, stable ticket subject and `Message-ID` helpers, and a worker
+  with conflict-safe leases, bounded exponential retries, and dead-letter
+  state.
+- Because Storage Core does not enumerate partitions, workers consume
+  ticket/job candidates from a durable host-supplied candidate source. A
+  candidate is only a hint; the outbox lease is authoritative.
+
+Phases 3, 4, and 5 are not complete. There is no durable reference deployment,
+customer web UI, or staff queue/API in this repository yet. Phase 6 source is
+implemented, but selecting and operating a provider adapter remains host work,
+and no package is published before Phase 8.
 
 ## Vision
 

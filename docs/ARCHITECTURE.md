@@ -332,8 +332,28 @@ conflict. Genuine failures still throw.
 
 The delivery worker claims jobs with `update` and a decider that refuses a job
 already claimed by a live lease, so two workers reading the same partition
-cannot both send. Provider callbacks are idempotent through `insertIfAbsent` on
-the provider event id.
+cannot both send. Every claim mints a unique fencing token, and completion
+requires the token as well as the worker ID; a stale invocation cannot complete
+after its lease was reclaimed.
+
+Provider acceptance and confirmed delivery are distinct. A successful
+idempotent `send` moves the job to `accepted`, where it cannot be claimed
+again. Only an authenticated normalized callback moves it to `delivered`. A
+failure callback remains actionable from `accepted` by moving the job to
+retrying or dead-letter, but a confirmed `delivered` job never regresses.
+Dead-letter is also terminal. Provider callbacks are idempotent through
+`insertIfAbsent` at a stable SHA-256-derived provider/event slot. Each bucket
+has exactly 256 possible slots, collisions fail closed, and receipt retention
+uses a host-clock processing timestamp under a fixed 30-day deduplication
+horizon rather than trusting the provider occurrence timestamp.
+
+Accepted jobs carry a bounded callback deadline. If no callback arrives, a
+separately fenced reconciliation claim asks the provider for status without
+sending again. A known failure may retry through the original idempotency key;
+an unresolved result becomes `terminal_unknown` rather than remaining accepted
+forever or risking an untracked duplicate. If reconciliation crashes, only
+another reconciliation claim may recover its expired lease; a send claim
+cannot convert that lease into a blind resend.
 
 ## Email threading
 

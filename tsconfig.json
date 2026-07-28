@@ -6,6 +6,15 @@
     },
     {
       "path": "./packages/core"
+    },
+    {
+      "path": "./packages/application"
+    },
+    {
+      "path": "./packages/templates"
+    },
+    {
+      "path": "./packages/mail"
     }
   ]
 }
