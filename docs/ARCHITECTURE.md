@@ -337,6 +337,12 @@ and repeats complete cycles so rows inserted or updated behind a live
 continuation are eventually revisited. Candidates use the adapter-returned
 physical key rather than payload copies of that identity.
 
+The same page runner dispatches send and reconciliation work. Pending,
+retrying, and expired send leases are claimed for delivery; accepted jobs
+whose callback deadline passed and expired reconciliation leases are claimed
+for read-only provider reconciliation. Legacy accepted rows with no deadline
+reconcile immediately, so no durable state is excluded from both paths.
+
 Two constraints shape how it is written:
 
 - Every action must target the same partition, and no key may appear twice.

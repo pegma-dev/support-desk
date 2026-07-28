@@ -109,14 +109,6 @@ export type DeliverJobResult =
       readonly job: DeliveryJob;
     };
 
-export interface DeliveryScanOutcome {
-  /** Derived from the authoritative physical record key. */
-  readonly ticketId: string;
-  /** Derived from the authoritative physical record key. */
-  readonly deliveryJobId: string;
-  readonly result: DeliverJobResult;
-}
-
 export interface DeliveryScanPage {
   readonly outcomes: readonly DeliveryScanOutcome[];
   /** Persist this opaque value only after every outcome has been handled. */
@@ -130,6 +122,23 @@ export type ReconcileJobResult =
         "delivered" | "retrying" | "dead_letter" | "terminal_unknown";
       readonly job: DeliveryJob;
     };
+
+interface DeliveryScanOutcomeIdentity {
+  /** Derived from the authoritative physical record key. */
+  readonly ticketId: string;
+  /** Derived from the authoritative physical record key. */
+  readonly deliveryJobId: string;
+}
+
+export type DeliveryScanOutcome =
+  | (DeliveryScanOutcomeIdentity & {
+      readonly operation: "deliver";
+      readonly result: DeliverJobResult;
+    })
+  | (DeliveryScanOutcomeIdentity & {
+      readonly operation: "reconcile";
+      readonly result: ReconcileJobResult;
+    });
 
 const HEADER_CONTROL = /[\u0000-\u001F\u007F]/;
 const FAILURE_CATEGORY = /^[a-z][a-z0-9_]{0,63}$/;
@@ -489,6 +498,29 @@ function isEligibleSendJob(job: DeliveryJob, now: string): boolean {
   );
 }
 
+function isEligibleReconciliationJob(job: DeliveryJob, now: string): boolean {
+  return (
+    (job.status === "accepted" &&
+      (job.acceptedDeadlineAt === undefined ||
+        job.acceptedDeadlineAt <= now)) ||
+    (job.status === "leased" &&
+      job.leasePurpose === "reconcile" &&
+      job.leaseExpiresAt !== undefined &&
+      job.leaseExpiresAt <= now)
+  );
+}
+
+function hasPhysicalDeliveryIdentity(
+  job: DeliveryJob,
+  request: DeliverJobInput,
+): boolean {
+  return (
+    job.partition === request.ticketId &&
+    job.ticketId === request.ticketId &&
+    job.id === `delivery:${request.deliveryJobId}`
+  );
+}
+
 export function createDeliveryWorker(options: DeliveryWorkerOptions): {
   deliver(input: DeliverJobInput): Promise<DeliverJobResult>;
   reconcile(input: DeliverJobInput): Promise<ReconcileJobResult>;
@@ -585,7 +617,7 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
     ): Promise<DeliverJobResult> {
       const completed = trustedCompletionTime(nowEpoch, retryDelay);
       const job = await completeDeliveryAttempt(worker.store, {
-        ticketId: claimedJob.ticketId,
+        ticketId: request.ticketId,
         deliveryJobId: request.deliveryJobId,
         workerId: worker.workerId,
         claimToken,
@@ -603,6 +635,10 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
         status: job.status === "dead_letter" ? "dead_letter" : "retrying",
         job,
       };
+    }
+
+    if (!hasPhysicalDeliveryIdentity(claimedJob, request)) {
+      return failClaim("delivery_identity_mismatch");
     }
 
     let sendResult: MailSendResult;
@@ -656,7 +692,7 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
       acceptedCallbackMilliseconds,
     );
     const job = await completeDeliveryAttempt(worker.store, {
-      ticketId: claimed.ticketId,
+      ticketId: request.ticketId,
       deliveryJobId: request.deliveryJobId,
       workerId: worker.workerId,
       claimToken,
@@ -707,15 +743,21 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
     );
     let outcome: MailReconciliationResult = { status: "unknown" };
     let transportFailure: string | undefined;
+    const invalidDeliveryIdentity = !hasPhysicalDeliveryIdentity(
+      claimed,
+      request,
+    );
     let invalidProviderReference = false;
     let providerMessageRef: string | null = null;
-    try {
-      providerMessageRef = validateProviderMessageRef(
-        claimed.providerMessageRef as string,
-        "stored providerMessageRef",
-      );
-    } catch {
-      invalidProviderReference = true;
+    if (!invalidDeliveryIdentity) {
+      try {
+        providerMessageRef = validateProviderMessageRef(
+          claimed.providerMessageRef as string,
+          "stored providerMessageRef",
+        );
+      } catch {
+        invalidProviderReference = true;
+      }
     }
     if (providerMessageRef !== null) {
       let response: unknown;
@@ -742,23 +784,28 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
       transportFailure === undefined ? 0 : retryDelay,
     );
     const job = await completeDeliveryReconciliation(worker.store, {
-      ticketId: claimed.ticketId,
+      ticketId: request.ticketId,
       deliveryJobId: request.deliveryJobId,
       workerId: worker.workerId,
       claimToken: claimed.claimToken,
       now: completed.value,
-      outcome: invalidProviderReference
+      outcome: invalidDeliveryIdentity
         ? {
             status: "invalid",
-            failureCategory: "provider_reference_invalid",
+            failureCategory: "delivery_identity_mismatch",
           }
-        : transportFailure === undefined
-          ? outcome
-          : {
-              status: "unavailable",
-              failureCategory: transportFailure,
-              retryAt: at(completed.epoch + retryDelay),
-            },
+        : invalidProviderReference
+          ? {
+              status: "invalid",
+              failureCategory: "provider_reference_invalid",
+            }
+          : transportFailure === undefined
+            ? outcome
+            : {
+                status: "unavailable",
+                failureCategory: transportFailure,
+                retryAt: at(completed.epoch + retryDelay),
+              },
     });
     if (job === null) {
       return { status: "not_claimed" };
@@ -790,8 +837,7 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
       for (const record of page.records) {
         if (
           record.value.kind !== "delivery_job" ||
-          !record.key.id.startsWith("delivery:") ||
-          !isEligibleSendJob(record.value, request.now)
+          !record.key.id.startsWith("delivery:")
         ) {
           continue;
         }
@@ -800,17 +846,33 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
         if (ticketId.length === 0 || deliveryJobId.length === 0) {
           continue;
         }
-        outcomes.push(
-          Object.freeze({
-            ticketId,
-            deliveryJobId,
-            result: await deliver({
+        if (isEligibleSendJob(record.value, request.now)) {
+          outcomes.push(
+            Object.freeze({
               ticketId,
               deliveryJobId,
-              now: request.now,
+              operation: "deliver",
+              result: await deliver({
+                ticketId,
+                deliveryJobId,
+                now: request.now,
+              }),
             }),
-          }),
-        );
+          );
+        } else if (isEligibleReconciliationJob(record.value, request.now)) {
+          outcomes.push(
+            Object.freeze({
+              ticketId,
+              deliveryJobId,
+              operation: "reconcile",
+              result: await reconcile({
+                ticketId,
+                deliveryJobId,
+                now: request.now,
+              }),
+            }),
+          );
+        }
       }
       return Object.freeze({
         outcomes: Object.freeze(outcomes),

@@ -30,6 +30,19 @@ cycle. Candidates are derived from the physical keys returned by the adapter,
 never from duplicate key fields in the decoded payload. Duplicate rows are
 expected and harmless.
 
+`runPage` dispatches both sides of the delivery state machine. Pending,
+retrying, and expired send leases go through `deliver`; accepted jobs whose
+callback deadline passed and expired reconciliation leases go through
+`reconcile`. A legacy accepted row without a callback deadline reconciles
+immediately rather than becoming invisible forever. Each outcome identifies
+which operation ran.
+
+The physical scan key selects the claim and completion target. After claiming,
+the worker also requires the decoded job's duplicated partition, ticket, and
+row identity to match that physical target before any provider call. A corrupt
+adapter row therefore follows bounded failure/dead-letter handling without
+repeating an external side effect against the wrong partition.
+
 A successful provider `send` means `accepted`, not delivered. Only a normalized
 authenticated delivery callback may mark a job `delivered`. A later failure
 callback moves an accepted job back to retry/dead-letter handling, while a
@@ -49,11 +62,12 @@ dead-lettered without calling the provider, rather than being mistaken for an
 unresolved provider response or cycling reconciliation leases forever.
 
 Acceptance has a bounded callback deadline. Hosts must supply a
-`MailReconciliationPort`; after the deadline, `reconcile` checks the provider
-without sending again. A known failure returns to retry with the original
-idempotency key, delivery becomes terminal, and an unresolved outcome becomes
-`terminal_unknown` for explicit operational review and retention. A transport
-failure is not an unresolved provider outcome: it keeps the job accepted,
-schedules another read-only reconciliation attempt, and dead-letters after the
-configured bound. An expired reconciliation lease can only be reclaimed by the
-reconciliation path; the send path categorically refuses it.
+`MailReconciliationPort`; after the deadline, authoritative page discovery
+routes the job to `reconcile`, which checks the provider without sending again.
+A known failure returns to retry with the original idempotency key, delivery
+becomes terminal, and an unresolved outcome becomes `terminal_unknown` for
+explicit operational review and retention. A transport failure is not an
+unresolved provider outcome: it keeps the job accepted, schedules another
+read-only reconciliation attempt, and dead-letters after the configured bound.
+An expired reconciliation lease can only be reclaimed by the reconciliation
+path; the send path categorically refuses it.

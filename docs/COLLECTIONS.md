@@ -115,6 +115,19 @@ rows and are neither ordered nor snapshots; a row changed behind an in-flight
 cursor can wait for the next cycle. Repetition is safe because claims are
 conditional and provider sends use the durable idempotency key.
 
+Discovery covers both operations: sendable rows use the send lease, while
+accepted rows past their callback deadline and expired reconciliation leases
+use the reconciliation lease. Accepted legacy rows without a deadline
+reconcile immediately. A crash after provider acceptance or during
+reconciliation therefore leaves repeatable authoritative work, not an
+undiscoverable state.
+
+The physical key also remains the claim and completion target. Before calling
+a provider, the worker checks that duplicated identity fields in the decoded
+job agree with that key. An incoherent row fails closed through bounded
+delivery handling instead of completing another partition or repeating an
+external call forever.
+
 Every claim receives a fresh random fencing token. Completion requires both
 worker ID and that exact token, so a stale invocation cannot complete after
 the same named worker reclaims an expired lease.

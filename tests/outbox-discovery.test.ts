@@ -9,6 +9,7 @@ import {
   type Store,
 } from "@pegma/storage-core";
 import {
+  claimAcceptedDeliveryJob,
   createSupportDeskApplication,
   type DeliveryJob,
   type SupportRecord,
@@ -18,6 +19,7 @@ import {
 import {
   createDeliveryWorker,
   type DeliveryScanOutcome,
+  type MailReconciliationPort,
   type MailSendRequest,
   type MailSendResult,
   outboundMessageId,
@@ -95,6 +97,7 @@ async function createTicket(
   store: Store,
   ticketId: string,
   ticketNumber: number,
+  maxAttempts?: number,
 ): Promise<void> {
   await createSupportDeskApplication({
     store,
@@ -118,6 +121,7 @@ async function createTicket(
         `notify-${ticketNumber}`,
         "example.test",
       ),
+      ...(maxAttempts === undefined ? {} : { maxAttempts }),
     },
   });
 }
@@ -125,28 +129,40 @@ async function createTicket(
 function worker(
   store: Store,
   send: (request: MailSendRequest) => Promise<MailSendResult>,
+  options: {
+    readonly clockNow?: string;
+    readonly reconciliation?: MailReconciliationPort;
+    readonly acceptedCallbackMilliseconds?: number;
+    readonly workerId?: string;
+  } = {},
 ) {
   return createDeliveryWorker({
     store,
-    clock: fixedClock("2026-07-27T12:00:01.000Z"),
-    workerId: "worker",
-    reconciliation: {
+    clock: fixedClock(options.clockNow ?? "2026-07-27T12:00:01.000Z"),
+    workerId: options.workerId ?? "worker",
+    reconciliation: options.reconciliation ?? {
       reconcile: async () => ({ status: "unknown" as const }),
     },
     delivery: { send },
     templates: { get: () => template },
+    ...(options.acceptedCallbackMilliseconds === undefined
+      ? {}
+      : {
+          acceptedCallbackMilliseconds: options.acceptedCallbackMilliseconds,
+        }),
   });
 }
 
 async function completeCycle(
   deliveryWorker: ReturnType<typeof createDeliveryWorker>,
   limit: number,
+  now = "2026-07-27T12:00:01.000Z",
 ): Promise<DeliveryScanOutcome[]> {
   let cursor: string | undefined;
   const outcomes: DeliveryScanOutcome[] = [];
   do {
     const page = await deliveryWorker.runPage({
-      now: "2026-07-27T12:00:01.000Z",
+      now,
       limit,
       ...(cursor === undefined ? {} : { cursor }),
     });
@@ -251,6 +267,176 @@ async function exerciseCompleteCycleFairness(
   expect(send).toHaveBeenCalledTimes(3);
 }
 
+async function exerciseAcceptedCrashRecovery(
+  fixture: StoreFixture,
+): Promise<void> {
+  await createTicket(fixture.store, "ticket", 1);
+  const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
+  const accepted = await completeCycle(
+    worker(fixture.freshStore(), send, {
+      acceptedCallbackMilliseconds: 1_000,
+    }),
+    2,
+  );
+  expect(accepted).toMatchObject([
+    {
+      operation: "deliver",
+      result: { status: "accepted" },
+    },
+  ]);
+
+  // The process loses both the page outcome and cursor after provider
+  // acceptance. A fresh cycle must rediscover the accepted row and reconcile.
+  const reconcile = vi.fn(async () => ({ status: "delivered" as const }));
+  const recovered = await completeCycle(
+    worker(fixture.freshStore(), send, {
+      clockNow: "2026-07-27T12:00:02.000Z",
+      reconciliation: { reconcile },
+    }),
+    2,
+    "2026-07-27T12:00:02.000Z",
+  );
+  expect(recovered).toMatchObject([
+    {
+      operation: "reconcile",
+      result: { status: "delivered" },
+    },
+  ]);
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(reconcile).toHaveBeenCalledTimes(1);
+}
+
+async function exerciseAcceptedWithoutDeadline(
+  fixture: StoreFixture,
+): Promise<void> {
+  await createTicket(fixture.store, "ticket", 1);
+  const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
+  await completeCycle(worker(fixture.store, send), 100);
+  await fixture.store
+    .collection(supportRecords)
+    .update(
+      { partition: "ticket", id: "delivery:notify-ticket" },
+      (current) => {
+        if (current?.kind !== "delivery_job") {
+          return { action: "keep" };
+        }
+        const { acceptedDeadlineAt: _deadline, ...legacy } = current;
+        return { action: "write", value: legacy };
+      },
+    );
+
+  const reconcile = vi.fn(async () => ({ status: "delivered" as const }));
+  const outcomes = await completeCycle(
+    worker(fixture.freshStore(), send, {
+      clockNow: "2026-07-27T12:00:02.000Z",
+      reconciliation: { reconcile },
+    }),
+    100,
+    "2026-07-27T12:00:02.000Z",
+  );
+  expect(outcomes).toMatchObject([
+    {
+      operation: "reconcile",
+      result: { status: "delivered" },
+    },
+  ]);
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(reconcile).toHaveBeenCalledTimes(1);
+}
+
+async function exerciseCrashedReconciliationLease(
+  fixture: StoreFixture,
+): Promise<void> {
+  await createTicket(fixture.store, "ticket", 1);
+  const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
+  await completeCycle(
+    worker(fixture.store, send, {
+      acceptedCallbackMilliseconds: 1_000,
+    }),
+    100,
+  );
+  const crashed = await claimAcceptedDeliveryJob(fixture.store, {
+    ticketId: "ticket",
+    deliveryJobId: "notify-ticket",
+    workerId: "crashed-reconciler",
+    now: "2026-07-27T12:00:02.000Z",
+    leaseExpiresAt: "2026-07-27T12:00:03.000Z",
+  });
+  expect(crashed?.leasePurpose).toBe("reconcile");
+
+  const reconcile = vi.fn(async () => ({ status: "delivered" as const }));
+  const liveLease = await completeCycle(
+    worker(fixture.freshStore(), send, {
+      clockNow: "2026-07-27T12:00:02.500Z",
+      reconciliation: { reconcile },
+    }),
+    100,
+    "2026-07-27T12:00:02.500Z",
+  );
+  expect(liveLease).toEqual([]);
+  expect(reconcile).not.toHaveBeenCalled();
+
+  const recovered = await completeCycle(
+    worker(fixture.freshStore(), send, {
+      clockNow: "2026-07-27T12:00:03.000Z",
+      reconciliation: { reconcile },
+    }),
+    100,
+    "2026-07-27T12:00:03.000Z",
+  );
+  expect(recovered).toMatchObject([
+    {
+      operation: "reconcile",
+      result: { status: "delivered" },
+    },
+  ]);
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(reconcile).toHaveBeenCalledTimes(1);
+}
+
+async function exerciseLaterJobFairness(fixture: StoreFixture): Promise<void> {
+  await createTicket(fixture.store, "alpha", 1);
+  await createTicket(fixture.store, "zulu", 2);
+  const initialSend = vi.fn(async () => ({
+    providerMessageRef: "provider-alpha",
+  }));
+  expect(
+    (
+      await worker(fixture.store, initialSend, {
+        acceptedCallbackMilliseconds: 1_000,
+      }).deliver({
+        ticketId: "alpha",
+        deliveryJobId: "notify-alpha",
+        now: "2026-07-27T12:00:01.000Z",
+      })
+    ).status,
+  ).toBe("accepted");
+
+  const laterSend = vi.fn(async () => ({
+    providerMessageRef: "provider-zulu",
+  }));
+  const reconcile = vi.fn(async () => ({ status: "delivered" as const }));
+  const outcomes = await completeCycle(
+    worker(fixture.freshStore(), laterSend, {
+      clockNow: "2026-07-27T12:00:02.000Z",
+      reconciliation: { reconcile },
+    }),
+    100,
+    "2026-07-27T12:00:02.000Z",
+  );
+  expect(
+    outcomes.map(({ operation, result }) => ({
+      operation,
+      status: result.status,
+    })),
+  ).toEqual([
+    { operation: "reconcile", status: "delivered" },
+    { operation: "deliver", status: "accepted" },
+  ]);
+  expect(reconcile).toHaveBeenCalledTimes(1);
+  expect(laterSend).toHaveBeenCalledTimes(1);
+}
+
 async function duplicateDeliveryRecordStore(store: Store): Promise<Store> {
   const collection = store.collection(supportRecords);
   let cursor: string | undefined;
@@ -316,6 +502,131 @@ async function duplicateDeliveryRecordStore(store: Store): Promise<Store> {
   };
 }
 
+function identityMismatchStore(store: Store): Store {
+  function corrupt(job: DeliveryJob): DeliveryJob {
+    return {
+      ...job,
+      partition: `payload-${job.partition}`,
+      ticketId: `payload-${job.ticketId}`,
+      id: `payload-${job.id}`,
+    };
+  }
+
+  return {
+    collection<T>(definition: CollectionDefinition<T>): CollectionStore<T> {
+      if (definition.name !== supportRecords.name) {
+        return store.collection(definition);
+      }
+      const authoritative = store.collection(
+        supportRecords,
+      ) as CollectionStore<SupportRecord>;
+      const mismatched: CollectionStore<SupportRecord> = {
+        ...authoritative,
+        async scan(options) {
+          const page = await authoritative.scan(options);
+          return {
+            ...page,
+            records: page.records.map((record) =>
+              record.value.kind === "delivery_job"
+                ? { ...record, value: corrupt(record.value) }
+                : record,
+            ),
+          };
+        },
+        async update(key, decide, options) {
+          const result = await authoritative.update(
+            key,
+            async (current) => {
+              const decision = await decide(
+                current?.kind === "delivery_job" ? corrupt(current) : current,
+              );
+              if (
+                decision.action !== "write" ||
+                decision.value.kind !== "delivery_job"
+              ) {
+                return decision;
+              }
+              return {
+                action: "write",
+                value: {
+                  ...decision.value,
+                  partition: key.partition,
+                  ticketId: key.partition,
+                  id: key.id,
+                },
+              };
+            },
+            options,
+          );
+          return {
+            ...result,
+            value:
+              result.value?.kind === "delivery_job"
+                ? corrupt(result.value)
+                : result.value,
+          };
+        },
+      };
+      return mismatched as unknown as CollectionStore<T>;
+    },
+  };
+}
+
+async function exerciseMismatchedPayloadIdentity(
+  fixture: StoreFixture,
+): Promise<void> {
+  await createTicket(fixture.store, "reconcile", 1, 1);
+  await createTicket(fixture.store, "send", 2, 1);
+  const acceptedSend = vi.fn(async () => ({
+    providerMessageRef: "provider-reconcile",
+  }));
+  expect(
+    (
+      await worker(fixture.store, acceptedSend, {
+        acceptedCallbackMilliseconds: 1_000,
+      }).deliver({
+        ticketId: "reconcile",
+        deliveryJobId: "notify-reconcile",
+        now: "2026-07-27T12:00:01.000Z",
+      })
+    ).status,
+  ).toBe("accepted");
+
+  const providerSend = vi.fn(async () => ({
+    providerMessageRef: "must-not-send",
+  }));
+  const providerReconcile = vi.fn(async () => ({
+    status: "delivered" as const,
+  }));
+  const corruptStore = identityMismatchStore(fixture.freshStore());
+  const deliveryWorker = worker(corruptStore, providerSend, {
+    clockNow: "2026-07-27T12:00:02.000Z",
+    reconciliation: { reconcile: providerReconcile },
+  });
+  const outcomes = await completeCycle(
+    deliveryWorker,
+    100,
+    "2026-07-27T12:00:02.000Z",
+  );
+  expect(
+    outcomes.map(({ operation, result }) => ({
+      operation,
+      status: result.status,
+    })),
+  ).toEqual([
+    { operation: "reconcile", status: "dead_letter" },
+    { operation: "deliver", status: "dead_letter" },
+  ]);
+  expect(providerSend).not.toHaveBeenCalled();
+  expect(providerReconcile).not.toHaveBeenCalled();
+
+  expect(
+    await completeCycle(deliveryWorker, 100, "2026-07-27T12:00:03.000Z"),
+  ).toEqual([]);
+  expect(providerSend).not.toHaveBeenCalled();
+  expect(providerReconcile).not.toHaveBeenCalled();
+}
+
 describe("atomic outbox discovery", () => {
   for (const [name, createFixture] of [
     ["memory", memoryFixture],
@@ -332,38 +643,63 @@ describe("atomic outbox discovery", () => {
     it(`${name}: repeated complete cycles cover live-prefix insertions`, async () => {
       await exerciseCompleteCycleFairness(createFixture());
     });
-  }
 
-  it("derives candidates from physical keys and tolerates duplicate scan rows", async () => {
-    const store = createMemoryStore();
-    await createTicket(store, "authoritative-ticket", 1);
-    const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
-    const page = await worker(
-      await duplicateDeliveryRecordStore(store),
-      send,
-    ).runPage({
-      now: "2026-07-27T12:00:01.000Z",
-      limit: 2,
+    it(`${name}: a lost accepted outcome is rediscovered for reconciliation`, async () => {
+      await exerciseAcceptedCrashRecovery(createFixture());
     });
 
-    expect(
-      page.outcomes.map(({ ticketId, deliveryJobId, result }) => ({
-        ticketId,
-        deliveryJobId,
-        status: result.status,
-      })),
-    ).toEqual([
-      {
-        ticketId: "authoritative-ticket",
-        deliveryJobId: "notify-authoritative-ticket",
-        status: "accepted",
-      },
-      {
-        ticketId: "authoritative-ticket",
-        deliveryJobId: "notify-authoritative-ticket",
-        status: "not_claimed",
-      },
-    ]);
-    expect(send).toHaveBeenCalledTimes(1);
-  });
+    it(`${name}: accepted legacy rows without a callback deadline reconcile`, async () => {
+      await exerciseAcceptedWithoutDeadline(createFixture());
+    });
+
+    it(`${name}: an expired crashed reconciliation lease is reclaimed`, async () => {
+      await exerciseCrashedReconciliationLease(createFixture());
+    });
+
+    it(`${name}: reconciliation does not starve later sendable jobs`, async () => {
+      await exerciseLaterJobFairness(createFixture());
+    });
+
+    it(`${name}: mismatched payload identity fails closed before provider calls`, async () => {
+      await exerciseMismatchedPayloadIdentity(createFixture());
+    });
+
+    it(`${name}: physical keys stay authoritative across duplicate scan rows`, async () => {
+      const fixture = createFixture();
+      await createTicket(fixture.store, "authoritative-ticket", 1);
+      const send = vi.fn(async () => ({
+        providerMessageRef: "provider-ref",
+      }));
+      const page = await worker(
+        await duplicateDeliveryRecordStore(fixture.store),
+        send,
+      ).runPage({
+        now: "2026-07-27T12:00:01.000Z",
+        limit: 2,
+      });
+
+      expect(
+        page.outcomes.map(({ ticketId, deliveryJobId, operation, result }) => ({
+          ticketId,
+          deliveryJobId,
+          operation,
+          status: result.status,
+        })),
+      ).toEqual([
+        {
+          ticketId: "authoritative-ticket",
+          deliveryJobId: "notify-authoritative-ticket",
+          operation: "deliver",
+          status: "accepted",
+        },
+        {
+          ticketId: "authoritative-ticket",
+          deliveryJobId: "notify-authoritative-ticket",
+          operation: "deliver",
+          status: "not_claimed",
+        },
+      ]);
+      expect(send).toHaveBeenCalledTimes(1);
+    });
+  }
 });

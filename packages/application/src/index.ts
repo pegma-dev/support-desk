@@ -1912,8 +1912,8 @@ export async function claimAcceptedDeliveryJob(
       }
       const acceptedExpired =
         current.status === "accepted" &&
-        current.acceptedDeadlineAt !== undefined &&
-        current.acceptedDeadlineAt <= request.now;
+        (current.acceptedDeadlineAt === undefined ||
+          current.acceptedDeadlineAt <= request.now);
       const reconcileLeaseExpired =
         current.status === "leased" &&
         current.leasePurpose === "reconcile" &&
