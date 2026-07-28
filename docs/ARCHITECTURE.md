@@ -102,6 +102,8 @@ is behind it. The available surface, and therefore the whole design space, is:
   version read in an earlier request, which `update` cannot express because its
   decider sees the record but never the version;
 - `list(partition)` and `listVersioned(partition)`, in unspecified order;
+- bounded collection-wide `scan({ limit, cursor })`, with an opaque
+  continuation and no filter, order, or snapshot guarantee;
 - `delete(key)`;
 - `transact(partition, actions)`, all of the actions or none.
 
@@ -207,7 +209,7 @@ order — are separate collections with their own consistency rules.
 
 Ordering is the application's job. `list` returns a partition in unspecified
 order, so anything that must read in sequence carries an explicit ordinal in
-its record id and is sorted after reading.
+its record and is sorted after reading.
 
 ### Ticket
 
@@ -232,7 +234,8 @@ Canonical conversation content:
 - normalized body and format;
 - source channel;
 - external threading identifiers;
-- creation time.
+- creation time;
+- explicit committed ticket-revision ordinal.
 
 ### Ticket event
 
@@ -263,11 +266,13 @@ One outbound attempt or provider callback:
 
 Deduplication and processing record:
 
+- bounded hash bucket and 8-bit slot;
 - channel ID;
 - provider event ID;
 - external `Message-ID`;
 - bounded payload fingerprint;
 - processing status;
+- trusted receipt and terminal-processing times;
 - resulting ticket and message IDs;
 - safe diagnostic details.
 
@@ -280,6 +285,11 @@ trusted server clock and keep it monotonic per ticket — for example by
 clamping to the stored `updatedAt` — rather than trusting client timestamps
 or relying on synchronized clocks across application servers. Events with
 equal timestamps are ordered by revision, not by time.
+
+The customer application performs that clamp again after every optimistic
+transaction conflict, using the ticket version read for that attempt. A
+backward-moving host clock therefore cannot invalidate a valid reply or write
+timestamps earlier than the state it updates.
 
 Storage versions are opaque and separate from the ticket revision. Revision is
 the domain concept a transition increments and an audit event records; the
@@ -314,6 +324,25 @@ record land together or neither lands, so a provider outage cannot lose a
 customer message and a retry cannot send a duplicate. That is the single
 strongest reason the ticket and its outbox rows share a partition.
 
+Discovery has no second-write gap. The delivery worker uses the Store adapter's
+bounded collection-wide scan over the authoritative committed rows. A
+separately persisted scheduling hint after `transact` is unnecessary and
+forbidden: a crash between those writes would turn a durable outbox row into
+undiscoverable work.
+
+The host persists the opaque non-null cursor only after handling the entire
+page. If it crashes first, the page repeats and conditional claims make that
+safe. `nextCursor: null` closes a cycle; the host then starts without a cursor
+and repeats complete cycles so rows inserted or updated behind a live
+continuation are eventually revisited. Candidates use the adapter-returned
+physical key rather than payload copies of that identity.
+
+The same page runner dispatches send and reconciliation work. Pending,
+retrying, and expired send leases are claimed for delivery; accepted jobs
+whose callback deadline passed and expired reconciliation leases are claimed
+for read-only provider reconciliation. Legacy accepted rows with no deadline
+reconcile immediately, so no durable state is excluded from both paths.
+
 Two constraints shape how it is written:
 
 - Every action must target the same partition, and no key may appear twice.
@@ -332,8 +361,30 @@ conflict. Genuine failures still throw.
 
 The delivery worker claims jobs with `update` and a decider that refuses a job
 already claimed by a live lease, so two workers reading the same partition
-cannot both send. Provider callbacks are idempotent through `insertIfAbsent` on
-the provider event id.
+cannot both send. Every claim mints a unique fencing token, and completion
+requires the token as well as the worker ID; a stale invocation cannot complete
+after its lease was reclaimed.
+
+Provider acceptance and confirmed delivery are distinct. A successful
+idempotent `send` moves the job to `accepted`, where it cannot be claimed
+again. Only an authenticated normalized callback moves it to `delivered`. A
+failure callback remains actionable from `accepted` by moving the job to
+retrying or dead-letter, but a confirmed `delivered` job never regresses.
+Dead-letter is also terminal. Provider callbacks are idempotent through
+`insertIfAbsent` at a stable SHA-256-derived provider/event slot. Each bucket
+has exactly 256 possible slots, collisions fail closed, and receipt retention
+uses a host-clock processing timestamp under a fixed 30-day deduplication
+horizon rather than trusting the provider occurrence timestamp.
+
+Accepted jobs carry a bounded callback deadline. If no callback arrives, a
+separately fenced reconciliation claim asks the provider for status without
+sending again. A known failure may retry through the original idempotency key;
+an actual unresolved provider result becomes `terminal_unknown` rather than
+remaining accepted forever or risking an untracked duplicate. A transport
+failure schedules another bounded reconciliation attempt while remaining
+accepted, and exhaustion dead-letters the job without entering the send path.
+If reconciliation crashes, only another reconciliation claim may recover its
+expired lease; a send claim cannot convert that lease into a blind resend.
 
 ## Email threading
 
@@ -501,9 +552,11 @@ short-lived access grants rather than becoming a new identity provider.
    through `putIfUnchanged` with a version the caller supplied.
 10. A state change and the outbox record it causes commit in one `transact` on
     one partition, or the design is wrong.
-11. Every read is one key or one whole partition. A second access path is a
+11. Outbox discovery comes from authoritative rows or an adapter-native
+    transactionally maintained feed, never a separate post-commit hint.
+12. Every application read is one key or one whole partition. A second access path is a
     maintained index collection, and an index is a hint rather than an
     authorization answer.
-12. Delivery is asynchronous and retry-safe.
-13. Authorization precedes resource loading or mutation where practical.
-14. AI cannot increase a caller's permissions.
+13. Delivery is asynchronous and retry-safe.
+14. Authorization precedes resource loading or mutation where practical.
+15. AI cannot increase a caller's permissions.

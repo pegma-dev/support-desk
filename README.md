@@ -76,17 +76,20 @@ The organization profile is at
 
 ## Current packages
 
-| Package                         | Purpose                                                      |
-| ------------------------------- | ------------------------------------------------------------ |
-| `@pegma/support-desk-contracts` | Provider-neutral ticket, message, requester, and event types |
-| `@pegma/support-desk-core`      | Pure ticket creation and workflow transitions                |
+| Package                           | Purpose                                                      |
+| --------------------------------- | ------------------------------------------------------------ |
+| `@pegma/support-desk-contracts`   | Provider-neutral ticket, message, requester, and event types |
+| `@pegma/support-desk-core`        | Pure ticket creation and workflow transitions                |
+| `@pegma/support-desk-application` | Authorized customer services, collections, audit, and outbox |
+| `@pegma/support-desk-templates`   | Safe versioned templates and optional host-branded packs     |
+| `@pegma/support-desk-mail`        | Provider-neutral mail ports and the outbox delivery worker   |
 
 Packages publish under the `@pegma` scope. Nothing here is published yet.
 
-There is deliberately no storage package and no access package. Application
-services, declared collections, mail, templates, and the knowledge pipeline
-follow as their implementations begin; see the
-[project plan](docs/PROJECT_PLAN.md).
+There is deliberately no storage package and no access package. Staff queue,
+inbound email, and the knowledge pipeline remain future work; see the
+[project plan](docs/PROJECT_PLAN.md) and
+[declared-collection reference](docs/COLLECTIONS.md).
 
 ## Example
 
@@ -139,6 +142,7 @@ npm run format:check
 - [MVP specification](docs/MVP_SPEC.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Project plan](docs/PROJECT_PLAN.md)
+- [Declared collections](docs/COLLECTIONS.md)
 
 ## Contributing and security
 

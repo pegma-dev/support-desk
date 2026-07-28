@@ -2,7 +2,7 @@
 
 ## Status
 
-**Stage:** Foundation (`0.x`, public API unstable)
+**Stage:** Application and outbound-mail source (`0.x`, public API unstable)
 
 **Initial reference application:** RetireGolden
 
@@ -16,7 +16,7 @@ nothing was ever published under the former name.
 **Persistence:** Support Desk does not build a storage layer. It declares
 collections against
 [`@pegma/storage-core`](https://github.com/pegma-dev/storage-core) (published
-`0.3.0`) and takes a `Store` from the host. The planned storage-port and Azure
+`0.4.0`) and takes a `Store` from the host. The planned storage-port and Azure
 adapter packages were removed on 2026-07-26; a durable deployment supplies a
 `Store` rather than another adapter package here. If storage cannot express
 something Support Desk needs, that is a gap to fix in `storage-core` with
@@ -34,6 +34,44 @@ Support Desk does not redeclare them.
 The project starts as embedded TypeScript packages and a reference
 implementation. It may become independently deployable later, but the MVP
 should not introduce another always-on service merely to separate repositories.
+
+### Implementation status (2026-07-27)
+
+The repository now proves the customer-facing Phase 1/2 application slice and
+the provider-neutral Phase 6 outbound-mail extraction source:
+
+- `@pegma/support-desk-application` declares one authoritative heterogeneous
+  collection whose ticket, messages, audit events, command receipts, and
+  delivery jobs share the ticket partition. Customer create and reply commit
+  their complete record set in one transaction.
+- Create, list, read, and reply consume an Authorization Core
+  `AccessContext`, require Support Desk's exact permission names, and confirm
+  requester ownership against the authoritative ticket rather than trusting
+  the principal index.
+- Customer commands are idempotent by command ID and a SHA-256 request
+  fingerprint. Reply transactions use an opaque version read immediately
+  before the transaction and retry conflicts without losing messages.
+- Subject and message-body size limits are configurable application seams.
+  Durable rate limiting remains intentionally pending integration with
+  `@pegma/rate-limit`; this repository does not build a private limiter.
+- `@pegma/support-desk-templates` implements immutable versioned templates,
+  explicit variable allowlists, HTML-context escaping, and synthetic preview.
+  The RetireGolden-branded pack is a separate export from the generic renderer.
+- `@pegma/support-desk-mail` defines the idempotent delivery port, normalized
+  callback port, stable ticket subject and `Message-ID` helpers, and a worker
+  with conflict-safe leases, bounded exponential retries, and dead-letter
+  state.
+- The worker discovers committed delivery jobs with Storage Core's bounded
+  collection-wide scan. The host persists each opaque non-null continuation
+  only after handling the whole page and runs repeated complete cycles.
+  Physical keys are authoritative, while duplicate or repeated rows remain
+  harmless because the outbox lease and provider idempotency key are
+  authoritative.
+
+Phases 3, 4, and 5 are not complete. There is no durable reference deployment,
+customer web UI, or staff queue/API in this repository yet. Phase 6 source is
+implemented, but selecting and operating a provider adapter remains host work,
+and no package is published before Phase 8.
 
 ## Vision
 

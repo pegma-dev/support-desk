@@ -271,10 +271,12 @@ Inbound processing stores:
 - normalized payload hash as a bounded fallback;
 - processing result.
 
-The receipt is written with `insertIfAbsent` keyed by the provider event ID
-before the ticket work begins. A second delivery reports `inserted: false` and
-returns the existing receipt, which names the ticket and message the first
-delivery produced.
+The receipt is written with `insertIfAbsent` at a stable SHA-256-derived
+channel/event bucket and 8-bit slot before the ticket work begins. A second
+delivery reaches the same bounded slot, reports `inserted: false`, and returns
+the existing receipt, which names the ticket and message the first delivery
+produced. Terminal receipts are retained against trusted processing time for
+the deduplication horizon and reclaimed with a version-conditional sweep.
 
 Provider retries must not create duplicate tickets or messages.
 
