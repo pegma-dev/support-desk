@@ -168,14 +168,17 @@ The open queue is therefore a separate projection with one row partitioned by
 ticket ID. A bounded collection-wide scan discovers projection rows; every
 candidate is confirmed against the authoritative ticket before filtering or
 display. Staff narrowing and sort order are applied in application memory after
-that confirmation, under a configured hard materialization limit.
+that confirmation. Separate hard budgets cap physical rows, scan pages, and
+confirmed active results; reaching one before a complete scan returns an
+operational error rather than a partial queue.
 
 The projection cannot share the ticket transaction because it is a different
 collection. The application attempts to update it immediately after a ticket
 commit, and a repeating cursor-aware worker repairs omissions from
 authoritative ticket rows. Resolved and closed tickets project inactive rows,
-which are later reclaimed conditionally. A temporary gap is allowed; permanent
-loss after a complete repair cycle is not.
+which are later reclaimed conditionally under the same terminal-retention
+cutoff used by repair. Repair does not recreate reclaimed terminal rows. A
+temporary gap is allowed; permanent loss after a complete repair cycle is not.
 
 An index row is a pointer, never proof. Loading the ticket it names and
 re-checking revision, status, assignment, and scope against the ticket record

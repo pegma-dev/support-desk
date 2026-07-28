@@ -321,8 +321,11 @@ docs, and package README.
 - include ticket ID, projected revision, active/inactive state, status,
   priority, category, requester association, channel, assignee, and update
   time—never a message body or email address;
-- after a successful ticket transaction, attempt an idempotent projection
-  update that accepts only a newer revision or an identical replay;
+- expose projection by ticket ID only: every projector invocation loads the
+  authoritative ticket immediately before deriving the entire row and never
+  accepts a caller-supplied `Ticket` snapshot;
+- after a successful ticket transaction, invoke that projector; its update
+  accepts only a newer revision or an identical replay;
 - never report an already committed ticket command as uncommitted because the
   projection write failed; log the safe failure, expose projection health, and
   let repair converge it;
@@ -331,14 +334,23 @@ docs, and package README.
   projection write cannot hide work permanently;
 - scan queue projections in bounded pages, confirm every candidate against the
   authoritative ticket, then filter and sort in application memory;
-- configure a hard maximum number of confirmed active rows one request may
-  materialize; return an operational capacity error and emit a metric instead
-  of allocating without bound;
+- configure hard maxima for physical rows scanned, pages scanned, and confirmed
+  active rows materialized by one request; count every adapter-returned
+  physical scan record before authoritative confirmation or application
+  filtering, and fail the page safely on a codec error;
+- if any maximum is reached before `nextCursor: null`, return an operational
+  capacity error and metric with no partial queue result;
 - persist the repair worker cursor at the host after each complete page;
 - make an online queue read start at a null cursor, consume one complete scan
   cycle with request-local cursors, then filter and sort the bounded result;
-- represent removal with an inactive revisioned row, then sweep old inactive
-  rows with `deleteIfUnchanged`.
+- represent removal with an inactive revisioned row;
+- use one configured terminal-retention cutoff in projection, repair, and
+  sweeping: an authoritative resolved/closed ticket older than the cutoff
+  causes the projector/repair worker to keep the projection absent or
+  conditionally delete it, never recreate an inactive row;
+- sweep an old inactive row only after reloading the authoritative ticket and
+  confirming that it is still terminal and beyond that same cutoff, then use
+  `deleteIfUnchanged`.
 
 The queue may be briefly stale. It must converge after a complete
 reconciliation cycle, may never authorize access, and may never return a row
@@ -350,13 +362,18 @@ heterogeneous authoritative collection; only the repair worker does.
 - a crash after ticket commit and before projection is repaired next cycle;
 - projection failure does not roll back or duplicate the committed command;
 - stale projection writes cannot overtake a newer revision;
+- a delayed projector invocation after reclamation derives current
+  authoritative state and cannot resurrect an old active/inactive snapshot;
 - inactive and corrupted rows do not expose a ticket;
 - every filter and both sort directions operate after authoritative
   confirmation;
 - scan pages may repeat and are not ordered or snapshots;
 - the repair cursor is persisted only after a whole page succeeds, while a
   queue request never reuses another request's cursor;
-- an over-capacity queue fails in a bounded, observable way;
+- physical-row, page, and active-result budgets each fail in a bounded,
+  observable way without returning a partial queue;
+- repair does not recreate a reclaimed terminal projection, and reopening a
+  reclaimed ticket recreates an active projection;
 - memory and real Azurite tests agree.
 
 **Stop if:** queue correctness requires cross-collection atomicity, a
@@ -399,6 +416,7 @@ The host mapping contract is:
 | subject/body shape exceeds its byte or character limit             | `413`                                       |
 | per-principal ticket or per-ticket message capacity reached        | `409`                                       |
 | durable request limit refused                                      | `429` with bounded `Retry-After`            |
+| staff queue scan or materialization budget exhausted               | `503`; never return a partial queue         |
 | required Store or provider dependency unavailable                  | `503`                                       |
 | unexpected failure                                                 | content-free `500` plus safe correlation ID |
 

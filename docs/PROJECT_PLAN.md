@@ -30,14 +30,15 @@ conformance cases, not to work around here.
 
 **Access:** Permissions come from
 [`@pegma/authorization-core`](https://github.com/pegma-dev/authorization-core)
-(current exact target `0.1.2`) rather than a bespoke access package. The
+rather than a bespoke access package. Buildout Task 1 upgrades the repository's
+current exact `0.1.0` dependency to the next planned exact target, `0.1.2`. The
 planned EntitleKit access adapter was removed on 2026-07-26; EntitleKit is now
 Authorization Core.
 
 **Audit:** Durable accepted-change records come from
-[`@pegma/audit`](https://github.com/pegma-dev/audit) (current exact target
-`0.1.0`) and are embedded in the ticket partition. Replacing the current
-pre-release private audit-row shape is the first implementation task before
+[`@pegma/audit`](https://github.com/pegma-dev/audit) and are embedded in the
+ticket partition. Buildout Task 1 adds the next planned exact dependency,
+`0.1.0`, and replaces the current pre-release private audit-row shape before
 staff commands are added.
 
 **Shared types:** `PrincipalId`, the clock, the logger, and typed event
@@ -534,16 +535,18 @@ These should be resolved through the two reference implementations:
 
 Execute [`BUILDOUT.md`](BUILDOUT.md) in order:
 
-1. adopt exact `@pegma/audit@0.1.0` and current Authorization Core before
-   adding more durable commands;
-2. finish the dual-host customer contract and instance-scoped ticket numbers;
-3. implement staff mutations, then the repairable queue projection;
-4. close and publish the host-neutral release candidate;
-5. integrate retiregolden.org and pegma.dev in separate host pull requests;
-6. operate staff surfaces and outbound delivery before implementing inbound
-   email;
-7. complete privacy, recovery, and security evidence before calling the release
-   production-ready.
+1. align with Audit and current Authorization Core;
+2. finish the dual-host customer contract;
+3. own instance-scoped ticket-number reservation;
+4. implement staff detail and mutation services;
+5. implement the staff queue as a repairable projection;
+6. close the host-neutral release candidate;
+7. integrate retiregolden.org customer support;
+8. integrate pegma.dev feedback;
+9. build the two isolated staff surfaces;
+10. operate each host's outbound provider;
+11. implement inbound mail;
+12. complete the first production-ready release.
 
 One numbered Buildout task is one pull request. Do not parallelize adjacent
 tasks that change the same public contract or durable record union.

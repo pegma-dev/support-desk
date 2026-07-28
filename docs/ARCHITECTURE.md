@@ -186,10 +186,12 @@ That has three consequences the design must respect:
    the application after a partition read.
 3. Any access path a partition read cannot serve is a **maintained projection
    collection**. A different collection cannot share the ticket transaction,
-   so Support Desk attempts the projection after commit and repairs it from a
-   repeating authoritative scan. Revision fences prevent an old projection
-   from overtaking a new one. A projection is always a hint confirmed against
-   the authoritative record, never authorization or ownership evidence.
+   so Support Desk invokes projection by ticket ID after commit and repairs it
+   from a repeating authoritative scan. The projector reloads current
+   authoritative state rather than accepting a ticket snapshot, and revision
+   fences prevent an old row from overtaking a new one. A projection is always
+   a hint confirmed against the authoritative record, never authorization or
+   ownership evidence.
 
 A failed projection attempt is logged and reflected in projection health but
 does not turn the already committed ticket command into a failure. Idempotent
@@ -197,12 +199,23 @@ command replay and the repair loop make recovery safe.
 
 The initial staff queue stores one projection row partitioned by ticket ID and
 uses a bounded collection-wide scan. It confirms every candidate ticket before
-filtering and sorting in application memory, under a configured hard
-materialization limit. A dedicated repair loop scans authoritative ticket rows
-and converges any write missed between the ticket commit and projection update.
-The repair cursor is host-persisted after complete pages. An online queue read
+filtering and sorting in application memory. Separate configured maxima bound
+physical rows, scan pages, and confirmed active results; every adapter-returned
+physical record counts before authoritative confirmation or application
+filtering, a codec failure aborts safely, and exhausting any budget returns no
+partial result. A dedicated repair loop scans authoritative ticket rows and
+converges any write missed between the ticket commit and projection update. The
+repair cursor is host-persisted after complete pages. An online queue read
 starts from a null cursor and consumes one complete projection scan with
-request-local cursors before sorting; it never resumes another request's scan.
+request-local cursors only while all budgets hold; it never resumes another
+request's scan.
+
+Projection, repair, and inactive-row sweeping share one terminal-retention
+cutoff. An authoritative resolved/closed ticket beyond it causes queue state to
+remain absent or be deleted conditionally, not recreated as another inactive
+row. A sweep reloads the ticket before deletion. A delayed projector also
+reloads current state, so it cannot resurrect an old snapshot after
+reclamation; a genuine later reopen recreates an active row.
 
 Retention and deletion are sweeps: enumerate with `listVersioned` or a bounded
 authoritative scan, then `deleteIfUnchanged` each record with the version that

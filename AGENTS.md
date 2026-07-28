@@ -67,7 +67,9 @@ read. A second access path is a maintained projection that Support Desk writes
 and repairs itself, and a projection row is a hint confirmed against the
 authoritative record — never ownership or authorization evidence. A read that
 can grow without a configured bound is a design error now, not a scaling
-problem later.
+problem later. A scan bound counts every adapter-returned physical record and
+page before application filtering; counting only returned matches is not a
+bound.
 
 **Everything a state change must commit with, it must share a partition with.**
 A ticket, its messages, its Audit events, and its outbox rows live together for
