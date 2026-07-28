@@ -330,18 +330,24 @@ separately persisted scheduling hint after `transact` is unnecessary and
 forbidden: a crash between those writes would turn a durable outbox row into
 undiscoverable work.
 
-The host persists the opaque non-null cursor only after handling the entire
-page. If it crashes first, the page repeats and conditional claims make that
-safe. `nextCursor: null` closes a cycle; the host then starts without a cursor
-and repeats complete cycles so rows inserted or updated behind a live
-continuation are eventually revisited. Candidates use the adapter-returned
-physical key rather than payload copies of that identity.
+Delivery execution runs `runSendPage` and `runReconciliationPage` as two
+independent complete scan loops, persisting one opaque cursor for each.
+Terminal sweeping, when scheduled, keeps a third independent cursor. A cursor
+belongs only to the loop that produced it and must never be shared or
+translated. The host persists each non-null cursor only after handling that
+loop's entire page. If it crashes first, the page repeats and conditional
+claims make that safe. `nextCursor: null` closes that loop's cycle; the host
+starts its next cycle without a cursor and repeats complete cycles so rows
+inserted or updated behind a live continuation are eventually revisited.
+Candidates use the adapter-returned physical key rather than payload copies of
+that identity.
 
-The same page runner dispatches send and reconciliation work. Pending,
-retrying, and expired send leases are claimed for delivery; accepted jobs
-whose callback deadline passed and expired reconciliation leases are claimed
-for read-only provider reconciliation. Legacy accepted rows with no deadline
-reconcile immediately, so no durable state is excluded from both paths.
+The send loop claims pending, retrying, and expired send leases for delivery.
+The reconciliation loop claims accepted jobs whose callback deadline passed
+and expired reconciliation leases for read-only provider status checks. A
+row may be examined by both collection scans, but authoritative lane-specific
+claims decide whether either loop may act; neither cursor can starve the other
+operation's complete scan cycle.
 
 Two constraints shape how it is written:
 
@@ -378,13 +384,16 @@ horizon rather than trusting the provider occurrence timestamp.
 
 Accepted jobs carry a bounded callback deadline. If no callback arrives, a
 separately fenced reconciliation claim asks the provider for status without
-sending again. A known failure may retry through the original idempotency key;
-an actual unresolved provider result becomes `terminal_unknown` rather than
-remaining accepted forever or risking an untracked duplicate. A transport
-failure schedules another bounded reconciliation attempt while remaining
-accepted, and exhaustion dead-letters the job without entering the send path.
-If reconciliation crashes, only another reconciliation claim may recover its
-expired lease; a send claim cannot convert that lease into a blind resend.
+sending again. An authenticated failure callback or a reconciled known failure
+clears the prior acceptance, advances the submission generation, and derives
+a distinct provider idempotency key before a new send attempt. An ambiguous
+send-call failure instead retries the same generation and key, so provider
+idempotency can collapse an acceptance hidden by the failed call. An
+unresolved status or reconciliation adapter failure becomes
+`terminal_unknown` rather than remaining accepted forever, entering the send
+path, or risking an untracked duplicate. If reconciliation crashes before
+completion, only another reconciliation claim may recover its expired lease;
+a send claim cannot convert that lease into a blind resend.
 
 ## Email threading
 

@@ -26,8 +26,8 @@ stores immutable template, subject, and `Message-ID` content on the causal
 message in the same transaction. The generic package owns claims, provider
 idempotency, submission generations, retry/reconciliation transitions,
 terminal acknowledgement, authoritative collection-wide scans, and sweeping.
-Hosts resolve a job's `contentRef` from the message record and keep send and
-reconciliation scan cursors separate.
+Hosts resolve a job's `contentRef` from the message record and keep send,
+reconciliation, and terminal-sweep scan cursors separate.
 
 This package implements persistence coordination, not persistence. It has no
 provider SDK and no role, plan, or entitlement model.

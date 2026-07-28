@@ -40,8 +40,10 @@ the physical scan key must match both the decoded Support record key and the
 projection key. Hosts persist send and reconciliation continuations
 independently after completing each page and repeat complete scan cycles.
 Provider idempotency keys include the ticket partition, logical job ID, and
-submission generation, so notification IDs cannot collide across tickets and
-an authoritative retry cannot collide with an earlier failed submission.
+submission generation, so notification IDs cannot collide across tickets. A
+new generation after confirmed failure cannot collide with the failed
+submission; a retry after an ambiguous send call intentionally keeps the same
+generation and key.
 
 The configurable message cap is enforced by conditionally updating `quota` in
 the same transaction as every reply. Messages, command receipts, audit events,
@@ -119,19 +121,25 @@ candidate with a conflict-safe lease claim in the authoritative ticket
 partition before a provider call occurs. There is no separate scheduling write
 after `transact`, so a crash after the application commit cannot strand work.
 
-The adapter cursor is opaque. A host persists non-null continuation only after
-handling the whole page, starts the next cycle without a cursor after
-`nextCursor: null`, and runs complete cycles repeatedly. Pages may duplicate
-rows and are neither ordered nor snapshots; a row changed behind an in-flight
-cursor can wait for the next cycle. Repetition is safe because claims are
-conditional and provider sends use the durable idempotency key.
+Delivery execution uses two independent complete scan loops: `runSendPage`
+with its own persisted send cursor, and `runReconciliationPage` with a
+separately persisted reconciliation cursor. Terminal sweeping, when
+scheduled, keeps a third independent cursor. Each adapter-issued cursor is
+opaque and belongs only to its loop; cursors are never shared or translated.
+For each loop, the host
+persists a non-null continuation only after handling the whole page, starts
+the next cycle without a cursor after `nextCursor: null`, and repeats complete
+cycles. Pages may duplicate rows and are neither ordered nor snapshots; a row
+changed behind an in-flight cursor can wait for that loop's next cycle.
+Repetition is safe because claims are conditional and provider sends use the
+durable idempotency key.
 
-Discovery covers both operations: sendable rows use the send lease, while
-accepted rows past their callback deadline and expired reconciliation leases
-use the reconciliation lease. Accepted legacy rows without a deadline
-reconcile immediately. A crash after provider acceptance or during
-reconciliation therefore leaves repeatable authoritative work, not an
-undiscoverable state.
+The send loop claims pending, retrying, and expired send leases. The
+reconciliation loop claims accepted rows past their callback deadline and
+expired reconciliation leases for read-only provider status checks. A crash
+after provider acceptance or during reconciliation therefore leaves
+repeatable authoritative work in the reconciliation loop, not an
+undiscoverable or blindly resubmitted state.
 
 The physical key also remains the claim and completion target. Before calling
 a provider, the worker checks that duplicated identity fields in the decoded
@@ -145,10 +153,13 @@ the same named worker reclaims an expired lease.
 
 Provider acceptance carries a bounded callback deadline. After that deadline,
 the worker claims the accepted job specifically for provider reconciliation;
-it never blindly resends it. Confirmed failure returns to retry with the same
-global idempotency key, confirmed delivery becomes terminal, and an
-unresolvable provider response becomes the explicit retainable
-`terminal_unknown` state. Transport failures remain accepted and schedule
-bounded read-only reconciliation retries; exhaustion dead-letters without
-making the job sendable. Expired reconciliation leases remain
-reconciliation-only when reclaimed and are never eligible for a send claim.
+it never blindly resends it. An authenticated failure callback or a
+reconciled confirmed failure clears the prior acceptance, increments the
+submission generation, derives a distinct provider idempotency key, and
+returns the job to the send loop when attempts remain. By contrast, an
+ambiguous send-call failure retries the same generation and key, allowing
+provider idempotency to collapse a submission that may already have been
+accepted. Confirmed delivery becomes terminal, while an unresolvable status or
+reconciliation adapter failure becomes the explicit retainable
+`terminal_unknown` state rather than entering the send loop. Expired
+reconciliation leases remain reconciliation-only when reclaimed.
