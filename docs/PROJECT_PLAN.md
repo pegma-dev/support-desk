@@ -2,7 +2,7 @@
 
 ## Status
 
-**Stage:** Application and outbound-mail source (`0.x`, public API unstable)
+**Stage:** Application and outbound-mail integration (`0.x`, public API unstable)
 
 **Initial reference application:** RetireGolden
 
@@ -35,10 +35,10 @@ The project starts as embedded TypeScript packages and a reference
 implementation. It may become independently deployable later, but the MVP
 should not introduce another always-on service merely to separate repositories.
 
-### Implementation status (2026-07-27)
+### Implementation status (2026-07-28)
 
 The repository now proves the customer-facing Phase 1/2 application slice and
-the provider-neutral Phase 6 outbound-mail extraction source:
+the provider-neutral Phase 6 outbound-mail integration:
 
 - `@pegma/support-desk-application` declares one authoritative heterogeneous
   collection whose ticket, messages, audit events, command receipts, and
@@ -57,15 +57,14 @@ the provider-neutral Phase 6 outbound-mail extraction source:
 - `@pegma/support-desk-templates` implements immutable versioned templates,
   explicit variable allowlists, HTML-context escaping, and synthetic preview.
   The RetireGolden-branded pack is a separate export from the generic renderer.
-- `@pegma/support-desk-mail` defines the idempotent delivery port, normalized
-  callback port, stable ticket subject and `Message-ID` helpers, and a worker
-  with conflict-safe leases, bounded exponential retries, and dead-letter
-  state.
-- The worker discovers committed delivery jobs with Storage Core's bounded
-  collection-wide scan. The host persists each opaque non-null continuation
-  only after handling the whole page and runs repeated complete cycles.
-  Physical keys are authoritative, while duplicate or repeated rows remain
-  harmless because the outbox lease and provider idempotency key are
+- `@pegma/support-desk-application` consumes published exact `@pegma/mail`
+  `0.1.0`. Its projection keeps generic mail state in Support Desk's existing
+  `delivery:*` rows, while immutable template, subject, and `Message-ID`
+  metadata stays on the causal message record in the same ticket transaction.
+- The generic worker discovers committed jobs with Storage Core's bounded
+  authoritative collection-wide scan. Hosts persist send and reconciliation
+  cursors independently after each complete page. Physical keys, conditional
+  claims, submission generations, and provider idempotency keys remain
   authoritative.
 
 Phases 3, 4, and 5 are not complete. There is no durable reference deployment,
@@ -121,7 +120,6 @@ The project remains a monorepo until contracts stabilize.
 | `@pegma/support-desk-core`        | Pure creation and lifecycle transitions                | Foundation     |
 | `@pegma/support-desk-application` | Authorized use cases, declared collections, and outbox | Phase 1        |
 | `@pegma/support-desk-templates`   | Safe, versioned notification rendering                 | Phase 6        |
-| `@pegma/support-desk-mail`        | Mail ports, threading, and normalized receipts         | Phase 6–7      |
 | `@pegma/support-desk-knowledge`   | Reviewed knowledge-item pipeline                       | Phase 10       |
 
 Packages publish under the `@pegma` scope, one repository per Pegma component.
@@ -250,6 +248,8 @@ customers.
 **Goal:** Notify customers and staff without coupling to one mail provider.
 
 - Define mail-delivery and callback ports.
+- Consume published exact `@pegma/mail@0.1.0` for delivery state, workers,
+  authenticated callback application, and terminal sweeping.
 - Implement outbox-backed delivery jobs, writing the state change and its
   outbox record in one `transact` call on the ticket's partition.
 - Create versioned plain-text and HTML templates.

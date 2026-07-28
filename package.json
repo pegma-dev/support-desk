@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@azure/data-tables": "^13.3.2",
+    "@pegma/mail": "0.1.0",
     "@pegma/storage-azure-tables": "0.4.0",
     "@types/node": "^26.1.1",
     "azurite": "^3.36.0",

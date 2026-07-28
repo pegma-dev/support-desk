@@ -11,7 +11,8 @@ ID. One partition contains:
 - `ticket`: current ticket state;
 - `quota`: conflict-safe message count for the hard per-ticket cap;
 - `reservation`: committed or cancelled customer-index reservation fence;
-- `message:<message-id>`: canonical customer or internal messages;
+- `message:<message-id>`: canonical customer or internal messages, including
+  an immutable Support-owned outbound-content snapshot when applicable;
 - `event:<revision>:<command-id>`: append-only audit events;
 - `command:<command-id>`: idempotency receipts with request fingerprints;
 - `delivery:<notification-id>`: durable outbound jobs.
@@ -27,13 +28,20 @@ committed it as an explicit ordinal. Reads validate that ordinals are present
 and unique, then sort by them; caller-supplied message IDs never determine
 conversation order.
 
-Delivery jobs remain as terminal records after confirmed delivery, exhausted
-retry, or terminal-unknown reconciliation. A later retention sweep uses
-`listVersioned` and `deleteIfUnchanged`.
-Each job stores a provider idempotency key composed from its ticket partition
-and job ID. Both parts are URI-encoded and the final key is format-checked and
-limited to 255 characters, so the same notification ID on two tickets cannot
-collide at the provider.
+Each `delivery:*` record is the Support Desk projection of an exact
+`@pegma/mail@0.1.0` `MailJob`. The nested generic job owns submission
+generations, claims, retries, reconciliation, acknowledgements, and terminal
+state. Its `contentRef` resolves the immutable rendering metadata on the
+causal `message:*` record. The projection preserves Support-owned physical
+identity and message metadata through every generic transition.
+
+Mail's worker discovers jobs with the collection-wide authoritative `scan`;
+the physical scan key must match both the decoded Support record key and the
+projection key. Hosts persist send and reconciliation continuations
+independently after completing each page and repeat complete scan cycles.
+Provider idempotency keys include the ticket partition, logical job ID, and
+submission generation, so notification IDs cannot collide across tickets and
+an authoritative retry cannot collide with an earlier failed submission.
 
 The configurable message cap is enforced by conditionally updating `quota` in
 the same transaction as every reply. Messages, command receipts, audit events,
@@ -45,7 +53,9 @@ application snapshots own data properties before idempotency fingerprinting
 and persistence; accessors are rejected rather than executed. A maximally
 filled conversation is therefore in the low tens of megabytes even under
 worst-case JSON escaping; ordinary plain-text records are under roughly 3 MB.
-`sweepTerminalDeliveryJobs` safely reclaims old terminal outbox rows.
+The generic mail sweep scans authoritatively and uses
+`deleteIfUnchanged`; dead-letter and terminal-unknown rows must be explicitly
+acknowledged before they become eligible.
 
 ## Read hints and receipts
 
@@ -95,9 +105,10 @@ insertion and delivery-job update.
 call with `deleteIfUnchanged`. The application enforces a 30-day deduplication
 horizon against trusted processing time even if `processedBefore` is newer,
 because an event can be accepted again after its receipt is removed.
-Delivery retry availability and terminal retention timestamps also use that
-trusted processing time; provider `occurredAt` remains evidence on the receipt
-and cannot delay a retry or accelerate deletion.
+Authenticated callbacks include the provider submission generation, so a
+delayed event cannot mutate a newer submission. Generic mail state uses trusted
+processing time; provider `occurredAt` remains evidence and cannot schedule a
+retry or accelerate deletion.
 
 ## Outbox discovery
 

@@ -12,9 +12,6 @@
     },
     {
       "path": "./packages/templates"
-    },
-    {
-      "path": "./packages/mail"
     }
   ]
 }

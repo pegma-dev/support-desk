@@ -47,13 +47,15 @@ needs:
 | ------------------------------------------ | ------------------------------------------------------------------------------ |
 | Persistence                                | [`@pegma/storage-core`](https://github.com/pegma-dev/storage-core)             |
 | Identity and permissions                   | [`@pegma/authorization-core`](https://github.com/pegma-dev/authorization-core) |
+| Durable mail delivery                      | [`@pegma/mail`](https://github.com/pegma-dev/mail)                             |
 | `PrincipalId`, clock, logger, typed events | [`@pegma/spine`](https://github.com/pegma-dev/spine)                           |
 
 Support Desk declares collections against `@pegma/storage-core` and takes a
 `Store` from the host, so the backend is the host's choice rather than this
 project's. It asks Authorization Core whether a principal holds a permission;
-it has no access model of its own. Mail providers and templates remain
-adapters here, because they are Support Desk's problem.
+it has no access model of its own. It projects `@pegma/mail` jobs into the
+ticket partition and leaves provider and content-preparation adapters to the
+host. Support-owned template snapshots remain beside their messages.
 
 The organization profile is at
 [github.com/pegma-dev](https://github.com/pegma-dev).
@@ -82,7 +84,6 @@ The organization profile is at
 | `@pegma/support-desk-core`        | Pure ticket creation and workflow transitions                |
 | `@pegma/support-desk-application` | Authorized customer services, collections, audit, and outbox |
 | `@pegma/support-desk-templates`   | Safe versioned templates and optional host-branded packs     |
-| `@pegma/support-desk-mail`        | Provider-neutral mail ports and the outbox delivery worker   |
 
 Packages publish under the `@pegma` scope. Nothing here is published yet.
 
