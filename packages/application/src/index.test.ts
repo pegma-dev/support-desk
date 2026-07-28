@@ -27,6 +27,7 @@ import {
   SupportDeskAuthorizationError,
   SupportDeskLimitError,
   SupportDeskNotFoundError,
+  type SupportRecord,
   sweepDeliveryCallbackReceipts,
   sweepInboundReceipts,
   sweepTerminalDeliveryJobs,
@@ -148,6 +149,15 @@ describe("customer application services", () => {
 
     expect(repeated.ticket.revision).toBe(2);
     expect(repeated.messages).toHaveLength(2);
+    expect(
+      (await store.collection(supportRecords).list("ticket-1"))
+        .filter((record) => record.kind === "message")
+        .sort((left, right) => left.ordinal! - right.ordinal!)
+        .map((record) => [record.message.id, record.ordinal]),
+    ).toEqual([
+      ["message-1", 1],
+      ["message-2", 2],
+    ]);
     await expect(
       application.replyToCustomerTicket(caller, {
         commandId: "reply-1",
@@ -191,13 +201,13 @@ describe("customer application services", () => {
 
     const view = await application.readCustomerTicket(caller, "ticket-1");
     expect(view.ticket.revision).toBe(5);
-    expect(view.messages.map((message) => message.id).sort()).toEqual([
-      "message-1",
-      "message-2",
-      "message-3",
-      "message-4",
-      "message-5",
-    ]);
+    const committed = (await store.collection(supportRecords).list("ticket-1"))
+      .filter((record) => record.kind === "message")
+      .sort((left, right) => left.ordinal! - right.ordinal!);
+    expect(committed.map((record) => record.ordinal)).toEqual([1, 2, 3, 4, 5]);
+    expect(view.messages.map((message) => message.id)).toEqual(
+      committed.map((record) => record.message.id),
+    );
   });
 
   it("clamps the trusted reply clock on every transaction retry", async () => {
@@ -775,6 +785,7 @@ describe("customer application services", () => {
       kind: "message",
       partition: "ticket",
       id: "message:internal",
+      ordinal: 2,
       message: {
         id: "internal",
         ticketId: "ticket",
@@ -790,6 +801,63 @@ describe("customer application services", () => {
 
     const view = await application.readCustomerTicket(caller, "ticket");
     expect(view.messages.map((message) => message.id)).toEqual(["public"]);
+  });
+
+  it("rejects unmigrated or duplicate stored message ordinals", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer", allCustomerPermissions);
+    await application.createCustomerTicket(caller, {
+      commandId: "create",
+      correlationId: "correlation",
+      ticketId: "ticket",
+      ticketNumber: 1,
+      messageId: "initial",
+      subject: "Question",
+      body: "Start.",
+    });
+    const records = store.collection(supportRecords);
+    await records.update(
+      { partition: "ticket", id: "message:initial" },
+      (current) => {
+        if (current?.kind !== "message") {
+          return { action: "keep" };
+        }
+        const { ordinal: _ordinal, ...legacy } = current;
+        return { action: "write", value: legacy as SupportRecord };
+      },
+    );
+    await expect(
+      application.readCustomerTicket(caller, "ticket"),
+    ).rejects.toThrow(/migrate the record/);
+
+    await records.update(
+      { partition: "ticket", id: "message:initial" },
+      (current) =>
+        current?.kind === "message"
+          ? { action: "write", value: { ...current, ordinal: 1 } }
+          : { action: "keep" },
+    );
+    await application.replyToCustomerTicket(caller, {
+      commandId: "reply",
+      correlationId: "reply-correlation",
+      ticketId: "ticket",
+      messageId: "reply",
+      body: "More.",
+    });
+    await records.update(
+      { partition: "ticket", id: "message:reply" },
+      (current) =>
+        current?.kind === "message"
+          ? { action: "write", value: { ...current, ordinal: 1 } }
+          : { action: "keep" },
+    );
+    await expect(
+      application.readCustomerTicket(caller, "ticket"),
+    ).rejects.toThrow(/duplicate explicit ordinal/);
   });
 
   it("records provider callbacks idempotently and updates the delivery job", async () => {

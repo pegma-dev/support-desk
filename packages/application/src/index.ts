@@ -91,6 +91,11 @@ export interface DeliveryJob {
   readonly outboundMessageId: string;
   readonly status: DeliveryStatus;
   readonly attemptCount: number;
+  /**
+   * Read-only provider status calls are bounded separately from send attempts.
+   * Missing on legacy rows means zero completed reconciliation failures.
+   */
+  readonly reconciliationAttemptCount?: number;
   readonly maxAttempts: number;
   readonly availableAt: IsoTimestamp;
   readonly createdAt: IsoTimestamp;
@@ -153,6 +158,11 @@ interface MessageRecord {
   readonly kind: "message";
   readonly partition: TicketId;
   readonly id: string;
+  /**
+   * The ticket revision committed by the same transaction as this message.
+   * Legacy rows without one must be migrated before they can be returned.
+   */
+  readonly ordinal: number;
   readonly message: TicketMessage;
 }
 
@@ -819,6 +829,7 @@ function deliveryJob(
     outboundMessageId: input.outboundMessageId,
     status: "pending",
     attemptCount: 0,
+    reconciliationAttemptCount: 0,
     maxAttempts: input.maxAttempts ?? 5,
     availableAt: now,
     createdAt: now,
@@ -826,17 +837,27 @@ function deliveryJob(
 }
 
 function customerMessages(records: readonly SupportRecord[]): TicketMessage[] {
-  return records
-    .filter(
-      (record): record is MessageRecord =>
-        record.kind === "message" && record.message.visibility === "customer",
-    )
-    .map((record) => record.message)
-    .sort((left, right) =>
-      left.createdAt === right.createdAt
-        ? left.id.localeCompare(right.id)
-        : left.createdAt.localeCompare(right.createdAt),
-    );
+  const messages = records.filter(
+    (record): record is MessageRecord =>
+      record.kind === "message" && record.message.visibility === "customer",
+  );
+  const ordinals = new Set<number>();
+  for (const record of messages) {
+    if (!Number.isSafeInteger(record.ordinal) || record.ordinal <= 0) {
+      throw new TypeError(
+        "stored customer message has no valid explicit ordinal; migrate the record before reading it",
+      );
+    }
+    if (ordinals.has(record.ordinal)) {
+      throw new TypeError(
+        "stored customer messages contain a duplicate explicit ordinal",
+      );
+    }
+    ordinals.add(record.ordinal);
+  }
+  return messages
+    .sort((left, right) => left.ordinal - right.ordinal)
+    .map((record) => record.message);
 }
 
 async function authoritativeView(
@@ -1262,6 +1283,7 @@ export function createSupportDeskApplication(options: {
             kind: "message",
             partition: command.ticketId,
             id: `message:${command.messageId}`,
+            ordinal: ticket.revision,
             message,
           },
         },
@@ -1434,6 +1456,7 @@ export function createSupportDeskApplication(options: {
               kind: "message",
               partition: command.ticketId,
               id: `message:${command.messageId}`,
+              ordinal: updated.revision,
               message,
             },
           },
@@ -1835,6 +1858,7 @@ export async function completeDeliveryAttempt(
             status: "accepted",
             acceptedAt: request.now,
             acceptedDeadlineAt: request.outcome.acceptedDeadlineAt,
+            reconciliationAttemptCount: 0,
             providerMessageRef: request.outcome.providerMessageRef,
           },
         };
@@ -1925,6 +1949,12 @@ export interface CompleteDeliveryReconciliationInput {
   readonly outcome:
     | { readonly status: "delivered" }
     | { readonly status: "failed"; readonly failureCategory: string }
+    | { readonly status: "invalid"; readonly failureCategory: string }
+    | {
+        readonly status: "unavailable";
+        readonly failureCategory: string;
+        readonly retryAt: IsoTimestamp;
+      }
     | { readonly status: "unknown" };
 }
 
@@ -1972,25 +2002,53 @@ function snapshotCompleteDeliveryReconciliationInput(
     ),
     "delivery reconciliation.outcome.status",
   );
-  if (status !== "delivered" && status !== "failed" && status !== "unknown") {
+  if (
+    status !== "delivered" &&
+    status !== "failed" &&
+    status !== "invalid" &&
+    status !== "unavailable" &&
+    status !== "unknown"
+  ) {
     throw new TypeError(
-      "delivery reconciliation.outcome.status must be delivered, failed, or unknown",
+      "delivery reconciliation.outcome.status must be delivered, failed, invalid, unavailable, or unknown",
     );
   }
-  const outcome: CompleteDeliveryReconciliationInput["outcome"] =
-    status === "failed"
-      ? Object.freeze({
-          status,
-          failureCategory: boundaryString(
-            ownDataProperty(
-              outcomeSource,
-              "failureCategory",
-              "delivery reconciliation.outcome.failureCategory",
-            ),
-            "delivery reconciliation.outcome.failureCategory",
-          ),
-        })
-      : Object.freeze({ status });
+  let outcome: CompleteDeliveryReconciliationInput["outcome"];
+  if (status === "unavailable") {
+    outcome = Object.freeze({
+      status,
+      failureCategory: boundaryString(
+        ownDataProperty(
+          outcomeSource,
+          "failureCategory",
+          "delivery reconciliation.outcome.failureCategory",
+        ),
+        "delivery reconciliation.outcome.failureCategory",
+      ),
+      retryAt: boundaryString(
+        ownDataProperty(
+          outcomeSource,
+          "retryAt",
+          "delivery reconciliation.outcome.retryAt",
+        ),
+        "delivery reconciliation.outcome.retryAt",
+      ),
+    });
+  } else if (status === "failed" || status === "invalid") {
+    outcome = Object.freeze({
+      status,
+      failureCategory: boundaryString(
+        ownDataProperty(
+          outcomeSource,
+          "failureCategory",
+          "delivery reconciliation.outcome.failureCategory",
+        ),
+        "delivery reconciliation.outcome.failureCategory",
+      ),
+    });
+  } else {
+    outcome = Object.freeze({ status });
+  }
   return Object.freeze({
     ticketId: boundaryString(raw.ticketId, "delivery reconciliation.ticketId"),
     deliveryJobId: boundaryString(
@@ -2016,12 +2074,20 @@ export async function completeDeliveryReconciliation(
   requireIdentifier(request.deliveryJobId, "deliveryJobId");
   requireIdentifier(request.workerId, "workerId");
   requireIdentifier(request.claimToken, "claimToken");
-  canonicalTimestamp(request.now, "now");
+  const now = canonicalTimestamp(request.now, "now");
   if (
-    request.outcome.status === "failed" &&
+    (request.outcome.status === "failed" ||
+      request.outcome.status === "invalid" ||
+      request.outcome.status === "unavailable") &&
     !FAILURE_CATEGORY.test(request.outcome.failureCategory)
   ) {
     throw new TypeError("failureCategory must be a coarse safe token");
+  }
+  if (
+    request.outcome.status === "unavailable" &&
+    canonicalTimestamp(request.outcome.retryAt, "retryAt") < now
+  ) {
+    throw new TypeError("retryAt must not be earlier than now");
   }
   const records = store.collection(supportRecords);
   const result = await records.update(
@@ -2067,6 +2133,34 @@ export async function completeDeliveryReconciliation(
             availableAt: request.now,
             failureCategory: request.outcome.failureCategory,
             ...(exhausted ? { terminalAt: request.now } : {}),
+          },
+        };
+      }
+      if (request.outcome.status === "invalid") {
+        return {
+          action: "write",
+          value: {
+            ...unleased,
+            status: "dead_letter",
+            failureCategory: request.outcome.failureCategory,
+            terminalAt: request.now,
+          },
+        };
+      }
+      if (request.outcome.status === "unavailable") {
+        const reconciliationAttemptCount =
+          (current.reconciliationAttemptCount ?? 0) + 1;
+        const exhausted = reconciliationAttemptCount >= current.maxAttempts;
+        return {
+          action: "write",
+          value: {
+            ...unleased,
+            reconciliationAttemptCount,
+            status: exhausted ? "dead_letter" : "accepted",
+            failureCategory: request.outcome.failureCategory,
+            ...(exhausted
+              ? { terminalAt: request.now }
+              : { acceptedDeadlineAt: request.outcome.retryAt }),
           },
         };
       }

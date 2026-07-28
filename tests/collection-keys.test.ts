@@ -111,6 +111,36 @@ async function exerciseDeclaredCollections(store: Store): Promise<void> {
     expect(await records.get(supportRecords.key(value))).toEqual(value);
   }
 
+  await application.replyToCustomerTicket(caller, {
+    commandId: "reply-z",
+    correlationId: "correlation-z",
+    ticketId: "ticket-1",
+    messageId: "z",
+    body: "Committed first.",
+  });
+  const ordered = await application.replyToCustomerTicket(caller, {
+    commandId: "reply-a",
+    correlationId: "correlation-a",
+    ticketId: "ticket-1",
+    messageId: "a",
+    body: "Committed second.",
+  });
+  expect(ordered.messages.map((message) => message.id)).toEqual([
+    "message-1",
+    "z",
+    "a",
+  ]);
+  expect(
+    (await records.list("ticket-1"))
+      .filter((record) => record.kind === "message")
+      .sort((left, right) => left.ordinal! - right.ordinal!)
+      .map((record) => [record.message.id, record.ordinal]),
+  ).toEqual([
+    ["message-1", 1],
+    ["z", 2],
+    ["a", 3],
+  ]);
+
   const indexes = store.collection(customerTicketIndex);
   const index = await indexes.get({
     partition: caller.principalId,

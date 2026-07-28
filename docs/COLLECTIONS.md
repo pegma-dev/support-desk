@@ -22,6 +22,11 @@ one single-partition transaction. Ticket updates use `putIfUnchanged` with the
 opaque storage version read for that attempt; conflicts re-read, re-decide,
 and retry.
 
+Each message stores the resulting ticket revision from the transaction that
+committed it as an explicit ordinal. Reads validate that ordinals are present
+and unique, then sort by them; caller-supplied message IDs never determine
+conversation order.
+
 Delivery jobs remain as terminal records after confirmed delivery, exhausted
 retry, or terminal-unknown reconciliation. A later retention sweep uses
 `listVersioned` and `deleteIfUnchanged`.
@@ -110,6 +115,8 @@ Provider acceptance carries a bounded callback deadline. After that deadline,
 the worker claims the accepted job specifically for provider reconciliation;
 it never blindly resends it. Confirmed failure returns to retry with the same
 global idempotency key, confirmed delivery becomes terminal, and an
-unresolvable status becomes the explicit retainable `terminal_unknown` state.
-Expired reconciliation leases remain reconciliation-only when reclaimed and
-are never eligible for a send claim.
+unresolvable provider response becomes the explicit retainable
+`terminal_unknown` state. Transport failures remain accepted and schedule
+bounded read-only reconciliation retries; exhaustion dead-letters without
+making the job sendable. Expired reconciliation leases remain
+reconciliation-only when reclaimed and are never eligible for a send claim.

@@ -36,13 +36,15 @@ call, so delivery, retry, and terminal retention timestamps reflect actual
 completion. Provider results are decoded as own data properties before they
 are persisted; accessors and malformed or unbounded references fail closed.
 Accepted jobs with a missing or corrupt legacy provider reference are
-terminalized as unknown without calling the provider, rather than cycling
-reconciliation leases forever.
+dead-lettered without calling the provider, rather than being mistaken for an
+unresolved provider response or cycling reconciliation leases forever.
 
 Acceptance has a bounded callback deadline. Hosts must supply a
 `MailReconciliationPort`; after the deadline, `reconcile` checks the provider
 without sending again. A known failure returns to retry with the original
 idempotency key, delivery becomes terminal, and an unresolved outcome becomes
-`terminal_unknown` for explicit operational review and retention. An expired
-reconciliation lease can only be reclaimed by the reconciliation path; the
-send path categorically refuses it.
+`terminal_unknown` for explicit operational review and retention. A transport
+failure is not an unresolved provider outcome: it keeps the job accepted,
+schedules another read-only reconciliation attempt, and dead-letters after the
+configured bound. An expired reconciliation lease can only be reclaimed by the
+reconciliation path; the send path categorically refuses it.

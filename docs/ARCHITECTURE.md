@@ -207,7 +207,7 @@ order — are separate collections with their own consistency rules.
 
 Ordering is the application's job. `list` returns a partition in unspecified
 order, so anything that must read in sequence carries an explicit ordinal in
-its record id and is sorted after reading.
+its record and is sorted after reading.
 
 ### Ticket
 
@@ -232,7 +232,8 @@ Canonical conversation content:
 - normalized body and format;
 - source channel;
 - external threading identifiers;
-- creation time.
+- creation time;
+- explicit committed ticket-revision ordinal.
 
 ### Ticket event
 
@@ -357,10 +358,12 @@ horizon rather than trusting the provider occurrence timestamp.
 Accepted jobs carry a bounded callback deadline. If no callback arrives, a
 separately fenced reconciliation claim asks the provider for status without
 sending again. A known failure may retry through the original idempotency key;
-an unresolved result becomes `terminal_unknown` rather than remaining accepted
-forever or risking an untracked duplicate. If reconciliation crashes, only
-another reconciliation claim may recover its expired lease; a send claim
-cannot convert that lease into a blind resend.
+an actual unresolved provider result becomes `terminal_unknown` rather than
+remaining accepted forever or risking an untracked duplicate. A transport
+failure schedules another bounded reconciliation attempt while remaining
+accepted, and exhaustion dead-letters the job without entering the send path.
+If reconciliation crashes, only another reconciliation claim may recover its
+expired lease; a send claim cannot convert that lease into a blind resend.
 
 ## Email threading
 

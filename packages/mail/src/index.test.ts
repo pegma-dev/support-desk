@@ -776,7 +776,173 @@ describe("outbound delivery", () => {
     });
   });
 
-  it("terminalizes corrupt accepted work without a usable provider reference", async () => {
+  it("retries reconciliation transport failures and dead-letters at the bound", async () => {
+    const maxAttempts = 2;
+    const store = await pendingJob(maxAttempts);
+    const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
+    const reconcile = vi.fn(async () => {
+      throw new Error("provider status endpoint unavailable");
+    });
+    const worker = createDeliveryWorker({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:01.000Z",
+        "2026-07-27T12:00:02.000Z",
+        "2026-07-27T12:00:03.000Z",
+      ),
+      workerId: "worker",
+      baseRetryMilliseconds: 1_000,
+      acceptedCallbackMilliseconds: 1_000,
+      reconciliation: { reconcile },
+      candidates: { next: async () => null },
+      delivery: { send },
+      templates: { get: () => template },
+      classifyFailure: () => "reconciliation_transport",
+    });
+    expect(
+      (
+        await worker.deliver({
+          ticketId: "ticket",
+          deliveryJobId: "notify",
+          now: "2026-07-27T12:00:01.000Z",
+        })
+      ).status,
+    ).toBe("accepted");
+
+    const first = await worker.reconcile({
+      ticketId: "ticket",
+      deliveryJobId: "notify",
+      now: "2026-07-27T12:00:02.000Z",
+    });
+    expect(first).toMatchObject({
+      status: "retrying",
+      job: {
+        status: "accepted",
+        attemptCount: 1,
+        reconciliationAttemptCount: 1,
+        acceptedDeadlineAt: "2026-07-27T12:00:03.000Z",
+        failureCategory: "reconciliation_transport",
+      },
+    });
+    expect(
+      (
+        await worker.reconcile({
+          ticketId: "ticket",
+          deliveryJobId: "notify",
+          now: "2026-07-27T12:00:02.999Z",
+        })
+      ).status,
+    ).toBe("not_claimed");
+
+    const exhausted = await worker.reconcile({
+      ticketId: "ticket",
+      deliveryJobId: "notify",
+      now: "2026-07-27T12:00:03.000Z",
+    });
+    expect(exhausted).toMatchObject({
+      status: "dead_letter",
+      job: {
+        status: "dead_letter",
+        attemptCount: 1,
+        reconciliationAttemptCount: maxAttempts,
+        failureCategory: "reconciliation_transport",
+        terminalAt: "2026-07-27T12:00:03.000Z",
+      },
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(reconcile).toHaveBeenCalledTimes(maxAttempts);
+  });
+
+  it("fences a stale reconciliation transport failure after lease recovery", async () => {
+    const store = await pendingJob(3);
+    let signalReconciliationStarted!: () => void;
+    let releaseReconciliation!: () => void;
+    const reconciliationStarted = new Promise<void>((resolve) => {
+      signalReconciliationStarted = resolve;
+    });
+    const reconciliationReleased = new Promise<void>((resolve) => {
+      releaseReconciliation = resolve;
+    });
+    const firstReconcile = vi.fn(async () => {
+      signalReconciliationStarted();
+      await reconciliationReleased;
+      throw new Error("stale transport failure");
+    });
+    const firstWorker = createDeliveryWorker({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:01.000Z",
+        "2026-07-27T12:00:34.000Z",
+      ),
+      workerId: "worker",
+      leaseMilliseconds: 30_000,
+      acceptedCallbackMilliseconds: 1_000,
+      reconciliation: { reconcile: firstReconcile },
+      candidates: { next: async () => null },
+      delivery: {
+        send: async () => ({ providerMessageRef: "provider-ref" }),
+      },
+      templates: { get: () => template },
+    });
+    expect(
+      (
+        await firstWorker.deliver({
+          ticketId: "ticket",
+          deliveryJobId: "notify",
+          now: "2026-07-27T12:00:01.000Z",
+        })
+      ).status,
+    ).toBe("accepted");
+
+    const stale = firstWorker.reconcile({
+      ticketId: "ticket",
+      deliveryJobId: "notify",
+      now: "2026-07-27T12:00:02.000Z",
+    });
+    await reconciliationStarted;
+    const recoveredReconcile = vi.fn(async () => ({
+      status: "delivered" as const,
+    }));
+    const recoveredWorker = createDeliveryWorker({
+      store,
+      clock: fixedClock("2026-07-27T12:00:33.000Z"),
+      workerId: "worker",
+      leaseMilliseconds: 30_000,
+      acceptedCallbackMilliseconds: 1_000,
+      reconciliation: { reconcile: recoveredReconcile },
+      candidates: { next: async () => null },
+      delivery: {
+        send: async () => ({ providerMessageRef: "unused" }),
+      },
+      templates: { get: () => template },
+    });
+    expect(
+      (
+        await recoveredWorker.reconcile({
+          ticketId: "ticket",
+          deliveryJobId: "notify",
+          now: "2026-07-27T12:00:32.001Z",
+        })
+      ).status,
+    ).toBe("delivered");
+
+    releaseReconciliation();
+    expect((await stale).status).toBe("not_claimed");
+    expect(
+      await store.collection(supportRecords).get({
+        partition: "ticket",
+        id: "delivery:notify",
+      }),
+    ).toMatchObject({
+      status: "delivered",
+      deliveredAt: "2026-07-27T12:00:33.000Z",
+      reconciliationAttemptCount: 0,
+    });
+    expect(firstReconcile).toHaveBeenCalledTimes(1);
+    expect(recoveredReconcile).toHaveBeenCalledTimes(1);
+  });
+
+  it("dead-letters corrupt accepted work without claiming a provider response", async () => {
     const store = await pendingJob();
     const records = store.collection(supportRecords);
     await records.update(
@@ -811,7 +977,14 @@ describe("outbound delivery", () => {
       deliveryJobId: "notify",
       now: "2026-07-27T12:00:02.000Z",
     });
-    expect(result.status).toBe("terminal_unknown");
+    expect(result).toMatchObject({
+      status: "dead_letter",
+      job: {
+        status: "dead_letter",
+        failureCategory: "provider_reference_invalid",
+        terminalAt: "2026-07-27T12:00:02.000Z",
+      },
+    });
     expect(reconcile).not.toHaveBeenCalled();
   });
 

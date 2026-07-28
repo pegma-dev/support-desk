@@ -605,6 +605,15 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
   ): Promise<ReconcileJobResult> {
     const request = snapshotDeliverJobInput(input, "reconciliation input");
     const nowEpoch = requireTimestamp(request.now);
+    if (
+      nowEpoch >
+      MAX_DATE_EPOCH_MILLISECONDS -
+        Math.max(leaseMilliseconds, MAX_RETRY_DELAY_MILLISECONDS)
+    ) {
+      throw new TypeError(
+        "now is too late to represent the bounded reconciliation schedule",
+      );
+    }
     const claimed = await claimAcceptedDeliveryJob(worker.store, {
       ticketId: request.ticketId,
       deliveryJobId: request.deliveryJobId,
@@ -616,7 +625,17 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
       return { status: "not_claimed" };
     }
 
+    const exponent = Math.min(
+      Math.max(0, claimed.reconciliationAttemptCount ?? 0),
+      19,
+    );
+    const retryDelay = Math.min(
+      MAX_RETRY_DELAY_MILLISECONDS,
+      baseRetryMilliseconds * 2 ** exponent,
+    );
     let outcome: MailReconciliationResult = { status: "unknown" };
+    let transportFailure: string | undefined;
+    let invalidProviderReference = false;
     let providerMessageRef: string | null = null;
     try {
       providerMessageRef = validateProviderMessageRef(
@@ -624,28 +643,50 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
         "stored providerMessageRef",
       );
     } catch {
-      outcome = { status: "unknown" };
+      invalidProviderReference = true;
     }
     if (providerMessageRef !== null) {
+      let response: unknown;
+      let receivedResponse = false;
       try {
-        outcome = normalizeReconciliationResult(
-          await worker.reconciliation.reconcile({
-            idempotencyKey: claimed.idempotencyKey,
-            providerMessageRef,
-          }),
-        );
-      } catch {
-        outcome = { status: "unknown" };
+        response = await worker.reconciliation.reconcile({
+          idempotencyKey: claimed.idempotencyKey,
+          providerMessageRef,
+        });
+        receivedResponse = true;
+      } catch (error) {
+        transportFailure = safeFailureCategory(error);
+      }
+      if (receivedResponse) {
+        try {
+          outcome = normalizeReconciliationResult(response);
+        } catch {
+          outcome = { status: "unknown" };
+        }
       }
     }
-    const completed = trustedCompletionTime(nowEpoch, 0);
+    const completed = trustedCompletionTime(
+      nowEpoch,
+      transportFailure === undefined ? 0 : retryDelay,
+    );
     const job = await completeDeliveryReconciliation(worker.store, {
       ticketId: claimed.ticketId,
       deliveryJobId: request.deliveryJobId,
       workerId: worker.workerId,
       claimToken: claimed.claimToken,
       now: completed.value,
-      outcome,
+      outcome: invalidProviderReference
+        ? {
+            status: "invalid",
+            failureCategory: "provider_reference_invalid",
+          }
+        : transportFailure === undefined
+          ? outcome
+          : {
+              status: "unavailable",
+              failureCategory: transportFailure,
+              retryAt: at(completed.epoch + retryDelay),
+            },
     });
     if (job === null) {
       return { status: "not_claimed" };
@@ -656,7 +697,7 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
           ? "delivered"
           : job.status === "dead_letter"
             ? "dead_letter"
-            : job.status === "retrying"
+            : job.status === "retrying" || job.status === "accepted"
               ? "retrying"
               : "terminal_unknown",
       job,
