@@ -14,23 +14,29 @@ are rejected without being executed. Optional requester email is a contact
 snapshot, never an identity key: surrounding whitespace is removed, the DNS
 domain is lowercased, and plain-address syntax, controls, markup, and a
 254-character maximum are enforced.
-Delivery claim, completion, reconciliation, pruning, and retention inputs use
-the same rule, including nested outcome objects. Partition keys and cutoffs
-therefore cannot change between a read and its conditional write or delete.
+Pruning and receipt-retention inputs use the same rule. Partition keys and
+cutoffs therefore cannot change between a read and its conditional write or
+delete.
 Outbound `Message-ID` values must be at most 254 ASCII characters with a
 dot-atom local part, a valid DNS domain, and no controls or malformed dots.
-An accepted delivery completion must also carry a non-empty, control-free
-provider message reference of at most 512 characters. Accepted state can
-therefore always enter reconciliation with a usable provider identity.
+
+Outbound state is the application projection of published exact
+`@pegma/mail@0.1.0`. Support Desk keeps its `delivery:*` physical record and
+stores immutable template, subject, and `Message-ID` content on the causal
+message in the same transaction. The generic package owns claims, provider
+idempotency, submission generations, retry/reconciliation transitions,
+terminal acknowledgement, authoritative collection-wide scans, and sweeping.
+Hosts resolve a job's `contentRef` from the message record and keep send,
+reconciliation, and terminal-sweep scan cursors separate.
 
 This package implements persistence coordination, not persistence. It has no
 provider SDK and no role, plan, or entitlement model.
 
 Delivery callback recording also requires the host `Clock`: provider
 `occurredAt` remains event data, while receipt retention and the enforced
-30-day deduplication horizon use trusted host processing time. Retry
-availability and delivery-job terminal retention use that same trusted time,
-so a provider timestamp cannot stall work or make it immediately reclaimable.
+30-day deduplication horizon use trusted host processing time. Every callback
+also carries the provider submission generation before it is delegated to
+`@pegma/mail`, fencing delayed events from newer submissions.
 Reply timestamps are sampled and validated on every transaction attempt, then
 clamped to the stored ticket's `updatedAt` so clock skew cannot move a
 conversation backward.

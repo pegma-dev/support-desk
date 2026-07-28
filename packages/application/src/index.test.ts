@@ -1,18 +1,18 @@
 import type { AccessContext } from "@pegma/authorization-core";
+import { maxMailAttempts } from "@pegma/mail";
 import { fixedClock } from "@pegma/spine";
-import { createMemoryStore, type Store } from "@pegma/storage-core";
+import {
+  createMemoryStore,
+  type CollectionStore,
+  type Store,
+} from "@pegma/storage-core";
 import { describe, expect, it } from "vitest";
 import {
-  claimAcceptedDeliveryJob,
-  claimDeliveryJob,
-  completeDeliveryAttempt,
   createSupportDeskApplication,
   type CustomerTicketIndexRecord,
   customerTicketIndex,
   deliveryCallbackBucket,
   deliveryCallbackReceipts,
-  deliveryIdempotencyKey,
-  type DeliveryJob,
   inboundReceiptBucket,
   inboundReceiptDedupeDays,
   inboundReceiptLocation,
@@ -24,13 +24,13 @@ import {
   SupportDeskConflictError,
   supportPermissions,
   supportRecords,
+  supportMail,
   SupportDeskAuthorizationError,
   SupportDeskLimitError,
   SupportDeskNotFoundError,
   type SupportRecord,
   sweepDeliveryCallbackReceipts,
   sweepInboundReceipts,
-  sweepTerminalDeliveryJobs,
 } from "./index.js";
 
 function access(
@@ -515,12 +515,13 @@ describe("customer application services", () => {
     });
     expect(descriptorReads).toBe(1);
     expect(changingProxyGets).toBe(0);
-    const delivery = (
+    const messageRecord = (
       await store.collection(supportRecords).list("ticket")
-    ).find((record) => record.kind === "delivery_job");
-    expect(delivery?.kind === "delivery_job" && delivery.variables).toEqual({
-      ticket_number: "1",
-    });
+    ).find((record) => record.kind === "message");
+    expect(
+      messageRecord?.kind === "message" &&
+        messageRecord.deliveryContent?.variables,
+    ).toEqual({ ticket_number: "1" });
   });
 
   it("bounds notification variable shape and canonicalizes idempotency fingerprints", async () => {
@@ -892,20 +893,144 @@ describe("customer application services", () => {
       providerEventId: "event-1",
       ticketId: "ticket",
       deliveryJobId: "notify",
+      submissionGeneration: 1,
       status: "delivered" as const,
       occurredAt: "2026-07-27T12:01:00.000Z",
     };
 
+    await supportMail
+      .worker({
+        records: store.collection(supportRecords),
+        clock: fixedClock("2026-07-27T12:00:30.000Z"),
+        workerId: "worker",
+        provider: {
+          send: async () => ({ providerMessageRef: "provider-ref" }),
+        },
+        reconciliation: {
+          reconcile: async () => ({ status: "unknown" }),
+        },
+        preparation: {
+          prepare: async () => ({
+            recipient: "support@example.test",
+            subject: "Question",
+            text: "New ticket",
+          }),
+        },
+      })
+      .send({ partition: "ticket", jobId: "notify" });
+
+    const fenced = await recordDeliveryCallback(
+      store,
+      {
+        ...callback,
+        providerEventId: "event-stale-generation",
+        submissionGeneration: 2,
+      },
+      callbackClock,
+    );
     const first = await recordDeliveryCallback(store, callback, callbackClock);
     const repeated = await recordDeliveryCallback(
       store,
-      callback,
+      {
+        ...callback,
+        providerMessageRef: undefined,
+        failureCategory: undefined,
+      },
       callbackClock,
     );
 
+    expect(fenced).toEqual({ duplicate: false, job: null });
     expect(first.duplicate).toBe(false);
-    expect(first.job?.status).toBe("delivered");
+    expect(first.job?.job.status).toBe("delivered");
     expect(repeated).toEqual({ duplicate: true, job: null });
+
+    const normalizedFailure = {
+      ...callback,
+      providerEventId: "event-normalized-failure",
+      providerMessageRef: undefined,
+      status: "failed" as const,
+      failureCategory: undefined,
+    };
+    const normalizedFirst = await recordDeliveryCallback(
+      store,
+      normalizedFailure,
+      callbackClock,
+    );
+    const normalizedRepeated = await recordDeliveryCallback(
+      store,
+      {
+        ...normalizedFailure,
+        failureCategory: "provider_callback_failure",
+      },
+      callbackClock,
+    );
+    expect(normalizedFirst).toEqual({ duplicate: false, job: null });
+    expect(normalizedRepeated).toEqual({ duplicate: true, job: null });
+    const normalizedBucket = await deliveryCallbackBucket(
+      normalizedFailure.provider,
+      normalizedFailure.providerEventId,
+    );
+    const [normalizedReceipt] = await store
+      .collection(deliveryCallbackReceipts)
+      .list(normalizedBucket);
+    expect(normalizedReceipt?.failureCategory).toBe(
+      "provider_callback_failure",
+    );
+    expect(
+      normalizedReceipt === undefined
+        ? true
+        : Object.hasOwn(normalizedReceipt, "providerMessageRef"),
+    ).toBe(false);
+
+    const expectRejectedWithoutReceipt = async (
+      invalid: Parameters<typeof recordDeliveryCallback>[1],
+      expected: RegExp,
+    ): Promise<void> => {
+      await expect(
+        recordDeliveryCallback(store, invalid, callbackClock),
+      ).rejects.toThrow(expected);
+      const bucket = await deliveryCallbackBucket(
+        invalid.provider,
+        invalid.providerEventId,
+      );
+      expect(
+        await store.collection(deliveryCallbackReceipts).list(bucket),
+      ).toEqual([]);
+    };
+    await expectRejectedWithoutReceipt(
+      {
+        ...callback,
+        providerEventId: "event-generation-too-large",
+        submissionGeneration: maxMailAttempts + 1,
+      },
+      /submissionGeneration must be between 1 and 20/,
+    );
+    await expectRejectedWithoutReceipt(
+      {
+        ...callback,
+        providerEventId: "event-reference-too-large",
+        providerMessageRef: "x".repeat(513),
+      },
+      /providerMessageRef must be non-empty, at most 512 characters/,
+    );
+    await expectRejectedWithoutReceipt(
+      {
+        ...callback,
+        providerEventId: "event-category-too-large",
+        status: "failed",
+        failureCategory: "x".repeat(100_000),
+      },
+      /failureCategory must be a coarse safe token/,
+    );
+    await expectRejectedWithoutReceipt(
+      {
+        ...callback,
+        providerEventId: "event-delivered-category",
+        failureCategory: "provider_failure",
+      },
+      /delivered callback cannot include a failureCategory/,
+    );
+
     await expect(
       recordDeliveryCallback(
         store,
@@ -944,515 +1069,120 @@ describe("customer application services", () => {
     expect(statusReads).toBe(0);
   });
 
-  it("keeps delivered and dead-letter jobs terminal under late callbacks", async () => {
-    const store = createMemoryStore();
-    const application = createSupportDeskApplication({
-      store,
+  it("replays a callback safely after crashing before receipt finalization", async () => {
+    const backing = createMemoryStore();
+    await createSupportDeskApplication({
+      store: backing,
       clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    }).createCustomerTicket(access("customer", allCustomerPermissions), {
+      commandId: "create",
+      correlationId: "correlation",
+      ticketId: "ticket",
+      ticketNumber: 1,
+      messageId: "message",
+      subject: "Question",
+      body: "Start.",
+      notification: {
+        id: "notify",
+        recipientRef: "support",
+        templateId: "staff.new-ticket",
+        templateVersion: 1,
+        variables: {},
+        subject: "[Ticket #1] Question",
+        outboundMessageId: "<support.notify@example.test>",
+      },
     });
-    const createWithJob = async (ticketId: string, maxAttempts: number) =>
-      application.createCustomerTicket(
-        access("customer", allCustomerPermissions),
-        {
-          commandId: `create-${ticketId}`,
-          correlationId: `correlation-${ticketId}`,
-          ticketId,
-          ticketNumber: ticketId === "delivered" ? 1 : 2,
-          messageId: `message-${ticketId}`,
-          subject: "Question",
-          body: "Start.",
-          notification: {
-            id: "notify",
-            recipientRef: "support",
-            templateId: "staff.new-ticket",
-            templateVersion: 1,
-            variables: {},
-            subject: "[Ticket #1] Question",
-            outboundMessageId: `<support.${ticketId}@example.test>`,
-            maxAttempts,
+    const records = backing.collection(supportRecords);
+    await supportMail
+      .worker({
+        records,
+        clock: fixedClock("2026-07-27T12:00:30.000Z"),
+        workerId: "worker",
+        provider: {
+          send: async () => ({ providerMessageRef: "provider-ref" }),
+        },
+        reconciliation: {
+          reconcile: async () => ({ status: "unknown" }),
+        },
+        preparation: {
+          prepare: async () => ({
+            recipient: "support@example.test",
+            subject: "Question",
+            text: "New ticket",
+          }),
+        },
+      })
+      .send({ partition: "ticket", jobId: "notify" });
+
+    let failReceiptFinalization = true;
+    const crashingStore: Store = {
+      collection<T>(definition: { readonly name: string }): CollectionStore<T> {
+        const collection = backing.collection(
+          definition as Parameters<Store["collection"]>[0],
+        ) as CollectionStore<T>;
+        if (definition.name !== deliveryCallbackReceipts.name) {
+          return collection;
+        }
+        return {
+          ...collection,
+          async update(key, decide, options) {
+            if (failReceiptFinalization) {
+              failReceiptFinalization = false;
+              throw new Error("injected receipt finalization crash");
+            }
+            return collection.update(key, decide, options);
           },
-        },
-      );
-    await createWithJob("delivered", 2);
-    await createWithJob("dead", 1);
-
-    await recordDeliveryCallback(
-      store,
-      {
-        provider: "test",
-        providerEventId: "delivered-first",
-        ticketId: "delivered",
-        deliveryJobId: "notify",
-        status: "delivered",
-        occurredAt: "2026-07-27T12:01:00.000Z",
+        };
       },
-      callbackClock,
-    );
-    const lateFailure = await recordDeliveryCallback(
-      store,
-      {
-        provider: "test",
-        providerEventId: "failed-late",
-        ticketId: "delivered",
-        deliveryJobId: "notify",
-        status: "failed",
-        occurredAt: "2026-07-27T12:02:00.000Z",
-      },
-      callbackClock,
-    );
-
-    const deadClaim = await claimDeliveryJob(store, {
-      ticketId: "dead",
-      deliveryJobId: "notify",
-      workerId: "worker",
-      now: "2026-07-27T12:01:00.000Z",
-      leaseExpiresAt: "2026-07-27T12:02:00.000Z",
-    });
-    expect(deadClaim?.claimToken).toBeDefined();
-    await completeDeliveryAttempt(store, {
-      ticketId: "dead",
-      deliveryJobId: "notify",
-      workerId: "worker",
-      claimToken: deadClaim?.claimToken ?? "",
-      now: "2026-07-27T12:01:01.000Z",
-      outcome: {
-        accepted: false,
-        failureCategory: "provider_unavailable",
-        retryAt: "2026-07-27T12:01:02.000Z",
-      },
-    });
-    const lateSuccess = await recordDeliveryCallback(
-      store,
-      {
-        provider: "test",
-        providerEventId: "delivered-late",
-        ticketId: "dead",
-        deliveryJobId: "notify",
-        status: "delivered",
-        occurredAt: "2026-07-27T12:03:00.000Z",
-      },
-      callbackClock,
-    );
-
-    expect(lateFailure.job?.status).toBe("delivered");
-    expect(lateSuccess.job?.status).toBe("dead_letter");
-  });
-
-  it("uses trusted callback processing time for retry and terminal retention", async () => {
-    const store = createMemoryStore();
-    const application = createSupportDeskApplication({
-      store,
-      clock: fixedClock("2026-07-27T12:00:00.000Z"),
-    });
-    const createWithJob = async (ticketId: string, maxAttempts: number) =>
-      application.createCustomerTicket(
-        access("customer", allCustomerPermissions),
-        {
-          commandId: `create-${ticketId}`,
-          correlationId: `correlation-${ticketId}`,
-          ticketId,
-          ticketNumber:
-            ticketId === "retry" ? 1 : ticketId === "delivered" ? 2 : 3,
-          messageId: `message-${ticketId}`,
-          subject: "Question",
-          body: "Start.",
-          notification: {
-            id: "notify",
-            recipientRef: "support",
-            templateId: "staff.new-ticket",
-            templateVersion: 1,
-            variables: {},
-            subject: "[Ticket] Question",
-            outboundMessageId: `<support.${ticketId}@example.test>`,
-            maxAttempts,
-          },
-        },
-      );
-    await createWithJob("retry", 3);
-    await createWithJob("delivered", 3);
-    await createWithJob("dead", 1);
-
-    const deadClaim = await claimDeliveryJob(store, {
-      ticketId: "dead",
-      deliveryJobId: "notify",
-      workerId: "worker",
-      now: "2026-07-27T12:01:00.000Z",
-      leaseExpiresAt: "2026-07-27T12:02:00.000Z",
-    });
-    await completeDeliveryAttempt(store, {
-      ticketId: "dead",
-      deliveryJobId: "notify",
-      workerId: "worker",
-      claimToken: deadClaim?.claimToken ?? "",
-      now: "2026-07-27T12:01:01.000Z",
-      outcome: {
-        accepted: true,
-        providerMessageRef: "provider-dead",
-        acceptedDeadlineAt: "2026-07-27T13:01:01.000Z",
-      },
-    });
-
-    const processedAt = "2026-07-27T12:30:00.000Z";
-    const processingClock = fixedClock(processedAt);
-    const retrying = await recordDeliveryCallback(
-      store,
-      {
-        provider: "test",
-        providerEventId: "future-failure",
-        ticketId: "retry",
-        deliveryJobId: "notify",
-        status: "failed",
-        occurredAt: "2099-01-01T00:00:00.000Z",
-      },
-      processingClock,
-    );
-    expect(retrying.job?.status).toBe("retrying");
-    expect(retrying.job?.availableAt).toBe(processedAt);
-    expect(
-      await claimDeliveryJob(store, {
-        ticketId: "retry",
-        deliveryJobId: "notify",
-        workerId: "worker",
-        now: processedAt,
-        leaseExpiresAt: "2026-07-27T12:31:00.000Z",
-      }),
-    ).not.toBeNull();
-
-    const delivered = await recordDeliveryCallback(
-      store,
-      {
-        provider: "test",
-        providerEventId: "old-delivery",
-        ticketId: "delivered",
-        deliveryJobId: "notify",
-        status: "delivered",
-        occurredAt: "2000-01-01T00:00:00.000Z",
-      },
-      processingClock,
-    );
-    const dead = await recordDeliveryCallback(
-      store,
-      {
-        provider: "test",
-        providerEventId: "old-failure",
-        ticketId: "dead",
-        deliveryJobId: "notify",
-        status: "failed",
-        occurredAt: "2000-01-01T00:00:00.000Z",
-      },
-      processingClock,
-    );
-    expect(delivered.job?.deliveredAt).toBe(processedAt);
-    expect(delivered.job?.terminalAt).toBe(processedAt);
-    expect(dead.job?.status).toBe("dead_letter");
-    expect(dead.job?.terminalAt).toBe(processedAt);
-
-    for (const ticketId of ["delivered", "dead"]) {
-      expect(
-        await sweepTerminalDeliveryJobs(store, {
-          ticketId,
-          terminalBefore: "2026-07-27T12:29:59.999Z",
-        }),
-      ).toBe(0);
-      expect(
-        await sweepTerminalDeliveryJobs(store, {
-          ticketId,
-          terminalBefore: "2026-07-27T12:30:00.001Z",
-        }),
-      ).toBe(1);
-    }
-  });
-
-  it("rejects invalid direct lease and completion boundaries", async () => {
-    const store = createMemoryStore();
-    expect(() =>
-      deliveryIdempotencyKey("x".repeat(256), "delivery:notify"),
-    ).toThrow(/safe provider format/);
-    await expect(
-      claimDeliveryJob(store, {
-        ticketId: "ticket",
-        deliveryJobId: "notify",
-        workerId: "worker",
-        now: "not-a-time",
-        leaseExpiresAt: "2026-07-27T12:02:00.000Z",
-      }),
-    ).rejects.toThrow(/canonical ISO timestamp/);
-    await expect(
-      claimDeliveryJob(store, {
-        ticketId: "ticket",
-        deliveryJobId: "notify",
-        workerId: "worker",
-        now: "2026-07-27T12:02:00.000Z",
-        leaseExpiresAt: "2026-07-27T12:02:00.000Z",
-      }),
-    ).rejects.toThrow(/later than now/);
-    await expect(
-      completeDeliveryAttempt(store, {
-        ticketId: "ticket",
-        deliveryJobId: "notify",
-        workerId: "worker",
-        claimToken: "claim",
-        now: "2026-07-27T12:02:00.000Z",
-        outcome: {
-          accepted: false,
-          failureCategory: "Error: provider leaked a secret",
-          retryAt: "2026-07-27T12:01:00.000Z",
-        },
-      }),
-    ).rejects.toThrow(/retryAt/);
-    await expect(
-      completeDeliveryAttempt(store, {
-        ticketId: "ticket",
-        deliveryJobId: "notify",
-        workerId: "worker",
-        claimToken: "claim",
-        now: "2026-07-27T12:02:00.000Z",
-        outcome: {
-          accepted: false,
-          failureCategory: "Error: provider leaked a secret",
-          retryAt: "2026-07-27T12:03:00.000Z",
-        },
-      }),
-    ).rejects.toThrow(/coarse safe token/);
-  });
-
-  it("fences stale completion even when the same worker reclaims the job", async () => {
-    const store = createMemoryStore();
-    const application = createSupportDeskApplication({
-      store,
-      clock: fixedClock("2026-07-27T12:00:00.000Z"),
-    });
-    await application.createCustomerTicket(
-      access("customer", allCustomerPermissions),
-      {
-        commandId: "create",
-        correlationId: "correlation",
-        ticketId: "ticket",
-        ticketNumber: 1,
-        messageId: "message",
-        subject: "Question",
-        body: "Start.",
-        notification: {
-          id: "notify",
-          recipientRef: "support",
-          templateId: "staff.new-ticket",
-          templateVersion: 1,
-          variables: {},
-          subject: "[Ticket #1] Question",
-          outboundMessageId: "<support.notify@example.test>",
-        },
-      },
-    );
-    const first = await claimDeliveryJob(store, {
+    };
+    const callback = {
+      provider: "test-provider",
+      providerEventId: "event-crash-replay",
       ticketId: "ticket",
       deliveryJobId: "notify",
-      workerId: "same-worker",
-      now: "2026-07-27T12:01:00.000Z",
-      leaseExpiresAt: "2026-07-27T12:02:00.000Z",
+      submissionGeneration: 1,
+      providerMessageRef: "provider-ref",
+      status: "delivered" as const,
+      occurredAt: "2026-07-27T12:01:00.000Z",
+    };
+
+    await expect(
+      recordDeliveryCallback(crashingStore, callback, callbackClock),
+    ).rejects.toThrow(/injected receipt finalization crash/);
+    const location = await deliveryCallbackBucket(
+      callback.provider,
+      callback.providerEventId,
+    );
+    const [unfinishedReceipt] = await backing
+      .collection(deliveryCallbackReceipts)
+      .list(location);
+    expect(unfinishedReceipt?.processedAt).toBeUndefined();
+    const afterCrash = await records.getVersioned({
+      partition: "ticket",
+      id: "delivery:notify",
     });
-    const second = await claimDeliveryJob(store, {
-      ticketId: "ticket",
-      deliveryJobId: "notify",
-      workerId: "same-worker",
-      now: "2026-07-27T12:03:00.000Z",
-      leaseExpiresAt: "2026-07-27T12:04:00.000Z",
+    expect(afterCrash?.value).toMatchObject({
+      kind: "delivery_job",
+      job: {
+        status: "delivered",
+        submissionGeneration: 1,
+        attemptCount: 1,
+      },
     });
-    expect(first?.claimToken).not.toBe(second?.claimToken);
 
     expect(
-      await completeDeliveryAttempt(store, {
-        ticketId: "ticket",
-        deliveryJobId: "notify",
-        workerId: "same-worker",
-        claimToken: first?.claimToken ?? "",
-        now: "2026-07-27T12:03:01.000Z",
-        outcome: {
-          accepted: true,
-          providerMessageRef: "stale",
-          acceptedDeadlineAt: "2026-07-28T12:03:01.000Z",
-        },
-      }),
-    ).toBeNull();
-    const completed = await completeDeliveryAttempt(store, {
-      ticketId: "ticket",
-      deliveryJobId: "notify",
-      workerId: "same-worker",
-      claimToken: second?.claimToken ?? "",
-      now: "2026-07-27T12:03:02.000Z",
-      outcome: {
-        accepted: true,
-        providerMessageRef: "current",
-        acceptedDeadlineAt: "2026-07-28T12:03:02.000Z",
-      },
+      await recordDeliveryCallback(backing, callback, callbackClock),
+    ).toEqual({ duplicate: true, job: null });
+    const afterReplay = await records.getVersioned({
+      partition: "ticket",
+      id: "delivery:notify",
     });
-    expect(completed?.status).toBe("accepted");
-    expect(completed?.providerMessageRef).toBe("current");
-  });
-
-  it("recovers a crashed reconciliation lease without making it sendable", async () => {
-    const store = createMemoryStore();
-    const application = createSupportDeskApplication({
-      store,
-      clock: fixedClock("2026-07-27T12:00:00.000Z"),
-    });
-    await application.createCustomerTicket(
-      access("customer", allCustomerPermissions),
-      {
-        commandId: "create",
-        correlationId: "correlation",
-        ticketId: "ticket",
-        ticketNumber: 1,
-        messageId: "message",
-        subject: "Question",
-        body: "Start.",
-        notification: {
-          id: "notify",
-          recipientRef: "support",
-          templateId: "staff.new-ticket",
-          templateVersion: 1,
-          variables: {},
-          subject: "[Ticket #1] Question",
-          outboundMessageId: "<support.notify@example.test>",
-        },
-      },
-    );
-    const sendClaim = await claimDeliveryJob(store, {
-      ticketId: "ticket",
-      deliveryJobId: "notify",
-      workerId: "sender",
-      now: "2026-07-27T12:01:00.000Z",
-      leaseExpiresAt: "2026-07-27T12:01:30.000Z",
-    });
-    await completeDeliveryAttempt(store, {
-      ticketId: "ticket",
-      deliveryJobId: "notify",
-      workerId: "sender",
-      claimToken: sendClaim?.claimToken ?? "",
-      now: "2026-07-27T12:01:01.000Z",
-      outcome: {
-        accepted: true,
-        providerMessageRef: "provider",
-        acceptedDeadlineAt: "2026-07-27T12:02:00.000Z",
-      },
-    });
-
-    const crashedReconciliation = await claimAcceptedDeliveryJob(store, {
-      ticketId: "ticket",
-      deliveryJobId: "notify",
-      workerId: "reconciler-a",
-      now: "2026-07-27T12:02:00.000Z",
-      leaseExpiresAt: "2026-07-27T12:03:00.000Z",
-    });
-    expect(crashedReconciliation?.leasePurpose).toBe("reconcile");
-
-    expect(
-      await claimDeliveryJob(store, {
-        ticketId: "ticket",
-        deliveryJobId: "notify",
-        workerId: "sender",
-        now: "2026-07-27T12:04:00.000Z",
-        leaseExpiresAt: "2026-07-27T12:05:00.000Z",
-      }),
-    ).toBeNull();
-    const recovered = await claimAcceptedDeliveryJob(store, {
-      ticketId: "ticket",
-      deliveryJobId: "notify",
-      workerId: "reconciler-b",
-      now: "2026-07-27T12:04:00.000Z",
-      leaseExpiresAt: "2026-07-27T12:05:00.000Z",
-    });
-    expect(recovered?.leasePurpose).toBe("reconcile");
-    expect(recovered?.claimToken).not.toBe(crashedReconciliation?.claimToken);
-  });
-
-  it("makes a post-acceptance failure actionable but never regresses confirmed delivery", async () => {
-    const store = createMemoryStore();
-    const application = createSupportDeskApplication({
-      store,
-      clock: fixedClock("2026-07-27T12:00:00.000Z"),
-    });
-    await application.createCustomerTicket(
-      access("customer", allCustomerPermissions),
-      {
-        commandId: "create",
-        correlationId: "correlation",
-        ticketId: "ticket",
-        ticketNumber: 1,
-        messageId: "message",
-        subject: "Question",
-        body: "Start.",
-        notification: {
-          id: "notify",
-          recipientRef: "support",
-          templateId: "staff.new-ticket",
-          templateVersion: 1,
-          variables: {},
-          subject: "[Ticket #1] Question",
-          outboundMessageId: "<support.notify@example.test>",
-        },
-      },
-    );
-    const claim = await claimDeliveryJob(store, {
-      ticketId: "ticket",
-      deliveryJobId: "notify",
-      workerId: "worker",
-      now: "2026-07-27T12:01:00.000Z",
-      leaseExpiresAt: "2026-07-27T12:02:00.000Z",
-    });
-    const accepted = await completeDeliveryAttempt(store, {
-      ticketId: "ticket",
-      deliveryJobId: "notify",
-      workerId: "worker",
-      claimToken: claim?.claimToken ?? "",
-      now: "2026-07-27T12:01:01.000Z",
-      outcome: {
-        accepted: true,
-        providerMessageRef: "provider",
-        acceptedDeadlineAt: "2026-07-28T12:01:01.000Z",
-      },
-    });
-    expect(accepted?.status).toBe("accepted");
-
-    const failed = await recordDeliveryCallback(
-      store,
-      {
-        provider: "test",
-        providerEventId: "failed",
-        ticketId: "ticket",
-        deliveryJobId: "notify",
-        status: "failed",
-        occurredAt: "2026-07-27T12:02:00.000Z",
-      },
-      callbackClock,
-    );
-    expect(failed.job?.status).toBe("retrying");
-
-    const delivered = await recordDeliveryCallback(
-      store,
-      {
-        provider: "test",
-        providerEventId: "delivered",
-        ticketId: "ticket",
-        deliveryJobId: "notify",
-        status: "delivered",
-        occurredAt: "2026-07-27T12:03:00.000Z",
-      },
-      callbackClock,
-    );
-    const lateFailure = await recordDeliveryCallback(
-      store,
-      {
-        provider: "test",
-        providerEventId: "late-failure",
-        ticketId: "ticket",
-        deliveryJobId: "notify",
-        status: "failed",
-        occurredAt: "2026-07-27T12:04:00.000Z",
-      },
-      callbackClock,
-    );
-    expect(delivered.job?.status).toBe("delivered");
-    expect(lateFailure.job?.status).toBe("delivered");
+    expect(afterReplay?.version).toBe(afterCrash?.version);
+    expect(afterReplay?.value).toEqual(afterCrash?.value);
+    const [finalizedReceipt] = await backing
+      .collection(deliveryCallbackReceipts)
+      .list(location);
+    expect(finalizedReceipt?.processedAt).toBe(callbackClock.now());
   });
 
   it("enforces bounded principal and ticket records and supports safe retention", async () => {
@@ -1511,30 +1241,6 @@ describe("customer application services", () => {
         body: "Too many.",
       }),
     ).rejects.toMatchObject({ field: "ticket_messages" });
-
-    await recordDeliveryCallback(
-      store,
-      {
-        provider: "test",
-        providerEventId: "delivered",
-        ticketId: "ticket-1",
-        deliveryJobId: "notify",
-        status: "delivered",
-        occurredAt: "2026-07-27T12:01:00.000Z",
-      },
-      callbackClock,
-    );
-    expect(
-      await sweepTerminalDeliveryJobs(store, {
-        ticketId: "ticket-1",
-        terminalBefore: "2026-07-27T14:01:00.000Z",
-      }),
-    ).toBe(1);
-    expect(
-      (await store.collection(supportRecords).list("ticket-1")).some(
-        (record) => record.kind === "delivery_job",
-      ),
-    ).toBe(false);
 
     await store.collection(customerTicketIndex).put({
       principalId: "customer",
@@ -1782,219 +1488,6 @@ describe("customer application services", () => {
     expect(await application.listCustomerTickets(caller)).toHaveLength(1);
   });
 
-  it("snapshots delivery mutation and terminal sweep boundaries", async () => {
-    const store = createMemoryStore();
-    const records = store.collection(supportRecords);
-    const pendingJob = (ticketId: string): DeliveryJob => ({
-      kind: "delivery_job",
-      partition: ticketId,
-      id: "delivery:same",
-      ticketId,
-      messageId: "message",
-      idempotencyKey: `key-${ticketId}`,
-      recipientRef: "support",
-      templateId: "staff.new-ticket",
-      templateVersion: 1,
-      variables: {},
-      subject: "Question",
-      outboundMessageId: `<same@${ticketId}.example.test>`,
-      status: "pending",
-      attemptCount: 0,
-      maxAttempts: 3,
-      availableAt: "2026-07-01T00:00:00.000Z",
-      createdAt: "2026-07-01T00:00:00.000Z",
-    });
-    await records.put({
-      ...pendingJob("ticket-a"),
-      status: "delivered",
-      deliveredAt: "2026-07-01T00:01:00.000Z",
-      terminalAt: "2026-07-01T00:01:00.000Z",
-    });
-    await records.put(pendingJob("ticket-b"));
-
-    let sweepTicketReads = 0;
-    const changingSweep = new Proxy(
-      {},
-      {
-        getOwnPropertyDescriptor(_target, key) {
-          if (key === "ticketId") {
-            sweepTicketReads += 1;
-            return {
-              configurable: true,
-              value: sweepTicketReads === 1 ? "ticket-a" : "ticket-b",
-            };
-          }
-          if (key === "terminalBefore") {
-            return {
-              configurable: true,
-              value: "2026-08-01T00:00:00.000Z",
-            };
-          }
-          return undefined;
-        },
-      },
-    ) as {
-      readonly ticketId: string;
-      readonly terminalBefore: string;
-    };
-    expect(await sweepTerminalDeliveryJobs(store, changingSweep)).toBe(1);
-    expect(sweepTicketReads).toBe(1);
-    expect(
-      await records.get({ partition: "ticket-a", id: "delivery:same" }),
-    ).toBeNull();
-    expect(
-      (
-        await records.get({
-          partition: "ticket-b",
-          id: "delivery:same",
-        })
-      )?.kind,
-    ).toBe("delivery_job");
-
-    await records.put(pendingJob("ticket-c"));
-    let claimTicketReads = 0;
-    let claimPropertyReads = 0;
-    const changingClaim = new Proxy(
-      {},
-      {
-        getOwnPropertyDescriptor(_target, key) {
-          const values: Readonly<Record<string, string>> = {
-            deliveryJobId: "same",
-            workerId: "worker",
-            now: "2026-07-02T00:00:00.000Z",
-            leaseExpiresAt: "2026-07-02T00:01:00.000Z",
-          };
-          if (key === "ticketId") {
-            claimTicketReads += 1;
-            return {
-              configurable: true,
-              value: claimTicketReads === 1 ? "ticket-b" : "ticket-c",
-            };
-          }
-          return Object.hasOwn(values, key)
-            ? { configurable: true, value: values[key as string] }
-            : undefined;
-        },
-        get() {
-          claimPropertyReads += 1;
-          return "ticket-c";
-        },
-      },
-    ) as {
-      readonly ticketId: string;
-      readonly deliveryJobId: string;
-      readonly workerId: string;
-      readonly now: string;
-      readonly leaseExpiresAt: string;
-    };
-    const claimed = await claimDeliveryJob(store, changingClaim);
-    expect(claimed?.ticketId).toBe("ticket-b");
-    expect(claimTicketReads).toBe(1);
-    expect(claimPropertyReads).toBe(0);
-    const untouched = await records.get({
-      partition: "ticket-c",
-      id: "delivery:same",
-    });
-    expect(untouched?.kind === "delivery_job" && untouched.status).toBe(
-      "pending",
-    );
-
-    let outcomeGetterReads = 0;
-    await expect(
-      completeDeliveryAttempt(store, {
-        ticketId: "ticket-b",
-        deliveryJobId: "same",
-        workerId: "worker",
-        claimToken: claimed?.claimToken ?? "missing",
-        now: "2026-07-02T00:00:01.000Z",
-        get outcome() {
-          outcomeGetterReads += 1;
-          return {
-            accepted: false as const,
-            failureCategory: "provider_failure",
-            retryAt: "2026-07-02T00:01:00.000Z",
-          };
-        },
-      }),
-    ).rejects.toThrow(
-      /delivery completion.outcome must be an own data property/,
-    );
-    expect(outcomeGetterReads).toBe(0);
-
-    const acceptedBase = {
-      accepted: true as const,
-      acceptedDeadlineAt: "2026-07-02T01:00:00.000Z",
-    };
-    await expect(
-      completeDeliveryAttempt(store, {
-        ticketId: "ticket-b",
-        deliveryJobId: "same",
-        workerId: "worker",
-        claimToken: claimed?.claimToken ?? "missing",
-        now: "2026-07-02T00:00:01.000Z",
-        outcome: acceptedBase as never,
-      }),
-    ).rejects.toThrow(
-      /delivery completion.outcome.providerMessageRef must be an own data property/,
-    );
-    let providerReferenceReads = 0;
-    await expect(
-      completeDeliveryAttempt(store, {
-        ticketId: "ticket-b",
-        deliveryJobId: "same",
-        workerId: "worker",
-        claimToken: claimed?.claimToken ?? "missing",
-        now: "2026-07-02T00:00:01.000Z",
-        outcome: {
-          ...acceptedBase,
-          get providerMessageRef() {
-            providerReferenceReads += 1;
-            return "provider";
-          },
-        },
-      }),
-    ).rejects.toThrow(
-      /delivery completion.outcome.providerMessageRef must be an own data property/,
-    );
-    expect(providerReferenceReads).toBe(0);
-    for (const providerMessageRef of [
-      " ",
-      "provider\u0000control",
-      "x".repeat(513),
-    ]) {
-      await expect(
-        completeDeliveryAttempt(store, {
-          ticketId: "ticket-b",
-          deliveryJobId: "same",
-          workerId: "worker",
-          claimToken: claimed?.claimToken ?? "missing",
-          now: "2026-07-02T00:00:01.000Z",
-          outcome: { ...acceptedBase, providerMessageRef },
-        }),
-      ).rejects.toThrow(/non-empty provider reference/);
-    }
-    const stillLeased = await records.get({
-      partition: "ticket-b",
-      id: "delivery:same",
-    });
-    expect(stillLeased?.kind === "delivery_job" && stillLeased.status).toBe(
-      "leased",
-    );
-
-    let cutoffGetterReads = 0;
-    await expect(
-      pruneCustomerTicketIndex(store, "customer", {
-        get reservedBefore() {
-          cutoffGetterReads += 1;
-          return "2026-07-02T00:00:00.000Z";
-        },
-      }),
-    ).rejects.toThrow(
-      /customer ticket index prune.reservedBefore must be an own data property/,
-    );
-    expect(cutoffGetterReads).toBe(0);
-  });
-
   it("bounds inbound receipt shards and conditionally sweeps terminal receipts", async () => {
     const store = createMemoryStore();
     const location = await inboundReceiptLocation("mailbox", "event-a");
@@ -2226,6 +1719,7 @@ describe("customer application services", () => {
         providerEventId: "event-a",
         ticketId: "ticket",
         deliveryJobId: "notify",
+        submissionGeneration: 1,
         status: "delivered",
         occurredAt,
       },
@@ -2298,6 +1792,7 @@ describe("customer application services", () => {
       providerEventId: "first",
       ticketId: "ticket",
       deliveryJobId: "notify",
+      submissionGeneration: 1,
       status: "delivered",
       occurredAt: "2026-07-01T00:00:00.000Z",
       processedAt: "2026-07-01T00:01:00.000Z",
@@ -2309,6 +1804,7 @@ describe("customer application services", () => {
       providerEventId: "second",
       ticketId: "ticket",
       deliveryJobId: "notify",
+      submissionGeneration: 1,
       status: "delivered",
       occurredAt: "2026-07-01T00:00:00.000Z",
     });

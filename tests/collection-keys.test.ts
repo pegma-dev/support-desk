@@ -22,7 +22,6 @@ import {
   supportRecords,
   sweepDeliveryCallbackReceipts,
   sweepInboundReceipts,
-  sweepTerminalDeliveryJobs,
 } from "../packages/application/src/index.js";
 import { TABLE_PORT } from "../test/azurite.js";
 
@@ -205,6 +204,7 @@ async function exerciseDeclaredCollections(store: Store): Promise<void> {
       providerEventId: "callback-event-1",
       ticketId: "ticket-1",
       deliveryJobId: "notification-1",
+      submissionGeneration: 1,
       status: "delivered",
       occurredAt: "2025-01-01T12:00:02.000Z",
     },
@@ -238,19 +238,6 @@ async function exerciseDeclaredCollections(store: Store): Promise<void> {
     }),
   ).toBe(1);
   expect(await callbackCollection.list(callbackBucket)).toEqual([]);
-
-  expect(
-    await sweepTerminalDeliveryJobs(store, {
-      ticketId: "ticket-1",
-      terminalBefore: "2025-02-01T00:00:00.000Z",
-    }),
-  ).toBe(1);
-  expect(
-    await records.get({
-      partition: "ticket-1",
-      id: "delivery:notification-1",
-    }),
-  ).toBeNull();
 }
 
 describe("declared Support Desk collections", () => {

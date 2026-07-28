@@ -1,4 +1,5 @@
 import { hasPermission, type AccessContext } from "@pegma/authorization-core";
+import { defineMail, maxMailAttempts, type MailJob } from "@pegma/mail";
 import type { Clock, IsoTimestamp, PrincipalId } from "@pegma/spine";
 import {
   defineCollection,
@@ -67,84 +68,28 @@ export class SupportDeskLimitError extends Error {
   }
 }
 
-export type DeliveryStatus =
-  | "pending"
-  | "leased"
-  | "retrying"
-  | "accepted"
-  | "delivered"
-  | "dead_letter"
-  | "terminal_unknown";
-
 export interface DeliveryJob {
   readonly kind: "delivery_job";
   readonly partition: TicketId;
   readonly id: string;
   readonly ticketId: TicketId;
   readonly messageId: MessageId;
-  readonly idempotencyKey: string;
-  readonly recipientRef: string;
+  readonly job: MailJob;
+}
+
+export interface DeliveryContent {
   readonly templateId: string;
   readonly templateVersion: number;
   readonly variables: Readonly<Record<string, string>>;
   readonly subject: string;
   readonly outboundMessageId: string;
-  readonly status: DeliveryStatus;
-  readonly attemptCount: number;
-  /**
-   * Read-only provider status calls are bounded separately from send attempts.
-   * Missing on legacy rows means zero completed reconciliation failures.
-   */
-  readonly reconciliationAttemptCount?: number;
-  readonly maxAttempts: number;
-  readonly availableAt: IsoTimestamp;
-  readonly createdAt: IsoTimestamp;
-  readonly leaseOwner?: string;
-  readonly leaseExpiresAt?: IsoTimestamp;
-  readonly claimToken?: string;
-  readonly leasePurpose?: "send" | "reconcile";
-  readonly acceptedAt?: IsoTimestamp;
-  readonly acceptedDeadlineAt?: IsoTimestamp;
-  readonly deliveredAt?: IsoTimestamp;
-  readonly terminalAt?: IsoTimestamp;
-  readonly providerMessageRef?: string;
-  readonly failureCategory?: string;
 }
-
-export const maxDeliveryAttempts = 20;
-
-const FAILURE_CATEGORY = /^[a-z][a-z0-9_]{0,63}$/;
-const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
 
 function encodeIdempotencyPart(value: string): string {
   return encodeURIComponent(value).replaceAll(
     /[!'()*]/g,
     (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
   );
-}
-
-/**
- * Build one provider-safe key that is unique across ticket partitions.
- *
- * Length-prefixing is unnecessary because URI encoding escapes the colon
- * separator in both components.
- */
-export function deliveryIdempotencyKey(
-  ticketId: TicketId,
-  deliveryJobId: string,
-): string {
-  requireNonempty(ticketId, "ticketId");
-  requireNonempty(deliveryJobId, "deliveryJobId");
-  const key = `support-mail:v1:${encodeIdempotencyPart(ticketId)}:${encodeIdempotencyPart(deliveryJobId)}`;
-  if (
-    key.length > MAX_IDEMPOTENCY_KEY_LENGTH ||
-    !/^[A-Za-z0-9._~%:-]+$/.test(key)
-  ) {
-    throw new TypeError(
-      "delivery idempotency key exceeds the safe provider format",
-    );
-  }
-  return key;
 }
 
 interface TicketRecord {
@@ -164,6 +109,8 @@ interface MessageRecord {
    */
   readonly ordinal: number;
   readonly message: TicketMessage;
+  /** Immutable Support-owned content resolved by the generic mail adapter. */
+  readonly deliveryContent?: DeliveryContent | undefined;
 }
 
 interface AuditRecord {
@@ -250,8 +197,11 @@ export interface DeliveryCallbackInput {
   readonly providerEventId: string;
   readonly ticketId: TicketId;
   readonly deliveryJobId: string;
+  readonly submissionGeneration: number;
+  readonly providerMessageRef?: string | undefined;
   readonly status: "delivered" | "failed";
   readonly occurredAt: IsoTimestamp;
+  readonly failureCategory?: string | undefined;
 }
 
 export interface DeliveryCallbackReceipt extends DeliveryCallbackInput {
@@ -301,6 +251,72 @@ export const supportRecords = defineCollection<SupportRecord>({
   name: "support-desk.records.v1",
   key: supportRecordKey,
   codec: jsonCodec(supportRecordKey),
+});
+
+function requireSupportMailJob(job: MailJob): void {
+  requireIdentifier(job.partition, "mail job.partition");
+  requireIdentifier(job.id, "mail job.id");
+  requireIdentifier(job.contentRef, "mail job.contentRef");
+}
+
+function requireDeliveryWrapper(record: DeliveryJob): void {
+  requireSupportMailJob(record.job);
+  if (
+    record.partition !== record.job.partition ||
+    record.id !== `delivery:${record.job.id}` ||
+    record.ticketId !== record.job.partition ||
+    record.messageId !== record.job.contentRef
+  ) {
+    throw new TypeError(
+      "stored delivery wrapper does not match its nested mail job",
+    );
+  }
+}
+
+/**
+ * Project generic mail state into Support Desk's durable record union.
+ *
+ * Physical identity stays Support-owned (`delivery:*`), while the nested job
+ * round-trips exactly for authoritative collection-wide discovery.
+ */
+export const supportMail = defineMail<SupportRecord>({
+  collection: supportRecords,
+  key: ({ partition, jobId }) => {
+    requireIdentifier(partition, "mail candidate.partition");
+    requireIdentifier(jobId, "mail candidate.jobId");
+    return {
+      partition,
+      id: `delivery:${jobId}`,
+    };
+  },
+  toRecord(job, previous) {
+    requireSupportMailJob(job);
+    if (previous !== null && previous.kind !== "delivery_job") {
+      throw new TypeError("mail projection collided with a non-mail record");
+    }
+    if (
+      previous !== null &&
+      (previous.ticketId !== job.partition ||
+        previous.messageId !== job.contentRef)
+    ) {
+      throw new TypeError(
+        "mail transition does not match the delivery wrapper's causal binding",
+      );
+    }
+    return {
+      kind: "delivery_job",
+      partition: job.partition,
+      id: `delivery:${job.id}`,
+      ticketId: job.partition,
+      messageId: previous?.messageId ?? job.contentRef,
+      job,
+    };
+  },
+  toJob(record) {
+    if (record.kind !== "delivery_job") return null;
+    requireDeliveryWrapper(record);
+    return record.job;
+  },
 });
 
 const customerTicketIndexKey = (
@@ -443,23 +459,6 @@ export function validateOutboundMessageId(
     !outboundMessageIdDomain.test(domain)
   ) {
     throw new TypeError(`${field} must be a header-safe ASCII Message-ID`);
-  }
-  return value;
-}
-
-export function validateProviderMessageRef(
-  value: string,
-  field = "providerMessageRef",
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0 ||
-    value.length > 512 ||
-    /[\u0000-\u001F\u007F]/.test(value)
-  ) {
-    throw new TypeError(
-      `${field} must be a non-empty provider reference of at most 512 characters with no controls`,
-    );
   }
   return value;
 }
@@ -631,10 +630,10 @@ function snapshotNotification(input: unknown): NotificationInput {
     maxAttempts !== undefined &&
     (!Number.isSafeInteger(maxAttempts) ||
       (maxAttempts as number) <= 0 ||
-      (maxAttempts as number) > maxDeliveryAttempts)
+      (maxAttempts as number) > maxMailAttempts)
   ) {
     throw new TypeError(
-      `notification.maxAttempts must be between 1 and ${maxDeliveryAttempts}`,
+      `notification.maxAttempts must be between 1 and ${maxMailAttempts}`,
     );
   }
   return Object.freeze({
@@ -807,33 +806,36 @@ function snapshotReplyToCustomerTicketCommand(
   });
 }
 
-function deliveryJob(
+function deliveryJobAction(
   ticketId: TicketId,
   messageId: MessageId,
   now: IsoTimestamp,
   input: NotificationInput,
-): DeliveryJob {
-  const id = `delivery:${input.id}`;
-  return {
-    kind: "delivery_job",
+): ReturnType<typeof supportMail.action> {
+  return supportMail.action({
     partition: ticketId,
-    id,
-    ticketId,
-    messageId,
-    idempotencyKey: deliveryIdempotencyKey(ticketId, id),
+    id: input.id,
     recipientRef: input.recipientRef,
-    templateId: input.templateId,
-    templateVersion: input.templateVersion,
-    variables: input.variables,
-    subject: input.subject,
-    outboundMessageId: input.outboundMessageId,
-    status: "pending",
-    attemptCount: 0,
-    reconciliationAttemptCount: 0,
-    maxAttempts: input.maxAttempts ?? 5,
-    availableAt: now,
+    contentRef: messageId,
     createdAt: now,
-  };
+    ...(input.maxAttempts === undefined
+      ? {}
+      : { maxAttempts: input.maxAttempts }),
+  });
+}
+
+function deliveryContent(
+  input: NotificationInput | undefined,
+): DeliveryContent | undefined {
+  return input === undefined
+    ? undefined
+    : {
+        templateId: input.templateId,
+        templateVersion: input.templateVersion,
+        variables: input.variables,
+        subject: input.subject,
+        outboundMessageId: input.outboundMessageId,
+      };
 }
 
 function customerMessages(records: readonly SupportRecord[]): TicketMessage[] {
@@ -1199,12 +1201,13 @@ export function createSupportDeskApplication(options: {
       const notificationJob =
         command.notification === undefined
           ? undefined
-          : deliveryJob(
+          : deliveryJobAction(
               command.ticketId,
               command.messageId,
               now,
               command.notification,
             );
+      const notificationContent = deliveryContent(command.notification);
       const reservation = await reserveCustomerTicket(
         access.principalId,
         command.ticketId,
@@ -1285,6 +1288,9 @@ export function createSupportDeskApplication(options: {
             id: `message:${command.messageId}`,
             ordinal: ticket.revision,
             message,
+            ...(notificationContent === undefined
+              ? {}
+              : { deliveryContent: notificationContent }),
           },
         },
         {
@@ -1314,14 +1320,7 @@ export function createSupportDeskApplication(options: {
             completedAt: now,
           },
         },
-        ...(notificationJob === undefined
-          ? []
-          : [
-              {
-                action: "insert" as const,
-                value: notificationJob,
-              },
-            ]),
+        ...(notificationJob === undefined ? [] : [notificationJob]),
       ];
       const outcome = await records.transact(command.ticketId, actions);
       if (!outcome.committed) {
@@ -1436,6 +1435,16 @@ export function createSupportDeskApplication(options: {
           body: command.body,
           createdAt: now,
         };
+        const notificationContent = deliveryContent(command.notification);
+        const notificationJob =
+          command.notification === undefined
+            ? undefined
+            : deliveryJobAction(
+                command.ticketId,
+                command.messageId,
+                now,
+                command.notification,
+              );
         const outcome = await records.transact(command.ticketId, [
           {
             action: "putIfUnchanged",
@@ -1458,6 +1467,9 @@ export function createSupportDeskApplication(options: {
               id: `message:${command.messageId}`,
               ordinal: updated.revision,
               message,
+              ...(notificationContent === undefined
+                ? {}
+                : { deliveryContent: notificationContent }),
             },
           },
           {
@@ -1487,19 +1499,7 @@ export function createSupportDeskApplication(options: {
               completedAt: now,
             },
           },
-          ...(command.notification === undefined
-            ? []
-            : [
-                {
-                  action: "insert" as const,
-                  value: deliveryJob(
-                    command.ticketId,
-                    command.messageId,
-                    now,
-                    command.notification,
-                  ),
-                },
-              ]),
+          ...(notificationJob === undefined ? [] : [notificationJob]),
         ]);
         if (outcome.committed) {
           return authoritativeView(
@@ -1568,616 +1568,12 @@ export function createSupportDeskApplication(options: {
   };
 }
 
-export interface ClaimDeliveryJobInput {
-  readonly ticketId: TicketId;
-  readonly deliveryJobId: string;
-  readonly workerId: string;
-  readonly now: IsoTimestamp;
-  readonly leaseExpiresAt: IsoTimestamp;
-}
-
 function canonicalTimestamp(value: IsoTimestamp, field: string): number {
   const epoch = Date.parse(value);
   if (!Number.isFinite(epoch) || new Date(epoch).toISOString() !== value) {
     throw new TypeError(`${field} must be a canonical ISO timestamp`);
   }
   return epoch;
-}
-
-function snapshotClaimDeliveryJobInput(
-  input: ClaimDeliveryJobInput,
-): ClaimDeliveryJobInput {
-  const source = boundaryObject(input, "delivery claim");
-  const raw = {
-    ticketId: ownDataProperty(source, "ticketId", "delivery claim.ticketId"),
-    deliveryJobId: ownDataProperty(
-      source,
-      "deliveryJobId",
-      "delivery claim.deliveryJobId",
-    ),
-    workerId: ownDataProperty(source, "workerId", "delivery claim.workerId"),
-    now: ownDataProperty(source, "now", "delivery claim.now"),
-    leaseExpiresAt: ownDataProperty(
-      source,
-      "leaseExpiresAt",
-      "delivery claim.leaseExpiresAt",
-    ),
-  };
-  return Object.freeze({
-    ticketId: boundaryString(raw.ticketId, "delivery claim.ticketId"),
-    deliveryJobId: boundaryString(
-      raw.deliveryJobId,
-      "delivery claim.deliveryJobId",
-    ),
-    workerId: boundaryString(raw.workerId, "delivery claim.workerId"),
-    now: boundaryString(raw.now, "delivery claim.now"),
-    leaseExpiresAt: boundaryString(
-      raw.leaseExpiresAt,
-      "delivery claim.leaseExpiresAt",
-    ),
-  });
-}
-
-export async function claimDeliveryJob(
-  store: Store,
-  input: ClaimDeliveryJobInput,
-): Promise<DeliveryJob | null> {
-  const request = snapshotClaimDeliveryJobInput(input);
-  requireIdentifier(request.ticketId, "ticketId");
-  requireIdentifier(request.deliveryJobId, "deliveryJobId");
-  requireIdentifier(request.workerId, "workerId");
-  const now = canonicalTimestamp(request.now, "now");
-  const leaseExpiresAt = canonicalTimestamp(
-    request.leaseExpiresAt,
-    "leaseExpiresAt",
-  );
-  if (leaseExpiresAt <= now) {
-    throw new TypeError("leaseExpiresAt must be later than now");
-  }
-  const claimToken = crypto.randomUUID();
-  const records = store.collection(supportRecords);
-  const result = await records.update(
-    {
-      partition: request.ticketId,
-      id: `delivery:${request.deliveryJobId}`,
-    },
-    (current) => {
-      if (current?.kind !== "delivery_job") {
-        return { action: "keep" };
-      }
-      if (
-        current.status === "delivered" ||
-        current.status === "dead_letter" ||
-        current.status === "terminal_unknown" ||
-        current.status === "accepted" ||
-        (current.status === "leased" && current.leasePurpose === "reconcile") ||
-        current.availableAt > request.now ||
-        (current.status === "leased" &&
-          current.leaseExpiresAt !== undefined &&
-          current.leaseExpiresAt > request.now)
-      ) {
-        return { action: "keep" };
-      }
-      return {
-        action: "write",
-        value: {
-          ...current,
-          status: "leased",
-          leaseOwner: request.workerId,
-          leaseExpiresAt: request.leaseExpiresAt,
-          claimToken,
-          leasePurpose: "send",
-        },
-      };
-    },
-  );
-  return result.written && result.value?.kind === "delivery_job"
-    ? result.value
-    : null;
-}
-
-export interface CompleteDeliveryAttemptInput {
-  readonly ticketId: TicketId;
-  readonly deliveryJobId: string;
-  readonly workerId: string;
-  readonly claimToken: string;
-  readonly now: IsoTimestamp;
-  readonly outcome:
-    | {
-        readonly accepted: true;
-        readonly providerMessageRef: string;
-        readonly acceptedDeadlineAt: IsoTimestamp;
-      }
-    | {
-        readonly accepted: false;
-        readonly failureCategory: string;
-        readonly retryAt: IsoTimestamp;
-      };
-}
-
-function snapshotCompleteDeliveryAttemptInput(
-  input: CompleteDeliveryAttemptInput,
-): CompleteDeliveryAttemptInput {
-  const source = boundaryObject(input, "delivery completion");
-  const raw = {
-    ticketId: ownDataProperty(
-      source,
-      "ticketId",
-      "delivery completion.ticketId",
-    ),
-    deliveryJobId: ownDataProperty(
-      source,
-      "deliveryJobId",
-      "delivery completion.deliveryJobId",
-    ),
-    workerId: ownDataProperty(
-      source,
-      "workerId",
-      "delivery completion.workerId",
-    ),
-    claimToken: ownDataProperty(
-      source,
-      "claimToken",
-      "delivery completion.claimToken",
-    ),
-    now: ownDataProperty(source, "now", "delivery completion.now"),
-    outcome: ownDataProperty(source, "outcome", "delivery completion.outcome"),
-  };
-  const outcomeSource = boundaryObject(
-    raw.outcome,
-    "delivery completion.outcome",
-  );
-  const accepted = ownDataProperty(
-    outcomeSource,
-    "accepted",
-    "delivery completion.outcome.accepted",
-  );
-  if (typeof accepted !== "boolean") {
-    throw new TypeError(
-      "delivery completion.outcome.accepted must be a boolean",
-    );
-  }
-  const outcome: CompleteDeliveryAttemptInput["outcome"] = accepted
-    ? Object.freeze({
-        accepted: true,
-        acceptedDeadlineAt: boundaryString(
-          ownDataProperty(
-            outcomeSource,
-            "acceptedDeadlineAt",
-            "delivery completion.outcome.acceptedDeadlineAt",
-          ),
-          "delivery completion.outcome.acceptedDeadlineAt",
-        ),
-        providerMessageRef: validateProviderMessageRef(
-          boundaryString(
-            ownDataProperty(
-              outcomeSource,
-              "providerMessageRef",
-              "delivery completion.outcome.providerMessageRef",
-            ),
-            "delivery completion.outcome.providerMessageRef",
-          ),
-          "delivery completion.outcome.providerMessageRef",
-        ),
-      })
-    : Object.freeze({
-        accepted: false,
-        failureCategory: boundaryString(
-          ownDataProperty(
-            outcomeSource,
-            "failureCategory",
-            "delivery completion.outcome.failureCategory",
-          ),
-          "delivery completion.outcome.failureCategory",
-        ),
-        retryAt: boundaryString(
-          ownDataProperty(
-            outcomeSource,
-            "retryAt",
-            "delivery completion.outcome.retryAt",
-          ),
-          "delivery completion.outcome.retryAt",
-        ),
-      });
-  return Object.freeze({
-    ticketId: boundaryString(raw.ticketId, "delivery completion.ticketId"),
-    deliveryJobId: boundaryString(
-      raw.deliveryJobId,
-      "delivery completion.deliveryJobId",
-    ),
-    workerId: boundaryString(raw.workerId, "delivery completion.workerId"),
-    claimToken: boundaryString(
-      raw.claimToken,
-      "delivery completion.claimToken",
-    ),
-    now: boundaryString(raw.now, "delivery completion.now"),
-    outcome,
-  });
-}
-
-export async function completeDeliveryAttempt(
-  store: Store,
-  input: CompleteDeliveryAttemptInput,
-): Promise<DeliveryJob | null> {
-  const request = snapshotCompleteDeliveryAttemptInput(input);
-  requireIdentifier(request.ticketId, "ticketId");
-  requireIdentifier(request.deliveryJobId, "deliveryJobId");
-  requireIdentifier(request.workerId, "workerId");
-  requireIdentifier(request.claimToken, "claimToken");
-  const now = canonicalTimestamp(request.now, "now");
-  if (request.outcome.accepted) {
-    const acceptedDeadlineAt = canonicalTimestamp(
-      request.outcome.acceptedDeadlineAt,
-      "acceptedDeadlineAt",
-    );
-    if (acceptedDeadlineAt <= now) {
-      throw new TypeError("acceptedDeadlineAt must be later than now");
-    }
-  } else {
-    const retryAt = canonicalTimestamp(request.outcome.retryAt, "retryAt");
-    if (retryAt < now) {
-      throw new TypeError("retryAt must not be earlier than now");
-    }
-    if (!FAILURE_CATEGORY.test(request.outcome.failureCategory)) {
-      throw new TypeError("failureCategory must be a coarse safe token");
-    }
-  }
-  const records = store.collection(supportRecords);
-  const result = await records.update(
-    {
-      partition: request.ticketId,
-      id: `delivery:${request.deliveryJobId}`,
-    },
-    (current) => {
-      if (
-        current?.kind !== "delivery_job" ||
-        current.status !== "leased" ||
-        current.leaseOwner !== request.workerId ||
-        current.claimToken !== request.claimToken ||
-        current.leasePurpose !== "send"
-      ) {
-        return { action: "keep" };
-      }
-      const attemptCount = current.attemptCount + 1;
-      const {
-        leaseOwner: _leaseOwner,
-        leaseExpiresAt: _leaseExpiresAt,
-        claimToken: _claimToken,
-        leasePurpose: _leasePurpose,
-        ...unleased
-      } = current;
-      const common = {
-        ...unleased,
-        attemptCount,
-      };
-      if (request.outcome.accepted) {
-        return {
-          action: "write",
-          value: {
-            ...common,
-            status: "accepted",
-            acceptedAt: request.now,
-            acceptedDeadlineAt: request.outcome.acceptedDeadlineAt,
-            reconciliationAttemptCount: 0,
-            providerMessageRef: request.outcome.providerMessageRef,
-          },
-        };
-      }
-      return {
-        action: "write",
-        value: {
-          ...common,
-          status:
-            attemptCount >= current.maxAttempts ? "dead_letter" : "retrying",
-          availableAt: request.outcome.retryAt,
-          failureCategory: request.outcome.failureCategory,
-          ...(attemptCount >= current.maxAttempts
-            ? { terminalAt: request.now }
-            : {}),
-        },
-      };
-    },
-  );
-  return result.written && result.value?.kind === "delivery_job"
-    ? result.value
-    : null;
-}
-
-export async function claimAcceptedDeliveryJob(
-  store: Store,
-  input: ClaimDeliveryJobInput,
-): Promise<DeliveryJob | null> {
-  const request = snapshotClaimDeliveryJobInput(input);
-  requireIdentifier(request.ticketId, "ticketId");
-  requireIdentifier(request.deliveryJobId, "deliveryJobId");
-  requireIdentifier(request.workerId, "workerId");
-  const now = canonicalTimestamp(request.now, "now");
-  const leaseExpiresAt = canonicalTimestamp(
-    request.leaseExpiresAt,
-    "leaseExpiresAt",
-  );
-  if (leaseExpiresAt <= now) {
-    throw new TypeError("leaseExpiresAt must be later than now");
-  }
-  const claimToken = crypto.randomUUID();
-  const records = store.collection(supportRecords);
-  const result = await records.update(
-    {
-      partition: request.ticketId,
-      id: `delivery:${request.deliveryJobId}`,
-    },
-    (current) => {
-      if (current?.kind !== "delivery_job") {
-        return { action: "keep" };
-      }
-      const acceptedExpired =
-        current.status === "accepted" &&
-        (current.acceptedDeadlineAt === undefined ||
-          current.acceptedDeadlineAt <= request.now);
-      const reconcileLeaseExpired =
-        current.status === "leased" &&
-        current.leasePurpose === "reconcile" &&
-        current.leaseExpiresAt !== undefined &&
-        current.leaseExpiresAt <= request.now;
-      if (!acceptedExpired && !reconcileLeaseExpired) {
-        return { action: "keep" };
-      }
-      return {
-        action: "write",
-        value: {
-          ...current,
-          status: "leased",
-          leaseOwner: request.workerId,
-          leaseExpiresAt: request.leaseExpiresAt,
-          claimToken,
-          leasePurpose: "reconcile",
-        },
-      };
-    },
-  );
-  return result.written && result.value?.kind === "delivery_job"
-    ? result.value
-    : null;
-}
-
-export interface CompleteDeliveryReconciliationInput {
-  readonly ticketId: TicketId;
-  readonly deliveryJobId: string;
-  readonly workerId: string;
-  readonly claimToken: string;
-  readonly now: IsoTimestamp;
-  readonly outcome:
-    | { readonly status: "delivered" }
-    | { readonly status: "failed"; readonly failureCategory: string }
-    | { readonly status: "invalid"; readonly failureCategory: string }
-    | {
-        readonly status: "unavailable";
-        readonly failureCategory: string;
-        readonly retryAt: IsoTimestamp;
-      }
-    | { readonly status: "unknown" };
-}
-
-function snapshotCompleteDeliveryReconciliationInput(
-  input: CompleteDeliveryReconciliationInput,
-): CompleteDeliveryReconciliationInput {
-  const source = boundaryObject(input, "delivery reconciliation");
-  const raw = {
-    ticketId: ownDataProperty(
-      source,
-      "ticketId",
-      "delivery reconciliation.ticketId",
-    ),
-    deliveryJobId: ownDataProperty(
-      source,
-      "deliveryJobId",
-      "delivery reconciliation.deliveryJobId",
-    ),
-    workerId: ownDataProperty(
-      source,
-      "workerId",
-      "delivery reconciliation.workerId",
-    ),
-    claimToken: ownDataProperty(
-      source,
-      "claimToken",
-      "delivery reconciliation.claimToken",
-    ),
-    now: ownDataProperty(source, "now", "delivery reconciliation.now"),
-    outcome: ownDataProperty(
-      source,
-      "outcome",
-      "delivery reconciliation.outcome",
-    ),
-  };
-  const outcomeSource = boundaryObject(
-    raw.outcome,
-    "delivery reconciliation.outcome",
-  );
-  const status = boundaryString(
-    ownDataProperty(
-      outcomeSource,
-      "status",
-      "delivery reconciliation.outcome.status",
-    ),
-    "delivery reconciliation.outcome.status",
-  );
-  if (
-    status !== "delivered" &&
-    status !== "failed" &&
-    status !== "invalid" &&
-    status !== "unavailable" &&
-    status !== "unknown"
-  ) {
-    throw new TypeError(
-      "delivery reconciliation.outcome.status must be delivered, failed, invalid, unavailable, or unknown",
-    );
-  }
-  let outcome: CompleteDeliveryReconciliationInput["outcome"];
-  if (status === "unavailable") {
-    outcome = Object.freeze({
-      status,
-      failureCategory: boundaryString(
-        ownDataProperty(
-          outcomeSource,
-          "failureCategory",
-          "delivery reconciliation.outcome.failureCategory",
-        ),
-        "delivery reconciliation.outcome.failureCategory",
-      ),
-      retryAt: boundaryString(
-        ownDataProperty(
-          outcomeSource,
-          "retryAt",
-          "delivery reconciliation.outcome.retryAt",
-        ),
-        "delivery reconciliation.outcome.retryAt",
-      ),
-    });
-  } else if (status === "failed" || status === "invalid") {
-    outcome = Object.freeze({
-      status,
-      failureCategory: boundaryString(
-        ownDataProperty(
-          outcomeSource,
-          "failureCategory",
-          "delivery reconciliation.outcome.failureCategory",
-        ),
-        "delivery reconciliation.outcome.failureCategory",
-      ),
-    });
-  } else {
-    outcome = Object.freeze({ status });
-  }
-  return Object.freeze({
-    ticketId: boundaryString(raw.ticketId, "delivery reconciliation.ticketId"),
-    deliveryJobId: boundaryString(
-      raw.deliveryJobId,
-      "delivery reconciliation.deliveryJobId",
-    ),
-    workerId: boundaryString(raw.workerId, "delivery reconciliation.workerId"),
-    claimToken: boundaryString(
-      raw.claimToken,
-      "delivery reconciliation.claimToken",
-    ),
-    now: boundaryString(raw.now, "delivery reconciliation.now"),
-    outcome,
-  });
-}
-
-export async function completeDeliveryReconciliation(
-  store: Store,
-  input: CompleteDeliveryReconciliationInput,
-): Promise<DeliveryJob | null> {
-  const request = snapshotCompleteDeliveryReconciliationInput(input);
-  requireIdentifier(request.ticketId, "ticketId");
-  requireIdentifier(request.deliveryJobId, "deliveryJobId");
-  requireIdentifier(request.workerId, "workerId");
-  requireIdentifier(request.claimToken, "claimToken");
-  const now = canonicalTimestamp(request.now, "now");
-  if (
-    (request.outcome.status === "failed" ||
-      request.outcome.status === "invalid" ||
-      request.outcome.status === "unavailable") &&
-    !FAILURE_CATEGORY.test(request.outcome.failureCategory)
-  ) {
-    throw new TypeError("failureCategory must be a coarse safe token");
-  }
-  if (
-    request.outcome.status === "unavailable" &&
-    canonicalTimestamp(request.outcome.retryAt, "retryAt") < now
-  ) {
-    throw new TypeError("retryAt must not be earlier than now");
-  }
-  const records = store.collection(supportRecords);
-  const result = await records.update(
-    {
-      partition: request.ticketId,
-      id: `delivery:${request.deliveryJobId}`,
-    },
-    (current) => {
-      if (
-        current?.kind !== "delivery_job" ||
-        current.status !== "leased" ||
-        current.leaseOwner !== request.workerId ||
-        current.claimToken !== request.claimToken ||
-        current.leasePurpose !== "reconcile"
-      ) {
-        return { action: "keep" };
-      }
-      const {
-        leaseOwner: _leaseOwner,
-        leaseExpiresAt: _leaseExpiresAt,
-        claimToken: _claimToken,
-        leasePurpose: _leasePurpose,
-        ...unleased
-      } = current;
-      if (request.outcome.status === "delivered") {
-        return {
-          action: "write",
-          value: {
-            ...unleased,
-            status: "delivered",
-            deliveredAt: request.now,
-            terminalAt: request.now,
-          },
-        };
-      }
-      if (request.outcome.status === "failed") {
-        const exhausted = current.attemptCount >= current.maxAttempts;
-        return {
-          action: "write",
-          value: {
-            ...unleased,
-            status: exhausted ? "dead_letter" : "retrying",
-            availableAt: request.now,
-            failureCategory: request.outcome.failureCategory,
-            ...(exhausted ? { terminalAt: request.now } : {}),
-          },
-        };
-      }
-      if (request.outcome.status === "invalid") {
-        return {
-          action: "write",
-          value: {
-            ...unleased,
-            status: "dead_letter",
-            failureCategory: request.outcome.failureCategory,
-            terminalAt: request.now,
-          },
-        };
-      }
-      if (request.outcome.status === "unavailable") {
-        const reconciliationAttemptCount =
-          (current.reconciliationAttemptCount ?? 0) + 1;
-        const exhausted = reconciliationAttemptCount >= current.maxAttempts;
-        return {
-          action: "write",
-          value: {
-            ...unleased,
-            reconciliationAttemptCount,
-            status: exhausted ? "dead_letter" : "accepted",
-            failureCategory: request.outcome.failureCategory,
-            ...(exhausted
-              ? { terminalAt: request.now }
-              : { acceptedDeadlineAt: request.outcome.retryAt }),
-          },
-        };
-      }
-      return {
-        action: "write",
-        value: {
-          ...unleased,
-          status: "terminal_unknown",
-          failureCategory: "delivery_status_unknown",
-          terminalAt: request.now,
-        },
-      };
-    },
-  );
-  return result.written && result.value?.kind === "delivery_job"
-    ? result.value
-    : null;
 }
 
 async function receiptHash(
@@ -2251,10 +1647,16 @@ function callbackMatches(
     stored.providerEventId === receipt.providerEventId &&
     stored.ticketId === receipt.ticketId &&
     stored.deliveryJobId === receipt.deliveryJobId &&
+    stored.submissionGeneration === receipt.submissionGeneration &&
+    stored.providerMessageRef === receipt.providerMessageRef &&
     stored.status === receipt.status &&
-    stored.occurredAt === receipt.occurredAt
+    stored.occurredAt === receipt.occurredAt &&
+    stored.failureCategory === receipt.failureCategory
   );
 }
+
+const CALLBACK_FAILURE_CATEGORY = /^[a-z][a-z0-9_]{0,63}$/;
+const DEFAULT_CALLBACK_FAILURE_CATEGORY = "provider_callback_failure";
 
 function snapshotDeliveryCallback(
   input: DeliveryCallbackInput,
@@ -2277,13 +1679,85 @@ function snapshotDeliveryCallback(
     }
     return descriptor.value;
   };
+  const readOptionalString = (
+    key: "providerMessageRef" | "failureCategory",
+  ): string | undefined => {
+    const descriptor = Object.getOwnPropertyDescriptor(input, key);
+    if (descriptor === undefined) return undefined;
+    if (!Object.hasOwn(descriptor, "value")) {
+      throw new TypeError(`delivery callback ${key} must be a string`);
+    }
+    if (descriptor.value === undefined) return undefined;
+    if (typeof descriptor.value !== "string") {
+      throw new TypeError(`delivery callback ${key} must be a string`);
+    }
+    return descriptor.value;
+  };
+  const generation = Object.getOwnPropertyDescriptor(
+    input,
+    "submissionGeneration",
+  );
+  if (
+    generation === undefined ||
+    !Object.hasOwn(generation, "value") ||
+    typeof generation.value !== "number"
+  ) {
+    throw new TypeError(
+      "delivery callback submissionGeneration must be an own numeric data property",
+    );
+  }
+  if (
+    !Number.isSafeInteger(generation.value) ||
+    generation.value < 1 ||
+    generation.value > maxMailAttempts
+  ) {
+    throw new TypeError(
+      `delivery callback submissionGeneration must be between 1 and ${maxMailAttempts}`,
+    );
+  }
+  const status = readString("status");
+  if (status !== "delivered" && status !== "failed") {
+    throw new TypeError("callback status must be delivered or failed");
+  }
+  const providerMessageRef = readOptionalString("providerMessageRef");
+  if (
+    providerMessageRef !== undefined &&
+    (providerMessageRef.trim().length === 0 ||
+      providerMessageRef.length > 512 ||
+      /[\u0000-\u001F\u007F]/.test(providerMessageRef))
+  ) {
+    throw new TypeError(
+      "delivery callback providerMessageRef must be non-empty, at most 512 characters, and contain no controls",
+    );
+  }
+  const suppliedFailureCategory = readOptionalString("failureCategory");
+  if (status === "delivered" && suppliedFailureCategory !== undefined) {
+    throw new TypeError(
+      "a delivered callback cannot include a failureCategory",
+    );
+  }
+  const failureCategory =
+    status === "failed"
+      ? (suppliedFailureCategory ?? DEFAULT_CALLBACK_FAILURE_CATEGORY)
+      : undefined;
+  if (
+    failureCategory !== undefined &&
+    !CALLBACK_FAILURE_CATEGORY.test(failureCategory)
+  ) {
+    throw new TypeError(
+      "delivery callback failureCategory must be a coarse safe token",
+    );
+  }
   return Object.freeze({
     provider: readString("provider"),
     providerEventId: readString("providerEventId"),
     ticketId: readString("ticketId"),
     deliveryJobId: readString("deliveryJobId"),
-    status: readString("status") as DeliveryCallbackInput["status"],
+    submissionGeneration: generation.value,
+    ...(providerMessageRef === undefined ? {} : { providerMessageRef }),
+    status,
     occurredAt: readString("occurredAt"),
+    ...(failureCategory === undefined ? {} : { failureCategory }),
   });
 }
 
@@ -2298,9 +1772,10 @@ export async function recordDeliveryCallback(
   requireIdentifier(receipt.ticketId, "ticketId");
   requireIdentifier(receipt.deliveryJobId, "deliveryJobId");
   canonicalTimestamp(receipt.occurredAt, "occurredAt");
-  if (receipt.status !== "delivered" && receipt.status !== "failed") {
-    throw new TypeError("callback status must be delivered or failed");
-  }
+  const callbackFailureCategory =
+    receipt.status === "failed"
+      ? (receipt.failureCategory ?? DEFAULT_CALLBACK_FAILURE_CATEGORY)
+      : undefined;
   const processedAt = clock.now();
   canonicalTimestamp(processedAt, "clock.now()");
   const receipts = store.collection(deliveryCallbackReceipts);
@@ -2321,59 +1796,22 @@ export async function recordDeliveryCallback(
     return { duplicate: true, job: null };
   }
   const records = store.collection(supportRecords);
-  const result = await records.update(
+  const result = await supportMail.applyAuthenticatedCallback(
+    records,
     {
       partition: receipt.ticketId,
-      id: `delivery:${receipt.deliveryJobId}`,
+      jobId: receipt.deliveryJobId,
+      submissionGeneration: receipt.submissionGeneration,
+      ...(receipt.providerMessageRef === undefined
+        ? {}
+        : { providerMessageRef: receipt.providerMessageRef }),
+      status: receipt.status,
+      occurredAt: receipt.occurredAt,
+      ...(callbackFailureCategory === undefined
+        ? {}
+        : { failureCategory: callbackFailureCategory }),
     },
-    (current) => {
-      if (
-        current?.kind !== "delivery_job" ||
-        current.status === "dead_letter" ||
-        current.status === "delivered"
-      ) {
-        return { action: "keep" };
-      }
-      const {
-        leaseOwner: _leaseOwner,
-        leaseExpiresAt: _leaseExpiresAt,
-        claimToken: _claimToken,
-        leasePurpose: _leasePurpose,
-        ...unleased
-      } = current;
-      const attemptCount =
-        receipt.status === "failed" &&
-        current.status === "leased" &&
-        current.leasePurpose === "send"
-          ? current.attemptCount + 1
-          : current.attemptCount;
-      return receipt.status === "delivered"
-        ? {
-            action: "write",
-            value: {
-              ...unleased,
-              status: "delivered",
-              deliveredAt: processedAt,
-              terminalAt: processedAt,
-            },
-          }
-        : {
-            action: "write",
-            value: {
-              ...unleased,
-              attemptCount,
-              status:
-                attemptCount >= current.maxAttempts
-                  ? "dead_letter"
-                  : "retrying",
-              availableAt: processedAt,
-              failureCategory: "provider_callback_failure",
-              ...(attemptCount >= current.maxAttempts
-                ? { terminalAt: processedAt }
-                : {}),
-            },
-          };
-    },
+    clock,
   );
   await receipts.update(callbackReceiptKey(location), (current) =>
     current === null || current.processedAt !== undefined
@@ -2385,7 +1823,17 @@ export async function recordDeliveryCallback(
   );
   return {
     duplicate: !inserted.inserted,
-    job: result.value?.kind === "delivery_job" ? result.value : null,
+    job:
+      result === null
+        ? null
+        : {
+            kind: "delivery_job",
+            partition: result.partition,
+            id: `delivery:${result.id}`,
+            ticketId: result.partition,
+            messageId: result.contentRef,
+            job: result,
+          },
   };
 }
 
@@ -2639,83 +2087,4 @@ export async function pruneCustomerTicketIndex(
     },
   );
   return result.value?.entries.map((entry) => entry.ticketId) ?? [];
-}
-
-/**
- * Reclaim terminal outbox rows without racing a callback or newer state.
- *
- * Ticket conversation records remain subject to the hard message cap; this
- * sweep only removes delivery jobs whose terminal version is old enough.
- */
-export async function sweepTerminalDeliveryJobs(
-  store: Store,
-  input: {
-    readonly ticketId: TicketId;
-    readonly terminalBefore: IsoTimestamp;
-    readonly maxDeletes?: number;
-  },
-): Promise<number> {
-  const source = boundaryObject(input, "terminal delivery sweep");
-  const raw = {
-    ticketId: ownDataProperty(
-      source,
-      "ticketId",
-      "terminal delivery sweep.ticketId",
-    ),
-    terminalBefore: ownDataProperty(
-      source,
-      "terminalBefore",
-      "terminal delivery sweep.terminalBefore",
-    ),
-    maxDeletes: ownDataProperty(
-      source,
-      "maxDeletes",
-      "terminal delivery sweep.maxDeletes",
-      true,
-    ),
-  };
-  const ticketId = boundaryString(
-    raw.ticketId,
-    "terminal delivery sweep.ticketId",
-  );
-  const terminalBefore = boundaryString(
-    raw.terminalBefore,
-    "terminal delivery sweep.terminalBefore",
-  );
-  if (raw.maxDeletes !== undefined && typeof raw.maxDeletes !== "number") {
-    throw new TypeError("terminal delivery sweep.maxDeletes must be a number");
-  }
-  requireIdentifier(ticketId, "ticketId");
-  canonicalTimestamp(terminalBefore, "terminalBefore");
-  const maxDeletes = raw.maxDeletes ?? 100;
-  if (!Number.isSafeInteger(maxDeletes) || maxDeletes <= 0) {
-    throw new TypeError("maxDeletes must be a positive safe integer");
-  }
-  const records = store.collection(supportRecords);
-  const candidates = (await records.listVersioned(ticketId))
-    .filter(
-      (versioned) =>
-        versioned.value.kind === "delivery_job" &&
-        (versioned.value.status === "delivered" ||
-          versioned.value.status === "dead_letter" ||
-          versioned.value.status === "terminal_unknown") &&
-        versioned.value.terminalAt !== undefined &&
-        versioned.value.terminalAt <= terminalBefore,
-    )
-    .slice(0, maxDeletes);
-  let deleted = 0;
-  for (const candidate of candidates) {
-    if (
-      await records.deleteIfUnchanged(
-        {
-          partition: ticketId,
-          id: candidate.value.id,
-        },
-        candidate.version,
-      )
-    ) {
-      deleted += 1;
-    }
-  }
-  return deleted;
 }

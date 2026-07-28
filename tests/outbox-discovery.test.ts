@@ -1,5 +1,10 @@
 import { TableClient } from "@azure/data-tables";
 import type { AccessContext } from "@pegma/authorization-core";
+import type {
+  MailProvider,
+  MailReconciliationPort,
+  MailWorker,
+} from "@pegma/mail";
 import { fixedClock } from "@pegma/spine";
 import { createAzureTablesStore } from "@pegma/storage-azure-tables";
 import {
@@ -9,23 +14,14 @@ import {
   type Store,
 } from "@pegma/storage-core";
 import {
-  claimAcceptedDeliveryJob,
   createSupportDeskApplication,
   type DeliveryJob,
   type SupportRecord,
+  supportMail,
   supportPermissions,
   supportRecords,
 } from "@pegma/support-desk-application";
-import {
-  createDeliveryWorker,
-  type DeliveryScanOutcome,
-  type MailReconciliationPort,
-  type MailSendRequest,
-  type MailSendResult,
-  outboundMessageId,
-  ticketSubject,
-} from "@pegma/support-desk-mail";
-import { defineTemplate } from "@pegma/support-desk-templates";
+import { defineTemplate, renderTemplate } from "@pegma/support-desk-templates";
 import { describe, expect, it, vi } from "vitest";
 
 import { TABLE_PORT } from "../test/azurite.js";
@@ -51,6 +47,7 @@ const caller: AccessContext = {
     supportPermissions.replyOwn,
   ],
 };
+
 const template = defineTemplate({
   id: "staff.new-ticket",
   version: 1,
@@ -61,7 +58,7 @@ const template = defineTemplate({
 
 interface StoreFixture {
   readonly store: Store;
-  /** A new adapter/facade instance over the same durable rows. */
+  /** A new adapter facade over the same durable rows. */
   freshStore(): Store;
 }
 
@@ -83,7 +80,7 @@ function memoryFixture(): StoreFixture {
 
 function azureFixture(): StoreFixture {
   azureTableOrdinal += 1;
-  const table = `pegmaoutbox${process.pid}${azureTableOrdinal}`;
+  const table = `pegmamail${process.pid}${azureTableOrdinal}`;
   const freshStore = () =>
     createAzureTablesStore({
       client: TableClient.fromConnectionString(CONNECTION_STRING, table, {
@@ -112,15 +109,12 @@ async function createTicket(
     body: "Help.",
     notification: {
       id: `notify-${ticketId}`,
-      recipientRef: "support",
+      recipientRef: "support@example.test",
       templateId: template.id,
       templateVersion: template.version,
       variables: { ticket_number: String(ticketNumber) },
-      subject: ticketSubject(ticketNumber, "Question"),
-      outboundMessageId: outboundMessageId(
-        `notify-${ticketNumber}`,
-        "example.test",
-      ),
+      subject: `[Ticket #${ticketNumber}] Question`,
+      outboundMessageId: `<support.notify-${ticketNumber}@example.test>`,
       ...(maxAttempts === undefined ? {} : { maxAttempts }),
     },
   });
@@ -128,23 +122,51 @@ async function createTicket(
 
 function worker(
   store: Store,
-  send: (request: MailSendRequest) => Promise<MailSendResult>,
+  provider: MailProvider,
   options: {
-    readonly clockNow?: string;
+    readonly now?: string;
     readonly reconciliation?: MailReconciliationPort;
     readonly acceptedCallbackMilliseconds?: number;
-    readonly workerId?: string;
   } = {},
-) {
-  return createDeliveryWorker({
-    store,
-    clock: fixedClock(options.clockNow ?? "2026-07-27T12:00:01.000Z"),
-    workerId: options.workerId ?? "worker",
+): MailWorker {
+  const records = store.collection(supportRecords);
+  return supportMail.worker({
+    records,
+    clock: fixedClock(options.now ?? "2026-07-27T12:00:01.000Z"),
+    workerId: "support-worker",
+    provider,
     reconciliation: options.reconciliation ?? {
-      reconcile: async () => ({ status: "unknown" as const }),
+      reconcile: async () => ({ status: "unknown" }),
     },
-    delivery: { send },
-    templates: { get: () => template },
+    preparation: {
+      async prepare(request) {
+        const content = await records.get({
+          partition: request.partition,
+          id: `message:${request.contentRef}`,
+        });
+        if (
+          content?.kind !== "message" ||
+          content.deliveryContent === undefined ||
+          content.deliveryContent.templateId !== template.id ||
+          content.deliveryContent.templateVersion !== template.version
+        ) {
+          throw new Error("Support mail content is unavailable");
+        }
+        const rendered = renderTemplate(
+          template,
+          content.deliveryContent.variables,
+        );
+        return {
+          recipient: request.recipientRef,
+          subject: content.deliveryContent.subject,
+          text: rendered.plainText,
+          html: rendered.html,
+          headers: {
+            "Message-ID": content.deliveryContent.outboundMessageId,
+          },
+        };
+      },
+    },
     ...(options.acceptedCallbackMilliseconds === undefined
       ? {}
       : {
@@ -153,334 +175,159 @@ function worker(
   });
 }
 
-async function completeCycle(
-  deliveryWorker: ReturnType<typeof createDeliveryWorker>,
+async function completeSendCycle(
+  mailWorker: MailWorker,
   limit: number,
-  now = "2026-07-27T12:00:01.000Z",
-): Promise<DeliveryScanOutcome[]> {
+): Promise<readonly string[]> {
   let cursor: string | undefined;
-  const outcomes: DeliveryScanOutcome[] = [];
+  const statuses: string[] = [];
   do {
-    const page = await deliveryWorker.runPage({
-      now,
+    const page = await mailWorker.runSendPage({
       limit,
       ...(cursor === undefined ? {} : { cursor }),
     });
-    outcomes.push(...page.outcomes);
+    statuses.push(...page.results.map((result) => result.status));
     cursor = page.nextCursor ?? undefined;
-    if (page.nextCursor === null) {
-      return outcomes;
-    }
+    if (page.nextCursor === null) return statuses;
   } while (true);
 }
 
-async function exerciseCommitCrashBoundary(
-  fixture: StoreFixture,
-): Promise<void> {
-  const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
-
-  const beforeCommit = await worker(fixture.freshStore(), send).runPage({
-    now: "2026-07-27T12:00:00.000Z",
-    limit: 2,
-  });
-  expect(beforeCommit).toEqual({ outcomes: [], nextCursor: null });
-  expect(send).not.toHaveBeenCalled();
-
-  await createTicket(fixture.store, "ticket", 1);
-
-  // This worker and Store instance carry no cursor or post-commit hint from
-  // the process that committed the application state and delivery job.
-  const outcomes = await completeCycle(worker(fixture.freshStore(), send), 2);
-  expect(outcomes.map(({ result }) => result.status)).toEqual(["accepted"]);
-  expect(send).toHaveBeenCalledTimes(1);
-}
-
-async function exerciseCrashBeforeCursorSave(
-  fixture: StoreFixture,
-): Promise<void> {
-  await createTicket(fixture.store, "ticket", 1);
-  const collection = fixture.store.collection(supportRecords);
+async function completeReconciliationCycle(
+  mailWorker: MailWorker,
+  limit: number,
+): Promise<readonly string[]> {
   let cursor: string | undefined;
-  let candidateCursor: string | undefined;
+  const statuses: string[] = [];
   do {
-    const page = await collection.scan({
-      limit: 1,
+    const page = await mailWorker.runReconciliationPage({
+      limit,
       ...(cursor === undefined ? {} : { cursor }),
     });
-    if (page.records[0]?.value.kind === "delivery_job") {
-      candidateCursor = cursor;
-      expect(page.nextCursor).not.toBeNull();
-      break;
-    }
+    statuses.push(...page.results.map((result) => result.status));
     cursor = page.nextCursor ?? undefined;
-    if (page.nextCursor === null) {
-      throw new Error("delivery job was not found in authoritative scan");
-    }
+    if (page.nextCursor === null) return statuses;
   } while (true);
-
-  const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
-  const deliveryWorker = worker(fixture.freshStore(), send);
-  const input = {
-    now: "2026-07-27T12:00:01.000Z",
-    limit: 1,
-    ...(candidateCursor === undefined ? {} : { cursor: candidateCursor }),
-  };
-  const first = await deliveryWorker.runPage(input);
-  expect(first.outcomes[0]?.result.status).toBe("accepted");
-
-  // Simulate a crash before first.nextCursor is durably saved.
-  const repeated = await worker(fixture.freshStore(), send).runPage(input);
-  expect(repeated.nextCursor).toBe(first.nextCursor);
-  expect(repeated.outcomes).toEqual([]);
-  expect(send).toHaveBeenCalledTimes(1);
 }
 
-async function exerciseCompleteCycleFairness(
-  fixture: StoreFixture,
-): Promise<void> {
-  await createTicket(fixture.store, "middle", 1);
-  await createTicket(fixture.store, "zulu", 2);
-  const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
-  const deliveryWorker = worker(fixture.freshStore(), send);
+async function exerciseAtomicProjection(fixture: StoreFixture): Promise<void> {
+  const records = fixture.store.collection(supportRecords);
+  await createTicket(fixture.store, "ticket", 42);
 
-  const firstPage = await deliveryWorker.runPage({
-    now: "2026-07-27T12:00:01.000Z",
-    limit: 1,
+  const message = await records.get({
+    partition: "ticket",
+    id: "message:message-ticket",
   });
-  expect(firstPage.nextCursor).not.toBeNull();
-
-  // This row may fall behind an adapter's live continuation. The contract
-  // guarantees it through repeated complete cycles, not this in-flight one.
-  await createTicket(fixture.store, "alpha", 3);
-
-  let cursor = firstPage.nextCursor;
-  while (cursor !== null) {
-    const page = await deliveryWorker.runPage({
-      now: "2026-07-27T12:00:01.000Z",
-      limit: 1,
-      cursor,
-    });
-    cursor = page.nextCursor;
-  }
-  await completeCycle(deliveryWorker, 1);
-
-  expect(send).toHaveBeenCalledTimes(3);
-}
-
-async function exerciseAcceptedCrashRecovery(
-  fixture: StoreFixture,
-): Promise<void> {
-  await createTicket(fixture.store, "ticket", 1);
-  const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
-  const accepted = await completeCycle(
-    worker(fixture.freshStore(), send, {
-      acceptedCallbackMilliseconds: 1_000,
-    }),
-    2,
-  );
-  expect(accepted).toMatchObject([
-    {
-      operation: "deliver",
-      result: { status: "accepted" },
+  const delivery = await records.get({
+    partition: "ticket",
+    id: "delivery:notify-ticket",
+  });
+  expect(message).toMatchObject({
+    kind: "message",
+    deliveryContent: {
+      templateId: "staff.new-ticket",
+      templateVersion: 1,
+      variables: { ticket_number: "42" },
+      subject: "[Ticket #42] Question",
+      outboundMessageId: "<support.notify-42@example.test>",
     },
-  ]);
-
-  // The process loses both the page outcome and cursor after provider
-  // acceptance. A fresh cycle must rediscover the accepted row and reconcile.
-  const reconcile = vi.fn(async () => ({ status: "delivered" as const }));
-  const recovered = await completeCycle(
-    worker(fixture.freshStore(), send, {
-      clockNow: "2026-07-27T12:00:02.000Z",
-      reconciliation: { reconcile },
-    }),
-    2,
-    "2026-07-27T12:00:02.000Z",
-  );
-  expect(recovered).toMatchObject([
-    {
-      operation: "reconcile",
-      result: { status: "delivered" },
-    },
-  ]);
-  expect(send).toHaveBeenCalledTimes(1);
-  expect(reconcile).toHaveBeenCalledTimes(1);
-}
-
-async function exerciseAcceptedWithoutDeadline(
-  fixture: StoreFixture,
-): Promise<void> {
-  await createTicket(fixture.store, "ticket", 1);
-  const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
-  await completeCycle(worker(fixture.store, send), 100);
-  await fixture.store
-    .collection(supportRecords)
-    .update(
-      { partition: "ticket", id: "delivery:notify-ticket" },
-      (current) => {
-        if (current?.kind !== "delivery_job") {
-          return { action: "keep" };
-        }
-        const { acceptedDeadlineAt: _deadline, ...legacy } = current;
-        return { action: "write", value: legacy };
-      },
-    );
-
-  const reconcile = vi.fn(async () => ({ status: "delivered" as const }));
-  const outcomes = await completeCycle(
-    worker(fixture.freshStore(), send, {
-      clockNow: "2026-07-27T12:00:02.000Z",
-      reconciliation: { reconcile },
-    }),
-    100,
-    "2026-07-27T12:00:02.000Z",
-  );
-  expect(outcomes).toMatchObject([
-    {
-      operation: "reconcile",
-      result: { status: "delivered" },
-    },
-  ]);
-  expect(send).toHaveBeenCalledTimes(1);
-  expect(reconcile).toHaveBeenCalledTimes(1);
-}
-
-async function exerciseCrashedReconciliationLease(
-  fixture: StoreFixture,
-): Promise<void> {
-  await createTicket(fixture.store, "ticket", 1);
-  const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
-  await completeCycle(
-    worker(fixture.store, send, {
-      acceptedCallbackMilliseconds: 1_000,
-    }),
-    100,
-  );
-  const crashed = await claimAcceptedDeliveryJob(fixture.store, {
+  });
+  expect(delivery).toMatchObject({
+    kind: "delivery_job",
     ticketId: "ticket",
-    deliveryJobId: "notify-ticket",
-    workerId: "crashed-reconciler",
-    now: "2026-07-27T12:00:02.000Z",
-    leaseExpiresAt: "2026-07-27T12:00:03.000Z",
-  });
-  expect(crashed?.leasePurpose).toBe("reconcile");
-
-  const reconcile = vi.fn(async () => ({ status: "delivered" as const }));
-  const liveLease = await completeCycle(
-    worker(fixture.freshStore(), send, {
-      clockNow: "2026-07-27T12:00:02.500Z",
-      reconciliation: { reconcile },
-    }),
-    100,
-    "2026-07-27T12:00:02.500Z",
-  );
-  expect(liveLease).toEqual([]);
-  expect(reconcile).not.toHaveBeenCalled();
-
-  const recovered = await completeCycle(
-    worker(fixture.freshStore(), send, {
-      clockNow: "2026-07-27T12:00:03.000Z",
-      reconciliation: { reconcile },
-    }),
-    100,
-    "2026-07-27T12:00:03.000Z",
-  );
-  expect(recovered).toMatchObject([
-    {
-      operation: "reconcile",
-      result: { status: "delivered" },
+    messageId: "message-ticket",
+    job: {
+      partition: "ticket",
+      id: "notify-ticket",
+      contentRef: "message-ticket",
+      recipientRef: "support@example.test",
+      submissionGeneration: 1,
+      status: "pending",
     },
-  ]);
-  expect(send).toHaveBeenCalledTimes(1);
-  expect(reconcile).toHaveBeenCalledTimes(1);
+  });
+
+  const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
+  expect(
+    await completeSendCycle(worker(fixture.freshStore(), { send }), 1),
+  ).toContain("accepted");
+  expect(send).toHaveBeenCalledWith({
+    idempotencyKey: expect.stringMatching(
+      /^pegma-mail:v1:ticket:notify-ticket:1$/,
+    ),
+    mail: {
+      recipient: "support@example.test",
+      subject: "[Ticket #42] Question",
+      text: "New ticket 42",
+      html: "<p>New ticket 42</p>",
+      headers: { "message-id": "<support.notify-42@example.test>" },
+    },
+  });
 }
 
-async function exerciseLaterJobFairness(fixture: StoreFixture): Promise<void> {
+async function exerciseCrashAndCursorRecovery(
+  fixture: StoreFixture,
+): Promise<void> {
   await createTicket(fixture.store, "alpha", 1);
   await createTicket(fixture.store, "zulu", 2);
-  const initialSend = vi.fn(async () => ({
-    providerMessageRef: "provider-alpha",
-  }));
-  expect(
-    (
-      await worker(fixture.store, initialSend, {
-        acceptedCallbackMilliseconds: 1_000,
-      }).deliver({
-        ticketId: "alpha",
-        deliveryJobId: "notify-alpha",
-        now: "2026-07-27T12:00:01.000Z",
-      })
-    ).status,
-  ).toBe("accepted");
+  const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
+  const firstWorker = worker(fixture.freshStore(), { send });
+  const first = await firstWorker.runSendPage({ limit: 1 });
+  expect(first.nextCursor).not.toBeNull();
 
-  const laterSend = vi.fn(async () => ({
-    providerMessageRef: "provider-zulu",
-  }));
-  const reconcile = vi.fn(async () => ({ status: "delivered" as const }));
-  const outcomes = await completeCycle(
-    worker(fixture.freshStore(), laterSend, {
-      clockNow: "2026-07-27T12:00:02.000Z",
-      reconciliation: { reconcile },
-    }),
-    100,
-    "2026-07-27T12:00:02.000Z",
-  );
-  expect(
-    outcomes.map(({ operation, result }) => ({
-      operation,
-      status: result.status,
-    })),
-  ).toEqual([
-    { operation: "reconcile", status: "delivered" },
-    { operation: "deliver", status: "accepted" },
-  ]);
-  expect(reconcile).toHaveBeenCalledTimes(1);
-  expect(laterSend).toHaveBeenCalledTimes(1);
+  // A process may crash before persisting the continuation. Repeating the
+  // page is harmless because the durable claim is authoritative.
+  const repeated = await worker(fixture.freshStore(), { send }).runSendPage({
+    limit: 1,
+  });
+  expect(repeated.nextCursor).toBe(first.nextCursor);
+
+  await completeSendCycle(firstWorker, 1);
+  await completeSendCycle(firstWorker, 1);
+  expect(send).toHaveBeenCalledTimes(2);
 }
 
-async function duplicateDeliveryRecordStore(store: Store): Promise<Store> {
-  const collection = store.collection(supportRecords);
-  let cursor: string | undefined;
-  let found:
-    | {
-        readonly key: { readonly partition: string; readonly id: string };
-        readonly value: DeliveryJob;
-        readonly version: string;
-      }
-    | undefined;
-  do {
-    const page = await collection.scan({
-      limit: 10,
-      ...(cursor === undefined ? {} : { cursor }),
-    });
-    const record = page.records.find(
-      (
-        value,
-      ): value is {
-        readonly key: { readonly partition: string; readonly id: string };
-        readonly value: DeliveryJob;
-        readonly version: string;
-      } => value.value.kind === "delivery_job",
-    );
-    if (record !== undefined) {
-      found = record;
-      break;
-    }
-    cursor = page.nextCursor ?? undefined;
-    if (page.nextCursor === null) {
-      break;
-    }
-  } while (true);
-  if (found === undefined) {
-    throw new Error("delivery job was not found");
-  }
+async function exerciseSeparateCursorCycles(
+  fixture: StoreFixture,
+): Promise<void> {
+  await createTicket(fixture.store, "ticket", 1);
+  const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
+  await completeSendCycle(
+    worker(fixture.store, { send }, { acceptedCallbackMilliseconds: 1_000 }),
+    2,
+  );
 
-  const mismatchedValue: DeliveryJob = {
-    ...found.value,
-    partition: "payload-ticket-is-not-authority",
-    ticketId: "payload-ticket-is-not-authority",
-    id: "delivery:payload-id-is-not-authority",
-  };
-  const duplicate = { ...found, value: mismatchedValue };
+  const reconcile = vi.fn(async () => ({ status: "delivered" as const }));
+  const recovered = worker(
+    fixture.freshStore(),
+    { send },
+    {
+      now: "2026-07-27T12:00:02.000Z",
+      reconciliation: { reconcile },
+    },
+  );
+  expect(await completeReconciliationCycle(recovered, 1)).toContain(
+    "delivered",
+  );
+  expect(await completeSendCycle(recovered, 1)).not.toContain("accepted");
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(reconcile).toHaveBeenCalledTimes(1);
+
+  const swept = await supportMail.sweep(
+    fixture.freshStore().collection(supportRecords),
+    {
+      terminalBefore: "2026-07-28T00:00:00.000Z",
+      limit: 100,
+    },
+  );
+  expect(swept.deleted).toBe(1);
+  expect(
+    await fixture.store.collection(supportRecords).get({
+      partition: "ticket",
+      id: "delivery:notify-ticket",
+    }),
+  ).toBeNull();
+}
+
+function physicalKeyMismatchStore(store: Store): Store {
   return {
     collection<T>(definition: CollectionDefinition<T>): CollectionStore<T> {
       if (definition.name !== supportRecords.name) {
@@ -491,10 +338,23 @@ async function duplicateDeliveryRecordStore(store: Store): Promise<Store> {
       ) as CollectionStore<SupportRecord>;
       return {
         ...authoritative,
-        async scan() {
+        async scan(
+          options: Parameters<CollectionStore<SupportRecord>["scan"]>[0],
+        ) {
+          const page = await authoritative.scan(options);
           return {
-            records: [duplicate, duplicate],
-            nextCursor: null,
+            ...page,
+            records: page.records.map((record) =>
+              record.value.kind === "delivery_job"
+                ? {
+                    ...record,
+                    key: {
+                      partition: record.key.partition,
+                      id: `wrong-${record.key.id}`,
+                    },
+                  }
+                : record,
+            ),
           };
         },
       } as unknown as CollectionStore<T>;
@@ -502,16 +362,10 @@ async function duplicateDeliveryRecordStore(store: Store): Promise<Store> {
   };
 }
 
-function identityMismatchStore(store: Store): Store {
-  function corrupt(job: DeliveryJob): DeliveryJob {
-    return {
-      ...job,
-      partition: `payload-${job.partition}`,
-      ticketId: `payload-${job.ticketId}`,
-      id: `payload-${job.id}`,
-    };
-  }
-
+function poisonedDeliveryWrapperStore(
+  store: Store,
+  poison: (record: DeliveryJob) => DeliveryJob,
+): Store {
   return {
     collection<T>(definition: CollectionDefinition<T>): CollectionStore<T> {
       if (definition.name !== supportRecords.name) {
@@ -520,186 +374,128 @@ function identityMismatchStore(store: Store): Store {
       const authoritative = store.collection(
         supportRecords,
       ) as CollectionStore<SupportRecord>;
-      const mismatched: CollectionStore<SupportRecord> = {
+      return {
         ...authoritative,
-        async scan(options) {
+        async scan(
+          options: Parameters<CollectionStore<SupportRecord>["scan"]>[0],
+        ) {
           const page = await authoritative.scan(options);
           return {
             ...page,
             records: page.records.map((record) =>
               record.value.kind === "delivery_job"
-                ? { ...record, value: corrupt(record.value) }
+                ? { ...record, value: poison(record.value) }
                 : record,
             ),
           };
         },
-        async update(key, decide, options) {
-          const result = await authoritative.update(
-            key,
-            async (current) => {
-              const decision = await decide(
-                current?.kind === "delivery_job" ? corrupt(current) : current,
-              );
-              if (
-                decision.action !== "write" ||
-                decision.value.kind !== "delivery_job"
-              ) {
-                return decision;
-              }
-              return {
-                action: "write",
-                value: {
-                  ...decision.value,
-                  partition: key.partition,
-                  ticketId: key.partition,
-                  id: key.id,
-                },
-              };
-            },
-            options,
-          );
-          return {
-            ...result,
-            value:
-              result.value?.kind === "delivery_job"
-                ? corrupt(result.value)
-                : result.value,
-          };
-        },
-      };
-      return mismatched as unknown as CollectionStore<T>;
+      } as unknown as CollectionStore<T>;
     },
   };
 }
 
-async function exerciseMismatchedPayloadIdentity(
-  fixture: StoreFixture,
-): Promise<void> {
-  await createTicket(fixture.store, "reconcile", 1, 1);
-  await createTicket(fixture.store, "send", 2, 1);
-  const acceptedSend = vi.fn(async () => ({
-    providerMessageRef: "provider-reconcile",
-  }));
-  expect(
-    (
-      await worker(fixture.store, acceptedSend, {
-        acceptedCallbackMilliseconds: 1_000,
-      }).deliver({
-        ticketId: "reconcile",
-        deliveryJobId: "notify-reconcile",
-        now: "2026-07-27T12:00:01.000Z",
-      })
-    ).status,
-  ).toBe("accepted");
-
-  const providerSend = vi.fn(async () => ({
-    providerMessageRef: "must-not-send",
-  }));
-  const providerReconcile = vi.fn(async () => ({
-    status: "delivered" as const,
-  }));
-  const corruptStore = identityMismatchStore(fixture.freshStore());
-  const deliveryWorker = worker(corruptStore, providerSend, {
-    clockNow: "2026-07-27T12:00:02.000Z",
-    reconciliation: { reconcile: providerReconcile },
+describe.each([
+  ["memory", memoryFixture],
+  ["Azure Tables", azureFixture],
+] as const)("@pegma/mail Support projection on %s", (_name, fixture) => {
+  it("commits Support content and generic mail state atomically", async () => {
+    await exerciseAtomicProjection(fixture());
   });
-  const outcomes = await completeCycle(
-    deliveryWorker,
-    100,
-    "2026-07-27T12:00:02.000Z",
-  );
-  expect(
-    outcomes.map(({ operation, result }) => ({
-      operation,
-      status: result.status,
-    })),
-  ).toEqual([
-    { operation: "reconcile", status: "dead_letter" },
-    { operation: "deliver", status: "dead_letter" },
-  ]);
-  expect(providerSend).not.toHaveBeenCalled();
-  expect(providerReconcile).not.toHaveBeenCalled();
 
-  expect(
-    await completeCycle(deliveryWorker, 100, "2026-07-27T12:00:03.000Z"),
-  ).toEqual([]);
-  expect(providerSend).not.toHaveBeenCalled();
-  expect(providerReconcile).not.toHaveBeenCalled();
-}
+  it("rediscovers work after process and cursor loss", async () => {
+    await exerciseCrashAndCursorRecovery(fixture());
+  });
 
-describe("atomic outbox discovery", () => {
-  for (const [name, createFixture] of [
-    ["memory", memoryFixture],
-    ["Azurite", azureFixture],
-  ] as const) {
-    it(`${name}: a fresh worker/store discovers only post-commit durable work`, async () => {
-      await exerciseCommitCrashBoundary(createFixture());
+  it("uses independent complete send and reconciliation cursor cycles", async () => {
+    await exerciseSeparateCursorCycles(fixture());
+  });
+});
+
+describe("authoritative Support mail scan boundary", () => {
+  it("rejects a decoded mail row whose physical scan key disagrees", async () => {
+    const store = createMemoryStore();
+    await createTicket(store, "ticket", 1);
+    const mismatched = worker(physicalKeyMismatchStore(store), {
+      send: async () => ({ providerMessageRef: "provider-ref" }),
     });
+    await expect(mismatched.runSendPage({ limit: 100 })).rejects.toThrow(
+      /authoritative scan key does not match/,
+    );
+  });
 
-    it(`${name}: a crash before cursor persistence repeats rather than loses work`, async () => {
-      await exerciseCrashBeforeCursorSave(createFixture());
-    });
-
-    it(`${name}: repeated complete cycles cover live-prefix insertions`, async () => {
-      await exerciseCompleteCycleFairness(createFixture());
-    });
-
-    it(`${name}: a lost accepted outcome is rediscovered for reconciliation`, async () => {
-      await exerciseAcceptedCrashRecovery(createFixture());
-    });
-
-    it(`${name}: accepted legacy rows without a callback deadline reconcile`, async () => {
-      await exerciseAcceptedWithoutDeadline(createFixture());
-    });
-
-    it(`${name}: an expired crashed reconciliation lease is reclaimed`, async () => {
-      await exerciseCrashedReconciliationLease(createFixture());
-    });
-
-    it(`${name}: reconciliation does not starve later sendable jobs`, async () => {
-      await exerciseLaterJobFairness(createFixture());
-    });
-
-    it(`${name}: mismatched payload identity fails closed before provider calls`, async () => {
-      await exerciseMismatchedPayloadIdentity(createFixture());
-    });
-
-    it(`${name}: physical keys stay authoritative across duplicate scan rows`, async () => {
-      const fixture = createFixture();
-      await createTicket(fixture.store, "authoritative-ticket", 1);
-      const send = vi.fn(async () => ({
-        providerMessageRef: "provider-ref",
-      }));
-      const page = await worker(
-        await duplicateDeliveryRecordStore(fixture.store),
+  it.each([
+    [
+      "causal message binding",
+      (record: DeliveryJob): DeliveryJob => ({
+        ...record,
+        messageId: "different-message",
+      }),
+      /mail projection did not decode a valid mail job/,
+    ],
+    [
+      "duplicated ticket binding",
+      (record: DeliveryJob): DeliveryJob => ({
+        ...record,
+        ticketId: "different-ticket",
+      }),
+      /mail projection did not decode a valid mail job/,
+    ],
+    [
+      "Support identifier bounds",
+      (record: DeliveryJob): DeliveryJob => {
+        const oversized = "x".repeat(201);
+        return {
+          ...record,
+          messageId: oversized,
+          job: { ...record.job, contentRef: oversized },
+        };
+      },
+      /mail projection did not decode a valid mail job/,
+    ],
+  ] as const)(
+    "rejects poisoned %s before provider send",
+    async (_description, poison, expected) => {
+      const store = createMemoryStore();
+      await createTicket(store, "ticket", 1);
+      const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
+      const poisoned = worker(poisonedDeliveryWrapperStore(store, poison), {
         send,
-      ).runPage({
-        now: "2026-07-27T12:00:01.000Z",
-        limit: 2,
       });
+      await expect(poisoned.runSendPage({ limit: 100 })).rejects.toThrow(
+        expected,
+      );
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
 
-      expect(
-        page.outcomes.map(({ ticketId, deliveryJobId, operation, result }) => ({
-          ticketId,
-          deliveryJobId,
-          operation,
-          status: result.status,
-        })),
-      ).toEqual([
-        {
-          ticketId: "authoritative-ticket",
-          deliveryJobId: "notify-authoritative-ticket",
-          operation: "deliver",
-          status: "accepted",
-        },
-        {
-          ticketId: "authoritative-ticket",
-          deliveryJobId: "notify-authoritative-ticket",
-          operation: "deliver",
-          status: "not_claimed",
-        },
-      ]);
-      expect(send).toHaveBeenCalledTimes(1);
+  it("preserves Support-owned wrapper metadata through generic transitions", async () => {
+    const store = createMemoryStore();
+    await createTicket(store, "ticket", 1);
+    const records = store.collection(supportRecords);
+    const before = await records.get({
+      partition: "ticket",
+      id: "delivery:notify-ticket",
     });
-  }
+    expect(before?.kind).toBe("delivery_job");
+    await worker(store, {
+      send: async () => ({ providerMessageRef: "provider-ref" }),
+    }).send({ partition: "ticket", jobId: "notify-ticket" });
+    const after = await records.get({
+      partition: "ticket",
+      id: "delivery:notify-ticket",
+    });
+    expect(
+      after?.kind === "delivery_job" && before?.kind === "delivery_job"
+        ? {
+            ticketId: after.ticketId,
+            messageId: after.messageId,
+            physicalId: after.id,
+          }
+        : null,
+    ).toEqual({
+      ticketId: "ticket",
+      messageId: "message-ticket",
+      physicalId: "delivery:notify-ticket",
+    });
+  });
 });
