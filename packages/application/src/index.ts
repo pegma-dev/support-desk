@@ -253,6 +253,26 @@ export const supportRecords = defineCollection<SupportRecord>({
   codec: jsonCodec(supportRecordKey),
 });
 
+function requireSupportMailJob(job: MailJob): void {
+  requireIdentifier(job.partition, "mail job.partition");
+  requireIdentifier(job.id, "mail job.id");
+  requireIdentifier(job.contentRef, "mail job.contentRef");
+}
+
+function requireDeliveryWrapper(record: DeliveryJob): void {
+  requireSupportMailJob(record.job);
+  if (
+    record.partition !== record.job.partition ||
+    record.id !== `delivery:${record.job.id}` ||
+    record.ticketId !== record.job.partition ||
+    record.messageId !== record.job.contentRef
+  ) {
+    throw new TypeError(
+      "stored delivery wrapper does not match its nested mail job",
+    );
+  }
+}
+
 /**
  * Project generic mail state into Support Desk's durable record union.
  *
@@ -261,13 +281,27 @@ export const supportRecords = defineCollection<SupportRecord>({
  */
 export const supportMail = defineMail<SupportRecord>({
   collection: supportRecords,
-  key: ({ partition, jobId }) => ({
-    partition,
-    id: `delivery:${jobId}`,
-  }),
+  key: ({ partition, jobId }) => {
+    requireIdentifier(partition, "mail candidate.partition");
+    requireIdentifier(jobId, "mail candidate.jobId");
+    return {
+      partition,
+      id: `delivery:${jobId}`,
+    };
+  },
   toRecord(job, previous) {
+    requireSupportMailJob(job);
     if (previous !== null && previous.kind !== "delivery_job") {
       throw new TypeError("mail projection collided with a non-mail record");
+    }
+    if (
+      previous !== null &&
+      (previous.ticketId !== job.partition ||
+        previous.messageId !== job.contentRef)
+    ) {
+      throw new TypeError(
+        "mail transition does not match the delivery wrapper's causal binding",
+      );
     }
     return {
       kind: "delivery_job",
@@ -279,7 +313,9 @@ export const supportMail = defineMail<SupportRecord>({
     };
   },
   toJob(record) {
-    return record.kind === "delivery_job" ? record.job : null;
+    if (record.kind !== "delivery_job") return null;
+    requireDeliveryWrapper(record);
+    return record.job;
   },
 });
 
@@ -1619,6 +1655,9 @@ function callbackMatches(
   );
 }
 
+const CALLBACK_FAILURE_CATEGORY = /^[a-z][a-z0-9_]{0,63}$/;
+const DEFAULT_CALLBACK_FAILURE_CATEGORY = "provider_callback_failure";
+
 function snapshotDeliveryCallback(
   input: DeliveryCallbackInput,
 ): DeliveryCallbackInput {
@@ -1645,10 +1684,11 @@ function snapshotDeliveryCallback(
   ): string | undefined => {
     const descriptor = Object.getOwnPropertyDescriptor(input, key);
     if (descriptor === undefined) return undefined;
-    if (
-      !Object.hasOwn(descriptor, "value") ||
-      typeof descriptor.value !== "string"
-    ) {
+    if (!Object.hasOwn(descriptor, "value")) {
+      throw new TypeError(`delivery callback ${key} must be a string`);
+    }
+    if (descriptor.value === undefined) return undefined;
+    if (typeof descriptor.value !== "string") {
       throw new TypeError(`delivery callback ${key} must be a string`);
     }
     return descriptor.value;
@@ -1666,8 +1706,48 @@ function snapshotDeliveryCallback(
       "delivery callback submissionGeneration must be an own numeric data property",
     );
   }
+  if (
+    !Number.isSafeInteger(generation.value) ||
+    generation.value < 1 ||
+    generation.value > maxMailAttempts
+  ) {
+    throw new TypeError(
+      `delivery callback submissionGeneration must be between 1 and ${maxMailAttempts}`,
+    );
+  }
+  const status = readString("status");
+  if (status !== "delivered" && status !== "failed") {
+    throw new TypeError("callback status must be delivered or failed");
+  }
   const providerMessageRef = readOptionalString("providerMessageRef");
-  const failureCategory = readOptionalString("failureCategory");
+  if (
+    providerMessageRef !== undefined &&
+    (providerMessageRef.trim().length === 0 ||
+      providerMessageRef.length > 512 ||
+      /[\u0000-\u001F\u007F]/.test(providerMessageRef))
+  ) {
+    throw new TypeError(
+      "delivery callback providerMessageRef must be non-empty, at most 512 characters, and contain no controls",
+    );
+  }
+  const suppliedFailureCategory = readOptionalString("failureCategory");
+  if (status === "delivered" && suppliedFailureCategory !== undefined) {
+    throw new TypeError(
+      "a delivered callback cannot include a failureCategory",
+    );
+  }
+  const failureCategory =
+    status === "failed"
+      ? (suppliedFailureCategory ?? DEFAULT_CALLBACK_FAILURE_CATEGORY)
+      : undefined;
+  if (
+    failureCategory !== undefined &&
+    !CALLBACK_FAILURE_CATEGORY.test(failureCategory)
+  ) {
+    throw new TypeError(
+      "delivery callback failureCategory must be a coarse safe token",
+    );
+  }
   return Object.freeze({
     provider: readString("provider"),
     providerEventId: readString("providerEventId"),
@@ -1675,7 +1755,7 @@ function snapshotDeliveryCallback(
     deliveryJobId: readString("deliveryJobId"),
     submissionGeneration: generation.value,
     ...(providerMessageRef === undefined ? {} : { providerMessageRef }),
-    status: readString("status") as DeliveryCallbackInput["status"],
+    status,
     occurredAt: readString("occurredAt"),
     ...(failureCategory === undefined ? {} : { failureCategory }),
   });
@@ -1692,15 +1772,10 @@ export async function recordDeliveryCallback(
   requireIdentifier(receipt.ticketId, "ticketId");
   requireIdentifier(receipt.deliveryJobId, "deliveryJobId");
   canonicalTimestamp(receipt.occurredAt, "occurredAt");
-  if (receipt.status !== "delivered" && receipt.status !== "failed") {
-    throw new TypeError("callback status must be delivered or failed");
-  }
-  if (
-    !Number.isSafeInteger(receipt.submissionGeneration) ||
-    receipt.submissionGeneration <= 0
-  ) {
-    throw new TypeError("submissionGeneration must be a positive integer");
-  }
+  const callbackFailureCategory =
+    receipt.status === "failed"
+      ? (receipt.failureCategory ?? DEFAULT_CALLBACK_FAILURE_CATEGORY)
+      : undefined;
   const processedAt = clock.now();
   canonicalTimestamp(processedAt, "clock.now()");
   const receipts = store.collection(deliveryCallbackReceipts);
@@ -1732,12 +1807,9 @@ export async function recordDeliveryCallback(
         : { providerMessageRef: receipt.providerMessageRef }),
       status: receipt.status,
       occurredAt: receipt.occurredAt,
-      ...(receipt.status === "failed"
-        ? {
-            failureCategory:
-              receipt.failureCategory ?? "provider_callback_failure",
-          }
-        : {}),
+      ...(callbackFailureCategory === undefined
+        ? {}
+        : { failureCategory: callbackFailureCategory }),
     },
     clock,
   );

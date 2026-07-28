@@ -1,6 +1,11 @@
 import type { AccessContext } from "@pegma/authorization-core";
+import { maxMailAttempts } from "@pegma/mail";
 import { fixedClock } from "@pegma/spine";
-import { createMemoryStore, type Store } from "@pegma/storage-core";
+import {
+  createMemoryStore,
+  type CollectionStore,
+  type Store,
+} from "@pegma/storage-core";
 import { describe, expect, it } from "vitest";
 import {
   createSupportDeskApplication,
@@ -926,7 +931,11 @@ describe("customer application services", () => {
     const first = await recordDeliveryCallback(store, callback, callbackClock);
     const repeated = await recordDeliveryCallback(
       store,
-      callback,
+      {
+        ...callback,
+        providerMessageRef: undefined,
+        failureCategory: undefined,
+      },
       callbackClock,
     );
 
@@ -934,6 +943,94 @@ describe("customer application services", () => {
     expect(first.duplicate).toBe(false);
     expect(first.job?.job.status).toBe("delivered");
     expect(repeated).toEqual({ duplicate: true, job: null });
+
+    const normalizedFailure = {
+      ...callback,
+      providerEventId: "event-normalized-failure",
+      providerMessageRef: undefined,
+      status: "failed" as const,
+      failureCategory: undefined,
+    };
+    const normalizedFirst = await recordDeliveryCallback(
+      store,
+      normalizedFailure,
+      callbackClock,
+    );
+    const normalizedRepeated = await recordDeliveryCallback(
+      store,
+      {
+        ...normalizedFailure,
+        failureCategory: "provider_callback_failure",
+      },
+      callbackClock,
+    );
+    expect(normalizedFirst).toEqual({ duplicate: false, job: null });
+    expect(normalizedRepeated).toEqual({ duplicate: true, job: null });
+    const normalizedBucket = await deliveryCallbackBucket(
+      normalizedFailure.provider,
+      normalizedFailure.providerEventId,
+    );
+    const [normalizedReceipt] = await store
+      .collection(deliveryCallbackReceipts)
+      .list(normalizedBucket);
+    expect(normalizedReceipt?.failureCategory).toBe(
+      "provider_callback_failure",
+    );
+    expect(
+      normalizedReceipt === undefined
+        ? true
+        : Object.hasOwn(normalizedReceipt, "providerMessageRef"),
+    ).toBe(false);
+
+    const expectRejectedWithoutReceipt = async (
+      invalid: Parameters<typeof recordDeliveryCallback>[1],
+      expected: RegExp,
+    ): Promise<void> => {
+      await expect(
+        recordDeliveryCallback(store, invalid, callbackClock),
+      ).rejects.toThrow(expected);
+      const bucket = await deliveryCallbackBucket(
+        invalid.provider,
+        invalid.providerEventId,
+      );
+      expect(
+        await store.collection(deliveryCallbackReceipts).list(bucket),
+      ).toEqual([]);
+    };
+    await expectRejectedWithoutReceipt(
+      {
+        ...callback,
+        providerEventId: "event-generation-too-large",
+        submissionGeneration: maxMailAttempts + 1,
+      },
+      /submissionGeneration must be between 1 and 20/,
+    );
+    await expectRejectedWithoutReceipt(
+      {
+        ...callback,
+        providerEventId: "event-reference-too-large",
+        providerMessageRef: "x".repeat(513),
+      },
+      /providerMessageRef must be non-empty, at most 512 characters/,
+    );
+    await expectRejectedWithoutReceipt(
+      {
+        ...callback,
+        providerEventId: "event-category-too-large",
+        status: "failed",
+        failureCategory: "x".repeat(100_000),
+      },
+      /failureCategory must be a coarse safe token/,
+    );
+    await expectRejectedWithoutReceipt(
+      {
+        ...callback,
+        providerEventId: "event-delivered-category",
+        failureCategory: "provider_failure",
+      },
+      /delivered callback cannot include a failureCategory/,
+    );
+
     await expect(
       recordDeliveryCallback(
         store,
@@ -970,6 +1067,122 @@ describe("customer application services", () => {
       ),
     ).rejects.toThrow(/status must be an own data property/);
     expect(statusReads).toBe(0);
+  });
+
+  it("replays a callback safely after crashing before receipt finalization", async () => {
+    const backing = createMemoryStore();
+    await createSupportDeskApplication({
+      store: backing,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    }).createCustomerTicket(access("customer", allCustomerPermissions), {
+      commandId: "create",
+      correlationId: "correlation",
+      ticketId: "ticket",
+      ticketNumber: 1,
+      messageId: "message",
+      subject: "Question",
+      body: "Start.",
+      notification: {
+        id: "notify",
+        recipientRef: "support",
+        templateId: "staff.new-ticket",
+        templateVersion: 1,
+        variables: {},
+        subject: "[Ticket #1] Question",
+        outboundMessageId: "<support.notify@example.test>",
+      },
+    });
+    const records = backing.collection(supportRecords);
+    await supportMail
+      .worker({
+        records,
+        clock: fixedClock("2026-07-27T12:00:30.000Z"),
+        workerId: "worker",
+        provider: {
+          send: async () => ({ providerMessageRef: "provider-ref" }),
+        },
+        reconciliation: {
+          reconcile: async () => ({ status: "unknown" }),
+        },
+        preparation: {
+          prepare: async () => ({
+            recipient: "support@example.test",
+            subject: "Question",
+            text: "New ticket",
+          }),
+        },
+      })
+      .send({ partition: "ticket", jobId: "notify" });
+
+    let failReceiptFinalization = true;
+    const crashingStore: Store = {
+      collection<T>(definition: { readonly name: string }): CollectionStore<T> {
+        const collection = backing.collection(
+          definition as Parameters<Store["collection"]>[0],
+        ) as CollectionStore<T>;
+        if (definition.name !== deliveryCallbackReceipts.name) {
+          return collection;
+        }
+        return {
+          ...collection,
+          async update(key, decide, options) {
+            if (failReceiptFinalization) {
+              failReceiptFinalization = false;
+              throw new Error("injected receipt finalization crash");
+            }
+            return collection.update(key, decide, options);
+          },
+        };
+      },
+    };
+    const callback = {
+      provider: "test-provider",
+      providerEventId: "event-crash-replay",
+      ticketId: "ticket",
+      deliveryJobId: "notify",
+      submissionGeneration: 1,
+      providerMessageRef: "provider-ref",
+      status: "delivered" as const,
+      occurredAt: "2026-07-27T12:01:00.000Z",
+    };
+
+    await expect(
+      recordDeliveryCallback(crashingStore, callback, callbackClock),
+    ).rejects.toThrow(/injected receipt finalization crash/);
+    const location = await deliveryCallbackBucket(
+      callback.provider,
+      callback.providerEventId,
+    );
+    const [unfinishedReceipt] = await backing
+      .collection(deliveryCallbackReceipts)
+      .list(location);
+    expect(unfinishedReceipt?.processedAt).toBeUndefined();
+    const afterCrash = await records.getVersioned({
+      partition: "ticket",
+      id: "delivery:notify",
+    });
+    expect(afterCrash?.value).toMatchObject({
+      kind: "delivery_job",
+      job: {
+        status: "delivered",
+        submissionGeneration: 1,
+        attemptCount: 1,
+      },
+    });
+
+    expect(
+      await recordDeliveryCallback(backing, callback, callbackClock),
+    ).toEqual({ duplicate: true, job: null });
+    const afterReplay = await records.getVersioned({
+      partition: "ticket",
+      id: "delivery:notify",
+    });
+    expect(afterReplay?.version).toBe(afterCrash?.version);
+    expect(afterReplay?.value).toEqual(afterCrash?.value);
+    const [finalizedReceipt] = await backing
+      .collection(deliveryCallbackReceipts)
+      .list(location);
+    expect(finalizedReceipt?.processedAt).toBe(callbackClock.now());
   });
 
   it("enforces bounded principal and ticket records and supports safe retention", async () => {

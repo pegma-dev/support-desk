@@ -15,6 +15,7 @@ import {
 } from "@pegma/storage-core";
 import {
   createSupportDeskApplication,
+  type DeliveryJob,
   type SupportRecord,
   supportMail,
   supportPermissions,
@@ -361,6 +362,38 @@ function physicalKeyMismatchStore(store: Store): Store {
   };
 }
 
+function poisonedDeliveryWrapperStore(
+  store: Store,
+  poison: (record: DeliveryJob) => DeliveryJob,
+): Store {
+  return {
+    collection<T>(definition: CollectionDefinition<T>): CollectionStore<T> {
+      if (definition.name !== supportRecords.name) {
+        return store.collection(definition);
+      }
+      const authoritative = store.collection(
+        supportRecords,
+      ) as CollectionStore<SupportRecord>;
+      return {
+        ...authoritative,
+        async scan(
+          options: Parameters<CollectionStore<SupportRecord>["scan"]>[0],
+        ) {
+          const page = await authoritative.scan(options);
+          return {
+            ...page,
+            records: page.records.map((record) =>
+              record.value.kind === "delivery_job"
+                ? { ...record, value: poison(record.value) }
+                : record,
+            ),
+          };
+        },
+      } as unknown as CollectionStore<T>;
+    },
+  };
+}
+
 describe.each([
   ["memory", memoryFixture],
   ["Azure Tables", azureFixture],
@@ -389,6 +422,51 @@ describe("authoritative Support mail scan boundary", () => {
       /authoritative scan key does not match/,
     );
   });
+
+  it.each([
+    [
+      "causal message binding",
+      (record: DeliveryJob): DeliveryJob => ({
+        ...record,
+        messageId: "different-message",
+      }),
+      /mail projection did not decode a valid mail job/,
+    ],
+    [
+      "duplicated ticket binding",
+      (record: DeliveryJob): DeliveryJob => ({
+        ...record,
+        ticketId: "different-ticket",
+      }),
+      /mail projection did not decode a valid mail job/,
+    ],
+    [
+      "Support identifier bounds",
+      (record: DeliveryJob): DeliveryJob => {
+        const oversized = "x".repeat(201);
+        return {
+          ...record,
+          messageId: oversized,
+          job: { ...record.job, contentRef: oversized },
+        };
+      },
+      /mail projection did not decode a valid mail job/,
+    ],
+  ] as const)(
+    "rejects poisoned %s before provider send",
+    async (_description, poison, expected) => {
+      const store = createMemoryStore();
+      await createTicket(store, "ticket", 1);
+      const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
+      const poisoned = worker(poisonedDeliveryWrapperStore(store, poison), {
+        send,
+      });
+      await expect(poisoned.runSendPage({ limit: 100 })).rejects.toThrow(
+        expected,
+      );
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
 
   it("preserves Support-owned wrapper metadata through generic transitions", async () => {
     const store = createMemoryStore();
