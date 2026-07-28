@@ -34,11 +34,13 @@ The configurable message cap is enforced by conditionally updating `quota` in
 the same transaction as every reply. Messages, command receipts, audit events,
 and optional delivery jobs therefore remain bounded together. The default and
 hard configuration maximum are 100 messages per ticket, message bodies are at
-most 20,000 characters, and each job's complete variable map is at most 8,192
-characters. A maximally filled conversation is therefore in the low tens of
-megabytes even under worst-case JSON escaping; ordinary plain-text records are
-under roughly 3 MB. `sweepTerminalDeliveryJobs` safely reclaims old terminal
-outbox rows.
+most 20,000 characters, and each job's complete variable map has at most 32
+safe-name string values and 8,192 UTF-8 bytes across those values. The
+application snapshots own data properties before idempotency fingerprinting
+and persistence; accessors are rejected rather than executed. A maximally
+filled conversation is therefore in the low tens of megabytes even under
+worst-case JSON escaping; ordinary plain-text records are under roughly 3 MB.
+`sweepTerminalDeliveryJobs` safely reclaims old terminal outbox rows.
 
 ## Read hints and receipts
 

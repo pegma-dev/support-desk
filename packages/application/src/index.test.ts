@@ -250,6 +250,209 @@ describe("customer application services", () => {
     expect(await store.collection(supportRecords).list("ticket")).toEqual([]);
   });
 
+  it("snapshots notification boundaries without executing accessors or proxy reads", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer", allCustomerPermissions);
+    const baseCommand = {
+      commandId: "create",
+      correlationId: "correlation",
+      ticketId: "ticket",
+      ticketNumber: 1,
+      messageId: "message",
+      subject: "Question",
+      body: "Start.",
+    };
+    const validNotification = {
+      id: "notify",
+      recipientRef: "support",
+      templateId: "staff.new-ticket",
+      templateVersion: 1,
+      variables: { ticket_number: "1" },
+      subject: "[Ticket #1] Question",
+      outboundMessageId: "<support.notify@example.test>",
+    };
+
+    let notificationReads = 0;
+    await expect(
+      application.createCustomerTicket(caller, {
+        ...baseCommand,
+        get notification() {
+          notificationReads += 1;
+          return validNotification;
+        },
+      }),
+    ).rejects.toThrow(/command.notification must be an own data property/);
+    expect(notificationReads).toBe(0);
+
+    let variablesReads = 0;
+    await expect(
+      application.createCustomerTicket(caller, {
+        ...baseCommand,
+        notification: {
+          ...validNotification,
+          get variables() {
+            variablesReads += 1;
+            return { ticket_number: "1" };
+          },
+        },
+      }),
+    ).rejects.toThrow(/notification.variables must be an own data property/);
+    expect(variablesReads).toBe(0);
+
+    let variableValueReads = 0;
+    const accessorVariables = Object.defineProperty({}, "ticket_number", {
+      enumerable: true,
+      get() {
+        variableValueReads += 1;
+        return "1";
+      },
+    });
+    await expect(
+      application.createCustomerTicket(caller, {
+        ...baseCommand,
+        notification: {
+          ...validNotification,
+          variables: accessorVariables,
+        },
+      }),
+    ).rejects.toThrow(/enumerable own string values/);
+    expect(variableValueReads).toBe(0);
+
+    let proxyValueReads = 0;
+    const proxiedVariables = new Proxy(
+      { ticket_number: "1" },
+      {
+        ownKeys() {
+          throw new TypeError("proxy variable enumeration refused");
+        },
+        get(target, key, receiver) {
+          proxyValueReads += 1;
+          return Reflect.get(target, key, receiver);
+        },
+      },
+    );
+    await expect(
+      application.createCustomerTicket(caller, {
+        ...baseCommand,
+        notification: {
+          ...validNotification,
+          variables: proxiedVariables,
+        },
+      }),
+    ).rejects.toThrow(/proxy variable enumeration refused/);
+    expect(proxyValueReads).toBe(0);
+    expect(await store.collection(supportRecords).list("ticket")).toEqual([]);
+
+    let descriptorReads = 0;
+    let changingProxyGets = 0;
+    const changingProxy = new Proxy(
+      {},
+      {
+        ownKeys: () => ["ticket_number"],
+        getOwnPropertyDescriptor() {
+          descriptorReads += 1;
+          return {
+            configurable: true,
+            enumerable: true,
+            writable: false,
+            value: descriptorReads === 1 ? "1" : "changed",
+          };
+        },
+        get() {
+          changingProxyGets += 1;
+          return "changed";
+        },
+      },
+    );
+    await application.createCustomerTicket(caller, {
+      ...baseCommand,
+      notification: {
+        ...validNotification,
+        variables: changingProxy,
+      },
+    });
+    expect(descriptorReads).toBe(1);
+    expect(changingProxyGets).toBe(0);
+    const delivery = (
+      await store.collection(supportRecords).list("ticket")
+    ).find((record) => record.kind === "delivery_job");
+    expect(delivery?.kind === "delivery_job" && delivery.variables).toEqual({
+      ticket_number: "1",
+    });
+  });
+
+  it("bounds notification variable shape and canonicalizes idempotency fingerprints", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer", allCustomerPermissions);
+    const baseNotification = {
+      id: "notify",
+      recipientRef: "support",
+      templateId: "staff.new-ticket",
+      templateVersion: 1,
+      subject: "[Ticket #1] Question",
+      outboundMessageId: "<support.notify@example.test>",
+    };
+    const command = {
+      commandId: "create",
+      correlationId: "correlation",
+      ticketId: "ticket",
+      ticketNumber: 1,
+      messageId: "message",
+      subject: "Question",
+      body: "Start.",
+    };
+    const invalidVariables = [
+      Object.fromEntries(
+        Array.from({ length: 33 }, (_unused, index) => [`v${index}`, "x"]),
+      ),
+      { oversized: "😀".repeat(2_049) },
+      {
+        first: "x".repeat(3_000),
+        second: "x".repeat(3_000),
+        third: "x".repeat(3_000),
+      },
+      { "Unsafe-Key": "x" },
+    ];
+    for (const variables of invalidVariables) {
+      await expect(
+        application.createCustomerTicket(caller, {
+          ...command,
+          notification: { ...baseNotification, variables },
+        }),
+      ).rejects.toThrow(/notification.variable/);
+    }
+    expect(await store.collection(supportRecords).list("ticket")).toEqual([]);
+
+    await application.createCustomerTicket(caller, {
+      ...command,
+      notification: {
+        ...baseNotification,
+        variables: { second: "2", first: "1" },
+      },
+    });
+    const repeated = await application.createCustomerTicket(caller, {
+      ...command,
+      notification: {
+        ...baseNotification,
+        variables: { first: "1", second: "2" },
+      },
+    });
+    expect(repeated.ticket.id).toBe("ticket");
+    expect(
+      (await store.collection(supportRecords).list("ticket")).filter(
+        (record) => record.kind === "delivery_job",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("never returns internal messages in a customer view", async () => {
     const store = createMemoryStore();
     const application = createSupportDeskApplication({

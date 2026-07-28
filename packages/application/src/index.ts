@@ -345,6 +345,10 @@ export interface ReplyToCustomerTicketCommand {
   readonly notification?: NotificationInput;
 }
 
+const maxNotificationVariables = 32;
+const maxNotificationVariableBytes = 8_192;
+const maxNotificationVariableTotalBytes = 8_192;
+
 export interface CustomerTicketView {
   readonly ticket: Ticket;
   readonly messages: readonly TicketMessage[];
@@ -414,66 +418,186 @@ function commandKey(ticketId: TicketId, commandId: string): EntityKey {
   return { partition: ticketId, id: `command:${commandId}` };
 }
 
-function deliveryJob(
-  ticketId: TicketId,
-  messageId: MessageId,
-  now: IsoTimestamp,
-  input: NotificationInput,
-): DeliveryJob {
-  requireIdentifier(input.id, "notification.id");
-  requireIdentifier(input.recipientRef, "notification.recipientRef");
-  requireIdentifier(input.templateId, "notification.templateId");
+function ownDataProperty(
+  source: object,
+  key: PropertyKey,
+  field: string,
+  optional = false,
+): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(source, key);
+  if (descriptor === undefined) {
+    if (optional) {
+      return undefined;
+    }
+    throw new TypeError(`${field} must be an own data property`);
+  }
+  if (!Object.hasOwn(descriptor, "value")) {
+    throw new TypeError(
+      `${field} must be an own data property, not an accessor`,
+    );
+  }
+  return descriptor.value;
+}
+
+function snapshotNotificationVariables(
+  input: unknown,
+): Readonly<Record<string, string>> {
   if (
-    !Number.isSafeInteger(input.templateVersion) ||
-    input.templateVersion <= 0
+    input === null ||
+    (typeof input !== "object" && typeof input !== "function")
+  ) {
+    throw new TypeError("notification.variables must be an object");
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(input);
+  const names = Reflect.ownKeys(descriptors);
+  if (names.length > maxNotificationVariables) {
+    throw new TypeError(
+      `notification.variables may contain at most ${maxNotificationVariables} values`,
+    );
+  }
+  const values = new Map<string, string>();
+  const encoder = new TextEncoder();
+  let totalBytes = 0;
+  for (const name of names) {
+    if (typeof name !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(name)) {
+      throw new TypeError("notification.variables must use safe names");
+    }
+    const descriptor = descriptors[name];
+    if (
+      descriptor === undefined ||
+      !descriptor.enumerable ||
+      !Object.hasOwn(descriptor, "value") ||
+      typeof descriptor.value !== "string"
+    ) {
+      throw new TypeError(
+        "notification.variables must use enumerable own string values",
+      );
+    }
+    const valueBytes = encoder.encode(descriptor.value).byteLength;
+    if (valueBytes > maxNotificationVariableBytes) {
+      throw new TypeError(
+        `notification variable values may contain at most ${maxNotificationVariableBytes} bytes`,
+      );
+    }
+    totalBytes += valueBytes;
+    if (totalBytes > maxNotificationVariableTotalBytes) {
+      throw new TypeError(
+        `notification.variables exceed the ${maxNotificationVariableTotalBytes} byte limit`,
+      );
+    }
+    values.set(name, descriptor.value);
+  }
+  const sorted: Record<string, string> = {};
+  for (const name of [...values.keys()].sort((left, right) =>
+    left < right ? -1 : left > right ? 1 : 0,
+  )) {
+    sorted[name] = values.get(name) as string;
+  }
+  return Object.freeze(sorted);
+}
+
+function snapshotNotification(input: unknown): NotificationInput {
+  if (
+    input === null ||
+    (typeof input !== "object" && typeof input !== "function")
+  ) {
+    throw new TypeError("notification must be an object");
+  }
+  const readString = (key: keyof NotificationInput): string => {
+    const value = ownDataProperty(input, key, `notification.${key}`);
+    if (typeof value !== "string") {
+      throw new TypeError(`notification.${key} must be a string`);
+    }
+    return value;
+  };
+  const id = readString("id");
+  const recipientRef = readString("recipientRef");
+  const templateId = readString("templateId");
+  const templateVersion = ownDataProperty(
+    input,
+    "templateVersion",
+    "notification.templateVersion",
+  );
+  const variables = snapshotNotificationVariables(
+    ownDataProperty(input, "variables", "notification.variables"),
+  );
+  const subject = readString("subject");
+  const outboundMessageId = readString("outboundMessageId");
+  const maxAttempts = ownDataProperty(
+    input,
+    "maxAttempts",
+    "notification.maxAttempts",
+    true,
+  );
+
+  requireIdentifier(id, "notification.id");
+  requireIdentifier(recipientRef, "notification.recipientRef");
+  requireIdentifier(templateId, "notification.templateId");
+  if (
+    !Number.isSafeInteger(templateVersion) ||
+    (templateVersion as number) <= 0
   ) {
     throw new TypeError(
       "notification.templateVersion must be a positive safe integer",
     );
   }
   if (
-    input.subject.trim().length === 0 ||
-    input.subject.length > 500 ||
-    /[\u0000-\u001F\u007F]/.test(input.subject)
+    subject.trim().length === 0 ||
+    subject.length > 500 ||
+    /[\u0000-\u001F\u007F]/.test(subject)
   ) {
     throw new TypeError(
       "notification.subject must be at most 500 characters with no controls",
     );
   }
   if (
-    input.outboundMessageId.length > 254 ||
-    !/^<[^<>\s@]+@[^<>\s@]+>$/.test(input.outboundMessageId)
+    outboundMessageId.length > 254 ||
+    !/^<[^<>\s@]+@[^<>\s@]+>$/.test(outboundMessageId)
   ) {
     throw new TypeError("notification.outboundMessageId must be a Message-ID");
   }
-  const variableEntries = Object.entries(input.variables);
-  if (variableEntries.length > 32) {
-    throw new TypeError("notification.variables may contain at most 32 values");
-  }
-  let variableCharacters = 0;
-  for (const [name, value] of variableEntries) {
-    if (!/^[a-z][a-z0-9_]{0,63}$/.test(name) || typeof value !== "string") {
-      throw new TypeError(
-        "notification.variables must use safe names and string values",
-      );
-    }
-    variableCharacters += value.length;
-  }
-  if (variableCharacters > 8_192) {
-    throw new TypeError(
-      "notification.variables exceed the 8192 character limit",
-    );
-  }
   if (
-    input.maxAttempts !== undefined &&
-    (!Number.isSafeInteger(input.maxAttempts) ||
-      input.maxAttempts <= 0 ||
-      input.maxAttempts > maxDeliveryAttempts)
+    maxAttempts !== undefined &&
+    (!Number.isSafeInteger(maxAttempts) ||
+      (maxAttempts as number) <= 0 ||
+      (maxAttempts as number) > maxDeliveryAttempts)
   ) {
     throw new TypeError(
       `notification.maxAttempts must be between 1 and ${maxDeliveryAttempts}`,
     );
   }
+  return Object.freeze({
+    id,
+    recipientRef,
+    templateId,
+    templateVersion: templateVersion as number,
+    variables,
+    subject,
+    outboundMessageId,
+    ...(maxAttempts === undefined
+      ? {}
+      : { maxAttempts: maxAttempts as number }),
+  });
+}
+
+function snapshotCommandNotification(
+  command: CreateCustomerTicketCommand | ReplyToCustomerTicketCommand,
+): NotificationInput | undefined {
+  const value = ownDataProperty(
+    command,
+    "notification",
+    "command.notification",
+    true,
+  );
+  return value === undefined ? undefined : snapshotNotification(value);
+}
+
+function deliveryJob(
+  ticketId: TicketId,
+  messageId: MessageId,
+  now: IsoTimestamp,
+  input: NotificationInput,
+): DeliveryJob {
   const id = `delivery:${input.id}`;
   return {
     kind: "delivery_job",
@@ -485,7 +609,7 @@ function deliveryJob(
     recipientRef: input.recipientRef,
     templateId: input.templateId,
     templateVersion: input.templateVersion,
-    variables: { ...input.variables },
+    variables: input.variables,
     subject: input.subject,
     outboundMessageId: input.outboundMessageId,
     status: "pending",
@@ -549,17 +673,7 @@ function duplicateMatches(
 function stableNotification(
   notification: NotificationInput | undefined,
 ): unknown {
-  if (notification === undefined) {
-    return null;
-  }
-  return {
-    ...notification,
-    variables: Object.fromEntries(
-      Object.entries(notification.variables).sort(([left], [right]) =>
-        left.localeCompare(right),
-      ),
-    ),
-  };
+  return notification ?? null;
 }
 
 async function requestFingerprint(value: unknown): Promise<string> {
@@ -760,6 +874,7 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(command.correlationId, "correlationId");
       enforceLimit(command.subject, "subject", limits.maxSubjectCharacters);
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
+      const notification = snapshotCommandNotification(command);
       const fingerprint = await requestFingerprint({
         type: "create_customer_ticket",
         ticketId: command.ticketId,
@@ -768,7 +883,7 @@ export function createSupportDeskApplication(options: {
         subject: command.subject,
         body: command.body,
         requesterEmail: command.requesterEmail ?? null,
-        notification: stableNotification(command.notification),
+        notification: stableNotification(notification),
       });
 
       const now = options.clock.now();
@@ -798,14 +913,9 @@ export function createSupportDeskApplication(options: {
         createdAt: now,
       };
       const notificationJob =
-        command.notification === undefined
+        notification === undefined
           ? undefined
-          : deliveryJob(
-              command.ticketId,
-              command.messageId,
-              now,
-              command.notification,
-            );
+          : deliveryJob(command.ticketId, command.messageId, now, notification);
       const reservation = await reserveCustomerTicket(
         access.principalId,
         command.ticketId,
@@ -957,12 +1067,13 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(command.commandId, "commandId");
       requireIdentifier(command.correlationId, "correlationId");
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
+      const notification = snapshotCommandNotification(command);
       const fingerprint = await requestFingerprint({
         type: "reply_customer_ticket",
         ticketId: command.ticketId,
         messageId: command.messageId,
         body: command.body,
-        notification: stableNotification(command.notification),
+        notification: stableNotification(notification),
       });
 
       for (let attempt = 1; attempt <= maxConflictAttempts; attempt += 1) {
@@ -1076,7 +1187,7 @@ export function createSupportDeskApplication(options: {
               completedAt: now,
             },
           },
-          ...(command.notification === undefined
+          ...(notification === undefined
             ? []
             : [
                 {
@@ -1085,7 +1196,7 @@ export function createSupportDeskApplication(options: {
                     command.ticketId,
                     command.messageId,
                     now,
-                    command.notification,
+                    notification,
                   ),
                 },
               ]),
