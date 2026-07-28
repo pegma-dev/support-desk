@@ -19,6 +19,9 @@ the same rule, including nested outcome objects. Partition keys and cutoffs
 therefore cannot change between a read and its conditional write or delete.
 Outbound `Message-ID` values must be at most 254 ASCII characters with a
 dot-atom local part, a valid DNS domain, and no controls or malformed dots.
+An accepted delivery completion must also carry a non-empty, control-free
+provider message reference of at most 512 characters. Accepted state can
+therefore always enter reconciliation with a usable provider identity.
 
 This package implements persistence coordination, not persistence. It has no
 provider SDK and no role, plan, or entitlement model.

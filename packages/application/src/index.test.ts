@@ -1853,6 +1853,66 @@ describe("customer application services", () => {
     );
     expect(outcomeGetterReads).toBe(0);
 
+    const acceptedBase = {
+      accepted: true as const,
+      acceptedDeadlineAt: "2026-07-02T01:00:00.000Z",
+    };
+    await expect(
+      completeDeliveryAttempt(store, {
+        ticketId: "ticket-b",
+        deliveryJobId: "same",
+        workerId: "worker",
+        claimToken: claimed?.claimToken ?? "missing",
+        now: "2026-07-02T00:00:01.000Z",
+        outcome: acceptedBase as never,
+      }),
+    ).rejects.toThrow(
+      /delivery completion.outcome.providerMessageRef must be an own data property/,
+    );
+    let providerReferenceReads = 0;
+    await expect(
+      completeDeliveryAttempt(store, {
+        ticketId: "ticket-b",
+        deliveryJobId: "same",
+        workerId: "worker",
+        claimToken: claimed?.claimToken ?? "missing",
+        now: "2026-07-02T00:00:01.000Z",
+        outcome: {
+          ...acceptedBase,
+          get providerMessageRef() {
+            providerReferenceReads += 1;
+            return "provider";
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      /delivery completion.outcome.providerMessageRef must be an own data property/,
+    );
+    expect(providerReferenceReads).toBe(0);
+    for (const providerMessageRef of [
+      " ",
+      "provider\u0000control",
+      "x".repeat(513),
+    ]) {
+      await expect(
+        completeDeliveryAttempt(store, {
+          ticketId: "ticket-b",
+          deliveryJobId: "same",
+          workerId: "worker",
+          claimToken: claimed?.claimToken ?? "missing",
+          now: "2026-07-02T00:00:01.000Z",
+          outcome: { ...acceptedBase, providerMessageRef },
+        }),
+      ).rejects.toThrow(/non-empty provider reference/);
+    }
+    const stillLeased = await records.get({
+      partition: "ticket-b",
+      id: "delivery:same",
+    });
+    expect(stillLeased?.kind === "delivery_job" && stillLeased.status).toBe(
+      "leased",
+    );
+
     let cutoffGetterReads = 0;
     await expect(
       pruneCustomerTicketIndex(store, "customer", {

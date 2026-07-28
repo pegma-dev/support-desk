@@ -9,6 +9,9 @@ Worker options, candidates, and per-job inputs are snapshotted from own data
 properties before use; accessors are rejected without being executed.
 Generated `Message-ID` values share the application boundary's strict
 254-character ASCII dot-atom and DNS-domain validation.
+Catalog results are revalidated at render time, and the rendered template ID
+and version must exactly match the durable job pin before the provider is
+called. A catalog fallback cannot silently send different content.
 
 This package does not contain a provider SDK, recipient directory, MIME parser,
 or identity logic.
@@ -32,6 +35,9 @@ returns. Reconciliation likewise samples the clock after the provider status
 call, so delivery, retry, and terminal retention timestamps reflect actual
 completion. Provider results are decoded as own data properties before they
 are persisted; accessors and malformed or unbounded references fail closed.
+Accepted jobs with a missing or corrupt legacy provider reference are
+terminalized as unknown without calling the provider, rather than cycling
+reconciliation leases forever.
 
 Acceptance has a bounded callback deadline. Hosts must supply a
 `MailReconciliationPort`; after the deadline, `reconcile` checks the provider

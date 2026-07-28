@@ -435,6 +435,23 @@ export function validateOutboundMessageId(
   return value;
 }
 
+export function validateProviderMessageRef(
+  value: string,
+  field = "providerMessageRef",
+): string {
+  if (
+    typeof value !== "string" ||
+    value.trim().length === 0 ||
+    value.length > 512 ||
+    /[\u0000-\u001F\u007F]/.test(value)
+  ) {
+    throw new TypeError(
+      `${field} must be a non-empty provider reference of at most 512 characters with no controls`,
+    );
+  }
+  return value;
+}
+
 function enforceLimit(
   value: string,
   field: "subject" | "body",
@@ -1643,7 +1660,7 @@ export interface CompleteDeliveryAttemptInput {
   readonly outcome:
     | {
         readonly accepted: true;
-        readonly providerMessageRef?: string;
+        readonly providerMessageRef: string;
         readonly acceptedDeadlineAt: IsoTimestamp;
       }
     | {
@@ -1706,22 +1723,17 @@ function snapshotCompleteDeliveryAttemptInput(
           ),
           "delivery completion.outcome.acceptedDeadlineAt",
         ),
-        ...(() => {
-          const providerMessageRef = ownDataProperty(
-            outcomeSource,
-            "providerMessageRef",
+        providerMessageRef: validateProviderMessageRef(
+          boundaryString(
+            ownDataProperty(
+              outcomeSource,
+              "providerMessageRef",
+              "delivery completion.outcome.providerMessageRef",
+            ),
             "delivery completion.outcome.providerMessageRef",
-            true,
-          );
-          return providerMessageRef === undefined
-            ? {}
-            : {
-                providerMessageRef: boundaryString(
-                  providerMessageRef,
-                  "delivery completion.outcome.providerMessageRef",
-                ),
-              };
-        })(),
+          ),
+          "delivery completion.outcome.providerMessageRef",
+        ),
       })
     : Object.freeze({
         accepted: false,
@@ -1821,9 +1833,7 @@ export async function completeDeliveryAttempt(
             status: "accepted",
             acceptedAt: request.now,
             acceptedDeadlineAt: request.outcome.acceptedDeadlineAt,
-            ...(request.outcome.providerMessageRef === undefined
-              ? {}
-              : { providerMessageRef: request.outcome.providerMessageRef }),
+            providerMessageRef: request.outcome.providerMessageRef,
           },
         };
       }

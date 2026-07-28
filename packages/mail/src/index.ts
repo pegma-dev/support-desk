@@ -8,6 +8,7 @@ import {
   type DeliveryCallbackInput,
   type DeliveryJob,
   validateOutboundMessageId,
+  validateProviderMessageRef,
 } from "@pegma/support-desk-application";
 import {
   renderTemplate,
@@ -172,12 +173,13 @@ function normalizeMailSendResult(value: unknown): MailSendResult {
   ) {
     throw new DeliveryWorkError("provider_response_invalid");
   }
-  const providerMessageRef = descriptor.value;
-  if (
-    providerMessageRef.trim().length === 0 ||
-    providerMessageRef.length > 512 ||
-    HEADER_CONTROL.test(providerMessageRef)
-  ) {
+  let providerMessageRef: string;
+  try {
+    providerMessageRef = validateProviderMessageRef(
+      descriptor.value,
+      "providerMessageRef",
+    );
+  } catch {
     throw new DeliveryWorkError("provider_response_invalid");
   }
   return Object.freeze({ providerMessageRef });
@@ -551,6 +553,12 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
       } catch {
         throw new DeliveryWorkError("template_render_failure");
       }
+      if (
+        rendered.templateId !== claimed.templateId ||
+        rendered.templateVersion !== claimed.templateVersion
+      ) {
+        throw new DeliveryWorkError("template_identity_mismatch");
+      }
       sendResult = normalizeMailSendResult(
         await worker.delivery.send({
           idempotencyKey: claimed.idempotencyKey,
@@ -604,24 +612,31 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
       now: request.now,
       leaseExpiresAt: at(nowEpoch + leaseMilliseconds),
     });
-    if (
-      claimed === null ||
-      claimed.claimToken === undefined ||
-      claimed.providerMessageRef === undefined
-    ) {
+    if (claimed === null || claimed.claimToken === undefined) {
       return { status: "not_claimed" };
     }
 
-    let outcome: MailReconciliationResult;
+    let outcome: MailReconciliationResult = { status: "unknown" };
+    let providerMessageRef: string | null = null;
     try {
-      outcome = normalizeReconciliationResult(
-        await worker.reconciliation.reconcile({
-          idempotencyKey: claimed.idempotencyKey,
-          providerMessageRef: claimed.providerMessageRef,
-        }),
+      providerMessageRef = validateProviderMessageRef(
+        claimed.providerMessageRef as string,
+        "stored providerMessageRef",
       );
     } catch {
       outcome = { status: "unknown" };
+    }
+    if (providerMessageRef !== null) {
+      try {
+        outcome = normalizeReconciliationResult(
+          await worker.reconciliation.reconcile({
+            idempotencyKey: claimed.idempotencyKey,
+            providerMessageRef,
+          }),
+        );
+      } catch {
+        outcome = { status: "unknown" };
+      }
     }
     const completed = trustedCompletionTime(nowEpoch, 0);
     const job = await completeDeliveryReconciliation(worker.store, {

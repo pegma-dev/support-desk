@@ -3,6 +3,7 @@ import { fixedClock } from "@pegma/spine";
 import { createMemoryStore } from "@pegma/storage-core";
 import {
   createSupportDeskApplication,
+  supportRecords,
   supportPermissions,
   sweepTerminalDeliveryJobs,
 } from "@pegma/support-desk-application";
@@ -442,6 +443,73 @@ describe("outbound delivery", () => {
     expect(unsafeHtmlReads).toBe(0);
   });
 
+  it("rejects catalog template identity drift before provider send", async () => {
+    for (const fallback of [
+      defineTemplate({ ...template, id: "staff.fallback-ticket" }),
+      defineTemplate({ ...template, version: template.version + 1 }),
+    ]) {
+      const store = await pendingJob(1);
+      const send = vi.fn(async () => ({
+        providerMessageRef: "must-not-send",
+      }));
+      const worker = createDeliveryWorker({
+        store,
+        clock: sequenceClock("2026-07-27T12:00:01.000Z"),
+        workerId: "worker",
+        reconciliation: unknownReconciliation,
+        candidates: { next: async () => null },
+        delivery: { send },
+        templates: { get: () => fallback },
+      });
+      const result = await worker.deliver({
+        ticketId: "ticket",
+        deliveryJobId: "notify",
+        now: "2026-07-27T12:00:01.000Z",
+      });
+      expect(result.status).toBe("dead_letter");
+      expect(
+        result.status === "dead_letter" && result.job.failureCategory,
+      ).toBe("template_identity_mismatch");
+      expect(send).not.toHaveBeenCalled();
+    }
+
+    const store = await pendingJob(1);
+    let templateIdReads = 0;
+    const send = vi.fn(async () => ({
+      providerMessageRef: "must-not-send",
+    }));
+    const worker = createDeliveryWorker({
+      store,
+      clock: sequenceClock("2026-07-27T12:00:01.000Z"),
+      workerId: "worker",
+      reconciliation: unknownReconciliation,
+      candidates: { next: async () => null },
+      delivery: { send },
+      templates: {
+        get: () => ({
+          ...template,
+          get id() {
+            templateIdReads += 1;
+            return templateIdReads === 1
+              ? template.id
+              : "staff.fallback-ticket";
+          },
+        }),
+      },
+    });
+    const result = await worker.deliver({
+      ticketId: "ticket",
+      deliveryJobId: "notify",
+      now: "2026-07-27T12:00:01.000Z",
+    });
+    expect(result.status).toBe("dead_letter");
+    expect(result.status === "dead_letter" && result.job.failureCategory).toBe(
+      "template_render_failure",
+    );
+    expect(templateIdReads).toBe(0);
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("rejects accessor, unbounded, and control-bearing provider references without re-reading them", async () => {
     let providerReferenceReads = 0;
     const invalidResults: readonly unknown[] = [
@@ -580,6 +648,45 @@ describe("outbound delivery", () => {
       idempotencyKey: "support-mail:v1:ticket:delivery%3Anotify",
       providerMessageRef: "provider-ref",
     });
+  });
+
+  it("terminalizes corrupt accepted work without a usable provider reference", async () => {
+    const store = await pendingJob();
+    const records = store.collection(supportRecords);
+    await records.update(
+      { partition: "ticket", id: "delivery:notify" },
+      (current) =>
+        current?.kind !== "delivery_job"
+          ? { action: "keep" }
+          : {
+              action: "write",
+              value: {
+                ...current,
+                status: "accepted",
+                acceptedAt: "2026-07-27T12:00:00.000Z",
+                acceptedDeadlineAt: "2026-07-27T12:00:01.000Z",
+              },
+            },
+    );
+    const reconcile = vi.fn(async () => ({ status: "delivered" as const }));
+    const worker = createDeliveryWorker({
+      store,
+      clock: fixedClock("2026-07-27T12:00:02.000Z"),
+      workerId: "worker",
+      reconciliation: { reconcile },
+      candidates: { next: async () => null },
+      delivery: {
+        send: async () => ({ providerMessageRef: "unused" }),
+      },
+      templates: { get: () => template },
+    });
+    const result = await worker.reconcile({
+      ticketId: "ticket",
+      deliveryJobId: "notify",
+      now: "2026-07-27T12:00:02.000Z",
+    });
+    expect(result.status).toBe("terminal_unknown");
+    expect(reconcile).not.toHaveBeenCalled();
   });
 
   it("timestamps slow reconciliation outcomes from trusted provider completion", async () => {
