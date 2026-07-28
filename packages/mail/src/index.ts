@@ -1,4 +1,8 @@
-import type { Store } from "@pegma/storage-core";
+import type {
+  CollectionDefinition,
+  CollectionStore,
+  Store,
+} from "@pegma/storage-core";
 import type { Clock } from "@pegma/spine";
 import {
   claimAcceptedDeliveryJob,
@@ -67,20 +71,46 @@ export interface TemplateCatalog {
 
 export type FailureClassifier = (error: unknown) => string;
 
+export interface CommittedDeliveryJobCandidate {
+  readonly ticketId: string;
+  readonly deliveryJobId: string;
+}
+
+/**
+ * Database-adapter discovery for committed delivery jobs.
+ *
+ * `authoritative_rows` scans the same authoritative rows that `Store`
+ * collections mutate. `transactional_change_feed` may use an adapter-native
+ * index or feed only when it is updated in the database transaction that
+ * commits the job. A separately persisted hint does not satisfy this port.
+ */
+export interface CommittedDeliveryJobDiscovery {
+  readonly consistency: "authoritative_rows" | "transactional_change_feed";
+  /**
+   * Return eligible committed work without consuming or acknowledging it.
+   * The authoritative lease decides whether this worker owns the attempt.
+   */
+  peek(now: string): Promise<CommittedDeliveryJobCandidate | null>;
+}
+
+/**
+ * A Store whose own database adapter can discover committed delivery jobs.
+ *
+ * Keeping discovery on the Store removes the separate candidate-source option
+ * and structurally binds the capability to the persistence adapter contract.
+ */
+export interface DeliveryWorkStore extends Store {
+  readonly committedDeliveryJobs: CommittedDeliveryJobDiscovery;
+}
+
 export interface DeliveryWorkerOptions {
-  readonly store: Store;
+  readonly store: DeliveryWorkStore;
   /** Trusted host time used after provider calls complete. */
   readonly clock: Clock;
   readonly delivery: MailDeliveryPort;
   readonly reconciliation: MailReconciliationPort;
   readonly templates: TemplateCatalog;
   readonly workerId: string;
-  /**
-   * Durable host-owned discovery of pending candidates. Storage Core cannot
-   * enumerate collection partitions; this seam is intentionally external.
-   * Candidates are hints and may repeat because claiming is authoritative.
-   */
-  readonly candidates: DeliveryCandidateSource;
   readonly leaseMilliseconds?: number;
   readonly baseRetryMilliseconds?: number;
   readonly acceptedCallbackMilliseconds?: number;
@@ -91,15 +121,6 @@ export interface DeliverJobInput {
   readonly ticketId: string;
   readonly deliveryJobId: string;
   readonly now: string;
-}
-
-export interface DeliveryCandidate {
-  readonly ticketId: string;
-  readonly deliveryJobId: string;
-}
-
-export interface DeliveryCandidateSource {
-  next(now: string): Promise<DeliveryCandidate | null>;
 }
 
 export type DeliverJobResult =
@@ -323,11 +344,6 @@ function snapshotDeliveryWorkerOptions(
       "workerId",
       "delivery worker options.workerId",
     ),
-    candidates: ownDataProperty(
-      source,
-      "candidates",
-      "delivery worker options.candidates",
-    ),
     leaseMilliseconds: ownDataProperty(
       source,
       "leaseMilliseconds",
@@ -370,14 +386,65 @@ function snapshotDeliveryWorkerOptions(
       "delivery worker options.classifyFailure must be a function",
     );
   }
+  const storeSource = boundaryObject(
+    raw.store,
+    "delivery worker options.store",
+  );
+  const discoverySource = boundaryObject(
+    ownDataProperty(
+      storeSource,
+      "committedDeliveryJobs",
+      "delivery worker options.store.committedDeliveryJobs",
+    ),
+    "delivery worker options.store.committedDeliveryJobs",
+  );
+  const consistency = boundaryString(
+    ownDataProperty(
+      discoverySource,
+      "consistency",
+      "delivery worker options.store.committedDeliveryJobs.consistency",
+    ),
+    "delivery worker options.store.committedDeliveryJobs.consistency",
+  );
+  if (
+    consistency !== "authoritative_rows" &&
+    consistency !== "transactional_change_feed"
+  ) {
+    throw new TypeError(
+      "delivery worker discovery must use authoritative_rows or transactional_change_feed consistency",
+    );
+  }
+  const peek = ownDataProperty(
+    discoverySource,
+    "peek",
+    "delivery worker options.store.committedDeliveryJobs.peek",
+  );
+  if (typeof peek !== "function") {
+    throw new TypeError(
+      "delivery worker options.store.committedDeliveryJobs.peek must be a function",
+    );
+  }
+  const rawStore = raw.store as Store;
+  const store: DeliveryWorkStore = Object.freeze({
+    collection<T>(definition: CollectionDefinition<T>): CollectionStore<T> {
+      return rawStore.collection<T>(definition);
+    },
+    committedDeliveryJobs: Object.freeze({
+      consistency,
+      peek(now: string) {
+        return Reflect.apply(peek, discoverySource, [
+          now,
+        ]) as Promise<CommittedDeliveryJobCandidate | null>;
+      },
+    }),
+  });
   return Object.freeze({
-    store: raw.store as Store,
+    store,
     clock: raw.clock as Clock,
     delivery: raw.delivery as MailDeliveryPort,
     reconciliation: raw.reconciliation as MailReconciliationPort,
     templates: raw.templates as TemplateCatalog,
     workerId: boundaryString(raw.workerId, "delivery worker options.workerId"),
-    candidates: raw.candidates as DeliveryCandidateSource,
     ...(raw.leaseMilliseconds === undefined
       ? {}
       : { leaseMilliseconds: raw.leaseMilliseconds as number }),
@@ -709,7 +776,7 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
     reconcile,
     async runOnce(now) {
       requireTimestamp(now);
-      const candidate = await worker.candidates.next(now);
+      const candidate = await worker.store.committedDeliveryJobs.peek(now);
       if (candidate === null) {
         return null;
       }

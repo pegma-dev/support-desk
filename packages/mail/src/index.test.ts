@@ -1,6 +1,11 @@
 import type { AccessContext } from "@pegma/authorization-core";
 import { fixedClock } from "@pegma/spine";
-import { createMemoryStore } from "@pegma/storage-core";
+import {
+  createMemoryStore,
+  type CollectionDefinition,
+  type CollectionStore,
+  type Store,
+} from "@pegma/storage-core";
 import {
   createSupportDeskApplication,
   recordDeliveryCallback,
@@ -11,7 +16,9 @@ import {
 import { defineTemplate } from "@pegma/support-desk-templates";
 import { describe, expect, it, vi } from "vitest";
 import {
+  type CommittedDeliveryJobCandidate,
   createDeliveryWorker,
+  type DeliveryWorkStore,
   outboundMessageId,
   ticketSubject,
 } from "./index.js";
@@ -39,6 +46,23 @@ const unknownReconciliation = {
   reconcile: async () => ({ status: "unknown" as const }),
 };
 
+function deliveryWorkStore(
+  store: Store,
+  peek: () => Promise<CommittedDeliveryJobCandidate | null> = async () => null,
+  consistency:
+    "authoritative_rows" | "transactional_change_feed" = "authoritative_rows",
+): DeliveryWorkStore {
+  return {
+    collection<T>(definition: CollectionDefinition<T>): CollectionStore<T> {
+      return store.collection<T>(definition);
+    },
+    committedDeliveryJobs: {
+      consistency,
+      peek,
+    },
+  };
+}
+
 function sequenceClock(...timestamps: readonly string[]) {
   let index = 0;
   return {
@@ -54,7 +78,7 @@ function sequenceClock(...timestamps: readonly string[]) {
 }
 
 async function pendingJob(maxAttempts = 3) {
-  const store = createMemoryStore();
+  const store = deliveryWorkStore(createMemoryStore());
   const application = createSupportDeskApplication({
     store,
     clock: fixedClock("2026-07-27T12:00:00.000Z"),
@@ -111,7 +135,6 @@ describe("outbound delivery", () => {
         clock: fixedClock("2026-07-27T12:00:01.000Z"),
         workerId: "worker",
         reconciliation: unknownReconciliation,
-        candidates: { next: async () => null },
         delivery: {
           send: async () => ({ providerMessageRef: "provider" }),
         },
@@ -120,12 +143,44 @@ describe("outbound delivery", () => {
     ).toThrow(/delivery worker options.store must be an own data property/);
     expect(storeGetterReads).toBe(0);
 
+    expect(() =>
+      createDeliveryWorker({
+        store: createMemoryStore() as DeliveryWorkStore,
+        clock: fixedClock("2026-07-27T12:00:01.000Z"),
+        workerId: "worker",
+        reconciliation: unknownReconciliation,
+        delivery: {
+          send: async () => ({ providerMessageRef: "provider" }),
+        },
+        templates: { get: () => template },
+      }),
+    ).toThrow(/store\.committedDeliveryJobs must be an own data property/);
+
+    const postCommitHint = {
+      ...store,
+      committedDeliveryJobs: {
+        consistency: "post_commit_hint",
+        peek: async () => null,
+      },
+    } as unknown as DeliveryWorkStore;
+    expect(() =>
+      createDeliveryWorker({
+        store: postCommitHint,
+        clock: fixedClock("2026-07-27T12:00:01.000Z"),
+        workerId: "worker",
+        reconciliation: unknownReconciliation,
+        delivery: {
+          send: async () => ({ providerMessageRef: "provider" }),
+        },
+        templates: { get: () => template },
+      }),
+    ).toThrow(/authoritative_rows or transactional_change_feed/);
+
     const worker = createDeliveryWorker({
       store,
       clock: fixedClock("2026-07-27T12:00:01.000Z"),
       workerId: "worker",
       reconciliation: unknownReconciliation,
-      candidates: { next: async () => null },
       delivery: {
         send: async () => ({ providerMessageRef: "provider" }),
       },
@@ -158,7 +213,6 @@ describe("outbound delivery", () => {
       ),
       workerId: "worker",
       reconciliation: unknownReconciliation,
-      candidates: { next: async () => null },
       delivery: { send },
       templates: {
         get: (id, version) =>
@@ -202,7 +256,6 @@ describe("outbound delivery", () => {
       ),
       workerId: "worker",
       reconciliation: unknownReconciliation,
-      candidates: { next: async () => null },
       baseRetryMilliseconds: 1_000,
       delivery: { send },
       templates: { get: () => template },
@@ -251,7 +304,6 @@ describe("outbound delivery", () => {
       clock: fixedClock("2026-07-27T12:00:10.000Z"),
       workerId: "worker",
       reconciliation: unknownReconciliation,
-      candidates: { next: async () => null },
       delivery: { send },
       templates: { get: () => template },
     });
@@ -323,7 +375,6 @@ describe("outbound delivery", () => {
       clock: fixedClock("2026-07-27T12:10:00.000Z"),
       workerId: "worker",
       reconciliation: unknownReconciliation,
-      candidates: { next: async () => null },
       delivery: { send },
       templates: { get: () => template },
     });
@@ -356,23 +407,22 @@ describe("outbound delivery", () => {
     expect(send.mock.calls.length).toBeLessThanOrEqual(maxAttempts);
   });
 
-  it("gets partition-qualified work only from the host candidate source", async () => {
+  it("claims repeated committed store discovery authoritatively", async () => {
     const store = await pendingJob();
-    let served = false;
-    const worker = createDeliveryWorker({
+    const peek = vi.fn(async () => ({
+      ticketId: "ticket",
+      deliveryJobId: "notify",
+    }));
+    const discoverable = deliveryWorkStore(
       store,
+      peek,
+      "transactional_change_feed",
+    );
+    const worker = createDeliveryWorker({
+      store: discoverable,
       clock: sequenceClock("2026-07-27T12:00:01.000Z"),
       workerId: "worker",
       reconciliation: unknownReconciliation,
-      candidates: {
-        next: async () => {
-          if (served) {
-            return null;
-          }
-          served = true;
-          return { ticketId: "ticket", deliveryJobId: "notify" };
-        },
-      },
       delivery: {
         send: async () => ({ providerMessageRef: "provider" }),
       },
@@ -382,11 +432,64 @@ describe("outbound delivery", () => {
     expect((await worker.runOnce("2026-07-27T12:00:01.000Z"))?.status).toBe(
       "accepted",
     );
-    expect(await worker.runOnce("2026-07-27T12:00:02.000Z")).toBeNull();
+    expect((await worker.runOnce("2026-07-27T12:00:02.000Z"))?.status).toBe(
+      "not_claimed",
+    );
+    expect(peek).toHaveBeenCalledTimes(2);
+  });
+
+  it("defensively refuses a precommit change-feed entry", async () => {
+    const backing = createMemoryStore();
+    const store = deliveryWorkStore(
+      backing,
+      async () => ({ ticketId: "ticket", deliveryJobId: "notify" }),
+      "transactional_change_feed",
+    );
+    const send = vi.fn(async () => ({ providerMessageRef: "provider" }));
+    const worker = createDeliveryWorker({
+      store,
+      clock: fixedClock("2026-07-27T12:00:01.000Z"),
+      workerId: "worker",
+      reconciliation: unknownReconciliation,
+      delivery: { send },
+      templates: { get: () => template },
+    });
+
+    expect((await worker.runOnce("2026-07-27T12:00:00.000Z"))?.status).toBe(
+      "not_claimed",
+    );
+    expect(send).not.toHaveBeenCalled();
+
+    await createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    }).createCustomerTicket(caller, {
+      commandId: "create",
+      correlationId: "correlation",
+      ticketId: "ticket",
+      ticketNumber: 1,
+      messageId: "message",
+      subject: "Question",
+      body: "Help.",
+      notification: {
+        id: "notify",
+        recipientRef: "support",
+        templateId: template.id,
+        templateVersion: template.version,
+        variables: { ticket_number: "1" },
+        subject: ticketSubject(1, "Question"),
+        outboundMessageId: outboundMessageId("notify", "example.test"),
+      },
+    });
+
+    expect((await worker.runOnce("2026-07-27T12:00:01.000Z"))?.status).toBe(
+      "accepted",
+    );
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it("uses distinct provider idempotency keys for the same job id on different tickets", async () => {
-    const store = createMemoryStore();
+    const store = deliveryWorkStore(createMemoryStore());
     const application = createSupportDeskApplication({
       store,
       clock: fixedClock("2026-07-27T12:00:00.000Z"),
@@ -426,7 +529,6 @@ describe("outbound delivery", () => {
       ),
       workerId: "worker",
       reconciliation: unknownReconciliation,
-      candidates: { next: async () => null },
       delivery: {
         send: async (request) => {
           keys.push(request.idempotencyKey);
@@ -460,7 +562,6 @@ describe("outbound delivery", () => {
       clock: sequenceClock("2026-07-27T12:00:01.000Z"),
       workerId: "worker",
       reconciliation: unknownReconciliation,
-      candidates: { next: async () => null },
       delivery: {
         send: async () => {
           throw new Error("secret provider response");
@@ -507,7 +608,6 @@ describe("outbound delivery", () => {
       clock: sequenceClock("2026-07-27T12:00:01.000Z"),
       workerId: "worker",
       reconciliation: unknownReconciliation,
-      candidates: { next: async () => null },
       delivery: {
         send: async () => ({ providerMessageRef: "unused" }),
       },
@@ -538,7 +638,6 @@ describe("outbound delivery", () => {
       clock: sequenceClock("2026-07-27T12:00:01.000Z"),
       workerId: "worker",
       reconciliation: unknownReconciliation,
-      candidates: { next: async () => null },
       delivery: { send: sendUnsafe },
       templates: {
         get: () => ({
@@ -583,7 +682,6 @@ describe("outbound delivery", () => {
         clock: sequenceClock("2026-07-27T12:00:01.000Z"),
         workerId: "worker",
         reconciliation: unknownReconciliation,
-        candidates: { next: async () => null },
         delivery: { send },
         templates: { get: () => fallback },
       });
@@ -609,7 +707,6 @@ describe("outbound delivery", () => {
       clock: sequenceClock("2026-07-27T12:00:01.000Z"),
       workerId: "worker",
       reconciliation: unknownReconciliation,
-      candidates: { next: async () => null },
       delivery: { send },
       templates: {
         get: () => ({
@@ -658,7 +755,6 @@ describe("outbound delivery", () => {
         clock: sequenceClock("2026-07-27T12:00:01.000Z"),
         workerId: "worker",
         reconciliation: unknownReconciliation,
-        candidates: { next: async () => null },
         delivery: {
           send: async () => invalidResult as never,
         },
@@ -686,7 +782,6 @@ describe("outbound delivery", () => {
       workerId: "worker",
       acceptedCallbackMilliseconds: 1_000,
       reconciliation: unknownReconciliation,
-      candidates: { next: async () => null },
       delivery: {
         send: async () => {
           completionTime = "2026-07-27T12:05:00.000Z";
@@ -732,7 +827,6 @@ describe("outbound delivery", () => {
       workerId: "worker",
       acceptedCallbackMilliseconds: 1_000,
       reconciliation: { reconcile },
-      candidates: { next: async () => null },
       delivery: { send },
       templates: { get: () => template },
     });
@@ -794,7 +888,6 @@ describe("outbound delivery", () => {
       baseRetryMilliseconds: 1_000,
       acceptedCallbackMilliseconds: 1_000,
       reconciliation: { reconcile },
-      candidates: { next: async () => null },
       delivery: { send },
       templates: { get: () => template },
       classifyFailure: () => "reconciliation_transport",
@@ -878,7 +971,6 @@ describe("outbound delivery", () => {
       leaseMilliseconds: 30_000,
       acceptedCallbackMilliseconds: 1_000,
       reconciliation: { reconcile: firstReconcile },
-      candidates: { next: async () => null },
       delivery: {
         send: async () => ({ providerMessageRef: "provider-ref" }),
       },
@@ -910,7 +1002,6 @@ describe("outbound delivery", () => {
       leaseMilliseconds: 30_000,
       acceptedCallbackMilliseconds: 1_000,
       reconciliation: { reconcile: recoveredReconcile },
-      candidates: { next: async () => null },
       delivery: {
         send: async () => ({ providerMessageRef: "unused" }),
       },
@@ -966,7 +1057,6 @@ describe("outbound delivery", () => {
       clock: fixedClock("2026-07-27T12:00:02.000Z"),
       workerId: "worker",
       reconciliation: { reconcile },
-      candidates: { next: async () => null },
       delivery: {
         send: async () => ({ providerMessageRef: "unused" }),
       },
@@ -1021,7 +1111,6 @@ describe("outbound delivery", () => {
             return testCase.outcome;
           },
         },
-        candidates: { next: async () => null },
         delivery: {
           send: async () => ({ providerMessageRef: "provider-ref" }),
         },
@@ -1103,7 +1192,6 @@ describe("outbound delivery", () => {
         reconciliation: {
           reconcile: async () => malformed as never,
         },
-        candidates: { next: async () => null },
         delivery: {
           send: async () => ({ providerMessageRef: "provider-ref" }),
         },

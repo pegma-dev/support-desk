@@ -322,6 +322,14 @@ record land together or neither lands, so a provider outage cannot lose a
 customer message and a retry cannot send a duplicate. That is the single
 strongest reason the ticket and its outbox rows share a partition.
 
+Discovery has no second-write gap. The delivery worker takes a Store adapter
+that either scans the authoritative committed job rows or exposes a
+database-native index/change feed maintained by that same database
+transaction. A separately persisted scheduling hint after `transact` is
+forbidden: a crash between those writes would turn a durable outbox row into
+undiscoverable work. Discovery is a non-consuming `peek`; repeated discovery is
+safe because the job lease remains the authority.
+
 Two constraints shape how it is written:
 
 - Every action must target the same partition, and no key may appear twice.
@@ -531,9 +539,11 @@ short-lived access grants rather than becoming a new identity provider.
    through `putIfUnchanged` with a version the caller supplied.
 10. A state change and the outbox record it causes commit in one `transact` on
     one partition, or the design is wrong.
-11. Every read is one key or one whole partition. A second access path is a
+11. Outbox discovery comes from authoritative rows or an adapter-native
+    transactionally maintained feed, never a separate post-commit hint.
+12. Every application read is one key or one whole partition. A second access path is a
     maintained index collection, and an index is a hint rather than an
     authorization answer.
-12. Delivery is asynchronous and retry-safe.
-13. Authorization precedes resource loading or mutation where practical.
-14. AI cannot increase a caller's permissions.
+13. Delivery is asynchronous and retry-safe.
+14. Authorization precedes resource loading or mutation where practical.
+15. AI cannot increase a caller's permissions.

@@ -61,9 +61,11 @@ the provider-neutral Phase 6 outbound-mail extraction source:
   callback port, stable ticket subject and `Message-ID` helpers, and a worker
   with conflict-safe leases, bounded exponential retries, and dead-letter
   state.
-- Because Storage Core does not enumerate partitions, workers consume
-  ticket/job candidates from a durable host-supplied candidate source. A
-  candidate is only a hint; the outbox lease is authoritative.
+- Because Storage Core does not enumerate partitions, the worker's Store
+  adapter must discover authoritative delivery-job rows directly or expose a
+  database-native index/change feed updated in the same transaction as those
+  rows. Separately persisted post-commit hints are forbidden; repeated
+  discoveries remain harmless because the outbox lease is authoritative.
 
 Phases 3, 4, and 5 are not complete. There is no durable reference deployment,
 customer web UI, or staff queue/API in this repository yet. Phase 6 source is

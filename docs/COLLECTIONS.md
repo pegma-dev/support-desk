@@ -102,10 +102,14 @@ and cannot delay a retry or accelerate deletion.
 ## Outbox discovery
 
 Storage Core deliberately cannot enumerate partitions. The mail worker
-therefore accepts candidates from a durable host-owned
-`DeliveryCandidateSource`. The source may repeat or lag: every candidate is
-confirmed by a conflict-safe lease claim in the authoritative ticket
-partition before a provider call occurs.
+therefore requires a `DeliveryWorkStore` with database-adapter discovery.
+`authoritative_rows` discovery scans committed delivery-job rows themselves;
+`transactional_change_feed` discovery may use an adapter-native index or feed
+only when the database transaction that commits the job updates it too. A
+separate host scheduling write after `transact` is not a valid implementation,
+because a crash in that gap would strand the job. Discovery may repeat; every
+`peek` is non-consuming, and every result is confirmed by a conflict-safe lease
+claim in the authoritative ticket partition before a provider call occurs.
 
 Every claim receives a fresh random fencing token. Completion requires both
 worker ID and that exact token, so a stale invocation cannot complete after

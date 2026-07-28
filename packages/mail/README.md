@@ -5,8 +5,9 @@ Adapters must honor the supplied idempotency key, so retrying an uncertain
 send cannot create a duplicate message. The stored key includes both ticket
 and job identity, is provider-safe, and cannot collide across ticket
 partitions.
-Worker options, candidates, and per-job inputs are snapshotted from own data
-properties before use; accessors are rejected without being executed.
+Worker options, committed-job discovery, and per-job inputs are snapshotted
+from own data properties before use; accessors are rejected without being
+executed.
 Generated `Message-ID` values share the application boundary's strict
 254-character ASCII dot-atom and DNS-domain validation.
 Catalog results are revalidated at render time, and the rendered template ID
@@ -17,9 +18,13 @@ This package does not contain a provider SDK, recipient directory, MIME parser,
 or identity logic.
 
 Storage Core intentionally cannot enumerate partitions. A delivery worker
-therefore requires a host-supplied `DeliveryCandidateSource` backed by durable
-host scheduling state. Candidates are only hints: the outbox lease claim is
-the authority, and duplicate candidates are harmless.
+therefore requires a `DeliveryWorkStore` whose own database adapter exposes
+`committedDeliveryJobs`. Discovery must scan authoritative delivery-job rows,
+or consume an adapter-native index/change feed updated in the same database
+transaction as the job. A separately persisted host hint is not accepted:
+there is no post-commit write that can be lost. Discovery may repeat rows
+because `peek` never consumes or acknowledges work; the outbox lease claim
+remains authoritative.
 
 A successful provider `send` means `accepted`, not delivered. Only a normalized
 authenticated delivery callback may mark a job `delivered`. A later failure
