@@ -6,15 +6,15 @@ implement a backend.
 This file names both implemented and approved planned layouts so an
 implementation agent does not invent another access path:
 
-| Collection                                   | State                                                                              |
-| -------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `support-desk.records.v1`                    | Implemented; private audit member is replaced by `@pegma/audit` in Buildout Task 1 |
-| `support-desk.customer-ticket-index.v1`      | Implemented                                                                        |
-| `support-desk.inbound-receipts.v1`           | Declared and tested; processing arrives with inbound mail                          |
-| `support-desk.delivery-callback-receipts.v1` | Implemented                                                                        |
-| `support-desk.ticket-numbers.v1`             | Planned in Buildout Task 3                                                         |
-| `support-desk.queue-index.v1`                | Planned in Buildout Task 5                                                         |
-| Inbound threading indexes                    | Not declared until Buildout Task 11                                                |
+| Collection                                   | State                                                     |
+| -------------------------------------------- | --------------------------------------------------------- |
+| `support-desk.records.v1`                    | Implemented                                               |
+| `support-desk.customer-ticket-index.v1`      | Implemented                                               |
+| `support-desk.inbound-receipts.v1`           | Declared and tested; processing arrives with inbound mail |
+| `support-desk.delivery-callback-receipts.v1` | Implemented                                               |
+| `support-desk.ticket-numbers.v1`             | Planned in Buildout Task 3                                |
+| `support-desk.queue-index.v1`                | Planned in Buildout Task 5                                |
+| Inbound threading indexes                    | Not declared until Buildout Task 11                       |
 
 The approved target is not permission to create all planned collections at
 once. A collection is added only in its named task with its codec, limits,
@@ -30,9 +30,8 @@ ID. One partition contains:
 - `reservation`: committed or cancelled customer-index reservation fence;
 - `message:<message-id>`: canonical customer or internal messages, including
   an immutable Support-owned outbound-content snapshot when applicable;
-- `event:<revision>:<command-id>`: current pre-release private audit rows;
-  Buildout Task 1 replaces this member with an `@pegma/audit` event keyed by
-  `auditRecordId(event.id)`;
+- `audit|<event-id>`: `@pegma/audit@0.1.0` accepted-change events keyed by
+  `auditRecordId(event.id)` (command ID is the event ID);
 - `command:<command-id>`: idempotency receipts with request fingerprints;
 - `delivery:<notification-id>`: durable outbound jobs.
 
@@ -78,10 +77,12 @@ The generic mail sweep scans authoritatively and uses
 `deleteIfUnchanged`; dead-letter and terminal-unknown rows must be explicitly
 acknowledged before they become eligible.
 
-Accepted-change audit history uses `@pegma/audit` in the target layout. Its
-event lives inside this same record union and ticket partition, and its
-transaction action lands beside the ticket mutation. The pure domain
-`TicketEvent` is not persisted as a second audit contract.
+Accepted-change audit history uses exact `@pegma/audit@0.1.0`. Support Desk
+declares the projection with `defineAudit` against this collection and ticket
+partition, embeds each `AuditEvent` in the record union, and drops
+`defineAudit(...).action(...)` into the same `transact` as the ticket mutation.
+History is read through Audit's `history` helper (sequence, then time, then
+id). The pure domain `TicketEvent` is not persisted as a second audit contract.
 
 ## Read hints and receipts
 
