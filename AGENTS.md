@@ -119,12 +119,13 @@ Phase 8.
 
 ## Where things stand
 
-Foundation plus the customer-facing Phase 1/2 application slice are complete
-in source: declared collections, authorized use cases, transactional audit and
-outbox actions, replay receipts, durable cursor state, and memory/Azurite
-tests. Phase 6's provider-neutral outbound-mail source is also implemented
-against exact `@pegma/mail@0.1.0`, with Support-owned projection, templates,
-threading metadata, and callback receipts.
+Foundation plus the customer-facing Phase 1/2 application services are
+implemented in source: declared collections, authorized use cases,
+transactional audit and outbox actions, replay receipts, cursor-aware workers,
+and memory/Azurite tests. Phase 2's durable abuse limits and host-owned cursor
+persistence remain composition work. Phase 6's provider-neutral outbound-mail
+source is implemented against exact `@pegma/mail@0.1.0`, with Support-owned
+projection, templates, threading metadata, and callback receipts.
 
 Nothing in this repository is published. Phases 3–5 still require a durable
 reference deployment, customer web experience, and staff queue; provider

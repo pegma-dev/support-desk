@@ -2,9 +2,9 @@
 
 ## Status
 
-**Stage:** Phases 1 and 2 plus the source portion of Phase 6 are implemented.
-All `@pegma/support-desk-*` packages remain unpublished; the durable reference
-deployment, customer UI, staff queue, and provider operation are still ahead.
+**Stage:** The customer-facing Phase 1/2 application slice and the source
+portion of Phase 6 are implemented. Phase 2 abuse limits and all deployment
+phases remain open; every `@pegma/support-desk-*` package is unpublished.
 
 **Initial reference application:** RetireGolden
 
@@ -480,7 +480,9 @@ These should be resolved through the reference implementation:
    exercising Support Desk's projection over published `@pegma/mail`,
    persisted cursors, callbacks, and dead-letter acknowledgement in the
    durable deployment.
-5. Begin Phase 8 release hardening only after the deployed phases provide
+5. Implement Phase 7 inbound mailbox verification, normalization, threading,
+   deduplication, and bounce/auto-reply controls.
+6. Begin Phase 8 release hardening only after the deployed phases provide
    recovery, privacy, retention, and operational evidence.
 
 The backlog should remain intentionally small until the first integration
