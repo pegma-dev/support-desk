@@ -119,13 +119,16 @@ Phase 8.
 
 ## Where things stand
 
-Foundation is complete: provider-neutral ticket and message contracts, pure
-ticket creation, revisioned state transitions, requester association states,
-and workflow and rejection tests. Nothing here performs I/O yet.
+Foundation plus the customer-facing Phase 1/2 application slice are complete
+in source: declared collections, authorized use cases, transactional audit and
+outbox actions, replay receipts, durable cursor state, and memory/Azurite
+tests. Phase 6's provider-neutral outbound-mail source is also implemented
+against exact `@pegma/mail@0.1.0`, with Support-owned projection, templates,
+threading metadata, and callback receipts.
 
-Phase 1 is application services and declared collections, and it is where the
-partition layout gets decided. Decide it before writing use cases: the
-transaction boundary follows from it and is very expensive to move afterwards.
+Nothing in this repository is published. Phases 3–5 still require a durable
+reference deployment, customer web experience, and staff queue; provider
+selection and operation remain host work.
 
 This project was developed under the `@support-desk` scope and moved into Pegma
 on 2026-07-26. The git history begins at that move, nothing was published under
