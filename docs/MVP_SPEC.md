@@ -2,11 +2,11 @@
 
 ## Purpose
 
-The MVP provides a small support desk for a SaaS product:
+The MVP provides a small support desk for a host application:
 
-- paid, authenticated customers can create and follow their own tickets on the
-  website;
-- authorized staff can work a central queue;
+- authenticated users with the host-defined permission can create and follow
+  their own tickets on the website;
+- authorized staff can work the host instance's queue;
 - customers and staff receive branded email notifications;
 - replies to those emails join the existing ticket thread;
 - new mail sent directly to a support address creates an unverified ticket when
@@ -17,6 +17,11 @@ Stripe, a particular cloud, or a particular email provider. It does require the
 Pegma boundaries: permissions from `@pegma/authorization-core`, a
 `@pegma/storage-core` `Store` supplied by the host, and shared identity, clock,
 logger, and event types from `@pegma/spine`.
+
+The initial proof is two isolated compositions of the same packages:
+retiregolden.org provides paid customer support on Azure, while pegma.dev
+collects authenticated product feedback on Cloudflare. They do not share
+tickets, queues, numbers, mail channels, or storage.
 
 ## Terminology
 
@@ -33,10 +38,11 @@ logger, and event types from `@pegma/spine`.
 
 ## Actors
 
-### Paid customer
+### Authenticated requester
 
-An authenticated principal with the host-defined permission to open support
-tickets.
+An authenticated principal with the host-defined permission to open tickets.
+RetireGolden derives that permission from paid-product policy. pegma.dev grants
+it to authenticated accounts through its own policy defaults.
 
 ### Support staff
 
@@ -80,19 +86,30 @@ Possessing `support.ticket.read.own` does not establish ownership. The
 application must also prove that the authenticated principal matches the
 ticket's requester principal.
 
+At launch, retiregolden.org and pegma.dev use the same permission names but
+different policy inputs. Support Desk never asks whether a requester is paid,
+which identity provider authenticated them, or which host it is running in.
+
 ## Customer web experience
 
 ### Create
 
-A paid customer can submit:
+An authorized authenticated requester can submit:
 
 - subject;
 - plain-text or constrained Markdown message;
-- a category when the host configures categories.
+- a category from the host's configured allowlist.
 
 The server supplies the principal ID, verified account email snapshot, channel,
 ticket ID, ticket number, creation time, and initial priority. Browser-provided
 identity, plan, role, priority, and assignment fields are ignored.
+
+Category is an optional opaque Support Desk field. The application validates it
+against the frozen host configuration, and the server may require it for a
+particular form. It never changes identity, authorization, priority, or
+assignment. pegma.dev initially configures `feedback`, `bug`,
+`feature_request`, `documentation`, and `question`; RetireGolden owns its own
+allowlist.
 
 On success, the customer sees the ticket number and receives a confirmation
 email.
@@ -103,10 +120,23 @@ A customer can list and read only tickets linked to their authenticated
 principal ID. The initial message and all customer-visible replies are shown in
 chronological order. Internal notes and staff-only metadata are excluded.
 
-The customer's own tickets are one partition keyed by their `PrincipalId`, so
-listing them is a partition read rather than a filtered scan. Chronological
-order is applied after reading, from an explicit ordinal in each message record,
-because a partition read returns records in unspecified order.
+Customer APIs return an explicit safe summary, not the authoritative `Ticket`
+record. It includes ID, number, subject, optional category, status, channel,
+creation time, and `customerUpdatedAt`. It excludes requester email and
+association evidence, priority, assignee, staff-facing `updatedAt`, revision,
+audit history, command state, and delivery state.
+
+`customerUpdatedAt` advances for customer-visible messages and lifecycle
+changes. Internal notes, assignment, and priority changes update staff queue
+ordering but do not change this customer-visible timestamp, so their existence
+cannot be inferred from an own-ticket list.
+
+The customer's ticket index is one bounded summary record keyed by
+`PrincipalId`. It is a hint: listing follows each referenced ticket ID to the
+authoritative ticket partition and re-checks the requester principal. Messages
+for one ticket share that ticket's partition and are sorted after reading from
+their explicit committed revision ordinal, because partition reads have no
+specified order.
 
 ### Follow up
 
@@ -134,20 +164,22 @@ The initial queue presents, and lets staff narrow by:
 
 None of this is a database query. Storage offers reads by key and reads of a
 whole partition, with no server-side filtering, ordering, or secondary index.
-The open queue is therefore a partition Support Desk maintains itself: an index
-collection whose rows are written alongside the ticket state changes that put a
-ticket in or out of the queue. Staff narrowing and sort order are applied in
-the application after reading that partition.
+The open queue is therefore a separate projection with one row partitioned by
+ticket ID. A bounded collection-wide scan discovers projection rows; every
+candidate is confirmed against the authoritative ticket before filtering or
+display. Staff narrowing and sort order are applied in application memory after
+that confirmation, under a configured hard materialization limit.
 
-This makes the queue partition a bounded working set rather than an archive.
-Resolved and closed tickets leave the queue index; they remain readable by key
-and through the requester's own partition. If a queue ever outgrows one read,
-the answer is a narrower partition key — per assignee, per status — not a
-richer query.
+The projection cannot share the ticket transaction because it is a different
+collection. The application attempts to update it immediately after a ticket
+commit, and a repeating cursor-aware worker repairs omissions from
+authoritative ticket rows. Resolved and closed tickets project inactive rows,
+which are later reclaimed conditionally. A temporary gap is allowed; permanent
+loss after a complete repair cycle is not.
 
 An index row is a pointer, never proof. Loading the ticket it names and
-re-checking status, assignment, and ownership against the ticket record is the
-authoritative step.
+re-checking revision, status, assignment, and scope against the ticket record
+is the authoritative step.
 
 Staff can:
 
@@ -179,6 +211,9 @@ Rules:
 - Only a resolved ticket can be closed.
 - Internal notes, assignment, and priority changes do not change status.
 - Every transition increments the ticket revision and creates an audit event.
+- Customer replies, staff replies, resolution, closure, and reopening advance
+  both staff `updatedAt` and `customerUpdatedAt`; notes, assignment, and
+  priority changes advance staff `updatedAt` only.
 
 These rules intentionally mean that a staff reply to a `closed` ticket returns
 it directly to `waiting_on_customer` without a separate reopen event. The
@@ -201,6 +236,9 @@ priority policy.
 No inbound message automatically receives `urgent` priority based only on its
 subject, sender, sentiment, or AI classification.
 
+pegma.dev uses the same generic rules but has no paid/unpaid distinction for
+authenticated web feedback. Its category choice does not raise priority.
+
 ## Email notifications
 
 The MVP sends transactional email for:
@@ -222,6 +260,8 @@ Every customer email has:
 
 Templates are data, not executable code. Values are escaped according to output
 context, and administrators can preview both representations before activation.
+RetireGolden and Pegma activate separate template packs, subjects, URLs, and
+sender configuration in their isolated instances.
 
 ## Inbound email
 
@@ -326,7 +366,7 @@ The MVP stores:
 
 - current ticket state and revision;
 - canonical messages;
-- append-only ticket events;
+- append-only `@pegma/audit` accepted-change events;
 - channel-delivery and deduplication records;
 - template version used for each outbound message;
 - queue and threading index rows Support Desk maintains itself;
@@ -334,10 +374,12 @@ The MVP stores:
 - actor principal ID for staff actions;
 - timestamps generated or accepted by trusted server components.
 
-Everything above is a declared `@pegma/storage-core` collection. A ticket, its
-messages, its events, and its outbox rows share one partition so that a state
-change and the notification it causes commit in a single `transact`. Index and
-receipt collections are keyed by what looks them up, and are separate.
+Everything above is a declared `@pegma/storage-core` collection. Accepted
+change history uses `@pegma/audit` events embedded in the Support Desk record
+union. A ticket, its messages, its audit events, and its outbox rows share one
+partition so that a state change and the records it causes commit in a single
+`transact`. Index and receipt collections are keyed by what looks them up and
+are separate, so they are non-authoritative and repairable.
 
 Logs should use ticket IDs, event IDs, and redacted recipient identifiers.
 Message bodies, access tokens, webhook secrets, and full email addresses should
@@ -350,21 +392,25 @@ not appear in routine logs.
 - SLAs and business-hours calendars
 - Macros and automation rules
 - Customer satisfaction surveys
-- Multiple brands or tenants
+- A shared multi-brand or multi-tenant deployment; separate branded host
+  instances are the launch design
 - Public knowledge-base editing
 - AI-generated customer replies
 - AI actions against customer accounts
 - Automatic priority escalation from sentiment
 - Hosted Support Desk control plane
+- Automatic publication of pegma.dev tickets to a roadmap or GitHub Issues
 - Any persistence layer or access model inside this repository
 
 ## Acceptance criteria
 
 The MVP is complete when:
 
-1. An authenticated paid customer can create, list, read, and reply to their
-   own ticket but cannot access another customer's ticket.
-2. Support staff can work a central queue using explicit permissions.
+1. An eligible RetireGolden customer and an authenticated pegma.dev user can
+   each create, list, read, and reply to their own ticket in isolated instances
+   but cannot access another requester's ticket.
+2. Support staff can work each host instance's queue using explicit
+   permissions.
 3. Internal notes never appear in customer responses or notifications.
 4. A staff reply sends a branded notification and an email reply joins the
    original ticket.
@@ -375,6 +421,10 @@ The MVP is complete when:
 8. Every staff action and state change is auditable.
 9. Content rendering remains safe with hostile HTML and links.
 10. The implementation runs on the storage-core in-memory `Store` and a test
-    permission source, with no Auth0, Stripe, cloud, or mail-provider
-    dependency.
-11. Moving to a durable `Store` changes no Support Desk code.
+    permission source, with no Auth0, Stripe, Identity, Sessions, cloud, or
+    mail-provider dependency.
+11. Azure Tables and D1 host compositions change no Support Desk code.
+12. Each host applies durable create/reply limits at its HTTP boundary with no
+    private limiter inside Support Desk.
+13. A queue projection missed after a ticket commit converges after a complete
+    authoritative repair cycle.

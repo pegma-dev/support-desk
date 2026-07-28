@@ -3,6 +3,23 @@
 Support Desk declares storage through `@pegma/storage-core`; it does not
 implement a backend.
 
+This file names both implemented and approved planned layouts so an
+implementation agent does not invent another access path:
+
+| Collection                                   | State                                                                              |
+| -------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `support-desk.records.v1`                    | Implemented; private audit member is replaced by `@pegma/audit` in Buildout Task 1 |
+| `support-desk.customer-ticket-index.v1`      | Implemented                                                                        |
+| `support-desk.inbound-receipts.v1`           | Declared and tested; processing arrives with inbound mail                          |
+| `support-desk.delivery-callback-receipts.v1` | Implemented                                                                        |
+| `support-desk.ticket-numbers.v1`             | Planned in Buildout Task 3                                                         |
+| `support-desk.queue-index.v1`                | Planned in Buildout Task 5                                                         |
+| Inbound threading indexes                    | Not declared until Buildout Task 11                                                |
+
+The approved target is not permission to create all planned collections at
+once. A collection is added only in its named task with its codec, limits,
+memory tests, and real-adapter tests.
+
 ## Authoritative records
 
 `support-desk.records.v1` is a heterogeneous collection partitioned by ticket
@@ -13,7 +30,9 @@ ID. One partition contains:
 - `reservation`: committed or cancelled customer-index reservation fence;
 - `message:<message-id>`: canonical customer or internal messages, including
   an immutable Support-owned outbound-content snapshot when applicable;
-- `event:<revision>:<command-id>`: append-only audit events;
+- `event:<revision>:<command-id>`: current pre-release private audit rows;
+  Buildout Task 1 replaces this member with an `@pegma/audit` event keyed by
+  `auditRecordId(event.id)`;
 - `command:<command-id>`: idempotency receipts with request fingerprints;
 - `delivery:<notification-id>`: durable outbound jobs.
 
@@ -58,6 +77,11 @@ worst-case JSON escaping; ordinary plain-text records are under roughly 3 MB.
 The generic mail sweep scans authoritatively and uses
 `deleteIfUnchanged`; dead-letter and terminal-unknown rows must be explicitly
 acknowledged before they become eligible.
+
+Accepted-change audit history uses `@pegma/audit` in the target layout. Its
+event lives inside this same record union and ticket partition, and its
+transaction action lands beside the ticket mutation. The pure domain
+`TicketEvent` is not persisted as a second audit contract.
 
 ## Read hints and receipts
 
@@ -111,6 +135,55 @@ Authenticated callbacks include the provider submission generation, so a
 delayed event cannot mutate a newer submission. Generic mail state uses trusted
 processing time; provider `occurredAt` remains evidence and cannot schedule a
 retry or accelerate deletion.
+
+## Ticket numbers
+
+Buildout Task 3 declares `support-desk.ticket-numbers.v1` with one
+`{ lastIssued }` counter record at constant partition `instance` and ID
+`ticket-number` in the Support Desk instance's storage namespace. Reservation
+is an `update` decider that returns the next positive safe integer.
+
+The counter and ticket cannot share a transaction and do not need to. A number
+is reserved first; if the later ticket transaction fails, the gap remains.
+Gaps are allowed, duplicates are not. Command replay returns the number on the
+already committed ticket and never reserves a replacement.
+
+Numbers are instance-scoped display values. RetireGolden and pegma.dev may both
+have ticket `1042`; their separate stores and subject markers distinguish them.
+A number is never a lookup capability or authorization fact.
+
+## Staff queue projection
+
+Buildout Task 5 declares `support-desk.queue-index.v1`. It stores one row per
+ticket with:
+
+- partition: ticket ID;
+- ID: `queue`;
+- projected ticket revision;
+- active or inactive projection state;
+- status, priority, optional category, requester association, channel,
+  assignee, and update time.
+
+It stores no message content, requester email, routing token, or permission
+decision.
+
+The projection is a separate collection, so it cannot commit atomically with
+the ticket. After a ticket transaction succeeds, the application attempts a
+revision-fenced projection write. A repeating cursor-aware worker scans
+authoritative `ticket` records in `support-desk.records.v1` and repairs missed
+writes. Older projection revisions cannot replace newer ones; an equal
+revision with different content is corruption and fails closed.
+
+Staff queue reads scan this projection in bounded pages, load every candidate
+ticket by authoritative key, discard stale or inactive candidates, then filter
+and sort under a configured hard materialization limit. The read scan cursor
+is request-local: every queue request starts without one and consumes one
+complete scan cycle. The authoritative repair cursor is host-persisted after
+complete pages. A projection row never grants access.
+
+Resolved and closed tickets receive an inactive row at their resulting
+revision. A later sweep removes sufficiently old inactive rows with
+`deleteIfUnchanged`; a row changed after enumeration survives.
 
 ## Outbox discovery
 
