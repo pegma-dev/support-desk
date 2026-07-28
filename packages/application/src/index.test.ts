@@ -12,6 +12,7 @@ import {
   deliveryCallbackBucket,
   deliveryCallbackReceipts,
   deliveryIdempotencyKey,
+  type DeliveryJob,
   inboundReceiptBucket,
   inboundReceiptDedupeDays,
   inboundReceiptLocation,
@@ -457,6 +458,21 @@ describe("customer application services", () => {
       }),
     ).rejects.toThrow(/proxy variable enumeration refused/);
     expect(proxyValueReads).toBe(0);
+
+    for (const outboundMessageId of [
+      "<a\u0000b@example.test>",
+      "<a..b@example.test>",
+      "<a.@example.test>",
+      "<a@example.test.>",
+      "<á@example.test>",
+    ]) {
+      await expect(
+        application.createCustomerTicket(caller, {
+          ...baseCommand,
+          notification: { ...validNotification, outboundMessageId },
+        }),
+      ).rejects.toThrow(/header-safe ASCII Message-ID/);
+    }
     expect(await store.collection(supportRecords).list("ticket")).toEqual([]);
 
     let descriptorReads = 0;
@@ -567,6 +583,17 @@ describe("customer application services", () => {
 
   it("snapshots every command field once and never executes command accessors", async () => {
     const store = createMemoryStore();
+    let clockGetterReads = 0;
+    expect(() =>
+      createSupportDeskApplication({
+        store,
+        get clock() {
+          clockGetterReads += 1;
+          return fixedClock("2026-07-27T12:00:00.000Z");
+        },
+      }),
+    ).toThrow(/application options.clock must be an own data property/);
+    expect(clockGetterReads).toBe(0);
     const application = createSupportDeskApplication({
       store,
       clock: fixedClock("2026-07-27T12:00:00.000Z"),
@@ -1687,6 +1714,159 @@ describe("customer application services", () => {
     expect(await application.listCustomerTickets(caller)).toHaveLength(1);
   });
 
+  it("snapshots delivery mutation and terminal sweep boundaries", async () => {
+    const store = createMemoryStore();
+    const records = store.collection(supportRecords);
+    const pendingJob = (ticketId: string): DeliveryJob => ({
+      kind: "delivery_job",
+      partition: ticketId,
+      id: "delivery:same",
+      ticketId,
+      messageId: "message",
+      idempotencyKey: `key-${ticketId}`,
+      recipientRef: "support",
+      templateId: "staff.new-ticket",
+      templateVersion: 1,
+      variables: {},
+      subject: "Question",
+      outboundMessageId: `<same@${ticketId}.example.test>`,
+      status: "pending",
+      attemptCount: 0,
+      maxAttempts: 3,
+      availableAt: "2026-07-01T00:00:00.000Z",
+      createdAt: "2026-07-01T00:00:00.000Z",
+    });
+    await records.put({
+      ...pendingJob("ticket-a"),
+      status: "delivered",
+      deliveredAt: "2026-07-01T00:01:00.000Z",
+      terminalAt: "2026-07-01T00:01:00.000Z",
+    });
+    await records.put(pendingJob("ticket-b"));
+
+    let sweepTicketReads = 0;
+    const changingSweep = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor(_target, key) {
+          if (key === "ticketId") {
+            sweepTicketReads += 1;
+            return {
+              configurable: true,
+              value: sweepTicketReads === 1 ? "ticket-a" : "ticket-b",
+            };
+          }
+          if (key === "terminalBefore") {
+            return {
+              configurable: true,
+              value: "2026-08-01T00:00:00.000Z",
+            };
+          }
+          return undefined;
+        },
+      },
+    ) as {
+      readonly ticketId: string;
+      readonly terminalBefore: string;
+    };
+    expect(await sweepTerminalDeliveryJobs(store, changingSweep)).toBe(1);
+    expect(sweepTicketReads).toBe(1);
+    expect(
+      await records.get({ partition: "ticket-a", id: "delivery:same" }),
+    ).toBeNull();
+    expect(
+      (
+        await records.get({
+          partition: "ticket-b",
+          id: "delivery:same",
+        })
+      )?.kind,
+    ).toBe("delivery_job");
+
+    await records.put(pendingJob("ticket-c"));
+    let claimTicketReads = 0;
+    let claimPropertyReads = 0;
+    const changingClaim = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor(_target, key) {
+          const values: Readonly<Record<string, string>> = {
+            deliveryJobId: "same",
+            workerId: "worker",
+            now: "2026-07-02T00:00:00.000Z",
+            leaseExpiresAt: "2026-07-02T00:01:00.000Z",
+          };
+          if (key === "ticketId") {
+            claimTicketReads += 1;
+            return {
+              configurable: true,
+              value: claimTicketReads === 1 ? "ticket-b" : "ticket-c",
+            };
+          }
+          return Object.hasOwn(values, key)
+            ? { configurable: true, value: values[key as string] }
+            : undefined;
+        },
+        get() {
+          claimPropertyReads += 1;
+          return "ticket-c";
+        },
+      },
+    ) as {
+      readonly ticketId: string;
+      readonly deliveryJobId: string;
+      readonly workerId: string;
+      readonly now: string;
+      readonly leaseExpiresAt: string;
+    };
+    const claimed = await claimDeliveryJob(store, changingClaim);
+    expect(claimed?.ticketId).toBe("ticket-b");
+    expect(claimTicketReads).toBe(1);
+    expect(claimPropertyReads).toBe(0);
+    const untouched = await records.get({
+      partition: "ticket-c",
+      id: "delivery:same",
+    });
+    expect(untouched?.kind === "delivery_job" && untouched.status).toBe(
+      "pending",
+    );
+
+    let outcomeGetterReads = 0;
+    await expect(
+      completeDeliveryAttempt(store, {
+        ticketId: "ticket-b",
+        deliveryJobId: "same",
+        workerId: "worker",
+        claimToken: claimed?.claimToken ?? "missing",
+        now: "2026-07-02T00:00:01.000Z",
+        get outcome() {
+          outcomeGetterReads += 1;
+          return {
+            accepted: false as const,
+            failureCategory: "provider_failure",
+            retryAt: "2026-07-02T00:01:00.000Z",
+          };
+        },
+      }),
+    ).rejects.toThrow(
+      /delivery completion.outcome must be an own data property/,
+    );
+    expect(outcomeGetterReads).toBe(0);
+
+    let cutoffGetterReads = 0;
+    await expect(
+      pruneCustomerTicketIndex(store, "customer", {
+        get reservedBefore() {
+          cutoffGetterReads += 1;
+          return "2026-07-02T00:00:00.000Z";
+        },
+      }),
+    ).rejects.toThrow(
+      /customer ticket index prune.reservedBefore must be an own data property/,
+    );
+    expect(cutoffGetterReads).toBe(0);
+  });
+
   it("bounds inbound receipt shards and conditionally sweeps terminal receipts", async () => {
     const store = createMemoryStore();
     const location = await inboundReceiptLocation("mailbox", "event-a");
@@ -1800,6 +1980,86 @@ describe("customer application services", () => {
     expect(
       (await receipts.list(bucket)).some((receipt) => receipt.slot === "03"),
     ).toBe(true);
+
+    let bucketGetterReads = 0;
+    await expect(
+      sweepInboundReceipts(store, fixedClock("2026-08-28T00:00:00.000Z"), {
+        get bucket() {
+          bucketGetterReads += 1;
+          return bucket;
+        },
+        processedBefore: "2026-08-27T00:00:00.000Z",
+      }),
+    ).rejects.toThrow(
+      /inbound receipt sweep.bucket must be an own data property/,
+    );
+    expect(bucketGetterReads).toBe(0);
+
+    const firstBucket = await inboundReceiptBucket("cross", "first");
+    const secondBucket = await inboundReceiptBucket("cross", "second");
+    await receipts.put({
+      bucket: firstBucket,
+      slot: "aa",
+      channelId: "cross",
+      providerEventId: "first",
+      payloadFingerprint: "first",
+      status: "processed",
+      receivedAt: "2026-07-01T00:00:00.000Z",
+      processedAt: "2026-07-01T00:01:00.000Z",
+    });
+    await receipts.put({
+      bucket: secondBucket,
+      slot: "aa",
+      channelId: "cross",
+      providerEventId: "second",
+      payloadFingerprint: "second",
+      status: "processing",
+      receivedAt: "2026-07-01T00:00:00.000Z",
+    });
+    let bucketDescriptorReads = 0;
+    let sweepPropertyReads = 0;
+    const changingSweep = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor(_target, key) {
+          if (key === "bucket") {
+            bucketDescriptorReads += 1;
+            return {
+              configurable: true,
+              enumerable: true,
+              value: bucketDescriptorReads === 1 ? firstBucket : secondBucket,
+            };
+          }
+          if (key === "processedBefore") {
+            return {
+              configurable: true,
+              enumerable: true,
+              value: "2026-08-27T00:00:00.000Z",
+            };
+          }
+          return undefined;
+        },
+        get() {
+          sweepPropertyReads += 1;
+          return secondBucket;
+        },
+      },
+    ) as {
+      readonly bucket: string;
+      readonly processedBefore: string;
+    };
+    expect(
+      await sweepInboundReceipts(
+        store,
+        fixedClock("2026-08-28T00:00:00.000Z"),
+        changingSweep,
+      ),
+    ).toBe(1);
+    expect(bucketDescriptorReads).toBe(1);
+    expect(sweepPropertyReads).toBe(0);
+    expect(await receipts.list(firstBucket)).toEqual([]);
+    expect(await receipts.list(secondBucket)).toHaveLength(1);
+    expect((await receipts.list(secondBucket))[0]?.status).toBe("processing");
   });
 
   it("bounds callback shards and retains delayed events from trusted processing time", async () => {
@@ -1899,6 +2159,69 @@ describe("customer application services", () => {
         },
       ),
     ).rejects.toThrow(/between 1 and 1000/);
+
+    const firstBucket = await deliveryCallbackBucket("cross", "first");
+    const secondBucket = await deliveryCallbackBucket("cross", "second");
+    const callbackReceipts = store.collection(deliveryCallbackReceipts);
+    await callbackReceipts.put({
+      bucket: firstBucket,
+      slot: "bb",
+      provider: "cross",
+      providerEventId: "first",
+      ticketId: "ticket",
+      deliveryJobId: "notify",
+      status: "delivered",
+      occurredAt: "2026-07-01T00:00:00.000Z",
+      processedAt: "2026-07-01T00:01:00.000Z",
+    });
+    await callbackReceipts.put({
+      bucket: secondBucket,
+      slot: "bb",
+      provider: "cross",
+      providerEventId: "second",
+      ticketId: "ticket",
+      deliveryJobId: "notify",
+      status: "delivered",
+      occurredAt: "2026-07-01T00:00:00.000Z",
+    });
+    let bucketDescriptorReads = 0;
+    const changingSweep = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor(_target, key) {
+          if (key === "bucket") {
+            bucketDescriptorReads += 1;
+            return {
+              configurable: true,
+              value: bucketDescriptorReads === 1 ? firstBucket : secondBucket,
+            };
+          }
+          if (key === "processedBefore") {
+            return {
+              configurable: true,
+              value: "2026-08-27T00:00:00.000Z",
+            };
+          }
+          return undefined;
+        },
+      },
+    ) as {
+      readonly bucket: string;
+      readonly processedBefore: string;
+    };
+    expect(
+      await sweepDeliveryCallbackReceipts(
+        store,
+        fixedClock("2026-08-28T00:00:00.000Z"),
+        changingSweep,
+      ),
+    ).toBe(1);
+    expect(bucketDescriptorReads).toBe(1);
+    expect(await callbackReceipts.list(firstBucket)).toEqual([]);
+    expect(await callbackReceipts.list(secondBucket)).toHaveLength(1);
+    expect(
+      (await callbackReceipts.list(secondBucket))[0]?.processedAt,
+    ).toBeUndefined();
   });
 
   it("keeps a maximum-size conversation within the documented read envelope", async () => {

@@ -5,6 +5,10 @@ Adapters must honor the supplied idempotency key, so retrying an uncertain
 send cannot create a duplicate message. The stored key includes both ticket
 and job identity, is provider-safe, and cannot collide across ticket
 partitions.
+Worker options, candidates, and per-job inputs are snapshotted from own data
+properties before use; accessors are rejected without being executed.
+Generated `Message-ID` values share the application boundary's strict
+254-character ASCII dot-atom and DNS-domain validation.
 
 This package does not contain a provider SDK, recipient directory, MIME parser,
 or identity logic.

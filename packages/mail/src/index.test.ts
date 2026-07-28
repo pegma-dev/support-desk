@@ -90,6 +90,57 @@ describe("outbound delivery", () => {
     expect(() => outboundMessageId("a".repeat(232), "example.test")).toThrow(
       /generated Message-ID exceeds the safe header format/,
     );
+    for (const notificationId of ["a..b", "a.", ".a"]) {
+      expect(() => outboundMessageId(notificationId, "example.test")).toThrow(
+        /generated Message-ID exceeds the safe header format/,
+      );
+    }
+  });
+
+  it("snapshots worker options and delivery inputs without executing accessors", async () => {
+    const store = await pendingJob();
+    let storeGetterReads = 0;
+    expect(() =>
+      createDeliveryWorker({
+        get store() {
+          storeGetterReads += 1;
+          return store;
+        },
+        clock: fixedClock("2026-07-27T12:00:01.000Z"),
+        workerId: "worker",
+        reconciliation: unknownReconciliation,
+        candidates: { next: async () => null },
+        delivery: {
+          send: async () => ({ providerMessageRef: "provider" }),
+        },
+        templates: { get: () => template },
+      }),
+    ).toThrow(/delivery worker options.store must be an own data property/);
+    expect(storeGetterReads).toBe(0);
+
+    const worker = createDeliveryWorker({
+      store,
+      clock: fixedClock("2026-07-27T12:00:01.000Z"),
+      workerId: "worker",
+      reconciliation: unknownReconciliation,
+      candidates: { next: async () => null },
+      delivery: {
+        send: async () => ({ providerMessageRef: "provider" }),
+      },
+      templates: { get: () => template },
+    });
+    let ticketGetterReads = 0;
+    await expect(
+      worker.deliver({
+        get ticketId() {
+          ticketGetterReads += 1;
+          return "ticket";
+        },
+        deliveryJobId: "notify",
+        now: "2026-07-27T12:00:01.000Z",
+      }),
+    ).rejects.toThrow(/delivery input.ticketId must be an own data property/);
+    expect(ticketGetterReads).toBe(0);
   });
 
   it("leases once and passes stable idempotency and threading metadata", async () => {

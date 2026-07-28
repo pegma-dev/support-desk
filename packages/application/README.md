@@ -14,6 +14,11 @@ are rejected without being executed. Optional requester email is a contact
 snapshot, never an identity key: surrounding whitespace is removed, the DNS
 domain is lowercased, and plain-address syntax, controls, markup, and a
 254-character maximum are enforced.
+Delivery claim, completion, reconciliation, pruning, and retention inputs use
+the same rule, including nested outcome objects. Partition keys and cutoffs
+therefore cannot change between a read and its conditional write or delete.
+Outbound `Message-ID` values must be at most 254 ASCII characters with a
+dot-atom local part, a valid DNS domain, and no controls or malformed dots.
 
 This package implements persistence coordination, not persistence. It has no
 provider SDK and no role, plan, or entitlement model.

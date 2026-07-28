@@ -7,6 +7,7 @@ import {
   completeDeliveryReconciliation,
   type DeliveryCallbackInput,
   type DeliveryJob,
+  validateOutboundMessageId,
 } from "@pegma/support-desk-application";
 import {
   renderTemplate,
@@ -217,10 +218,11 @@ export function outboundMessageId(
     throw new TypeError("domain must be a valid DNS name");
   }
   const messageId = `<support.${notificationId}@${domain.toLowerCase()}>`;
-  if (messageId.length > 254 || !/^<[^<>\s@]+@[^<>\s@]+>$/.test(messageId)) {
+  try {
+    return validateOutboundMessageId(messageId, "generated Message-ID");
+  } catch {
     throw new TypeError("generated Message-ID exceeds the safe header format");
   }
-  return messageId;
 }
 
 function at(epochMs: number): string {
@@ -254,28 +256,188 @@ function positiveSafeInteger(
   return value;
 }
 
+function boundaryObject(input: unknown, field: string): object {
+  if (
+    input === null ||
+    (typeof input !== "object" && typeof input !== "function")
+  ) {
+    throw new TypeError(`${field} must be an object`);
+  }
+  return input;
+}
+
+function ownDataProperty(
+  source: object,
+  key: PropertyKey,
+  field: string,
+  optional = false,
+): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(source, key);
+  if (descriptor === undefined) {
+    if (optional) {
+      return undefined;
+    }
+    throw new TypeError(`${field} must be an own data property`);
+  }
+  if (!Object.hasOwn(descriptor, "value")) {
+    throw new TypeError(
+      `${field} must be an own data property, not an accessor`,
+    );
+  }
+  return descriptor.value;
+}
+
+function boundaryString(value: unknown, field: string): string {
+  if (typeof value !== "string") {
+    throw new TypeError(`${field} must be a string`);
+  }
+  return value;
+}
+
+function snapshotDeliveryWorkerOptions(
+  input: DeliveryWorkerOptions,
+): DeliveryWorkerOptions {
+  const source = boundaryObject(input, "delivery worker options");
+  const raw = {
+    store: ownDataProperty(source, "store", "delivery worker options.store"),
+    clock: ownDataProperty(source, "clock", "delivery worker options.clock"),
+    delivery: ownDataProperty(
+      source,
+      "delivery",
+      "delivery worker options.delivery",
+    ),
+    reconciliation: ownDataProperty(
+      source,
+      "reconciliation",
+      "delivery worker options.reconciliation",
+    ),
+    templates: ownDataProperty(
+      source,
+      "templates",
+      "delivery worker options.templates",
+    ),
+    workerId: ownDataProperty(
+      source,
+      "workerId",
+      "delivery worker options.workerId",
+    ),
+    candidates: ownDataProperty(
+      source,
+      "candidates",
+      "delivery worker options.candidates",
+    ),
+    leaseMilliseconds: ownDataProperty(
+      source,
+      "leaseMilliseconds",
+      "delivery worker options.leaseMilliseconds",
+      true,
+    ),
+    baseRetryMilliseconds: ownDataProperty(
+      source,
+      "baseRetryMilliseconds",
+      "delivery worker options.baseRetryMilliseconds",
+      true,
+    ),
+    acceptedCallbackMilliseconds: ownDataProperty(
+      source,
+      "acceptedCallbackMilliseconds",
+      "delivery worker options.acceptedCallbackMilliseconds",
+      true,
+    ),
+    classifyFailure: ownDataProperty(
+      source,
+      "classifyFailure",
+      "delivery worker options.classifyFailure",
+      true,
+    ),
+  };
+  for (const [field, value] of [
+    ["leaseMilliseconds", raw.leaseMilliseconds],
+    ["baseRetryMilliseconds", raw.baseRetryMilliseconds],
+    ["acceptedCallbackMilliseconds", raw.acceptedCallbackMilliseconds],
+  ] as const) {
+    if (value !== undefined && typeof value !== "number") {
+      throw new TypeError(`delivery worker options.${field} must be a number`);
+    }
+  }
+  if (
+    raw.classifyFailure !== undefined &&
+    typeof raw.classifyFailure !== "function"
+  ) {
+    throw new TypeError(
+      "delivery worker options.classifyFailure must be a function",
+    );
+  }
+  return Object.freeze({
+    store: raw.store as Store,
+    clock: raw.clock as Clock,
+    delivery: raw.delivery as MailDeliveryPort,
+    reconciliation: raw.reconciliation as MailReconciliationPort,
+    templates: raw.templates as TemplateCatalog,
+    workerId: boundaryString(raw.workerId, "delivery worker options.workerId"),
+    candidates: raw.candidates as DeliveryCandidateSource,
+    ...(raw.leaseMilliseconds === undefined
+      ? {}
+      : { leaseMilliseconds: raw.leaseMilliseconds as number }),
+    ...(raw.baseRetryMilliseconds === undefined
+      ? {}
+      : { baseRetryMilliseconds: raw.baseRetryMilliseconds as number }),
+    ...(raw.acceptedCallbackMilliseconds === undefined
+      ? {}
+      : {
+          acceptedCallbackMilliseconds:
+            raw.acceptedCallbackMilliseconds as number,
+        }),
+    ...(raw.classifyFailure === undefined
+      ? {}
+      : { classifyFailure: raw.classifyFailure as FailureClassifier }),
+  });
+}
+
+function snapshotDeliverJobInput(
+  input: DeliverJobInput,
+  field: string,
+): DeliverJobInput {
+  const source = boundaryObject(input, field);
+  const raw = {
+    ticketId: ownDataProperty(source, "ticketId", `${field}.ticketId`),
+    deliveryJobId: ownDataProperty(
+      source,
+      "deliveryJobId",
+      `${field}.deliveryJobId`,
+    ),
+    now: ownDataProperty(source, "now", `${field}.now`),
+  };
+  return Object.freeze({
+    ticketId: boundaryString(raw.ticketId, `${field}.ticketId`),
+    deliveryJobId: boundaryString(raw.deliveryJobId, `${field}.deliveryJobId`),
+    now: boundaryString(raw.now, `${field}.now`),
+  });
+}
+
 export function createDeliveryWorker(options: DeliveryWorkerOptions): {
   deliver(input: DeliverJobInput): Promise<DeliverJobResult>;
   reconcile(input: DeliverJobInput): Promise<ReconcileJobResult>;
   runOnce(now: string): Promise<DeliverJobResult | null>;
 } {
+  const worker = snapshotDeliveryWorkerOptions(options);
   const leaseMilliseconds = positiveSafeInteger(
-    options.leaseMilliseconds ?? 30_000,
+    worker.leaseMilliseconds ?? 30_000,
     "leaseMilliseconds",
     MAX_LEASE_MILLISECONDS,
   );
   const baseRetryMilliseconds = positiveSafeInteger(
-    options.baseRetryMilliseconds ?? 1_000,
+    worker.baseRetryMilliseconds ?? 1_000,
     "baseRetryMilliseconds",
     MAX_BASE_RETRY_MILLISECONDS,
   );
   const acceptedCallbackMilliseconds = positiveSafeInteger(
-    options.acceptedCallbackMilliseconds ?? 86_400_000,
+    worker.acceptedCallbackMilliseconds ?? 86_400_000,
     "acceptedCallbackMilliseconds",
     MAX_ACCEPTED_CALLBACK_MILLISECONDS,
   );
   const classifyFailure =
-    options.classifyFailure ?? (() => "provider_unavailable");
+    worker.classifyFailure ?? (() => "provider_unavailable");
 
   function safeFailureCategory(error: unknown): string {
     try {
@@ -295,7 +457,7 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
     readonly value: string;
     readonly epoch: number;
   } {
-    const value = options.clock.now();
+    const value = worker.clock.now();
     const epoch = requireTimestamp(value);
     if (epoch < claimEpoch) {
       throw new TypeError(
@@ -311,7 +473,8 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
   }
 
   async function deliver(input: DeliverJobInput): Promise<DeliverJobResult> {
-    const nowEpoch = requireTimestamp(input.now);
+    const request = snapshotDeliverJobInput(input, "delivery input");
+    const nowEpoch = requireTimestamp(request.now);
     if (
       nowEpoch >
       MAX_DATE_EPOCH_MILLISECONDS -
@@ -321,11 +484,11 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
         "now is too late to represent the bounded delivery schedule",
       );
     }
-    const claimed = await claimDeliveryJob(options.store, {
-      ticketId: input.ticketId,
-      deliveryJobId: input.deliveryJobId,
-      workerId: options.workerId,
-      now: input.now,
+    const claimed = await claimDeliveryJob(worker.store, {
+      ticketId: request.ticketId,
+      deliveryJobId: request.deliveryJobId,
+      workerId: worker.workerId,
+      now: request.now,
       leaseExpiresAt: at(nowEpoch + leaseMilliseconds),
     });
     if (claimed === null) {
@@ -347,10 +510,10 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
       failureCategory: string,
     ): Promise<DeliverJobResult> {
       const completed = trustedCompletionTime(nowEpoch, retryDelay);
-      const job = await completeDeliveryAttempt(options.store, {
+      const job = await completeDeliveryAttempt(worker.store, {
         ticketId: claimedJob.ticketId,
-        deliveryJobId: input.deliveryJobId,
-        workerId: options.workerId,
+        deliveryJobId: request.deliveryJobId,
+        workerId: worker.workerId,
         claimToken,
         now: completed.value,
         outcome: {
@@ -372,7 +535,7 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
     try {
       let template: TemplateDefinition | null;
       try {
-        template = options.templates.get(
+        template = worker.templates.get(
           claimed.templateId,
           claimed.templateVersion,
         );
@@ -389,7 +552,7 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
         throw new DeliveryWorkError("template_render_failure");
       }
       sendResult = normalizeMailSendResult(
-        await options.delivery.send({
+        await worker.delivery.send({
           idempotencyKey: claimed.idempotencyKey,
           mail: {
             recipientRef: claimed.recipientRef,
@@ -412,10 +575,10 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
       nowEpoch,
       acceptedCallbackMilliseconds,
     );
-    const job = await completeDeliveryAttempt(options.store, {
+    const job = await completeDeliveryAttempt(worker.store, {
       ticketId: claimed.ticketId,
-      deliveryJobId: input.deliveryJobId,
-      workerId: options.workerId,
+      deliveryJobId: request.deliveryJobId,
+      workerId: worker.workerId,
       claimToken,
       now: completed.value,
       outcome: {
@@ -432,12 +595,13 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
   async function reconcile(
     input: DeliverJobInput,
   ): Promise<ReconcileJobResult> {
-    const nowEpoch = requireTimestamp(input.now);
-    const claimed = await claimAcceptedDeliveryJob(options.store, {
-      ticketId: input.ticketId,
-      deliveryJobId: input.deliveryJobId,
-      workerId: options.workerId,
-      now: input.now,
+    const request = snapshotDeliverJobInput(input, "reconciliation input");
+    const nowEpoch = requireTimestamp(request.now);
+    const claimed = await claimAcceptedDeliveryJob(worker.store, {
+      ticketId: request.ticketId,
+      deliveryJobId: request.deliveryJobId,
+      workerId: worker.workerId,
+      now: request.now,
       leaseExpiresAt: at(nowEpoch + leaseMilliseconds),
     });
     if (
@@ -451,7 +615,7 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
     let outcome: MailReconciliationResult;
     try {
       outcome = normalizeReconciliationResult(
-        await options.reconciliation.reconcile({
+        await worker.reconciliation.reconcile({
           idempotencyKey: claimed.idempotencyKey,
           providerMessageRef: claimed.providerMessageRef,
         }),
@@ -460,10 +624,10 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
       outcome = { status: "unknown" };
     }
     const completed = trustedCompletionTime(nowEpoch, 0);
-    const job = await completeDeliveryReconciliation(options.store, {
+    const job = await completeDeliveryReconciliation(worker.store, {
       ticketId: claimed.ticketId,
-      deliveryJobId: input.deliveryJobId,
-      workerId: options.workerId,
+      deliveryJobId: request.deliveryJobId,
+      workerId: worker.workerId,
       claimToken: claimed.claimToken,
       now: completed.value,
       outcome,
@@ -489,8 +653,26 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
     reconcile,
     async runOnce(now) {
       requireTimestamp(now);
-      const candidate = await options.candidates.next(now);
-      return candidate === null ? null : deliver({ ...candidate, now });
+      const candidate = await worker.candidates.next(now);
+      if (candidate === null) {
+        return null;
+      }
+      const source = boundaryObject(candidate, "delivery candidate");
+      return deliver({
+        ticketId: boundaryString(
+          ownDataProperty(source, "ticketId", "delivery candidate.ticketId"),
+          "delivery candidate.ticketId",
+        ),
+        deliveryJobId: boundaryString(
+          ownDataProperty(
+            source,
+            "deliveryJobId",
+            "delivery candidate.deliveryJobId",
+          ),
+          "delivery candidate.deliveryJobId",
+        ),
+        now,
+      });
     },
   };
 }

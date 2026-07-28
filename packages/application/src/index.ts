@@ -407,6 +407,34 @@ function requireIdentifier(value: string, field: string): void {
   }
 }
 
+const outboundMessageIdLocalPart = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+$/;
+const outboundMessageIdDomain =
+  /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
+
+export function validateOutboundMessageId(
+  value: string,
+  field = "outboundMessageId",
+): string {
+  if (typeof value !== "string") {
+    throw new TypeError(`${field} must be a header-safe ASCII Message-ID`);
+  }
+  const match = /^<([^<>@\s]+)@([^<>@\s]+)>$/.exec(value);
+  const local = match?.[1] ?? "";
+  const domain = match?.[2] ?? "";
+  if (
+    value.length > 254 ||
+    /[\u0000-\u001F\u007F]/.test(value) ||
+    !outboundMessageIdLocalPart.test(local) ||
+    local.startsWith(".") ||
+    local.endsWith(".") ||
+    local.includes("..") ||
+    !outboundMessageIdDomain.test(domain)
+  ) {
+    throw new TypeError(`${field} must be a header-safe ASCII Message-ID`);
+  }
+  return value;
+}
+
 function enforceLimit(
   value: string,
   field: "subject" | "body",
@@ -566,12 +594,10 @@ function snapshotNotification(input: unknown): NotificationInput {
       "notification.subject must be at most 500 characters with no controls",
     );
   }
-  if (
-    outboundMessageId.length > 254 ||
-    !/^<[^<>\s@]+@[^<>\s@]+>$/.test(outboundMessageId)
-  ) {
-    throw new TypeError("notification.outboundMessageId must be a Message-ID");
-  }
+  validateOutboundMessageId(
+    outboundMessageId,
+    "notification.outboundMessageId",
+  );
   if (
     maxAttempts !== undefined &&
     (!Number.isSafeInteger(maxAttempts) ||
@@ -852,10 +878,68 @@ export function createSupportDeskApplication(options: {
   readonly limits?: Partial<SupportDeskLimits>;
   readonly maxConflictAttempts?: number;
 }): SupportDeskApplication {
-  const records = options.store.collection(supportRecords);
-  const index = options.store.collection(customerTicketIndex);
-  const limits = { ...defaultSupportDeskLimits, ...options.limits };
-  const maxConflictAttempts = options.maxConflictAttempts ?? 4;
+  const source = boundaryObject(options, "application options");
+  const store = ownDataProperty(
+    source,
+    "store",
+    "application options.store",
+  ) as Store;
+  const clock = ownDataProperty(
+    source,
+    "clock",
+    "application options.clock",
+  ) as Clock;
+  const rawLimits = ownDataProperty(
+    source,
+    "limits",
+    "application options.limits",
+    true,
+  );
+  const rawMaxConflictAttempts = ownDataProperty(
+    source,
+    "maxConflictAttempts",
+    "application options.maxConflictAttempts",
+    true,
+  );
+  const limitOverrides: {
+    -readonly [Field in keyof SupportDeskLimits]?: number;
+  } = {};
+  if (rawLimits !== undefined) {
+    const limitSource = boundaryObject(rawLimits, "application options.limits");
+    for (const field of [
+      "maxSubjectCharacters",
+      "maxMessageCharacters",
+      "maxTicketsPerPrincipal",
+      "maxMessagesPerTicket",
+    ] as const) {
+      const value = ownDataProperty(
+        limitSource,
+        field,
+        `application options.limits.${field}`,
+        true,
+      );
+      if (value !== undefined) {
+        if (typeof value !== "number") {
+          throw new TypeError(
+            `application options.limits.${field} must be a number`,
+          );
+        }
+        limitOverrides[field] = value;
+      }
+    }
+  }
+  if (
+    rawMaxConflictAttempts !== undefined &&
+    typeof rawMaxConflictAttempts !== "number"
+  ) {
+    throw new TypeError(
+      "application options.maxConflictAttempts must be a number",
+    );
+  }
+  const records = store.collection(supportRecords);
+  const index = store.collection(customerTicketIndex);
+  const limits = { ...defaultSupportDeskLimits, ...limitOverrides };
+  const maxConflictAttempts = rawMaxConflictAttempts ?? 4;
   if (
     !Number.isSafeInteger(maxConflictAttempts) ||
     maxConflictAttempts <= 0 ||
@@ -1046,7 +1130,7 @@ export function createSupportDeskApplication(options: {
         notification: stableNotification(command.notification),
       });
 
-      const now = options.clock.now();
+      const now = clock.now();
       const ticket = createTicket({
         id: command.ticketId,
         number: command.ticketNumber,
@@ -1285,7 +1369,7 @@ export function createSupportDeskApplication(options: {
           );
         }
 
-        const sampledNow = options.clock.now();
+        const sampledNow = clock.now();
         const sampledEpoch = canonicalTimestamp(sampledNow, "clock.now()");
         const storedEpoch = canonicalTimestamp(
           versioned.value.ticket.updatedAt,
@@ -1458,16 +1542,51 @@ function canonicalTimestamp(value: IsoTimestamp, field: string): number {
   return epoch;
 }
 
+function snapshotClaimDeliveryJobInput(
+  input: ClaimDeliveryJobInput,
+): ClaimDeliveryJobInput {
+  const source = boundaryObject(input, "delivery claim");
+  const raw = {
+    ticketId: ownDataProperty(source, "ticketId", "delivery claim.ticketId"),
+    deliveryJobId: ownDataProperty(
+      source,
+      "deliveryJobId",
+      "delivery claim.deliveryJobId",
+    ),
+    workerId: ownDataProperty(source, "workerId", "delivery claim.workerId"),
+    now: ownDataProperty(source, "now", "delivery claim.now"),
+    leaseExpiresAt: ownDataProperty(
+      source,
+      "leaseExpiresAt",
+      "delivery claim.leaseExpiresAt",
+    ),
+  };
+  return Object.freeze({
+    ticketId: boundaryString(raw.ticketId, "delivery claim.ticketId"),
+    deliveryJobId: boundaryString(
+      raw.deliveryJobId,
+      "delivery claim.deliveryJobId",
+    ),
+    workerId: boundaryString(raw.workerId, "delivery claim.workerId"),
+    now: boundaryString(raw.now, "delivery claim.now"),
+    leaseExpiresAt: boundaryString(
+      raw.leaseExpiresAt,
+      "delivery claim.leaseExpiresAt",
+    ),
+  });
+}
+
 export async function claimDeliveryJob(
   store: Store,
   input: ClaimDeliveryJobInput,
 ): Promise<DeliveryJob | null> {
-  requireIdentifier(input.ticketId, "ticketId");
-  requireIdentifier(input.deliveryJobId, "deliveryJobId");
-  requireIdentifier(input.workerId, "workerId");
-  const now = canonicalTimestamp(input.now, "now");
+  const request = snapshotClaimDeliveryJobInput(input);
+  requireIdentifier(request.ticketId, "ticketId");
+  requireIdentifier(request.deliveryJobId, "deliveryJobId");
+  requireIdentifier(request.workerId, "workerId");
+  const now = canonicalTimestamp(request.now, "now");
   const leaseExpiresAt = canonicalTimestamp(
-    input.leaseExpiresAt,
+    request.leaseExpiresAt,
     "leaseExpiresAt",
   );
   if (leaseExpiresAt <= now) {
@@ -1477,8 +1596,8 @@ export async function claimDeliveryJob(
   const records = store.collection(supportRecords);
   const result = await records.update(
     {
-      partition: input.ticketId,
-      id: `delivery:${input.deliveryJobId}`,
+      partition: request.ticketId,
+      id: `delivery:${request.deliveryJobId}`,
     },
     (current) => {
       if (current?.kind !== "delivery_job") {
@@ -1490,10 +1609,10 @@ export async function claimDeliveryJob(
         current.status === "terminal_unknown" ||
         current.status === "accepted" ||
         (current.status === "leased" && current.leasePurpose === "reconcile") ||
-        current.availableAt > input.now ||
+        current.availableAt > request.now ||
         (current.status === "leased" &&
           current.leaseExpiresAt !== undefined &&
-          current.leaseExpiresAt > input.now)
+          current.leaseExpiresAt > request.now)
       ) {
         return { action: "keep" };
       }
@@ -1502,8 +1621,8 @@ export async function claimDeliveryJob(
         value: {
           ...current,
           status: "leased",
-          leaseOwner: input.workerId,
-          leaseExpiresAt: input.leaseExpiresAt,
+          leaseOwner: request.workerId,
+          leaseExpiresAt: request.leaseExpiresAt,
           claimToken,
           leasePurpose: "send",
         },
@@ -1534,44 +1653,150 @@ export interface CompleteDeliveryAttemptInput {
       };
 }
 
+function snapshotCompleteDeliveryAttemptInput(
+  input: CompleteDeliveryAttemptInput,
+): CompleteDeliveryAttemptInput {
+  const source = boundaryObject(input, "delivery completion");
+  const raw = {
+    ticketId: ownDataProperty(
+      source,
+      "ticketId",
+      "delivery completion.ticketId",
+    ),
+    deliveryJobId: ownDataProperty(
+      source,
+      "deliveryJobId",
+      "delivery completion.deliveryJobId",
+    ),
+    workerId: ownDataProperty(
+      source,
+      "workerId",
+      "delivery completion.workerId",
+    ),
+    claimToken: ownDataProperty(
+      source,
+      "claimToken",
+      "delivery completion.claimToken",
+    ),
+    now: ownDataProperty(source, "now", "delivery completion.now"),
+    outcome: ownDataProperty(source, "outcome", "delivery completion.outcome"),
+  };
+  const outcomeSource = boundaryObject(
+    raw.outcome,
+    "delivery completion.outcome",
+  );
+  const accepted = ownDataProperty(
+    outcomeSource,
+    "accepted",
+    "delivery completion.outcome.accepted",
+  );
+  if (typeof accepted !== "boolean") {
+    throw new TypeError(
+      "delivery completion.outcome.accepted must be a boolean",
+    );
+  }
+  const outcome: CompleteDeliveryAttemptInput["outcome"] = accepted
+    ? Object.freeze({
+        accepted: true,
+        acceptedDeadlineAt: boundaryString(
+          ownDataProperty(
+            outcomeSource,
+            "acceptedDeadlineAt",
+            "delivery completion.outcome.acceptedDeadlineAt",
+          ),
+          "delivery completion.outcome.acceptedDeadlineAt",
+        ),
+        ...(() => {
+          const providerMessageRef = ownDataProperty(
+            outcomeSource,
+            "providerMessageRef",
+            "delivery completion.outcome.providerMessageRef",
+            true,
+          );
+          return providerMessageRef === undefined
+            ? {}
+            : {
+                providerMessageRef: boundaryString(
+                  providerMessageRef,
+                  "delivery completion.outcome.providerMessageRef",
+                ),
+              };
+        })(),
+      })
+    : Object.freeze({
+        accepted: false,
+        failureCategory: boundaryString(
+          ownDataProperty(
+            outcomeSource,
+            "failureCategory",
+            "delivery completion.outcome.failureCategory",
+          ),
+          "delivery completion.outcome.failureCategory",
+        ),
+        retryAt: boundaryString(
+          ownDataProperty(
+            outcomeSource,
+            "retryAt",
+            "delivery completion.outcome.retryAt",
+          ),
+          "delivery completion.outcome.retryAt",
+        ),
+      });
+  return Object.freeze({
+    ticketId: boundaryString(raw.ticketId, "delivery completion.ticketId"),
+    deliveryJobId: boundaryString(
+      raw.deliveryJobId,
+      "delivery completion.deliveryJobId",
+    ),
+    workerId: boundaryString(raw.workerId, "delivery completion.workerId"),
+    claimToken: boundaryString(
+      raw.claimToken,
+      "delivery completion.claimToken",
+    ),
+    now: boundaryString(raw.now, "delivery completion.now"),
+    outcome,
+  });
+}
+
 export async function completeDeliveryAttempt(
   store: Store,
   input: CompleteDeliveryAttemptInput,
 ): Promise<DeliveryJob | null> {
-  requireIdentifier(input.ticketId, "ticketId");
-  requireIdentifier(input.deliveryJobId, "deliveryJobId");
-  requireIdentifier(input.workerId, "workerId");
-  requireIdentifier(input.claimToken, "claimToken");
-  const now = canonicalTimestamp(input.now, "now");
-  if (input.outcome.accepted) {
+  const request = snapshotCompleteDeliveryAttemptInput(input);
+  requireIdentifier(request.ticketId, "ticketId");
+  requireIdentifier(request.deliveryJobId, "deliveryJobId");
+  requireIdentifier(request.workerId, "workerId");
+  requireIdentifier(request.claimToken, "claimToken");
+  const now = canonicalTimestamp(request.now, "now");
+  if (request.outcome.accepted) {
     const acceptedDeadlineAt = canonicalTimestamp(
-      input.outcome.acceptedDeadlineAt,
+      request.outcome.acceptedDeadlineAt,
       "acceptedDeadlineAt",
     );
     if (acceptedDeadlineAt <= now) {
       throw new TypeError("acceptedDeadlineAt must be later than now");
     }
   } else {
-    const retryAt = canonicalTimestamp(input.outcome.retryAt, "retryAt");
+    const retryAt = canonicalTimestamp(request.outcome.retryAt, "retryAt");
     if (retryAt < now) {
       throw new TypeError("retryAt must not be earlier than now");
     }
-    if (!FAILURE_CATEGORY.test(input.outcome.failureCategory)) {
+    if (!FAILURE_CATEGORY.test(request.outcome.failureCategory)) {
       throw new TypeError("failureCategory must be a coarse safe token");
     }
   }
   const records = store.collection(supportRecords);
   const result = await records.update(
     {
-      partition: input.ticketId,
-      id: `delivery:${input.deliveryJobId}`,
+      partition: request.ticketId,
+      id: `delivery:${request.deliveryJobId}`,
     },
     (current) => {
       if (
         current?.kind !== "delivery_job" ||
         current.status !== "leased" ||
-        current.leaseOwner !== input.workerId ||
-        current.claimToken !== input.claimToken ||
+        current.leaseOwner !== request.workerId ||
+        current.claimToken !== request.claimToken ||
         current.leasePurpose !== "send"
       ) {
         return { action: "keep" };
@@ -1588,17 +1813,17 @@ export async function completeDeliveryAttempt(
         ...unleased,
         attemptCount,
       };
-      if (input.outcome.accepted) {
+      if (request.outcome.accepted) {
         return {
           action: "write",
           value: {
             ...common,
             status: "accepted",
-            acceptedAt: input.now,
-            acceptedDeadlineAt: input.outcome.acceptedDeadlineAt,
-            ...(input.outcome.providerMessageRef === undefined
+            acceptedAt: request.now,
+            acceptedDeadlineAt: request.outcome.acceptedDeadlineAt,
+            ...(request.outcome.providerMessageRef === undefined
               ? {}
-              : { providerMessageRef: input.outcome.providerMessageRef }),
+              : { providerMessageRef: request.outcome.providerMessageRef }),
           },
         };
       }
@@ -1608,10 +1833,10 @@ export async function completeDeliveryAttempt(
           ...common,
           status:
             attemptCount >= current.maxAttempts ? "dead_letter" : "retrying",
-          availableAt: input.outcome.retryAt,
-          failureCategory: input.outcome.failureCategory,
+          availableAt: request.outcome.retryAt,
+          failureCategory: request.outcome.failureCategory,
           ...(attemptCount >= current.maxAttempts
-            ? { terminalAt: input.now }
+            ? { terminalAt: request.now }
             : {}),
         },
       };
@@ -1626,12 +1851,13 @@ export async function claimAcceptedDeliveryJob(
   store: Store,
   input: ClaimDeliveryJobInput,
 ): Promise<DeliveryJob | null> {
-  requireIdentifier(input.ticketId, "ticketId");
-  requireIdentifier(input.deliveryJobId, "deliveryJobId");
-  requireIdentifier(input.workerId, "workerId");
-  const now = canonicalTimestamp(input.now, "now");
+  const request = snapshotClaimDeliveryJobInput(input);
+  requireIdentifier(request.ticketId, "ticketId");
+  requireIdentifier(request.deliveryJobId, "deliveryJobId");
+  requireIdentifier(request.workerId, "workerId");
+  const now = canonicalTimestamp(request.now, "now");
   const leaseExpiresAt = canonicalTimestamp(
-    input.leaseExpiresAt,
+    request.leaseExpiresAt,
     "leaseExpiresAt",
   );
   if (leaseExpiresAt <= now) {
@@ -1641,8 +1867,8 @@ export async function claimAcceptedDeliveryJob(
   const records = store.collection(supportRecords);
   const result = await records.update(
     {
-      partition: input.ticketId,
-      id: `delivery:${input.deliveryJobId}`,
+      partition: request.ticketId,
+      id: `delivery:${request.deliveryJobId}`,
     },
     (current) => {
       if (current?.kind !== "delivery_job") {
@@ -1651,12 +1877,12 @@ export async function claimAcceptedDeliveryJob(
       const acceptedExpired =
         current.status === "accepted" &&
         current.acceptedDeadlineAt !== undefined &&
-        current.acceptedDeadlineAt <= input.now;
+        current.acceptedDeadlineAt <= request.now;
       const reconcileLeaseExpired =
         current.status === "leased" &&
         current.leasePurpose === "reconcile" &&
         current.leaseExpiresAt !== undefined &&
-        current.leaseExpiresAt <= input.now;
+        current.leaseExpiresAt <= request.now;
       if (!acceptedExpired && !reconcileLeaseExpired) {
         return { action: "keep" };
       }
@@ -1665,8 +1891,8 @@ export async function claimAcceptedDeliveryJob(
         value: {
           ...current,
           status: "leased",
-          leaseOwner: input.workerId,
-          leaseExpiresAt: input.leaseExpiresAt,
+          leaseOwner: request.workerId,
+          leaseExpiresAt: request.leaseExpiresAt,
           claimToken,
           leasePurpose: "reconcile",
         },
@@ -1690,33 +1916,113 @@ export interface CompleteDeliveryReconciliationInput {
     | { readonly status: "unknown" };
 }
 
+function snapshotCompleteDeliveryReconciliationInput(
+  input: CompleteDeliveryReconciliationInput,
+): CompleteDeliveryReconciliationInput {
+  const source = boundaryObject(input, "delivery reconciliation");
+  const raw = {
+    ticketId: ownDataProperty(
+      source,
+      "ticketId",
+      "delivery reconciliation.ticketId",
+    ),
+    deliveryJobId: ownDataProperty(
+      source,
+      "deliveryJobId",
+      "delivery reconciliation.deliveryJobId",
+    ),
+    workerId: ownDataProperty(
+      source,
+      "workerId",
+      "delivery reconciliation.workerId",
+    ),
+    claimToken: ownDataProperty(
+      source,
+      "claimToken",
+      "delivery reconciliation.claimToken",
+    ),
+    now: ownDataProperty(source, "now", "delivery reconciliation.now"),
+    outcome: ownDataProperty(
+      source,
+      "outcome",
+      "delivery reconciliation.outcome",
+    ),
+  };
+  const outcomeSource = boundaryObject(
+    raw.outcome,
+    "delivery reconciliation.outcome",
+  );
+  const status = boundaryString(
+    ownDataProperty(
+      outcomeSource,
+      "status",
+      "delivery reconciliation.outcome.status",
+    ),
+    "delivery reconciliation.outcome.status",
+  );
+  if (status !== "delivered" && status !== "failed" && status !== "unknown") {
+    throw new TypeError(
+      "delivery reconciliation.outcome.status must be delivered, failed, or unknown",
+    );
+  }
+  const outcome: CompleteDeliveryReconciliationInput["outcome"] =
+    status === "failed"
+      ? Object.freeze({
+          status,
+          failureCategory: boundaryString(
+            ownDataProperty(
+              outcomeSource,
+              "failureCategory",
+              "delivery reconciliation.outcome.failureCategory",
+            ),
+            "delivery reconciliation.outcome.failureCategory",
+          ),
+        })
+      : Object.freeze({ status });
+  return Object.freeze({
+    ticketId: boundaryString(raw.ticketId, "delivery reconciliation.ticketId"),
+    deliveryJobId: boundaryString(
+      raw.deliveryJobId,
+      "delivery reconciliation.deliveryJobId",
+    ),
+    workerId: boundaryString(raw.workerId, "delivery reconciliation.workerId"),
+    claimToken: boundaryString(
+      raw.claimToken,
+      "delivery reconciliation.claimToken",
+    ),
+    now: boundaryString(raw.now, "delivery reconciliation.now"),
+    outcome,
+  });
+}
+
 export async function completeDeliveryReconciliation(
   store: Store,
   input: CompleteDeliveryReconciliationInput,
 ): Promise<DeliveryJob | null> {
-  requireIdentifier(input.ticketId, "ticketId");
-  requireIdentifier(input.deliveryJobId, "deliveryJobId");
-  requireIdentifier(input.workerId, "workerId");
-  requireIdentifier(input.claimToken, "claimToken");
-  canonicalTimestamp(input.now, "now");
+  const request = snapshotCompleteDeliveryReconciliationInput(input);
+  requireIdentifier(request.ticketId, "ticketId");
+  requireIdentifier(request.deliveryJobId, "deliveryJobId");
+  requireIdentifier(request.workerId, "workerId");
+  requireIdentifier(request.claimToken, "claimToken");
+  canonicalTimestamp(request.now, "now");
   if (
-    input.outcome.status === "failed" &&
-    !FAILURE_CATEGORY.test(input.outcome.failureCategory)
+    request.outcome.status === "failed" &&
+    !FAILURE_CATEGORY.test(request.outcome.failureCategory)
   ) {
     throw new TypeError("failureCategory must be a coarse safe token");
   }
   const records = store.collection(supportRecords);
   const result = await records.update(
     {
-      partition: input.ticketId,
-      id: `delivery:${input.deliveryJobId}`,
+      partition: request.ticketId,
+      id: `delivery:${request.deliveryJobId}`,
     },
     (current) => {
       if (
         current?.kind !== "delivery_job" ||
         current.status !== "leased" ||
-        current.leaseOwner !== input.workerId ||
-        current.claimToken !== input.claimToken ||
+        current.leaseOwner !== request.workerId ||
+        current.claimToken !== request.claimToken ||
         current.leasePurpose !== "reconcile"
       ) {
         return { action: "keep" };
@@ -1728,27 +2034,27 @@ export async function completeDeliveryReconciliation(
         leasePurpose: _leasePurpose,
         ...unleased
       } = current;
-      if (input.outcome.status === "delivered") {
+      if (request.outcome.status === "delivered") {
         return {
           action: "write",
           value: {
             ...unleased,
             status: "delivered",
-            deliveredAt: input.now,
-            terminalAt: input.now,
+            deliveredAt: request.now,
+            terminalAt: request.now,
           },
         };
       }
-      if (input.outcome.status === "failed") {
+      if (request.outcome.status === "failed") {
         const exhausted = current.attemptCount >= current.maxAttempts;
         return {
           action: "write",
           value: {
             ...unleased,
             status: exhausted ? "dead_letter" : "retrying",
-            availableAt: input.now,
-            failureCategory: input.outcome.failureCategory,
-            ...(exhausted ? { terminalAt: input.now } : {}),
+            availableAt: request.now,
+            failureCategory: request.outcome.failureCategory,
+            ...(exhausted ? { terminalAt: request.now } : {}),
           },
         };
       }
@@ -1758,7 +2064,7 @@ export async function completeDeliveryReconciliation(
           ...unleased,
           status: "terminal_unknown",
           failureCategory: "delivery_status_unknown",
-          terminalAt: input.now,
+          terminalAt: request.now,
         },
       };
     },
@@ -1970,19 +2276,55 @@ export async function recordDeliveryCallback(
   };
 }
 
+interface ReceiptSweepInput {
+  readonly bucket: string;
+  readonly processedBefore: IsoTimestamp;
+  readonly maxDeletes?: number;
+}
+
+function snapshotReceiptSweepInput(
+  input: ReceiptSweepInput,
+  field: string,
+): ReceiptSweepInput {
+  const source = boundaryObject(input, field);
+  const raw = {
+    bucket: ownDataProperty(source, "bucket", `${field}.bucket`),
+    processedBefore: ownDataProperty(
+      source,
+      "processedBefore",
+      `${field}.processedBefore`,
+    ),
+    maxDeletes: ownDataProperty(
+      source,
+      "maxDeletes",
+      `${field}.maxDeletes`,
+      true,
+    ),
+  };
+  if (raw.maxDeletes !== undefined && typeof raw.maxDeletes !== "number") {
+    throw new TypeError(`${field}.maxDeletes must be a number`);
+  }
+  return Object.freeze({
+    bucket: boundaryString(raw.bucket, `${field}.bucket`),
+    processedBefore: boundaryString(
+      raw.processedBefore,
+      `${field}.processedBefore`,
+    ),
+    ...(raw.maxDeletes === undefined ? {} : { maxDeletes: raw.maxDeletes }),
+  });
+}
+
 export async function sweepInboundReceipts(
   store: Store,
   clock: Clock,
-  input: {
-    readonly bucket: string;
-    readonly processedBefore: IsoTimestamp;
-    readonly maxDeletes?: number;
-  },
+  input: ReceiptSweepInput,
 ): Promise<number> {
+  const request = snapshotReceiptSweepInput(input, "inbound receipt sweep");
+  const { bucket, processedBefore } = request;
   if (
-    input.bucket.length === 0 ||
-    input.bucket.length > 300 ||
-    /[\u0000-\u001F\u007F]/.test(input.bucket)
+    bucket.length === 0 ||
+    bucket.length > 300 ||
+    /[\u0000-\u001F\u007F]/.test(bucket)
   ) {
     throw new TypeError(
       "bucket must be at most 300 characters with no controls",
@@ -1992,8 +2334,8 @@ export async function sweepInboundReceipts(
   const horizonBefore = new Date(
     now - inboundReceiptDedupeDays * 86_400_000,
   ).toISOString();
-  canonicalTimestamp(input.processedBefore, "processedBefore");
-  const maxDeletes = input.maxDeletes ?? 100;
+  canonicalTimestamp(processedBefore, "processedBefore");
+  const maxDeletes = request.maxDeletes ?? 100;
   if (
     !Number.isSafeInteger(maxDeletes) ||
     maxDeletes <= 0 ||
@@ -2002,12 +2344,12 @@ export async function sweepInboundReceipts(
     throw new TypeError("maxDeletes must be between 1 and 1000");
   }
   const receipts = store.collection(inboundReceipts);
-  const candidates = (await receipts.listVersioned(input.bucket))
+  const candidates = (await receipts.listVersioned(bucket))
     .filter(
       (versioned) =>
         versioned.value.status !== "processing" &&
         versioned.value.processedAt !== undefined &&
-        versioned.value.processedAt <= input.processedBefore &&
+        versioned.value.processedAt <= processedBefore &&
         versioned.value.processedAt < horizonBefore,
     )
     .slice(0, maxDeletes);
@@ -2016,7 +2358,7 @@ export async function sweepInboundReceipts(
     if (
       await receipts.deleteIfUnchanged(
         {
-          partition: input.bucket,
+          partition: bucket,
           id: receiptSlotId(candidate.value.slot, "inbound receipt slot"),
         },
         candidate.version,
@@ -2031,16 +2373,17 @@ export async function sweepInboundReceipts(
 export async function sweepDeliveryCallbackReceipts(
   store: Store,
   clock: Clock,
-  input: {
-    readonly bucket: string;
-    readonly processedBefore: IsoTimestamp;
-    readonly maxDeletes?: number;
-  },
+  input: ReceiptSweepInput,
 ): Promise<number> {
+  const request = snapshotReceiptSweepInput(
+    input,
+    "delivery callback receipt sweep",
+  );
+  const { bucket, processedBefore } = request;
   if (
-    input.bucket.length === 0 ||
-    input.bucket.length > 300 ||
-    /[\u0000-\u001F\u007F]/.test(input.bucket)
+    bucket.length === 0 ||
+    bucket.length > 300 ||
+    /[\u0000-\u001F\u007F]/.test(bucket)
   ) {
     throw new TypeError(
       "bucket must be at most 300 characters with no controls",
@@ -2050,8 +2393,8 @@ export async function sweepDeliveryCallbackReceipts(
   const horizonBefore = new Date(
     now - deliveryCallbackDedupeDays * 86_400_000,
   ).toISOString();
-  canonicalTimestamp(input.processedBefore, "processedBefore");
-  const maxDeletes = input.maxDeletes ?? 100;
+  canonicalTimestamp(processedBefore, "processedBefore");
+  const maxDeletes = request.maxDeletes ?? 100;
   if (
     !Number.isSafeInteger(maxDeletes) ||
     maxDeletes <= 0 ||
@@ -2060,11 +2403,11 @@ export async function sweepDeliveryCallbackReceipts(
     throw new TypeError("maxDeletes must be between 1 and 1000");
   }
   const receipts = store.collection(deliveryCallbackReceipts);
-  const candidates = (await receipts.listVersioned(input.bucket))
+  const candidates = (await receipts.listVersioned(bucket))
     .filter(
       (versioned) =>
         versioned.value.processedAt !== undefined &&
-        versioned.value.processedAt <= input.processedBefore &&
+        versioned.value.processedAt <= processedBefore &&
         versioned.value.processedAt < horizonBefore,
     )
     .slice(0, maxDeletes);
@@ -2073,7 +2416,7 @@ export async function sweepDeliveryCallbackReceipts(
     if (
       await receipts.deleteIfUnchanged(
         {
-          partition: input.bucket,
+          partition: bucket,
           id: receiptSlotId(candidate.value.slot, "delivery callback slot"),
         },
         candidate.version,
@@ -2098,7 +2441,16 @@ export async function pruneCustomerTicketIndex(
   input: { readonly reservedBefore: IsoTimestamp },
 ): Promise<readonly TicketId[]> {
   requireIdentifier(principalId, "principalId");
-  canonicalTimestamp(input.reservedBefore, "reservedBefore");
+  const source = boundaryObject(input, "customer ticket index prune");
+  const reservedBefore = boundaryString(
+    ownDataProperty(
+      source,
+      "reservedBefore",
+      "customer ticket index prune.reservedBefore",
+    ),
+    "customer ticket index prune.reservedBefore",
+  );
+  canonicalTimestamp(reservedBefore, "reservedBefore");
   const index = store.collection(customerTicketIndex);
   const records = store.collection(supportRecords);
   const result = await index.update(
@@ -2121,7 +2473,7 @@ export async function pruneCustomerTicketIndex(
         if (entry.state === "confirmed") {
           continue;
         }
-        if (entry.reservedAt >= input.reservedBefore) {
+        if (entry.reservedAt >= reservedBefore) {
           retained.push(entry);
           continue;
         }
@@ -2190,14 +2542,44 @@ export async function sweepTerminalDeliveryJobs(
     readonly maxDeletes?: number;
   },
 ): Promise<number> {
-  requireIdentifier(input.ticketId, "ticketId");
-  canonicalTimestamp(input.terminalBefore, "terminalBefore");
-  const maxDeletes = input.maxDeletes ?? 100;
+  const source = boundaryObject(input, "terminal delivery sweep");
+  const raw = {
+    ticketId: ownDataProperty(
+      source,
+      "ticketId",
+      "terminal delivery sweep.ticketId",
+    ),
+    terminalBefore: ownDataProperty(
+      source,
+      "terminalBefore",
+      "terminal delivery sweep.terminalBefore",
+    ),
+    maxDeletes: ownDataProperty(
+      source,
+      "maxDeletes",
+      "terminal delivery sweep.maxDeletes",
+      true,
+    ),
+  };
+  const ticketId = boundaryString(
+    raw.ticketId,
+    "terminal delivery sweep.ticketId",
+  );
+  const terminalBefore = boundaryString(
+    raw.terminalBefore,
+    "terminal delivery sweep.terminalBefore",
+  );
+  if (raw.maxDeletes !== undefined && typeof raw.maxDeletes !== "number") {
+    throw new TypeError("terminal delivery sweep.maxDeletes must be a number");
+  }
+  requireIdentifier(ticketId, "ticketId");
+  canonicalTimestamp(terminalBefore, "terminalBefore");
+  const maxDeletes = raw.maxDeletes ?? 100;
   if (!Number.isSafeInteger(maxDeletes) || maxDeletes <= 0) {
     throw new TypeError("maxDeletes must be a positive safe integer");
   }
   const records = store.collection(supportRecords);
-  const candidates = (await records.listVersioned(input.ticketId))
+  const candidates = (await records.listVersioned(ticketId))
     .filter(
       (versioned) =>
         versioned.value.kind === "delivery_job" &&
@@ -2205,7 +2587,7 @@ export async function sweepTerminalDeliveryJobs(
           versioned.value.status === "dead_letter" ||
           versioned.value.status === "terminal_unknown") &&
         versioned.value.terminalAt !== undefined &&
-        versioned.value.terminalAt <= input.terminalBefore,
+        versioned.value.terminalAt <= terminalBefore,
     )
     .slice(0, maxDeletes);
   let deleted = 0;
@@ -2213,7 +2595,7 @@ export async function sweepTerminalDeliveryJobs(
     if (
       await records.deleteIfUnchanged(
         {
-          partition: input.ticketId,
+          partition: ticketId,
           id: candidate.value.id,
         },
         candidate.version,
