@@ -64,9 +64,17 @@ transaction as the ticket. A concurrent prune likewise only advances the
 fence generation. Stale creates and prunes can therefore never overtake newer
 fences, so pruning cannot hide a committed ticket or free in-flight capacity.
 
-`support-desk.inbound-receipts.v1` is partitioned by channel ID and keyed by
-provider event ID. It reserves the Phase 7 provider-event deduplication
-contract; this change does not claim inbound mail is implemented.
+`support-desk.inbound-receipts.v1` reserves the Phase 7 provider-event
+deduplication contract; this does not claim inbound mail processing is
+implemented. Its declared layout already hashes channel and provider event ID
+with SHA-256 and uses the same 120-bit bucket plus 8-bit slot pattern as
+delivery callbacks. A partition therefore has exactly 256 possible keys
+instead of growing with every message received by a channel. Receipts carry
+trusted `receivedAt` and terminal `processedAt` times.
+`sweepInboundReceipts` conditionally deletes at most 1,000 terminal receipts
+per call with `deleteIfUnchanged`; it never deletes `processing` receipts and
+enforces a 30-day deduplication horizon even if the caller supplies a newer
+cutoff.
 
 `support-desk.delivery-callback-receipts.v1` hashes provider and provider event
 ID with SHA-256 and uses 128 bits as a stable location: the first 120 bits name

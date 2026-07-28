@@ -80,6 +80,18 @@ async function pendingJob(maxAttempts = 3) {
 }
 
 describe("outbound delivery", () => {
+  it("validates the final generated Message-ID boundary", () => {
+    expect(outboundMessageId("notify", "EXAMPLE.TEST")).toBe(
+      "<support.notify@example.test>",
+    );
+    expect(outboundMessageId("a".repeat(231), "example.test")).toHaveLength(
+      254,
+    );
+    expect(() => outboundMessageId("a".repeat(232), "example.test")).toThrow(
+      /generated Message-ID exceeds the safe header format/,
+    );
+  });
+
   it("leases once and passes stable idempotency and threading metadata", async () => {
     const store = await pendingJob();
     const send = vi.fn(async (_request: unknown) => ({

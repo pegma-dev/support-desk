@@ -216,7 +216,11 @@ export function outboundMessageId(
   ) {
     throw new TypeError("domain must be a valid DNS name");
   }
-  return `<support.${notificationId}@${domain.toLowerCase()}>`;
+  const messageId = `<support.${notificationId}@${domain.toLowerCase()}>`;
+  if (messageId.length > 254 || !/^<[^<>\s@]+@[^<>\s@]+>$/.test(messageId)) {
+    throw new TypeError("generated Message-ID exceeds the safe header format");
+  }
+  return messageId;
 }
 
 function at(epochMs: number): string {

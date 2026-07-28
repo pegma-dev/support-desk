@@ -218,11 +218,18 @@ export interface CustomerTicketIndexRecord {
 }
 
 export interface InboundReceipt {
+  readonly bucket: string;
+  /** Two-hex-digit slot derived with the bucket from a 128-bit digest. */
+  readonly slot: string;
   readonly channelId: string;
   readonly providerEventId: string;
   readonly externalMessageId?: string;
   readonly payloadFingerprint: string;
   readonly status: "processing" | "processed" | "rejected";
+  /** Trusted host time at which processing first reserved this receipt. */
+  readonly receivedAt: IsoTimestamp;
+  /** Trusted host time at which processing reached a terminal status. */
+  readonly processedAt?: IsoTimestamp;
   readonly ticketId?: TicketId;
   readonly messageId?: MessageId;
   readonly diagnostic?: string;
@@ -246,6 +253,15 @@ export interface DeliveryCallbackReceipt extends DeliveryCallbackInput {
 
 export const deliveryCallbackDedupeDays = 30;
 export const maxDeliveryCallbacksPerBucket = 256;
+export const inboundReceiptDedupeDays = 30;
+export const maxInboundReceiptsPerBucket = 256;
+
+function receiptSlotId(slot: string, field: string): string {
+  if (!/^[0-9a-f]{2}$/.test(slot)) {
+    throw new TypeError(`${field} must be exactly two lowercase hex digits`);
+  }
+  return `slot:${slot}`;
+}
 
 function jsonCodec<T>(): Codec<T> {
   return {
@@ -297,8 +313,8 @@ export const customerTicketIndex = defineCollection<CustomerTicketIndexRecord>({
 export const inboundReceipts = defineCollection<InboundReceipt>({
   name: "support-desk.inbound-receipts.v1",
   key: (record) => ({
-    partition: record.channelId,
-    id: record.providerEventId,
+    partition: record.bucket,
+    id: receiptSlotId(record.slot, "inbound receipt slot"),
   }),
   codec: jsonCodec<InboundReceipt>(),
 });
@@ -308,7 +324,7 @@ export const deliveryCallbackReceipts =
     name: "support-desk.delivery-callback-receipts.v1",
     key: (record) => ({
       partition: record.bucket,
-      id: `slot:${record.slot}`,
+      id: receiptSlotId(record.slot, "delivery callback slot"),
     }),
     codec: jsonCodec<DeliveryCallbackReceipt>(),
   });
@@ -580,16 +596,160 @@ function snapshotNotification(input: unknown): NotificationInput {
   });
 }
 
-function snapshotCommandNotification(
-  command: CreateCustomerTicketCommand | ReplyToCustomerTicketCommand,
-): NotificationInput | undefined {
-  const value = ownDataProperty(
-    command,
-    "notification",
-    "command.notification",
-    true,
-  );
-  return value === undefined ? undefined : snapshotNotification(value);
+function boundaryObject(input: unknown, field: string): object {
+  if (
+    input === null ||
+    (typeof input !== "object" && typeof input !== "function")
+  ) {
+    throw new TypeError(`${field} must be an object`);
+  }
+  return input;
+}
+
+function boundaryString(value: unknown, field: string): string {
+  if (typeof value !== "string") {
+    throw new TypeError(`${field} must be a string`);
+  }
+  return value;
+}
+
+const requesterEmailMaximumCharacters = 254;
+const requesterEmailLocalPart = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$/;
+const requesterEmailDomain =
+  /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
+
+function normalizeRequesterEmail(value: unknown): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new TypeError("requesterEmail must be a string");
+  }
+  if (
+    value.length > requesterEmailMaximumCharacters ||
+    /[\u0000-\u001F\u007F<>&"\\]/.test(value)
+  ) {
+    throw new TypeError(
+      `requesterEmail must be a plain email address of at most ${requesterEmailMaximumCharacters} characters`,
+    );
+  }
+  const normalized = value.trim();
+  const separator = normalized.indexOf("@");
+  const local = normalized.slice(0, separator);
+  const domain = normalized.slice(separator + 1);
+  if (
+    normalized.length === 0 ||
+    /\s/.test(normalized) ||
+    separator <= 0 ||
+    separator !== normalized.lastIndexOf("@") ||
+    local.length > 64 ||
+    local.startsWith(".") ||
+    local.endsWith(".") ||
+    local.includes("..") ||
+    !requesterEmailLocalPart.test(local) ||
+    domain.length > 253 ||
+    !requesterEmailDomain.test(domain)
+  ) {
+    throw new TypeError(
+      `requesterEmail must be a plain email address of at most ${requesterEmailMaximumCharacters} characters`,
+    );
+  }
+  return `${local}@${domain.toLowerCase()}`;
+}
+
+function snapshotCreateCustomerTicketCommand(
+  input: CreateCustomerTicketCommand,
+): CreateCustomerTicketCommand {
+  const source = boundaryObject(input, "create command");
+  const raw = {
+    commandId: ownDataProperty(source, "commandId", "create command.commandId"),
+    correlationId: ownDataProperty(
+      source,
+      "correlationId",
+      "create command.correlationId",
+    ),
+    ticketId: ownDataProperty(source, "ticketId", "create command.ticketId"),
+    ticketNumber: ownDataProperty(
+      source,
+      "ticketNumber",
+      "create command.ticketNumber",
+    ),
+    messageId: ownDataProperty(source, "messageId", "create command.messageId"),
+    subject: ownDataProperty(source, "subject", "create command.subject"),
+    body: ownDataProperty(source, "body", "create command.body"),
+    requesterEmail: ownDataProperty(
+      source,
+      "requesterEmail",
+      "create command.requesterEmail",
+      true,
+    ),
+    notification: ownDataProperty(
+      source,
+      "notification",
+      "create command.notification",
+      true,
+    ),
+  };
+  if (typeof raw.ticketNumber !== "number") {
+    throw new TypeError("create command.ticketNumber must be a number");
+  }
+  const requesterEmail = normalizeRequesterEmail(raw.requesterEmail);
+  const notification =
+    raw.notification === undefined
+      ? undefined
+      : snapshotNotification(raw.notification);
+  return Object.freeze({
+    commandId: boundaryString(raw.commandId, "create command.commandId"),
+    correlationId: boundaryString(
+      raw.correlationId,
+      "create command.correlationId",
+    ),
+    ticketId: boundaryString(raw.ticketId, "create command.ticketId"),
+    ticketNumber: raw.ticketNumber,
+    messageId: boundaryString(raw.messageId, "create command.messageId"),
+    subject: boundaryString(raw.subject, "create command.subject"),
+    body: boundaryString(raw.body, "create command.body"),
+    ...(requesterEmail === undefined ? {} : { requesterEmail }),
+    ...(notification === undefined ? {} : { notification }),
+  });
+}
+
+function snapshotReplyToCustomerTicketCommand(
+  input: ReplyToCustomerTicketCommand,
+): ReplyToCustomerTicketCommand {
+  const source = boundaryObject(input, "reply command");
+  const raw = {
+    commandId: ownDataProperty(source, "commandId", "reply command.commandId"),
+    correlationId: ownDataProperty(
+      source,
+      "correlationId",
+      "reply command.correlationId",
+    ),
+    ticketId: ownDataProperty(source, "ticketId", "reply command.ticketId"),
+    messageId: ownDataProperty(source, "messageId", "reply command.messageId"),
+    body: ownDataProperty(source, "body", "reply command.body"),
+    notification: ownDataProperty(
+      source,
+      "notification",
+      "reply command.notification",
+      true,
+    ),
+  };
+  const notification =
+    raw.notification === undefined
+      ? undefined
+      : snapshotNotification(raw.notification);
+  return Object.freeze({
+    commandId: boundaryString(raw.commandId, "reply command.commandId"),
+    correlationId: boundaryString(
+      raw.correlationId,
+      "reply command.correlationId",
+    ),
+    ticketId: boundaryString(raw.ticketId, "reply command.ticketId"),
+    messageId: boundaryString(raw.messageId, "reply command.messageId"),
+    body: boundaryString(raw.body, "reply command.body"),
+    ...(notification === undefined ? {} : { notification }),
+  });
 }
 
 function deliveryJob(
@@ -865,16 +1025,16 @@ export function createSupportDeskApplication(options: {
   }
 
   return {
-    async createCustomerTicket(access, command) {
+    async createCustomerTicket(access, input) {
       requirePermission(access, supportPermissions.create);
       requireIdentifier(access.principalId, "principalId");
+      const command = snapshotCreateCustomerTicketCommand(input);
       requireIdentifier(command.ticketId, "ticketId");
       requireIdentifier(command.messageId, "messageId");
       requireIdentifier(command.commandId, "commandId");
       requireIdentifier(command.correlationId, "correlationId");
       enforceLimit(command.subject, "subject", limits.maxSubjectCharacters);
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
-      const notification = snapshotCommandNotification(command);
       const fingerprint = await requestFingerprint({
         type: "create_customer_ticket",
         ticketId: command.ticketId,
@@ -883,7 +1043,7 @@ export function createSupportDeskApplication(options: {
         subject: command.subject,
         body: command.body,
         requesterEmail: command.requesterEmail ?? null,
-        notification: stableNotification(notification),
+        notification: stableNotification(command.notification),
       });
 
       const now = options.clock.now();
@@ -913,9 +1073,14 @@ export function createSupportDeskApplication(options: {
         createdAt: now,
       };
       const notificationJob =
-        notification === undefined
+        command.notification === undefined
           ? undefined
-          : deliveryJob(command.ticketId, command.messageId, now, notification);
+          : deliveryJob(
+              command.ticketId,
+              command.messageId,
+              now,
+              command.notification,
+            );
       const reservation = await reserveCustomerTicket(
         access.principalId,
         command.ticketId,
@@ -1059,21 +1224,21 @@ export function createSupportDeskApplication(options: {
       return authoritativeView(records, access.principalId, command.ticketId);
     },
 
-    async replyToCustomerTicket(access, command) {
+    async replyToCustomerTicket(access, input) {
       requirePermission(access, supportPermissions.replyOwn);
       requireIdentifier(access.principalId, "principalId");
+      const command = snapshotReplyToCustomerTicketCommand(input);
       requireIdentifier(command.ticketId, "ticketId");
       requireIdentifier(command.messageId, "messageId");
       requireIdentifier(command.commandId, "commandId");
       requireIdentifier(command.correlationId, "correlationId");
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
-      const notification = snapshotCommandNotification(command);
       const fingerprint = await requestFingerprint({
         type: "reply_customer_ticket",
         ticketId: command.ticketId,
         messageId: command.messageId,
         body: command.body,
-        notification: stableNotification(notification),
+        notification: stableNotification(command.notification),
       });
 
       for (let attempt = 1; attempt <= maxConflictAttempts; attempt += 1) {
@@ -1120,7 +1285,16 @@ export function createSupportDeskApplication(options: {
           );
         }
 
-        const now = options.clock.now();
+        const sampledNow = options.clock.now();
+        const sampledEpoch = canonicalTimestamp(sampledNow, "clock.now()");
+        const storedEpoch = canonicalTimestamp(
+          versioned.value.ticket.updatedAt,
+          "ticket.updatedAt",
+        );
+        const now =
+          sampledEpoch < storedEpoch
+            ? versioned.value.ticket.updatedAt
+            : sampledNow;
         const updated = applyTicketEvent(versioned.value.ticket, {
           type: "customer_replied",
           actorId: access.principalId,
@@ -1187,7 +1361,7 @@ export function createSupportDeskApplication(options: {
               completedAt: now,
             },
           },
-          ...(notification === undefined
+          ...(command.notification === undefined
             ? []
             : [
                 {
@@ -1196,7 +1370,7 @@ export function createSupportDeskApplication(options: {
                     command.ticketId,
                     command.messageId,
                     now,
-                    notification,
+                    command.notification,
                   ),
                 },
               ]),
@@ -1594,19 +1768,47 @@ export async function completeDeliveryReconciliation(
     : null;
 }
 
+async function receiptHash(
+  owner: string,
+  providerEventId: string,
+): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`${owner}\u0000${providerEventId}`),
+  );
+  return [...new Uint8Array(digest).slice(0, 16)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export async function inboundReceiptLocation(
+  channelId: string,
+  providerEventId: string,
+): Promise<{ readonly bucket: string; readonly slot: string }> {
+  requireIdentifier(channelId, "channelId");
+  requireIdentifier(providerEventId, "providerEventId");
+  const hash = await receiptHash(channelId, providerEventId);
+  const bucket = `${encodeIdempotencyPart(channelId)}:${hash.slice(0, 30)}`;
+  if (bucket.length > 300) {
+    throw new TypeError("inbound receipt bucket exceeds the safe key length");
+  }
+  return { bucket, slot: hash.slice(30) };
+}
+
+export async function inboundReceiptBucket(
+  channelId: string,
+  providerEventId: string,
+): Promise<string> {
+  return (await inboundReceiptLocation(channelId, providerEventId)).bucket;
+}
+
 async function deliveryCallbackLocation(
   provider: string,
   providerEventId: string,
 ): Promise<{ readonly bucket: string; readonly slot: string }> {
   requireIdentifier(provider, "provider");
   requireIdentifier(providerEventId, "providerEventId");
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(`${provider}\u0000${providerEventId}`),
-  );
-  const hash = [...new Uint8Array(digest).slice(0, 16)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+  const hash = await receiptHash(provider, providerEventId);
   const bucket = `${encodeIdempotencyPart(provider)}:${hash.slice(0, 30)}`;
   if (bucket.length > 300) {
     throw new TypeError("delivery callback bucket exceeds the safe key length");
@@ -1768,6 +1970,64 @@ export async function recordDeliveryCallback(
   };
 }
 
+export async function sweepInboundReceipts(
+  store: Store,
+  clock: Clock,
+  input: {
+    readonly bucket: string;
+    readonly processedBefore: IsoTimestamp;
+    readonly maxDeletes?: number;
+  },
+): Promise<number> {
+  if (
+    input.bucket.length === 0 ||
+    input.bucket.length > 300 ||
+    /[\u0000-\u001F\u007F]/.test(input.bucket)
+  ) {
+    throw new TypeError(
+      "bucket must be at most 300 characters with no controls",
+    );
+  }
+  const now = canonicalTimestamp(clock.now(), "clock.now()");
+  const horizonBefore = new Date(
+    now - inboundReceiptDedupeDays * 86_400_000,
+  ).toISOString();
+  canonicalTimestamp(input.processedBefore, "processedBefore");
+  const maxDeletes = input.maxDeletes ?? 100;
+  if (
+    !Number.isSafeInteger(maxDeletes) ||
+    maxDeletes <= 0 ||
+    maxDeletes > 1_000
+  ) {
+    throw new TypeError("maxDeletes must be between 1 and 1000");
+  }
+  const receipts = store.collection(inboundReceipts);
+  const candidates = (await receipts.listVersioned(input.bucket))
+    .filter(
+      (versioned) =>
+        versioned.value.status !== "processing" &&
+        versioned.value.processedAt !== undefined &&
+        versioned.value.processedAt <= input.processedBefore &&
+        versioned.value.processedAt < horizonBefore,
+    )
+    .slice(0, maxDeletes);
+  let deleted = 0;
+  for (const candidate of candidates) {
+    if (
+      await receipts.deleteIfUnchanged(
+        {
+          partition: input.bucket,
+          id: receiptSlotId(candidate.value.slot, "inbound receipt slot"),
+        },
+        candidate.version,
+      )
+    ) {
+      deleted += 1;
+    }
+  }
+  return deleted;
+}
+
 export async function sweepDeliveryCallbackReceipts(
   store: Store,
   clock: Clock,
@@ -1814,7 +2074,7 @@ export async function sweepDeliveryCallbackReceipts(
       await receipts.deleteIfUnchanged(
         {
           partition: input.bucket,
-          id: `slot:${candidate.value.slot}`,
+          id: receiptSlotId(candidate.value.slot, "delivery callback slot"),
         },
         candidate.version,
       )

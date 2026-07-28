@@ -12,7 +12,12 @@ import {
   deliveryCallbackBucket,
   deliveryCallbackReceipts,
   deliveryIdempotencyKey,
+  inboundReceiptBucket,
+  inboundReceiptDedupeDays,
+  inboundReceiptLocation,
+  inboundReceipts,
   maxDeliveryCallbacksPerBucket,
+  maxInboundReceiptsPerBucket,
   pruneCustomerTicketIndex,
   recordDeliveryCallback,
   SupportDeskConflictError,
@@ -22,6 +27,7 @@ import {
   SupportDeskLimitError,
   SupportDeskNotFoundError,
   sweepDeliveryCallbackReceipts,
+  sweepInboundReceipts,
   sweepTerminalDeliveryJobs,
 } from "./index.js";
 
@@ -44,6 +50,20 @@ const allCustomerPermissions = [
   supportPermissions.replyOwn,
 ] as const;
 const callbackClock = fixedClock("2026-07-27T14:00:00.000Z");
+
+function sequenceClock(...timestamps: readonly string[]) {
+  let index = 0;
+  return {
+    now() {
+      const timestamp = timestamps[Math.min(index, timestamps.length - 1)];
+      index += 1;
+      if (timestamp === undefined) {
+        throw new Error("test clock has no timestamp");
+      }
+      return timestamp;
+    },
+  };
+}
 
 describe("customer application services", () => {
   it("commits the ticket, message, audit, command receipt, and outbox together", async () => {
@@ -177,6 +197,98 @@ describe("customer application services", () => {
       "message-4",
       "message-5",
     ]);
+  });
+
+  it("clamps the trusted reply clock on every transaction retry", async () => {
+    const backing = createMemoryStore();
+    const records = backing.collection(supportRecords);
+    let replyTransactions = 0;
+    const store: Store = {
+      collection(definition) {
+        const collection = backing.collection(definition);
+        if (definition.name !== supportRecords.name) {
+          return collection;
+        }
+        return {
+          ...collection,
+          async transact(partition, actions) {
+            const isReply = actions.some(
+              (action) =>
+                action.action === "insert" &&
+                (action.value as { readonly commandType?: string })
+                  .commandType === "reply_customer_ticket",
+            );
+            if (isReply) {
+              replyTransactions += 1;
+            }
+            if (isReply && replyTransactions === 1) {
+              await records.update(
+                { partition: "ticket", id: "ticket" },
+                (current) => {
+                  return current?.kind !== "ticket"
+                    ? { action: "keep" }
+                    : {
+                        action: "write",
+                        value: {
+                          ...current,
+                          ticket: {
+                            ...current.ticket,
+                            revision: current.ticket.revision + 1,
+                            status: "waiting_on_support" as const,
+                            updatedAt: "2026-07-27T12:10:00.000Z",
+                          },
+                        },
+                      };
+                },
+              );
+            }
+            return collection.transact(partition, actions);
+          },
+        };
+      },
+    };
+    const application = createSupportDeskApplication({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-27T12:05:00.000Z",
+        "2026-07-27T11:00:00.000Z",
+      ),
+    });
+    const caller = access("customer", allCustomerPermissions);
+    await application.createCustomerTicket(caller, {
+      commandId: "create",
+      correlationId: "create-correlation",
+      ticketId: "ticket",
+      ticketNumber: 1,
+      messageId: "message",
+      subject: "Question",
+      body: "Start.",
+    });
+    const replied = await application.replyToCustomerTicket(caller, {
+      commandId: "reply",
+      correlationId: "reply-correlation",
+      ticketId: "ticket",
+      messageId: "reply-message",
+      body: "Follow up.",
+    });
+    expect(replyTransactions).toBe(2);
+    expect(replied.ticket.updatedAt).toBe("2026-07-27T12:10:00.000Z");
+    expect(replied.messages.at(-1)?.createdAt).toBe("2026-07-27T12:10:00.000Z");
+
+    const invalidClockApplication = createSupportDeskApplication({
+      store,
+      clock: fixedClock("not-a-timestamp"),
+    });
+    await expect(
+      invalidClockApplication.replyToCustomerTicket(caller, {
+        commandId: "invalid-clock",
+        correlationId: "invalid-clock",
+        ticketId: "ticket",
+        messageId: "invalid-clock",
+        body: "Follow up.",
+      }),
+    ).rejects.toThrow(/clock\.now\(\) must be a canonical ISO timestamp/);
   });
 
   it("requires named permissions and confirms ownership after index lookup", async () => {
@@ -451,6 +563,169 @@ describe("customer application services", () => {
         (record) => record.kind === "delivery_job",
       ),
     ).toHaveLength(1);
+  });
+
+  it("snapshots every command field once and never executes command accessors", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer", allCustomerPermissions);
+    const base = {
+      commandId: "create",
+      correlationId: "correlation",
+      ticketId: "ticket",
+      ticketNumber: 1,
+      messageId: "message",
+      subject: "Question",
+      body: "Start.",
+    };
+
+    let bodyGetterReads = 0;
+    await expect(
+      application.createCustomerTicket(caller, {
+        ...base,
+        get body() {
+          bodyGetterReads += 1;
+          return "changed";
+        },
+      }),
+    ).rejects.toThrow(/create command.body must be an own data property/);
+    expect(bodyGetterReads).toBe(0);
+
+    let emailGetterReads = 0;
+    await expect(
+      application.createCustomerTicket(caller, {
+        ...base,
+        get requesterEmail() {
+          emailGetterReads += 1;
+          return "customer@example.com";
+        },
+      }),
+    ).rejects.toThrow(
+      /create command.requesterEmail must be an own data property/,
+    );
+    expect(emailGetterReads).toBe(0);
+
+    let replyBodyGetterReads = 0;
+    await expect(
+      application.replyToCustomerTicket(caller, {
+        commandId: "reply",
+        correlationId: "reply-correlation",
+        ticketId: "ticket",
+        messageId: "reply-message",
+        get body() {
+          replyBodyGetterReads += 1;
+          return "changed";
+        },
+      }),
+    ).rejects.toThrow(/reply command.body must be an own data property/);
+    expect(replyBodyGetterReads).toBe(0);
+    expect(await store.collection(supportRecords).list("ticket")).toEqual([]);
+
+    const descriptorReads = new Map<PropertyKey, number>();
+    let proxyGets = 0;
+    const changingCommand = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor(_target, key) {
+          descriptorReads.set(key, (descriptorReads.get(key) ?? 0) + 1);
+          const values: Readonly<Record<string, unknown>> = {
+            commandId: "create",
+            correlationId: "correlation",
+            ticketId: "ticket",
+            ticketNumber: 1,
+            messageId: "message",
+            subject: "Question",
+            body:
+              descriptorReads.get("body") === 1
+                ? "Original body."
+                : "Changed body.",
+          };
+          if (!Object.hasOwn(values, key)) {
+            return undefined;
+          }
+          return {
+            configurable: true,
+            enumerable: true,
+            writable: false,
+            value: values[key as string],
+          };
+        },
+        get() {
+          proxyGets += 1;
+          return "changed";
+        },
+      },
+    ) as typeof base;
+    const created = await application.createCustomerTicket(
+      caller,
+      changingCommand,
+    );
+    expect(proxyGets).toBe(0);
+    expect(
+      [
+        "commandId",
+        "correlationId",
+        "ticketId",
+        "ticketNumber",
+        "messageId",
+        "subject",
+        "body",
+        "requesterEmail",
+        "notification",
+      ].map((key) => descriptorReads.get(key)),
+    ).toEqual(Array.from({ length: 9 }, () => 1));
+    expect(created.messages[0]?.body).toBe("Original body.");
+  });
+
+  it("normalizes and bounds requester email without using it as identity", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer", allCustomerPermissions);
+    const command = {
+      commandId: "create",
+      correlationId: "correlation",
+      ticketId: "ticket",
+      ticketNumber: 1,
+      messageId: "message",
+      subject: "Question",
+      body: "Start.",
+    };
+    const invalidEmails = [
+      "<script>@example.com",
+      "customer\u0000@example.com",
+      "customer @example.com",
+      `${"a".repeat(245)}@example.com`,
+    ];
+    for (const requesterEmail of invalidEmails) {
+      await expect(
+        application.createCustomerTicket(caller, {
+          ...command,
+          requesterEmail,
+        }),
+      ).rejects.toThrow(/requesterEmail must be a plain email address/);
+    }
+    expect(await store.collection(supportRecords).list("ticket")).toEqual([]);
+
+    const created = await application.createCustomerTicket(caller, {
+      ...command,
+      requesterEmail: "  Customer@Example.COM  ",
+    });
+    expect(created.ticket.requester).toMatchObject({
+      association: "authenticated",
+      principalId: "customer",
+      email: "Customer@example.com",
+    });
+    const repeated = await application.createCustomerTicket(caller, {
+      ...command,
+      requesterEmail: "Customer@example.com",
+    });
+    expect(repeated.ticket.id).toBe("ticket");
   });
 
   it("never returns internal messages in a customer view", async () => {
@@ -1410,6 +1685,121 @@ describe("customer application services", () => {
     );
     expect(fresh.ticket.id).toBe("ticket");
     expect(await application.listCustomerTickets(caller)).toHaveLength(1);
+  });
+
+  it("bounds inbound receipt shards and conditionally sweeps terminal receipts", async () => {
+    const store = createMemoryStore();
+    const location = await inboundReceiptLocation("mailbox", "event-a");
+    const bucket = location.bucket;
+    expect(location.slot).toMatch(/^[0-9a-f]{2}$/);
+    expect(bucket).not.toBe(await inboundReceiptBucket("mailbox", "event-b"));
+    expect(maxInboundReceiptsPerBucket).toBe(256);
+    expect(inboundReceiptDedupeDays).toBe(30);
+    const receipts = store.collection(inboundReceipts);
+    await expect(
+      receipts.put({
+        bucket,
+        slot: "not-a-slot",
+        channelId: "mailbox",
+        providerEventId: "invalid",
+        payloadFingerprint: "fingerprint",
+        status: "processed",
+        receivedAt: "2026-07-01T00:00:00.000Z",
+        processedAt: "2026-07-01T00:01:00.000Z",
+      }),
+    ).rejects.toThrow(/exactly two lowercase hex digits/);
+    await receipts.put({
+      bucket,
+      slot: "00",
+      channelId: "mailbox",
+      providerEventId: "old-terminal",
+      payloadFingerprint: "fingerprint-a",
+      status: "processed",
+      receivedAt: "2026-07-01T00:00:00.000Z",
+      processedAt: "2026-07-01T00:01:00.000Z",
+    });
+    await receipts.put({
+      bucket,
+      slot: "01",
+      channelId: "mailbox",
+      providerEventId: "in-flight",
+      payloadFingerprint: "fingerprint-b",
+      status: "processing",
+      receivedAt: "2026-07-01T00:00:00.000Z",
+    });
+    await receipts.put({
+      bucket,
+      slot: "02",
+      channelId: "mailbox",
+      providerEventId: "recent-terminal",
+      payloadFingerprint: "fingerprint-c",
+      status: "rejected",
+      receivedAt: "2026-08-20T00:00:00.000Z",
+      processedAt: "2026-08-20T00:01:00.000Z",
+    });
+    expect(
+      await sweepInboundReceipts(
+        store,
+        fixedClock("2026-08-28T00:00:00.000Z"),
+        {
+          bucket,
+          processedBefore: "2026-08-27T00:00:00.000Z",
+        },
+      ),
+    ).toBe(1);
+    expect(
+      (await receipts.list(bucket)).map((receipt) => receipt.slot),
+    ).toEqual(["01", "02"]);
+
+    await receipts.put({
+      bucket,
+      slot: "03",
+      channelId: "mailbox",
+      providerEventId: "racing-terminal",
+      payloadFingerprint: "fingerprint-d",
+      status: "processed",
+      receivedAt: "2026-07-01T00:00:00.000Z",
+      processedAt: "2026-07-01T00:01:00.000Z",
+    });
+    let raced = false;
+    const racingStore: Store = {
+      collection(definition) {
+        const collection = store.collection(definition);
+        if (definition.name !== inboundReceipts.name) {
+          return collection;
+        }
+        return {
+          ...collection,
+          async deleteIfUnchanged(key, version) {
+            if (!raced) {
+              raced = true;
+              await receipts.update(key, (current) =>
+                current === null
+                  ? { action: "keep" }
+                  : {
+                      action: "write",
+                      value: { ...current, diagnostic: "updated concurrently" },
+                    },
+              );
+            }
+            return collection.deleteIfUnchanged(key, version);
+          },
+        };
+      },
+    };
+    expect(
+      await sweepInboundReceipts(
+        racingStore,
+        fixedClock("2026-08-28T00:00:00.000Z"),
+        {
+          bucket,
+          processedBefore: "2026-08-27T00:00:00.000Z",
+        },
+      ),
+    ).toBe(0);
+    expect(
+      (await receipts.list(bucket)).some((receipt) => receipt.slot === "03"),
+    ).toBe(true);
   });
 
   it("bounds callback shards and retains delayed events from trusted processing time", async () => {

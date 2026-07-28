@@ -263,11 +263,13 @@ One outbound attempt or provider callback:
 
 Deduplication and processing record:
 
+- bounded hash bucket and 8-bit slot;
 - channel ID;
 - provider event ID;
 - external `Message-ID`;
 - bounded payload fingerprint;
 - processing status;
+- trusted receipt and terminal-processing times;
 - resulting ticket and message IDs;
 - safe diagnostic details.
 
@@ -280,6 +282,11 @@ trusted server clock and keep it monotonic per ticket — for example by
 clamping to the stored `updatedAt` — rather than trusting client timestamps
 or relying on synchronized clocks across application servers. Events with
 equal timestamps are ordered by revision, not by time.
+
+The customer application performs that clamp again after every optimistic
+transaction conflict, using the ticket version read for that attempt. A
+backward-moving host clock therefore cannot invalidate a valid reply or write
+timestamps earlier than the state it updates.
 
 Storage versions are opaque and separate from the ticket revision. Revision is
 the domain concept a transition increments and an audit event records; the
