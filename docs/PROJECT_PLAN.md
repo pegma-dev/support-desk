@@ -2,7 +2,9 @@
 
 ## Status
 
-**Stage:** Application and outbound-mail integration (`0.x`, public API unstable)
+**Stage:** The customer-facing Phase 1/2 application slice and the source
+portion of Phase 6 are implemented. Phase 2 abuse limits and all deployment
+phases remain open; every `@pegma/support-desk-*` package is unpublished.
 
 **Initial reference application:** RetireGolden
 
@@ -468,15 +470,20 @@ These should be resolved through the reference implementation:
 
 ## Near-term backlog
 
-1. Replace the locally declared `PrincipalId` in contracts with the
-   `@pegma/spine` type, and take the clock and logger from spine too.
-2. Exercise contracts against RetireGolden's Authorization Core customer and
-   staff permission policy.
-3. Define application-service ports and declare the collections against
-   `@pegma/storage-core`, deciding the partition layout first.
-4. Build the authorized use cases against the storage-core in-memory `Store`.
-5. Implement the authenticated web-ticket slice before choosing a mail
-   provider.
+1. Build the Phase 3 durable reference deployment against a host-supplied
+   `Store` and run the existing application/mail suite without backend-aware
+   Support Desk code.
+2. Build the Phase 4 customer web experience against the implemented
+   authorized customer services.
+3. Build the Phase 5 staff queue and internal-note boundary.
+4. Select and operate an outbound provider at the host composition root,
+   exercising Support Desk's projection over published `@pegma/mail`,
+   persisted cursors, callbacks, and dead-letter acknowledgement in the
+   durable deployment.
+5. Implement Phase 7 inbound mailbox verification, normalization, threading,
+   deduplication, and bounce/auto-reply controls.
+6. Begin Phase 8 release hardening only after the deployed phases provide
+   recovery, privacy, retention, and operational evidence.
 
 The backlog should remain intentionally small until the first integration
 reveals which abstractions are reusable.
