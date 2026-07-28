@@ -477,8 +477,9 @@ These should be resolved through the reference implementation:
    authorized customer services.
 3. Build the Phase 5 staff queue and internal-note boundary.
 4. Select and operate an outbound provider at the host composition root,
-   exercising the published Mail projection, persisted cursors, callbacks,
-   and dead-letter acknowledgement in the durable deployment.
+   exercising Support Desk's projection over published `@pegma/mail`,
+   persisted cursors, callbacks, and dead-letter acknowledgement in the
+   durable deployment.
 5. Begin Phase 8 release hardening only after the deployed phases provide
    recovery, privacy, retention, and operational evidence.
 
