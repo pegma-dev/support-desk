@@ -16,7 +16,7 @@ nothing was ever published under the former name.
 **Persistence:** Support Desk does not build a storage layer. It declares
 collections against
 [`@pegma/storage-core`](https://github.com/pegma-dev/storage-core) (published
-`0.3.0`) and takes a `Store` from the host. The planned storage-port and Azure
+`0.4.0`) and takes a `Store` from the host. The planned storage-port and Azure
 adapter packages were removed on 2026-07-26; a durable deployment supplies a
 `Store` rather than another adapter package here. If storage cannot express
 something Support Desk needs, that is a gap to fix in `storage-core` with
@@ -61,11 +61,12 @@ the provider-neutral Phase 6 outbound-mail extraction source:
   callback port, stable ticket subject and `Message-ID` helpers, and a worker
   with conflict-safe leases, bounded exponential retries, and dead-letter
   state.
-- Because Storage Core does not enumerate partitions, the worker's Store
-  adapter must discover authoritative delivery-job rows directly or expose a
-  database-native index/change feed updated in the same transaction as those
-  rows. Separately persisted post-commit hints are forbidden; repeated
-  discoveries remain harmless because the outbox lease is authoritative.
+- The worker discovers committed delivery jobs with Storage Core's bounded
+  collection-wide scan. The host persists each opaque non-null continuation
+  only after handling the whole page and runs repeated complete cycles.
+  Physical keys are authoritative, while duplicate or repeated rows remain
+  harmless because the outbox lease and provider idempotency key are
+  authoritative.
 
 Phases 3, 4, and 5 are not complete. There is no durable reference deployment,
 customer web UI, or staff queue/API in this repository yet. Phase 6 source is

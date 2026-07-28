@@ -36,7 +36,7 @@
   "dependencies": {
     "@pegma/authorization-core": "0.1.0",
     "@pegma/spine": "0.1.1",
-    "@pegma/storage-core": "0.3.0",
+    "@pegma/storage-core": "0.4.0",
     "@pegma/support-desk-contracts": "0.0.0",
     "@pegma/support-desk-core": "0.0.0"
   }

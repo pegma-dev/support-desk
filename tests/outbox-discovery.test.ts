@@ -1,4 +1,4 @@
-import { TableClient, type TableEntity } from "@azure/data-tables";
+import { TableClient } from "@azure/data-tables";
 import type { AccessContext } from "@pegma/authorization-core";
 import { fixedClock } from "@pegma/spine";
 import { createAzureTablesStore } from "@pegma/storage-azure-tables";
@@ -11,13 +11,17 @@ import {
 import {
   createSupportDeskApplication,
   type DeliveryJob,
+  type SupportRecord,
   supportPermissions,
   supportRecords,
 } from "@pegma/support-desk-application";
 import {
   createDeliveryWorker,
-  type CommittedDeliveryJobDiscovery,
-  type DeliveryWorkStore,
+  type DeliveryScanOutcome,
+  type MailSendRequest,
+  type MailSendResult,
+  outboundMessageId,
+  ticketSubject,
 } from "@pegma/support-desk-mail";
 import { defineTemplate } from "@pegma/support-desk-templates";
 import { describe, expect, it, vi } from "vitest";
@@ -53,158 +57,313 @@ const template = defineTemplate({
   html: "<p>New ticket {{ticket_number}}</p>",
 });
 
-function isSendCandidate(job: DeliveryJob, now: string): boolean {
-  return (
-    ((job.status === "pending" || job.status === "retrying") &&
-      job.availableAt <= now) ||
-    (job.status === "leased" &&
-      job.leasePurpose === "send" &&
-      job.leaseExpiresAt !== undefined &&
-      job.leaseExpiresAt <= now)
-  );
+interface StoreFixture {
+  readonly store: Store;
+  /** A new adapter/facade instance over the same durable rows. */
+  freshStore(): Store;
 }
 
-function candidate(job: DeliveryJob) {
-  return {
-    ticketId: job.ticketId,
-    deliveryJobId: job.id.slice("delivery:".length),
-  };
-}
+let azureTableOrdinal = 0;
 
-function attachDiscovery(
-  store: Store,
-  discovery: CommittedDeliveryJobDiscovery,
-): DeliveryWorkStore {
+function memoryFixture(): StoreFixture {
+  const store = createMemoryStore();
   return {
-    collection<T>(definition: CollectionDefinition<T>): CollectionStore<T> {
-      return store.collection(definition);
-    },
-    committedDeliveryJobs: discovery,
-  };
-}
-
-function memoryAuthoritativeRows(store: Store): CommittedDeliveryJobDiscovery {
-  return {
-    consistency: "authoritative_rows",
-    async peek(now) {
-      const records = await store.collection(supportRecords).list("ticket");
-      const job = records.find(
-        (record): record is DeliveryJob =>
-          record.kind === "delivery_job" && isSendCandidate(record, now),
-      );
-      return job === undefined ? null : candidate(job);
+    store,
+    freshStore() {
+      return {
+        collection<T>(definition: CollectionDefinition<T>): CollectionStore<T> {
+          return store.collection(definition);
+        },
+      };
     },
   };
 }
 
-function statusCode(error: unknown): number | undefined {
-  return typeof error === "object" && error !== null
-    ? (error as { readonly statusCode?: number }).statusCode
-    : undefined;
-}
-
-function azureAuthoritativeRows(
-  client: TableClient,
-): CommittedDeliveryJobDiscovery {
-  return {
-    consistency: "authoritative_rows",
-    async peek(now) {
-      try {
-        for await (const entity of client.listEntities<
-          TableEntity<Record<string, unknown>>
-        >()) {
-          if (
-            typeof entity.partitionKey !== "string" ||
-            !entity.partitionKey.startsWith(`${supportRecords.name}:`) ||
-            typeof entity.rowKey !== "string" ||
-            !entity.rowKey.startsWith("delivery:") ||
-            typeof entity["payload"] !== "string"
-          ) {
-            continue;
-          }
-          const value = JSON.parse(entity["payload"]) as unknown;
-          if (
-            value !== null &&
-            typeof value === "object" &&
-            (value as { readonly kind?: unknown }).kind === "delivery_job" &&
-            isSendCandidate(value as DeliveryJob, now)
-          ) {
-            return candidate(value as DeliveryJob);
-          }
-        }
-      } catch (error) {
-        if (statusCode(error) !== 404) {
-          throw error;
-        }
-      }
-      return null;
-    },
-  };
-}
-
-async function exerciseCrashBoundary(
-  store: Store,
-  createDiscovery: () => CommittedDeliveryJobDiscovery,
-): Promise<void> {
-  const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
-  const worker = () =>
-    createDeliveryWorker({
-      store: attachDiscovery(store, createDiscovery()),
-      clock: fixedClock("2026-07-27T12:00:01.000Z"),
-      workerId: "worker",
-      reconciliation: {
-        reconcile: async () => ({ status: "unknown" as const }),
-      },
-      delivery: { send },
-      templates: { get: () => template },
+function azureFixture(): StoreFixture {
+  azureTableOrdinal += 1;
+  const table = `pegmaoutbox${process.pid}${azureTableOrdinal}`;
+  const freshStore = () =>
+    createAzureTablesStore({
+      client: TableClient.fromConnectionString(CONNECTION_STRING, table, {
+        allowInsecureConnection: true,
+      }),
     });
+  return { store: freshStore(), freshStore };
+}
 
-  // Discovery exists before the transaction but cannot produce a phantom.
-  expect(await worker().runOnce("2026-07-27T12:00:00.000Z")).toBeNull();
-  expect(send).not.toHaveBeenCalled();
-
+async function createTicket(
+  store: Store,
+  ticketId: string,
+  ticketNumber: number,
+): Promise<void> {
   await createSupportDeskApplication({
     store,
     clock: fixedClock("2026-07-27T12:00:00.000Z"),
   }).createCustomerTicket(caller, {
-    commandId: "create",
-    correlationId: "correlation",
-    ticketId: "ticket",
-    ticketNumber: 1,
-    messageId: "message",
+    commandId: `create-${ticketId}`,
+    correlationId: `correlation-${ticketId}`,
+    ticketId,
+    ticketNumber,
+    messageId: `message-${ticketId}`,
     subject: "Question",
     body: "Help.",
     notification: {
-      id: "notify",
+      id: `notify-${ticketId}`,
       recipientRef: "support",
       templateId: template.id,
       templateVersion: template.version,
-      variables: { ticket_number: "1" },
-      subject: "[Ticket #1] Question",
-      outboundMessageId: "<support.notify@example.test>",
+      variables: { ticket_number: String(ticketNumber) },
+      subject: ticketSubject(ticketNumber, "Question"),
+      outboundMessageId: outboundMessageId(
+        `notify-${ticketNumber}`,
+        "example.test",
+      ),
     },
   });
+}
 
-  // A new worker/source instance represents a crash immediately after commit:
-  // it carries no cursor or post-commit hint from the creating process.
-  expect((await worker().runOnce("2026-07-27T12:00:01.000Z"))?.status).toBe(
-    "accepted",
-  );
+function worker(
+  store: Store,
+  send: (request: MailSendRequest) => Promise<MailSendResult>,
+) {
+  return createDeliveryWorker({
+    store,
+    clock: fixedClock("2026-07-27T12:00:01.000Z"),
+    workerId: "worker",
+    reconciliation: {
+      reconcile: async () => ({ status: "unknown" as const }),
+    },
+    delivery: { send },
+    templates: { get: () => template },
+  });
+}
+
+async function completeCycle(
+  deliveryWorker: ReturnType<typeof createDeliveryWorker>,
+  limit: number,
+): Promise<DeliveryScanOutcome[]> {
+  let cursor: string | undefined;
+  const outcomes: DeliveryScanOutcome[] = [];
+  do {
+    const page = await deliveryWorker.runPage({
+      now: "2026-07-27T12:00:01.000Z",
+      limit,
+      ...(cursor === undefined ? {} : { cursor }),
+    });
+    outcomes.push(...page.outcomes);
+    cursor = page.nextCursor ?? undefined;
+    if (page.nextCursor === null) {
+      return outcomes;
+    }
+  } while (true);
+}
+
+async function exerciseCommitCrashBoundary(
+  fixture: StoreFixture,
+): Promise<void> {
+  const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
+
+  const beforeCommit = await worker(fixture.freshStore(), send).runPage({
+    now: "2026-07-27T12:00:00.000Z",
+    limit: 2,
+  });
+  expect(beforeCommit).toEqual({ outcomes: [], nextCursor: null });
+  expect(send).not.toHaveBeenCalled();
+
+  await createTicket(fixture.store, "ticket", 1);
+
+  // This worker and Store instance carry no cursor or post-commit hint from
+  // the process that committed the application state and delivery job.
+  const outcomes = await completeCycle(worker(fixture.freshStore(), send), 2);
+  expect(outcomes.map(({ result }) => result.status)).toEqual(["accepted"]);
   expect(send).toHaveBeenCalledTimes(1);
 }
 
-describe("atomic outbox discovery", () => {
-  it("survives the commit/crash boundary with a D1-style authoritative row scan", async () => {
-    const store = createMemoryStore();
-    await exerciseCrashBoundary(store, () => memoryAuthoritativeRows(store));
-  });
-
-  it("survives the commit/crash boundary by scanning authoritative Azurite rows", async () => {
-    const table = `pegmaoutbox${process.pid}`;
-    const client = TableClient.fromConnectionString(CONNECTION_STRING, table, {
-      allowInsecureConnection: true,
+async function exerciseCrashBeforeCursorSave(
+  fixture: StoreFixture,
+): Promise<void> {
+  await createTicket(fixture.store, "ticket", 1);
+  const collection = fixture.store.collection(supportRecords);
+  let cursor: string | undefined;
+  let candidateCursor: string | undefined;
+  do {
+    const page = await collection.scan({
+      limit: 1,
+      ...(cursor === undefined ? {} : { cursor }),
     });
-    const store = createAzureTablesStore({ client });
-    await exerciseCrashBoundary(store, () => azureAuthoritativeRows(client));
+    if (page.records[0]?.value.kind === "delivery_job") {
+      candidateCursor = cursor;
+      expect(page.nextCursor).not.toBeNull();
+      break;
+    }
+    cursor = page.nextCursor ?? undefined;
+    if (page.nextCursor === null) {
+      throw new Error("delivery job was not found in authoritative scan");
+    }
+  } while (true);
+
+  const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
+  const deliveryWorker = worker(fixture.freshStore(), send);
+  const input = {
+    now: "2026-07-27T12:00:01.000Z",
+    limit: 1,
+    ...(candidateCursor === undefined ? {} : { cursor: candidateCursor }),
+  };
+  const first = await deliveryWorker.runPage(input);
+  expect(first.outcomes[0]?.result.status).toBe("accepted");
+
+  // Simulate a crash before first.nextCursor is durably saved.
+  const repeated = await worker(fixture.freshStore(), send).runPage(input);
+  expect(repeated.nextCursor).toBe(first.nextCursor);
+  expect(repeated.outcomes).toEqual([]);
+  expect(send).toHaveBeenCalledTimes(1);
+}
+
+async function exerciseCompleteCycleFairness(
+  fixture: StoreFixture,
+): Promise<void> {
+  await createTicket(fixture.store, "middle", 1);
+  await createTicket(fixture.store, "zulu", 2);
+  const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
+  const deliveryWorker = worker(fixture.freshStore(), send);
+
+  const firstPage = await deliveryWorker.runPage({
+    now: "2026-07-27T12:00:01.000Z",
+    limit: 1,
+  });
+  expect(firstPage.nextCursor).not.toBeNull();
+
+  // This row may fall behind an adapter's live continuation. The contract
+  // guarantees it through repeated complete cycles, not this in-flight one.
+  await createTicket(fixture.store, "alpha", 3);
+
+  let cursor = firstPage.nextCursor;
+  while (cursor !== null) {
+    const page = await deliveryWorker.runPage({
+      now: "2026-07-27T12:00:01.000Z",
+      limit: 1,
+      cursor,
+    });
+    cursor = page.nextCursor;
+  }
+  await completeCycle(deliveryWorker, 1);
+
+  expect(send).toHaveBeenCalledTimes(3);
+}
+
+async function duplicateDeliveryRecordStore(store: Store): Promise<Store> {
+  const collection = store.collection(supportRecords);
+  let cursor: string | undefined;
+  let found:
+    | {
+        readonly key: { readonly partition: string; readonly id: string };
+        readonly value: DeliveryJob;
+        readonly version: string;
+      }
+    | undefined;
+  do {
+    const page = await collection.scan({
+      limit: 10,
+      ...(cursor === undefined ? {} : { cursor }),
+    });
+    const record = page.records.find(
+      (
+        value,
+      ): value is {
+        readonly key: { readonly partition: string; readonly id: string };
+        readonly value: DeliveryJob;
+        readonly version: string;
+      } => value.value.kind === "delivery_job",
+    );
+    if (record !== undefined) {
+      found = record;
+      break;
+    }
+    cursor = page.nextCursor ?? undefined;
+    if (page.nextCursor === null) {
+      break;
+    }
+  } while (true);
+  if (found === undefined) {
+    throw new Error("delivery job was not found");
+  }
+
+  const mismatchedValue: DeliveryJob = {
+    ...found.value,
+    partition: "payload-ticket-is-not-authority",
+    ticketId: "payload-ticket-is-not-authority",
+    id: "delivery:payload-id-is-not-authority",
+  };
+  const duplicate = { ...found, value: mismatchedValue };
+  return {
+    collection<T>(definition: CollectionDefinition<T>): CollectionStore<T> {
+      if (definition.name !== supportRecords.name) {
+        return store.collection(definition);
+      }
+      const authoritative = store.collection(
+        supportRecords,
+      ) as CollectionStore<SupportRecord>;
+      return {
+        ...authoritative,
+        async scan() {
+          return {
+            records: [duplicate, duplicate],
+            nextCursor: null,
+          };
+        },
+      } as unknown as CollectionStore<T>;
+    },
+  };
+}
+
+describe("atomic outbox discovery", () => {
+  for (const [name, createFixture] of [
+    ["memory", memoryFixture],
+    ["Azurite", azureFixture],
+  ] as const) {
+    it(`${name}: a fresh worker/store discovers only post-commit durable work`, async () => {
+      await exerciseCommitCrashBoundary(createFixture());
+    });
+
+    it(`${name}: a crash before cursor persistence repeats rather than loses work`, async () => {
+      await exerciseCrashBeforeCursorSave(createFixture());
+    });
+
+    it(`${name}: repeated complete cycles cover live-prefix insertions`, async () => {
+      await exerciseCompleteCycleFairness(createFixture());
+    });
+  }
+
+  it("derives candidates from physical keys and tolerates duplicate scan rows", async () => {
+    const store = createMemoryStore();
+    await createTicket(store, "authoritative-ticket", 1);
+    const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
+    const page = await worker(
+      await duplicateDeliveryRecordStore(store),
+      send,
+    ).runPage({
+      now: "2026-07-27T12:00:01.000Z",
+      limit: 2,
+    });
+
+    expect(
+      page.outcomes.map(({ ticketId, deliveryJobId, result }) => ({
+        ticketId,
+        deliveryJobId,
+        status: result.status,
+      })),
+    ).toEqual([
+      {
+        ticketId: "authoritative-ticket",
+        deliveryJobId: "notify-authoritative-ticket",
+        status: "accepted",
+      },
+      {
+        ticketId: "authoritative-ticket",
+        deliveryJobId: "notify-authoritative-ticket",
+        status: "not_claimed",
+      },
+    ]);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });

@@ -101,15 +101,19 @@ and cannot delay a retry or accelerate deletion.
 
 ## Outbox discovery
 
-Storage Core deliberately cannot enumerate partitions. The mail worker
-therefore requires a `DeliveryWorkStore` with database-adapter discovery.
-`authoritative_rows` discovery scans committed delivery-job rows themselves;
-`transactional_change_feed` discovery may use an adapter-native index or feed
-only when the database transaction that commits the job updates it too. A
-separate host scheduling write after `transact` is not a valid implementation,
-because a crash in that gap would strand the job. Discovery may repeat; every
-`peek` is non-consuming, and every result is confirmed by a conflict-safe lease
-claim in the authoritative ticket partition before a provider call occurs.
+The mail worker uses Storage Core's bounded collection-wide `scan` to enumerate
+the authoritative committed rows. It filters decoded delivery jobs locally,
+derives candidate identity from the returned physical key, and confirms every
+candidate with a conflict-safe lease claim in the authoritative ticket
+partition before a provider call occurs. There is no separate scheduling write
+after `transact`, so a crash after the application commit cannot strand work.
+
+The adapter cursor is opaque. A host persists non-null continuation only after
+handling the whole page, starts the next cycle without a cursor after
+`nextCursor: null`, and runs complete cycles repeatedly. Pages may duplicate
+rows and are neither ordered nor snapshots; a row changed behind an in-flight
+cursor can wait for the next cycle. Repetition is safe because claims are
+conditional and provider sends use the durable idempotency key.
 
 Every claim receives a fresh random fencing token. Completion requires both
 worker ID and that exact token, so a stale invocation cannot complete after

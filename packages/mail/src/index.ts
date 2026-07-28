@@ -3,12 +3,14 @@ import type {
   CollectionStore,
   Store,
 } from "@pegma/storage-core";
+import { MAX_SCAN_PAGE_SIZE } from "@pegma/storage-core";
 import type { Clock } from "@pegma/spine";
 import {
   claimAcceptedDeliveryJob,
   claimDeliveryJob,
   completeDeliveryAttempt,
   completeDeliveryReconciliation,
+  supportRecords,
   type DeliveryCallbackInput,
   type DeliveryJob,
   validateOutboundMessageId,
@@ -71,40 +73,8 @@ export interface TemplateCatalog {
 
 export type FailureClassifier = (error: unknown) => string;
 
-export interface CommittedDeliveryJobCandidate {
-  readonly ticketId: string;
-  readonly deliveryJobId: string;
-}
-
-/**
- * Database-adapter discovery for committed delivery jobs.
- *
- * `authoritative_rows` scans the same authoritative rows that `Store`
- * collections mutate. `transactional_change_feed` may use an adapter-native
- * index or feed only when it is updated in the database transaction that
- * commits the job. A separately persisted hint does not satisfy this port.
- */
-export interface CommittedDeliveryJobDiscovery {
-  readonly consistency: "authoritative_rows" | "transactional_change_feed";
-  /**
-   * Return eligible committed work without consuming or acknowledging it.
-   * The authoritative lease decides whether this worker owns the attempt.
-   */
-  peek(now: string): Promise<CommittedDeliveryJobCandidate | null>;
-}
-
-/**
- * A Store whose own database adapter can discover committed delivery jobs.
- *
- * Keeping discovery on the Store removes the separate candidate-source option
- * and structurally binds the capability to the persistence adapter contract.
- */
-export interface DeliveryWorkStore extends Store {
-  readonly committedDeliveryJobs: CommittedDeliveryJobDiscovery;
-}
-
 export interface DeliveryWorkerOptions {
-  readonly store: DeliveryWorkStore;
+  readonly store: Store;
   /** Trusted host time used after provider calls complete. */
   readonly clock: Clock;
   readonly delivery: MailDeliveryPort;
@@ -123,6 +93,14 @@ export interface DeliverJobInput {
   readonly now: string;
 }
 
+export interface DeliveryScanInput {
+  readonly now: string;
+  /** Opaque adapter cursor from the preceding page in this scan cycle. */
+  readonly cursor?: string;
+  /** Defaults to 100 and cannot exceed Storage Core's bounded page maximum. */
+  readonly limit?: number;
+}
+
 export type DeliverJobResult =
   | { readonly status: "not_claimed" }
   | { readonly status: "accepted"; readonly job: DeliveryJob }
@@ -130,6 +108,20 @@ export type DeliverJobResult =
       readonly status: "retrying" | "dead_letter";
       readonly job: DeliveryJob;
     };
+
+export interface DeliveryScanOutcome {
+  /** Derived from the authoritative physical record key. */
+  readonly ticketId: string;
+  /** Derived from the authoritative physical record key. */
+  readonly deliveryJobId: string;
+  readonly result: DeliverJobResult;
+}
+
+export interface DeliveryScanPage {
+  readonly outcomes: readonly DeliveryScanOutcome[];
+  /** Persist this opaque value only after every outcome has been handled. */
+  readonly nextCursor: string | null;
+}
 
 export type ReconcileJobResult =
   | { readonly status: "not_claimed" }
@@ -390,53 +382,22 @@ function snapshotDeliveryWorkerOptions(
     raw.store,
     "delivery worker options.store",
   );
-  const discoverySource = boundaryObject(
-    ownDataProperty(
-      storeSource,
-      "committedDeliveryJobs",
-      "delivery worker options.store.committedDeliveryJobs",
-    ),
-    "delivery worker options.store.committedDeliveryJobs",
+  const collection = ownDataProperty(
+    storeSource,
+    "collection",
+    "delivery worker options.store.collection",
   );
-  const consistency = boundaryString(
-    ownDataProperty(
-      discoverySource,
-      "consistency",
-      "delivery worker options.store.committedDeliveryJobs.consistency",
-    ),
-    "delivery worker options.store.committedDeliveryJobs.consistency",
-  );
-  if (
-    consistency !== "authoritative_rows" &&
-    consistency !== "transactional_change_feed"
-  ) {
+  if (typeof collection !== "function") {
     throw new TypeError(
-      "delivery worker discovery must use authoritative_rows or transactional_change_feed consistency",
+      "delivery worker options.store.collection must be a function",
     );
   }
-  const peek = ownDataProperty(
-    discoverySource,
-    "peek",
-    "delivery worker options.store.committedDeliveryJobs.peek",
-  );
-  if (typeof peek !== "function") {
-    throw new TypeError(
-      "delivery worker options.store.committedDeliveryJobs.peek must be a function",
-    );
-  }
-  const rawStore = raw.store as Store;
-  const store: DeliveryWorkStore = Object.freeze({
+  const store: Store = Object.freeze({
     collection<T>(definition: CollectionDefinition<T>): CollectionStore<T> {
-      return rawStore.collection<T>(definition);
+      return Reflect.apply(collection, storeSource, [
+        definition,
+      ]) as CollectionStore<T>;
     },
-    committedDeliveryJobs: Object.freeze({
-      consistency,
-      peek(now: string) {
-        return Reflect.apply(peek, discoverySource, [
-          now,
-        ]) as Promise<CommittedDeliveryJobCandidate | null>;
-      },
-    }),
   });
   return Object.freeze({
     store,
@@ -484,10 +445,54 @@ function snapshotDeliverJobInput(
   });
 }
 
+function snapshotDeliveryScanInput(input: DeliveryScanInput): {
+  readonly now: string;
+  readonly cursor?: string;
+  readonly limit: number;
+} {
+  const source = boundaryObject(input, "delivery scan input");
+  const raw = {
+    now: ownDataProperty(source, "now", "delivery scan input.now"),
+    cursor: ownDataProperty(
+      source,
+      "cursor",
+      "delivery scan input.cursor",
+      true,
+    ),
+    limit: ownDataProperty(source, "limit", "delivery scan input.limit", true),
+  };
+  if (raw.cursor !== undefined && typeof raw.cursor !== "string") {
+    throw new TypeError("delivery scan input.cursor must be a string");
+  }
+  if (raw.limit !== undefined && typeof raw.limit !== "number") {
+    throw new TypeError("delivery scan input.limit must be a number");
+  }
+  return Object.freeze({
+    now: boundaryString(raw.now, "delivery scan input.now"),
+    ...(raw.cursor === undefined ? {} : { cursor: raw.cursor }),
+    limit: positiveSafeInteger(
+      raw.limit ?? 100,
+      "delivery scan input.limit",
+      MAX_SCAN_PAGE_SIZE,
+    ),
+  });
+}
+
+function isEligibleSendJob(job: DeliveryJob, now: string): boolean {
+  return (
+    ((job.status === "pending" || job.status === "retrying") &&
+      job.availableAt <= now) ||
+    (job.status === "leased" &&
+      job.leasePurpose === "send" &&
+      job.leaseExpiresAt !== undefined &&
+      job.leaseExpiresAt <= now)
+  );
+}
+
 export function createDeliveryWorker(options: DeliveryWorkerOptions): {
   deliver(input: DeliverJobInput): Promise<DeliverJobResult>;
   reconcile(input: DeliverJobInput): Promise<ReconcileJobResult>;
-  runOnce(now: string): Promise<DeliverJobResult | null>;
+  runPage(input: DeliveryScanInput): Promise<DeliveryScanPage>;
 } {
   const worker = snapshotDeliveryWorkerOptions(options);
   const leaseMilliseconds = positiveSafeInteger(
@@ -774,27 +779,42 @@ export function createDeliveryWorker(options: DeliveryWorkerOptions): {
   return {
     deliver,
     reconcile,
-    async runOnce(now) {
-      requireTimestamp(now);
-      const candidate = await worker.store.committedDeliveryJobs.peek(now);
-      if (candidate === null) {
-        return null;
+    async runPage(input) {
+      const request = snapshotDeliveryScanInput(input);
+      requireTimestamp(request.now);
+      const page = await worker.store.collection(supportRecords).scan({
+        limit: request.limit,
+        ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
+      });
+      const outcomes: DeliveryScanOutcome[] = [];
+      for (const record of page.records) {
+        if (
+          record.value.kind !== "delivery_job" ||
+          !record.key.id.startsWith("delivery:") ||
+          !isEligibleSendJob(record.value, request.now)
+        ) {
+          continue;
+        }
+        const ticketId = record.key.partition;
+        const deliveryJobId = record.key.id.slice("delivery:".length);
+        if (ticketId.length === 0 || deliveryJobId.length === 0) {
+          continue;
+        }
+        outcomes.push(
+          Object.freeze({
+            ticketId,
+            deliveryJobId,
+            result: await deliver({
+              ticketId,
+              deliveryJobId,
+              now: request.now,
+            }),
+          }),
+        );
       }
-      const source = boundaryObject(candidate, "delivery candidate");
-      return deliver({
-        ticketId: boundaryString(
-          ownDataProperty(source, "ticketId", "delivery candidate.ticketId"),
-          "delivery candidate.ticketId",
-        ),
-        deliveryJobId: boundaryString(
-          ownDataProperty(
-            source,
-            "deliveryJobId",
-            "delivery candidate.deliveryJobId",
-          ),
-          "delivery candidate.deliveryJobId",
-        ),
-        now,
+      return Object.freeze({
+        outcomes: Object.freeze(outcomes),
+        nextCursor: page.nextCursor,
       });
     },
   };

@@ -1,11 +1,6 @@
 import type { AccessContext } from "@pegma/authorization-core";
 import { fixedClock } from "@pegma/spine";
-import {
-  createMemoryStore,
-  type CollectionDefinition,
-  type CollectionStore,
-  type Store,
-} from "@pegma/storage-core";
+import { createMemoryStore, type Store } from "@pegma/storage-core";
 import {
   createSupportDeskApplication,
   recordDeliveryCallback,
@@ -16,9 +11,7 @@ import {
 import { defineTemplate } from "@pegma/support-desk-templates";
 import { describe, expect, it, vi } from "vitest";
 import {
-  type CommittedDeliveryJobCandidate,
   createDeliveryWorker,
-  type DeliveryWorkStore,
   outboundMessageId,
   ticketSubject,
 } from "./index.js";
@@ -46,23 +39,6 @@ const unknownReconciliation = {
   reconcile: async () => ({ status: "unknown" as const }),
 };
 
-function deliveryWorkStore(
-  store: Store,
-  peek: () => Promise<CommittedDeliveryJobCandidate | null> = async () => null,
-  consistency:
-    "authoritative_rows" | "transactional_change_feed" = "authoritative_rows",
-): DeliveryWorkStore {
-  return {
-    collection<T>(definition: CollectionDefinition<T>): CollectionStore<T> {
-      return store.collection<T>(definition);
-    },
-    committedDeliveryJobs: {
-      consistency,
-      peek,
-    },
-  };
-}
-
 function sequenceClock(...timestamps: readonly string[]) {
   let index = 0;
   return {
@@ -78,7 +54,7 @@ function sequenceClock(...timestamps: readonly string[]) {
 }
 
 async function pendingJob(maxAttempts = 3) {
-  const store = deliveryWorkStore(createMemoryStore());
+  const store = createMemoryStore();
   const application = createSupportDeskApplication({
     store,
     clock: fixedClock("2026-07-27T12:00:00.000Z"),
@@ -145,7 +121,7 @@ describe("outbound delivery", () => {
 
     expect(() =>
       createDeliveryWorker({
-        store: createMemoryStore() as DeliveryWorkStore,
+        store: {} as Store,
         clock: fixedClock("2026-07-27T12:00:01.000Z"),
         workerId: "worker",
         reconciliation: unknownReconciliation,
@@ -154,27 +130,7 @@ describe("outbound delivery", () => {
         },
         templates: { get: () => template },
       }),
-    ).toThrow(/store\.committedDeliveryJobs must be an own data property/);
-
-    const postCommitHint = {
-      ...store,
-      committedDeliveryJobs: {
-        consistency: "post_commit_hint",
-        peek: async () => null,
-      },
-    } as unknown as DeliveryWorkStore;
-    expect(() =>
-      createDeliveryWorker({
-        store: postCommitHint,
-        clock: fixedClock("2026-07-27T12:00:01.000Z"),
-        workerId: "worker",
-        reconciliation: unknownReconciliation,
-        delivery: {
-          send: async () => ({ providerMessageRef: "provider" }),
-        },
-        templates: { get: () => template },
-      }),
-    ).toThrow(/authoritative_rows or transactional_change_feed/);
+    ).toThrow(/store\.collection must be an own data property/);
 
     const worker = createDeliveryWorker({
       store,
@@ -198,6 +154,25 @@ describe("outbound delivery", () => {
       }),
     ).rejects.toThrow(/delivery input.ticketId must be an own data property/);
     expect(ticketGetterReads).toBe(0);
+
+    let scanNowGetterReads = 0;
+    await expect(
+      worker.runPage({
+        get now() {
+          scanNowGetterReads += 1;
+          return "2026-07-27T12:00:01.000Z";
+        },
+        limit: 10,
+      }),
+    ).rejects.toThrow(/delivery scan input.now must be an own data property/);
+    expect(scanNowGetterReads).toBe(0);
+
+    await expect(
+      worker.runPage({
+        now: "2026-07-27T12:00:01.000Z",
+        limit: 1_001,
+      }),
+    ).rejects.toThrow(/positive safe integer no greater than 1000/);
   });
 
   it("leases once and passes stable idempotency and threading metadata", async () => {
@@ -407,44 +382,37 @@ describe("outbound delivery", () => {
     expect(send.mock.calls.length).toBeLessThanOrEqual(maxAttempts);
   });
 
-  it("claims repeated committed store discovery authoritatively", async () => {
+  it("scans committed rows and makes repeated complete cycles harmless", async () => {
     const store = await pendingJob();
-    const peek = vi.fn(async () => ({
-      ticketId: "ticket",
-      deliveryJobId: "notify",
-    }));
-    const discoverable = deliveryWorkStore(
-      store,
-      peek,
-      "transactional_change_feed",
-    );
+    const send = vi.fn(async () => ({ providerMessageRef: "provider" }));
     const worker = createDeliveryWorker({
-      store: discoverable,
+      store,
       clock: sequenceClock("2026-07-27T12:00:01.000Z"),
       workerId: "worker",
       reconciliation: unknownReconciliation,
-      delivery: {
-        send: async () => ({ providerMessageRef: "provider" }),
-      },
+      delivery: { send },
       templates: { get: () => template },
     });
 
-    expect((await worker.runOnce("2026-07-27T12:00:01.000Z"))?.status).toBe(
+    const first = await worker.runPage({
+      now: "2026-07-27T12:00:01.000Z",
+      limit: 100,
+    });
+    expect(first.nextCursor).toBeNull();
+    expect(first.outcomes.map(({ result }) => result.status)).toEqual([
       "accepted",
-    );
-    expect((await worker.runOnce("2026-07-27T12:00:02.000Z"))?.status).toBe(
-      "not_claimed",
-    );
-    expect(peek).toHaveBeenCalledTimes(2);
+    ]);
+
+    const repeated = await worker.runPage({
+      now: "2026-07-27T12:00:02.000Z",
+      limit: 100,
+    });
+    expect(repeated).toEqual({ outcomes: [], nextCursor: null });
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
-  it("defensively refuses a precommit change-feed entry", async () => {
-    const backing = createMemoryStore();
-    const store = deliveryWorkStore(
-      backing,
-      async () => ({ ticketId: "ticket", deliveryJobId: "notify" }),
-      "transactional_change_feed",
-    );
+  it("cannot discover a precommit phantom", async () => {
+    const store = createMemoryStore();
     const send = vi.fn(async () => ({ providerMessageRef: "provider" }));
     const worker = createDeliveryWorker({
       store,
@@ -455,9 +423,12 @@ describe("outbound delivery", () => {
       templates: { get: () => template },
     });
 
-    expect((await worker.runOnce("2026-07-27T12:00:00.000Z"))?.status).toBe(
-      "not_claimed",
-    );
+    expect(
+      await worker.runPage({
+        now: "2026-07-27T12:00:00.000Z",
+        limit: 100,
+      }),
+    ).toEqual({ outcomes: [], nextCursor: null });
     expect(send).not.toHaveBeenCalled();
 
     await createSupportDeskApplication({
@@ -482,14 +453,19 @@ describe("outbound delivery", () => {
       },
     });
 
-    expect((await worker.runOnce("2026-07-27T12:00:01.000Z"))?.status).toBe(
-      "accepted",
-    );
+    expect(
+      (
+        await worker.runPage({
+          now: "2026-07-27T12:00:01.000Z",
+          limit: 100,
+        })
+      ).outcomes[0]?.result.status,
+    ).toBe("accepted");
     expect(send).toHaveBeenCalledTimes(1);
   });
 
   it("uses distinct provider idempotency keys for the same job id on different tickets", async () => {
-    const store = deliveryWorkStore(createMemoryStore());
+    const store = createMemoryStore();
     const application = createSupportDeskApplication({
       store,
       clock: fixedClock("2026-07-27T12:00:00.000Z"),

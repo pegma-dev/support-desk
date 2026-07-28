@@ -102,6 +102,8 @@ is behind it. The available surface, and therefore the whole design space, is:
   version read in an earlier request, which `update` cannot express because its
   decider sees the record but never the version;
 - `list(partition)` and `listVersioned(partition)`, in unspecified order;
+- bounded collection-wide `scan({ limit, cursor })`, with an opaque
+  continuation and no filter, order, or snapshot guarantee;
 - `delete(key)`;
 - `transact(partition, actions)`, all of the actions or none.
 
@@ -322,13 +324,18 @@ record land together or neither lands, so a provider outage cannot lose a
 customer message and a retry cannot send a duplicate. That is the single
 strongest reason the ticket and its outbox rows share a partition.
 
-Discovery has no second-write gap. The delivery worker takes a Store adapter
-that either scans the authoritative committed job rows or exposes a
-database-native index/change feed maintained by that same database
-transaction. A separately persisted scheduling hint after `transact` is
+Discovery has no second-write gap. The delivery worker uses the Store adapter's
+bounded collection-wide scan over the authoritative committed rows. A
+separately persisted scheduling hint after `transact` is unnecessary and
 forbidden: a crash between those writes would turn a durable outbox row into
-undiscoverable work. Discovery is a non-consuming `peek`; repeated discovery is
-safe because the job lease remains the authority.
+undiscoverable work.
+
+The host persists the opaque non-null cursor only after handling the entire
+page. If it crashes first, the page repeats and conditional claims make that
+safe. `nextCursor: null` closes a cycle; the host then starts without a cursor
+and repeats complete cycles so rows inserted or updated behind a live
+continuation are eventually revisited. Candidates use the adapter-returned
+physical key rather than payload copies of that identity.
 
 Two constraints shape how it is written:
 

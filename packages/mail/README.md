@@ -5,9 +5,8 @@ Adapters must honor the supplied idempotency key, so retrying an uncertain
 send cannot create a duplicate message. The stored key includes both ticket
 and job identity, is provider-safe, and cannot collide across ticket
 partitions.
-Worker options, committed-job discovery, and per-job inputs are snapshotted
-from own data properties before use; accessors are rejected without being
-executed.
+Worker options, scan-page inputs, and per-job inputs are snapshotted from own
+data properties before use; accessors are rejected without being executed.
 Generated `Message-ID` values share the application boundary's strict
 254-character ASCII dot-atom and DNS-domain validation.
 Catalog results are revalidated at render time, and the rendered template ID
@@ -17,14 +16,19 @@ called. A catalog fallback cannot silently send different content.
 This package does not contain a provider SDK, recipient directory, MIME parser,
 or identity logic.
 
-Storage Core intentionally cannot enumerate partitions. A delivery worker
-therefore requires a `DeliveryWorkStore` whose own database adapter exposes
-`committedDeliveryJobs`. Discovery must scan authoritative delivery-job rows,
-or consume an adapter-native index/change feed updated in the same database
-transaction as the job. A separately persisted host hint is not accepted:
-there is no post-commit write that can be lost. Discovery may repeat rows
-because `peek` never consumes or acknowledges work; the outbox lease claim
-remains authoritative.
+The worker discovers committed jobs with Storage Core's authoritative
+collection-wide `scan`. Each `runPage` call processes one bounded page and
+returns the adapter's opaque continuation. Hosts persist a non-null
+`nextCursor` only after handling every outcome in the page; a crash before
+that persistence repeats work safely because the outbox lease claim remains
+authoritative and provider sends carry a stable idempotency key.
+
+A scan cycle starts without a cursor and ends at `nextCursor: null`. Hosts must
+run repeated complete cycles: scans promise no ordering or snapshot, so rows
+inserted or updated behind an in-flight continuation may wait for the next
+cycle. Candidates are derived from the physical keys returned by the adapter,
+never from duplicate key fields in the decoded payload. Duplicate rows are
+expected and harmless.
 
 A successful provider `send` means `accepted`, not delivered. Only a normalized
 authenticated delivery callback may mark a job `delivered`. A later failure
