@@ -263,26 +263,13 @@ function receiptSlotId(slot: string, field: string): string {
   return `slot:${slot}`;
 }
 
-function jsonCodec<T>(): Codec<T> {
+function jsonCodec<T>(key: (value: T) => EntityKey): Codec<T> {
   return {
     encode(value) {
-      const located = value as T & {
-        readonly partition?: string;
-        readonly id?: string;
-        readonly principalId?: string;
-        readonly ticketId?: string;
-        readonly channelId?: string;
-        readonly provider?: string;
-        readonly providerEventId?: string;
-      };
+      const location = key(value);
       return {
-        partition:
-          located.partition ??
-          located.principalId ??
-          located.channelId ??
-          located.provider ??
-          "",
-        id: located.id ?? located.ticketId ?? located.providerEventId ?? "",
+        partition: location.partition,
+        id: location.id,
         payload: JSON.stringify(value),
       };
     },
@@ -295,38 +282,53 @@ function jsonCodec<T>(): Codec<T> {
   };
 }
 
+const supportRecordKey = (record: SupportRecord): EntityKey => ({
+  partition: record.partition,
+  id: record.id,
+});
+
 export const supportRecords = defineCollection<SupportRecord>({
   name: "support-desk.records.v1",
-  key: (record) => ({ partition: record.partition, id: record.id }),
-  codec: jsonCodec<SupportRecord>(),
+  key: supportRecordKey,
+  codec: jsonCodec(supportRecordKey),
+});
+
+const customerTicketIndexKey = (
+  record: CustomerTicketIndexRecord,
+): EntityKey => ({
+  partition: record.principalId,
+  id: "tickets",
 });
 
 export const customerTicketIndex = defineCollection<CustomerTicketIndexRecord>({
   name: "support-desk.customer-ticket-index.v1",
-  key: (record) => ({
-    partition: record.principalId,
-    id: "tickets",
-  }),
-  codec: jsonCodec<CustomerTicketIndexRecord>(),
+  key: customerTicketIndexKey,
+  codec: jsonCodec(customerTicketIndexKey),
+});
+
+const inboundReceiptKey = (record: InboundReceipt): EntityKey => ({
+  partition: record.bucket,
+  id: receiptSlotId(record.slot, "inbound receipt slot"),
 });
 
 export const inboundReceipts = defineCollection<InboundReceipt>({
   name: "support-desk.inbound-receipts.v1",
-  key: (record) => ({
-    partition: record.bucket,
-    id: receiptSlotId(record.slot, "inbound receipt slot"),
-  }),
-  codec: jsonCodec<InboundReceipt>(),
+  key: inboundReceiptKey,
+  codec: jsonCodec(inboundReceiptKey),
+});
+
+const deliveryCallbackReceiptKey = (
+  record: DeliveryCallbackReceipt,
+): EntityKey => ({
+  partition: record.bucket,
+  id: receiptSlotId(record.slot, "delivery callback slot"),
 });
 
 export const deliveryCallbackReceipts =
   defineCollection<DeliveryCallbackReceipt>({
     name: "support-desk.delivery-callback-receipts.v1",
-    key: (record) => ({
-      partition: record.bucket,
-      id: receiptSlotId(record.slot, "delivery callback slot"),
-    }),
-    codec: jsonCodec<DeliveryCallbackReceipt>(),
+    key: deliveryCallbackReceiptKey,
+    codec: jsonCodec(deliveryCallbackReceiptKey),
   });
 
 export interface NotificationInput {
@@ -2245,6 +2247,12 @@ export async function recordDeliveryCallback(
         leasePurpose: _leasePurpose,
         ...unleased
       } = current;
+      const attemptCount =
+        receipt.status === "failed" &&
+        current.status === "leased" &&
+        current.leasePurpose === "send"
+          ? current.attemptCount + 1
+          : current.attemptCount;
       return receipt.status === "delivered"
         ? {
             action: "write",
@@ -2259,13 +2267,14 @@ export async function recordDeliveryCallback(
             action: "write",
             value: {
               ...unleased,
+              attemptCount,
               status:
-                current.attemptCount >= current.maxAttempts
+                attemptCount >= current.maxAttempts
                   ? "dead_letter"
                   : "retrying",
               availableAt: processedAt,
               failureCategory: "provider_callback_failure",
-              ...(current.attemptCount >= current.maxAttempts
+              ...(attemptCount >= current.maxAttempts
                 ? { terminalAt: processedAt }
                 : {}),
             },

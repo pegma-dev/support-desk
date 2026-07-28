@@ -3,6 +3,7 @@ import { fixedClock } from "@pegma/spine";
 import { createMemoryStore } from "@pegma/storage-core";
 import {
   createSupportDeskApplication,
+  recordDeliveryCallback,
   supportRecords,
   supportPermissions,
   sweepTerminalDeliveryJobs,
@@ -228,6 +229,131 @@ describe("outbound delivery", () => {
     expect(tooEarly.status).toBe("not_claimed");
     expect(second.status).toBe("dead_letter");
     expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it("counts a failed callback racing an in-flight send and fences its stale completion", async () => {
+    const store = await pendingJob(2);
+    let signalSendStarted!: () => void;
+    let releaseSend!: () => void;
+    const sendStarted = new Promise<void>((resolve) => {
+      signalSendStarted = resolve;
+    });
+    const sendReleased = new Promise<void>((resolve) => {
+      releaseSend = resolve;
+    });
+    const send = vi.fn(async () => {
+      signalSendStarted();
+      await sendReleased;
+      return { providerMessageRef: "provider-after-callback" };
+    });
+    const worker = createDeliveryWorker({
+      store,
+      clock: fixedClock("2026-07-27T12:00:10.000Z"),
+      workerId: "worker",
+      reconciliation: unknownReconciliation,
+      candidates: { next: async () => null },
+      delivery: { send },
+      templates: { get: () => template },
+    });
+
+    const inFlight = worker.deliver({
+      ticketId: "ticket",
+      deliveryJobId: "notify",
+      now: "2026-07-27T12:00:01.000Z",
+    });
+    await sendStarted;
+    const callback = await recordDeliveryCallback(
+      store,
+      {
+        provider: "mail",
+        providerEventId: "failed-during-send",
+        ticketId: "ticket",
+        deliveryJobId: "notify",
+        status: "failed",
+        occurredAt: "2026-07-27T12:00:02.000Z",
+      },
+      fixedClock("2026-07-27T12:00:02.000Z"),
+    );
+
+    expect(callback.job).toMatchObject({
+      status: "retrying",
+      attemptCount: 1,
+      failureCategory: "provider_callback_failure",
+    });
+    expect(callback.job).not.toHaveProperty("claimToken");
+    releaseSend();
+    expect((await inFlight).status).toBe("not_claimed");
+
+    const stored = await store.collection(supportRecords).get({
+      partition: "ticket",
+      id: "delivery:notify",
+    });
+    expect(stored).toMatchObject({
+      status: "retrying",
+      attemptCount: 1,
+      failureCategory: "provider_callback_failure",
+    });
+    expect(stored).not.toHaveProperty("claimToken");
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("never sends beyond maxAttempts under repeated fast failed callbacks", async () => {
+    const maxAttempts = 2;
+    const store = await pendingJob(maxAttempts);
+    let callbackNumber = 0;
+    const send = vi.fn(async () => {
+      callbackNumber += 1;
+      const second = callbackNumber.toString().padStart(2, "0");
+      await recordDeliveryCallback(
+        store,
+        {
+          provider: "mail",
+          providerEventId: `fast-failure-${callbackNumber}`,
+          ticketId: "ticket",
+          deliveryJobId: "notify",
+          status: "failed",
+          occurredAt: `2026-07-27T12:00:${second}.000Z`,
+        },
+        fixedClock(`2026-07-27T12:00:${second}.000Z`),
+      );
+      return { providerMessageRef: `provider-${callbackNumber}` };
+    });
+    const worker = createDeliveryWorker({
+      store,
+      clock: fixedClock("2026-07-27T12:10:00.000Z"),
+      workerId: "worker",
+      reconciliation: unknownReconciliation,
+      candidates: { next: async () => null },
+      delivery: { send },
+      templates: { get: () => template },
+    });
+
+    for (const now of [
+      "2026-07-27T12:00:01.000Z",
+      "2026-07-27T12:00:03.000Z",
+      "2026-07-27T12:00:05.000Z",
+    ]) {
+      expect(
+        (
+          await worker.deliver({
+            ticketId: "ticket",
+            deliveryJobId: "notify",
+            now,
+          })
+        ).status,
+      ).toBe("not_claimed");
+    }
+
+    const stored = await store.collection(supportRecords).get({
+      partition: "ticket",
+      id: "delivery:notify",
+    });
+    expect(stored).toMatchObject({
+      status: "dead_letter",
+      attemptCount: maxAttempts,
+      failureCategory: "provider_callback_failure",
+    });
+    expect(send.mock.calls.length).toBeLessThanOrEqual(maxAttempts);
   });
 
   it("gets partition-qualified work only from the host candidate source", async () => {

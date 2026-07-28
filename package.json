@@ -20,7 +20,10 @@
     "test": "npm run build && vitest run"
   },
   "devDependencies": {
+    "@azure/data-tables": "^13.3.2",
+    "@pegma/storage-azure-tables": "0.3.0",
     "@types/node": "^26.1.1",
+    "azurite": "^3.36.0",
     "prettier": "^3.9.6",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
