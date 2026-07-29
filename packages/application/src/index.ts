@@ -1392,7 +1392,9 @@ export function createSupportDeskApplication(options: {
       (current) => {
         const lastIssued = current?.lastIssued ?? 0;
         if (!Number.isSafeInteger(lastIssued) || lastIssued < 0) {
-          throw new TypeError("ticket number counter is corrupt");
+          throw new SupportDeskConflictError(
+            "Ticket number counter is corrupt",
+          );
         }
         if (lastIssued >= Number.MAX_SAFE_INTEGER) {
           throw new SupportDeskConflictError(

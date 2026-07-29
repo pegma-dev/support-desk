@@ -117,7 +117,10 @@ async function exerciseDeclaredCollections(store: Store): Promise<void> {
     "ticket_reservation",
   ]);
   const ticket = supportValues.find((value) => value.kind === "ticket");
-  expect(ticket?.kind === "ticket" && ticket.ticket.number).toBe(1);
+  expect(ticket?.kind).toBe("ticket");
+  if (ticket?.kind === "ticket") {
+    expect(ticket.ticket.number).toBe(1);
+  }
   for (const value of supportValues) {
     expectCodecKey(supportRecords, value);
     expect(await records.get(supportRecords.key(value))).toEqual(value);
