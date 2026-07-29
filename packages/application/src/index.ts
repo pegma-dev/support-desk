@@ -1400,6 +1400,20 @@ export function createSupportDeskApplication(options: {
           fingerprint,
         )
       ) {
+        // A crash after ticket commit and before index confirmation must still
+        // converge the principal hint on retry.
+        const fence = await records.get(ticketReservationKey(command.ticketId));
+        if (
+          fence?.kind === "ticket_reservation" &&
+          fence.state === "committed"
+        ) {
+          await confirmCustomerTicket(
+            access.principalId,
+            command.ticketId,
+            fence.token,
+            fence.generation,
+          );
+        }
         return authoritativeView(records, access.principalId, command.ticketId);
       }
       if (command.category !== undefined) {

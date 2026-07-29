@@ -610,6 +610,59 @@ describe("customer application services", () => {
     ).rejects.toBeInstanceOf(SupportDeskConflictError);
   });
 
+  it("confirms a reserved index entry when replaying a committed create", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+    const command = {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 1,
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+    };
+
+    await application.createCustomerTicket(caller, command);
+
+    // Simulate crash after ticket commit and before index confirmation.
+    const index = store.collection(customerTicketIndex);
+    await index.update(
+      { partition: "customer-1", id: "tickets" },
+      (current) => {
+        if (current === null) {
+          return { action: "keep" };
+        }
+        return {
+          action: "write",
+          value: {
+            ...current,
+            entries: current.entries.map((entry) =>
+              entry.ticketId === "ticket-1"
+                ? { ...entry, state: "reserved" as const }
+                : entry,
+            ),
+          },
+        };
+      },
+    );
+    const before = await index.get({ partition: "customer-1", id: "tickets" });
+    expect(
+      before?.entries.find((entry) => entry.ticketId === "ticket-1")?.state,
+    ).toBe("reserved");
+
+    const replayed = await application.createCustomerTicket(caller, command);
+    expect(replayed.ticket.id).toBe("ticket-1");
+    const after = await index.get({ partition: "customer-1", id: "tickets" });
+    expect(
+      after?.entries.find((entry) => entry.ticketId === "ticket-1")?.state,
+    ).toBe("confirmed");
+  });
+
   it("replays a committed create after the category is removed from the allowlist", async () => {
     const store = createMemoryStore();
     const caller = access("customer-1", allCustomerPermissions);
