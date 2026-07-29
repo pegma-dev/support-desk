@@ -3,8 +3,9 @@
 ## Status
 
 **Stage:** The customer-facing Phase 1/2 application slice and the source
-portion of Phase 6 are implemented. Ecosystem alignment, staff services,
-host-applied abuse limits, and every deployment phase remain open; every
+portion of Phase 6 are implemented. Buildout Tasks 1–2 (Audit alignment and
+dual-host customer contract) are complete. Staff services, host-applied abuse
+limits, and every deployment phase remain open; every
 `@pegma/support-desk-*` package is unpublished.
 
 **Initial reference applications:** retiregolden.org for paid customer support
@@ -60,10 +61,11 @@ the provider-neutral Phase 6 outbound-mail integration:
   `AccessContext`, require Support Desk's exact permission names, and confirm
   requester ownership against the authoritative ticket rather than trusting
   the principal index.
-- The current pre-release customer methods still expose the authoritative
-  `Ticket` shape, including staff metadata. Buildout Task 2 replaces that with
-  explicit safe customer DTOs and a customer-visible update timestamp before
-  any host route is built.
+- Customer create, list, read, and reply return explicit safe summaries
+  (`CustomerTicketSummary` / `CustomerTicketView`) that omit requester
+  evidence, priority, assignee, revision, staff-facing `updatedAt`, and audit
+  data. Optional host-configured `category` and `customerUpdatedAt` are part of
+  the durable ticket and the customer DTO.
 - Customer commands are idempotent by command ID and a SHA-256 request
   fingerprint. Reply transactions use an opaque version read immediately
   before the transaction and retry conflicts without losing messages.
@@ -173,7 +175,7 @@ repository can consume Support Desk without an unpublished dependency.
 - [x] Workflow and rejection tests
 - [x] MVP, architecture, security, and contribution documentation
 - [x] CI, dependency updates, and CodeQL
-- [ ] Validate the contracts against both launch profiles in `BUILDOUT.md`
+- [x] Validate the contracts against both launch profiles in `BUILDOUT.md`
 
 **Exit criterion:** Tests can represent an authenticated web ticket, an
 unverified email ticket, staff replies, customer follow-up, assignment,

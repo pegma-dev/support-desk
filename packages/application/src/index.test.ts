@@ -100,10 +100,19 @@ describe("customer application services", () => {
       },
     );
 
-    expect(created.ticket.requester.principalId).toBe("customer-1");
+    expect(created.ticket.id).toBe("ticket-1");
+    expect(created.ticket.number).toBe(42);
+    expect(created.ticket.customerUpdatedAt).toBe("2026-07-27T12:00:00.000Z");
     expect(created.messages.map((message) => message.body)).toEqual([
       "The plan page stays blank.",
     ]);
+    const storedTicket = (
+      await store.collection(supportRecords).list("ticket-1")
+    ).find((record) => record.kind === "ticket");
+    expect(
+      storedTicket?.kind === "ticket" &&
+        storedTicket.ticket.requester.principalId,
+    ).toBe("customer-1");
     const records = await store.collection(supportRecords).list("ticket-1");
     expect(records.map((record) => record.kind).sort()).toEqual([
       "audit",
@@ -321,6 +330,576 @@ describe("customer application services", () => {
     ).toHaveLength(1);
   });
 
+  it("returns customer-safe summaries without staff-only fields", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      allowedCategories: ["feedback"],
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+
+    const created = await application.createCustomerTicket(caller, {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 42,
+      messageId: "message-1",
+      subject: "Product feedback",
+      body: "Please help.",
+      category: "feedback",
+      requesterEmail: "customer@example.com",
+    });
+    const listed = await application.listCustomerTickets(caller);
+    const encoded = JSON.stringify({ created, listed });
+
+    expect(created.ticket).toEqual({
+      id: "ticket-1",
+      number: 42,
+      subject: "Product feedback",
+      category: "feedback",
+      status: "open",
+      channel: "web",
+      createdAt: "2026-07-27T12:00:00.000Z",
+      customerUpdatedAt: "2026-07-27T12:00:00.000Z",
+    });
+    expect(Object.keys(created.ticket).sort()).toEqual([
+      "category",
+      "channel",
+      "createdAt",
+      "customerUpdatedAt",
+      "id",
+      "number",
+      "status",
+      "subject",
+    ]);
+    expect(listed).toEqual([created.ticket]);
+    expect(created.messages[0]).toEqual({
+      id: "message-1",
+      ticketId: "ticket-1",
+      authorKind: "customer",
+      channel: "web",
+      visibility: "customer",
+      format: "plain_text",
+      body: "Please help.",
+      createdAt: "2026-07-27T12:00:00.000Z",
+    });
+    expect(Object.keys(created.messages[0]!).sort()).toEqual([
+      "authorKind",
+      "body",
+      "channel",
+      "createdAt",
+      "format",
+      "id",
+      "ticketId",
+      "visibility",
+    ]);
+    expect(encoded).not.toContain('"requester"');
+    expect(encoded).not.toContain('"priority"');
+    expect(encoded).not.toContain('"assignedTo"');
+    expect(encoded).not.toContain('"revision"');
+    expect(encoded).not.toContain('"updatedAt"');
+    expect(encoded).not.toContain('"authorPrincipalId"');
+    expect(encoded).not.toContain('"externalMessageId"');
+    expect(encoded).not.toContain("audit");
+    expect(encoded).not.toContain("customer@example.com");
+
+    const stored = (
+      await store.collection(supportRecords).list("ticket-1")
+    ).find((record) => record.kind === "ticket");
+    expect(stored?.kind === "ticket" && stored.ticket.priority).toBe("normal");
+    expect(stored?.kind === "ticket" && stored.ticket.requester.email).toBe(
+      "customer@example.com",
+    );
+  });
+
+  it("supports RetireGolden entitlement and pegma.dev default policy fixtures", async () => {
+    const retiregoldenPolicy = access("rg-customer", allCustomerPermissions);
+    const pegmaAuthenticated = access("pegma-user", allCustomerPermissions);
+    const pegmaUnentitledWithoutPerms = access("pegma-free", []);
+
+    for (const [label, caller, categories] of [
+      ["retiregolden", retiregoldenPolicy, ["billing", "account"] as const],
+      [
+        "pegma.dev",
+        pegmaAuthenticated,
+        [
+          "feedback",
+          "bug",
+          "feature_request",
+          "documentation",
+          "question",
+        ] as const,
+      ],
+    ] as const) {
+      const store = createMemoryStore();
+      const application = createSupportDeskApplication({
+        store,
+        clock: fixedClock("2026-07-27T12:00:00.000Z"),
+        allowedCategories: [...categories],
+      });
+      const created = await application.createCustomerTicket(caller, {
+        commandId: `${label}-create`,
+        correlationId: `${label}-correlation`,
+        ticketId: `${label}-ticket`,
+        ticketNumber: 1,
+        messageId: `${label}-message`,
+        subject: `${label} question`,
+        body: "Hello",
+        category: categories[0],
+      });
+      expect(created.ticket.category).toBe(categories[0]);
+      expect(await application.listCustomerTickets(caller)).toHaveLength(1);
+      await application.replyToCustomerTicket(caller, {
+        commandId: `${label}-reply`,
+        correlationId: `${label}-reply-correlation`,
+        ticketId: `${label}-ticket`,
+        messageId: `${label}-reply`,
+        body: "More detail",
+      });
+      const detail = await application.readCustomerTicket(
+        caller,
+        `${label}-ticket`,
+      );
+      expect(detail.messages).toHaveLength(2);
+      expect(detail.ticket.status).toBe("waiting_on_support");
+      expect(detail.ticket.category).toBe(categories[0]);
+    }
+
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      allowedCategories: ["feedback"],
+    });
+    await expect(
+      application.createCustomerTicket(pegmaUnentitledWithoutPerms, {
+        commandId: "denied",
+        correlationId: "denied",
+        ticketId: "ticket-denied",
+        ticketNumber: 1,
+        messageId: "message-denied",
+        subject: "Should fail",
+        body: "No permission",
+        category: "feedback",
+      }),
+    ).rejects.toBeInstanceOf(SupportDeskAuthorizationError);
+  });
+
+  it("validates category shape and allowlist before persistence", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      allowedCategories: ["feedback", "bug"],
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+    const base = {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 1,
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+    };
+
+    await expect(
+      application.createCustomerTicket(caller, {
+        ...base,
+        category: "unknown",
+      }),
+    ).rejects.toThrow(/category is not configured/);
+    await expect(
+      application.createCustomerTicket(caller, {
+        ...base,
+        category: "Bug",
+      }),
+    ).rejects.toThrow(/must match/);
+    await expect(
+      application.createCustomerTicket(caller, {
+        ...base,
+        category: "a".repeat(33),
+      }),
+    ).rejects.toThrow(/must match/);
+    await expect(
+      application.createCustomerTicket(caller, {
+        ...base,
+        category: "bad-dash",
+      }),
+    ).rejects.toThrow(/must match/);
+    await expect(
+      application.createCustomerTicket(caller, {
+        ...base,
+        category: "bad\u0000",
+      }),
+    ).rejects.toThrow(/must match/);
+
+    const accessorCategoryCommand = { ...base };
+    Object.defineProperty(accessorCategoryCommand, "category", {
+      enumerable: true,
+      configurable: true,
+      get() {
+        throw new Error("accessor should not run");
+      },
+    });
+    await expect(
+      application.createCustomerTicket(
+        caller,
+        accessorCategoryCommand as never,
+      ),
+    ).rejects.toThrow(/own data property/);
+
+    expect(await store.collection(supportRecords).list("ticket-1")).toEqual([]);
+
+    expect(() =>
+      createSupportDeskApplication({
+        store,
+        clock: fixedClock("2026-07-27T12:00:00.000Z"),
+        allowedCategories: ["feedback", "feedback"],
+      }),
+    ).toThrow(/duplicates/);
+    expect(() =>
+      createSupportDeskApplication({
+        store,
+        clock: fixedClock("2026-07-27T12:00:00.000Z"),
+        allowedCategories: Array.from({ length: 33 }, (_, i) => `c${i}`),
+      }),
+    ).toThrow(/at most 32/);
+    const accessorAllowlist = ["feedback"];
+    Object.defineProperty(accessorAllowlist, 0, {
+      enumerable: true,
+      get() {
+        throw new Error("allowlist accessor should not run");
+      },
+    });
+    expect(() =>
+      createSupportDeskApplication({
+        store,
+        clock: fixedClock("2026-07-27T12:00:00.000Z"),
+        allowedCategories: accessorAllowlist,
+      }),
+    ).toThrow(/own data property/);
+  });
+
+  it("replays category-less creates with the legacy fingerprint shape", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+    const command = {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 1,
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+    };
+    const created = await application.createCustomerTicket(caller, command);
+
+    // Simulate a receipt written before category existed in the fingerprint.
+    const legacyFingerprint = await crypto.subtle
+      .digest(
+        "SHA-256",
+        new TextEncoder().encode(
+          JSON.stringify({
+            type: "create_customer_ticket",
+            ticketId: command.ticketId,
+            ticketNumber: command.ticketNumber,
+            messageId: command.messageId,
+            subject: command.subject,
+            body: command.body,
+            requesterEmail: null,
+            notification: null,
+          }),
+        ),
+      )
+      .then((digest) =>
+        [...new Uint8Array(digest)]
+          .map((byte) => byte.toString(16).padStart(2, "0"))
+          .join(""),
+      );
+    const records = store.collection(supportRecords);
+    const receipt = await records.get({
+      partition: "ticket-1",
+      id: "command:command-1",
+    });
+    expect(receipt?.kind).toBe("command");
+    if (receipt?.kind === "command") {
+      await records.update(
+        { partition: "ticket-1", id: "command:command-1" },
+        () => ({
+          action: "write",
+          value: { ...receipt, requestFingerprint: legacyFingerprint },
+        }),
+      );
+    }
+
+    const replayed = await application.createCustomerTicket(caller, command);
+    expect(replayed.ticket).toEqual(created.ticket);
+  });
+
+  it("backfills customerUpdatedAt for legacy durable tickets from createdAt", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+    await application.createCustomerTicket(caller, {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 1,
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+    });
+
+    const records = store.collection(supportRecords);
+    await records.update({ partition: "ticket-1", id: "ticket" }, (current) => {
+      if (current?.kind !== "ticket") {
+        return { action: "keep" };
+      }
+      const { customerUpdatedAt: _drop, ...legacyTicket } = current.ticket as {
+        readonly customerUpdatedAt?: string;
+      } & typeof current.ticket;
+      return {
+        action: "write",
+        value: {
+          ...current,
+          ticket: {
+            ...legacyTicket,
+            // Staff-only activity must not become the customer-visible stamp.
+            updatedAt: "2026-07-27T15:00:00.000Z",
+          } as typeof current.ticket,
+        },
+      };
+    });
+
+    const view = await application.readCustomerTicket(caller, "ticket-1");
+    expect(view.ticket.customerUpdatedAt).toBe("2026-07-27T12:00:00.000Z");
+    expect(JSON.stringify(view)).not.toContain("2026-07-27T15:00:00.000Z");
+    const listed = await application.listCustomerTickets(caller);
+    expect(listed[0]?.customerUpdatedAt).toBe("2026-07-27T12:00:00.000Z");
+  });
+
+  it("includes category in the create idempotency fingerprint", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      allowedCategories: ["feedback", "bug"],
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+    const command = {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 1,
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+      category: "feedback",
+    };
+
+    await application.createCustomerTicket(caller, command);
+    await expect(
+      application.createCustomerTicket(caller, {
+        ...command,
+        category: "bug",
+      }),
+    ).rejects.toBeInstanceOf(SupportDeskConflictError);
+  });
+
+  it("confirms a reserved index entry when replaying a committed create", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+    const command = {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 1,
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+    };
+
+    await application.createCustomerTicket(caller, command);
+
+    // Simulate crash after ticket commit and before index confirmation.
+    const index = store.collection(customerTicketIndex);
+    await index.update(
+      { partition: "customer-1", id: "tickets" },
+      (current) => {
+        if (current === null) {
+          return { action: "keep" };
+        }
+        return {
+          action: "write",
+          value: {
+            ...current,
+            entries: current.entries.map((entry) =>
+              entry.ticketId === "ticket-1"
+                ? { ...entry, state: "reserved" as const }
+                : entry,
+            ),
+          },
+        };
+      },
+    );
+    const before = await index.get({ partition: "customer-1", id: "tickets" });
+    expect(
+      before?.entries.find((entry) => entry.ticketId === "ticket-1")?.state,
+    ).toBe("reserved");
+
+    const replayed = await application.createCustomerTicket(caller, command);
+    expect(replayed.ticket.id).toBe("ticket-1");
+    const after = await index.get({ partition: "customer-1", id: "tickets" });
+    expect(
+      after?.entries.find((entry) => entry.ticketId === "ticket-1")?.state,
+    ).toBe("confirmed");
+  });
+
+  it("replays a committed create after the category is removed from the allowlist", async () => {
+    const store = createMemoryStore();
+    const caller = access("customer-1", allCustomerPermissions);
+    const command = {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 1,
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+      category: "feedback",
+    };
+    const first = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      allowedCategories: ["feedback"],
+    });
+    const created = await first.createCustomerTicket(caller, command);
+
+    const afterConfigChange = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      allowedCategories: ["bug"],
+    });
+    const replayed = await afterConfigChange.createCustomerTicket(
+      caller,
+      command,
+    );
+    expect(replayed.ticket).toEqual(created.ticket);
+    expect(replayed.messages).toEqual(created.messages);
+
+    await expect(
+      afterConfigChange.createCustomerTicket(caller, {
+        ...command,
+        commandId: "command-2",
+        ticketId: "ticket-2",
+        messageId: "message-2",
+        ticketNumber: 2,
+      }),
+    ).rejects.toThrow(/category is not configured/);
+  });
+
+  it("does not let category change authorization or initial priority", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      allowedCategories: ["bug", "question"],
+    });
+    const denied = access("no-perms", []);
+    await expect(
+      application.createCustomerTicket(denied, {
+        commandId: "denied",
+        correlationId: "denied",
+        ticketId: "ticket-denied",
+        ticketNumber: 1,
+        messageId: "message-denied",
+        subject: "Bug",
+        body: "Still denied",
+        category: "bug",
+      }),
+    ).rejects.toBeInstanceOf(SupportDeskAuthorizationError);
+
+    const caller = access("customer-1", allCustomerPermissions);
+    await application.createCustomerTicket(caller, {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 1,
+      messageId: "message-1",
+      subject: "Bug",
+      body: "Broken",
+      category: "bug",
+    });
+    await application.createCustomerTicket(caller, {
+      commandId: "command-2",
+      correlationId: "correlation-2",
+      ticketId: "ticket-2",
+      ticketNumber: 2,
+      messageId: "message-2",
+      subject: "Question",
+      body: "Curious",
+      category: "question",
+    });
+
+    for (const ticketId of ["ticket-1", "ticket-2"]) {
+      const stored = (
+        await store.collection(supportRecords).list(ticketId)
+      ).find((record) => record.kind === "ticket");
+      expect(stored?.kind === "ticket" && stored.ticket.priority).toBe(
+        "normal",
+      );
+    }
+  });
+
+  it("advances customerUpdatedAt on customer reply without exposing staff fields", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-27T12:05:00.000Z",
+      ),
+      allowedCategories: ["question"],
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+    const created = await application.createCustomerTicket(caller, {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 1,
+      messageId: "message-1",
+      subject: "Question",
+      body: "Start",
+      category: "question",
+    });
+    expect(created.ticket.customerUpdatedAt).toBe("2026-07-27T12:00:00.000Z");
+
+    const replied = await application.replyToCustomerTicket(caller, {
+      commandId: "reply-1",
+      correlationId: "correlation-2",
+      ticketId: "ticket-1",
+      messageId: "message-2",
+      body: "Follow up",
+    });
+    expect(replied.ticket.customerUpdatedAt).toBe("2026-07-27T12:05:00.000Z");
+    expect(replied.ticket.category).toBe("question");
+    expect("priority" in replied.ticket).toBe(false);
+    expect("revision" in replied.ticket).toBe(false);
+  });
+
   it("treats repeated commands as the same completed operation", async () => {
     const store = createMemoryStore();
     const application = createSupportDeskApplication({
@@ -355,8 +934,14 @@ describe("customer application services", () => {
       body: "More detail.",
     });
 
-    expect(repeated.ticket.revision).toBe(2);
+    expect(repeated.ticket.status).toBe("waiting_on_support");
     expect(repeated.messages).toHaveLength(2);
+    const storedAfterReplay = (
+      await store.collection(supportRecords).list("ticket-1")
+    ).find((record) => record.kind === "ticket");
+    expect(
+      storedAfterReplay?.kind === "ticket" && storedAfterReplay.ticket.revision,
+    ).toBe(2);
     expect(
       (await store.collection(supportRecords).list("ticket-1"))
         .filter((record) => record.kind === "message")
@@ -408,11 +993,17 @@ describe("customer application services", () => {
     );
 
     const view = await application.readCustomerTicket(caller, "ticket-1");
-    expect(view.ticket.revision).toBe(5);
+    expect(view.messages).toHaveLength(5);
     const committed = (await store.collection(supportRecords).list("ticket-1"))
       .filter((record) => record.kind === "message")
       .sort((left, right) => left.ordinal! - right.ordinal!);
     expect(committed.map((record) => record.ordinal)).toEqual([1, 2, 3, 4, 5]);
+    const storedTicket = (
+      await store.collection(supportRecords).list("ticket-1")
+    ).find((record) => record.kind === "ticket");
+    expect(
+      storedTicket?.kind === "ticket" && storedTicket.ticket.revision,
+    ).toBe(5);
     expect(view.messages.map((message) => message.id)).toEqual(
       committed.map((record) => record.message.id),
     );
@@ -492,8 +1083,15 @@ describe("customer application services", () => {
       body: "Follow up.",
     });
     expect(replyTransactions).toBe(2);
-    expect(replied.ticket.updatedAt).toBe("2026-07-27T12:10:00.000Z");
+    expect(replied.ticket.customerUpdatedAt).toBe("2026-07-27T12:10:00.000Z");
     expect(replied.messages.at(-1)?.createdAt).toBe("2026-07-27T12:10:00.000Z");
+    const storedReplyTicket = (
+      await backing.collection(supportRecords).list("ticket")
+    ).find((record) => record.kind === "ticket");
+    expect(
+      storedReplyTicket?.kind === "ticket" &&
+        storedReplyTicket.ticket.updatedAt,
+    ).toBe("2026-07-27T12:10:00.000Z");
 
     const invalidClockApplication = createSupportDeskApplication({
       store,
@@ -962,7 +1560,13 @@ describe("customer application services", () => {
       ...command,
       requesterEmail: "  Customer@Example.COM  ",
     });
-    expect(created.ticket.requester).toMatchObject({
+    expect(created.ticket.id).toBe("ticket");
+    const storedCreated = (
+      await store.collection(supportRecords).list("ticket")
+    ).find((record) => record.kind === "ticket");
+    expect(
+      storedCreated?.kind === "ticket" && storedCreated.ticket.requester,
+    ).toMatchObject({
       association: "authenticated",
       principalId: "customer",
       email: "Customer@example.com",
@@ -1007,9 +1611,39 @@ describe("customer application services", () => {
         createdAt: "2026-07-27T12:00:00.000Z",
       },
     });
+    await store.collection(supportRecords).insertIfAbsent({
+      kind: "message",
+      partition: "ticket",
+      id: "message:staff-public",
+      ordinal: 3,
+      message: {
+        id: "staff-public",
+        ticketId: "ticket",
+        authorKind: "staff",
+        authorPrincipalId: "staff-1",
+        channel: "web",
+        visibility: "customer",
+        format: "plain_text",
+        body: "Public staff reply.",
+        createdAt: "2026-07-27T12:01:00.000Z",
+        externalMessageId: "<staff@example.test>",
+        inReplyToExternalMessageId: "<prior@example.test>",
+      },
+    });
 
     const view = await application.readCustomerTicket(caller, "ticket");
-    expect(view.messages.map((message) => message.id)).toEqual(["public"]);
+    expect(view.messages.map((message) => message.id)).toEqual([
+      "public",
+      "staff-public",
+    ]);
+    expect(JSON.stringify(view.messages)).not.toContain("staff-1");
+    expect(JSON.stringify(view.messages)).not.toContain("authorPrincipalId");
+    expect(JSON.stringify(view.messages)).not.toContain("externalMessageId");
+    expect(view.messages[1]).toMatchObject({
+      id: "staff-public",
+      authorKind: "staff",
+      body: "Public staff reply.",
+    });
   });
 
   it("rejects unmigrated or duplicate stored message ordinals", async () => {
