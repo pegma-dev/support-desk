@@ -1,9 +1,11 @@
 import { auditRecordId, defineAudit, type AuditEvent } from "@pegma/audit";
 import { hasPermission, type AccessContext } from "@pegma/authorization-core";
 import { defineMail, maxMailAttempts, type MailJob } from "@pegma/mail";
-import type { Clock, IsoTimestamp, PrincipalId } from "@pegma/spine";
+import type { Clock, IsoTimestamp, Logger, PrincipalId } from "@pegma/spine";
+import { noopLogger } from "@pegma/spine";
 import {
   defineCollection,
+  MAX_SCAN_PAGE_SIZE,
   type Codec,
   type CollectionStore,
   type EntityKey,
@@ -12,10 +14,13 @@ import {
 } from "@pegma/storage-core";
 import type {
   MessageId,
+  RequesterAssociation,
   Ticket,
+  TicketChannel,
   TicketId,
   TicketMessage,
   TicketPriority,
+  TicketStatus,
 } from "@pegma/support-desk-contracts";
 import { applyTicketEvent, createTicket } from "@pegma/support-desk-core";
 
@@ -85,6 +90,23 @@ export class SupportDeskLimitError extends Error {
   ) {
     super(`${field} exceeds the configured limit of ${maximum}`);
     this.name = "SupportDeskLimitError";
+  }
+}
+
+/**
+ * Staff queue online scan hit a configured materialization budget before the
+ * projection scan cycle completed. Hosts map this to HTTP 503; never return a
+ * partial queue page for this outcome.
+ */
+export class SupportDeskQueueCapacityError extends Error {
+  constructor(
+    readonly budget: "physical_rows" | "scan_pages" | "active_results",
+    readonly maximum: number,
+  ) {
+    super(
+      `Staff queue scan exhausted the ${budget} budget of ${maximum} before a complete cycle`,
+    );
+    this.name = "SupportDeskQueueCapacityError";
   }
 }
 
@@ -479,6 +501,64 @@ export const deliveryCallbackReceipts =
     codec: jsonCodec(deliveryCallbackReceiptKey),
   });
 
+/**
+ * Staff queue projection row. One record per ticket, partitioned by ticket ID
+ * so no queue partition grows without bound. Never stores message bodies,
+ * email addresses, or permission decisions.
+ */
+export interface QueueIndexRecord {
+  readonly ticketId: TicketId;
+  readonly id: "queue";
+  readonly projectedRevision: number;
+  readonly state: "active" | "inactive";
+  readonly status: TicketStatus;
+  readonly priority: TicketPriority;
+  readonly category?: string;
+  readonly requesterAssociation: RequesterAssociation;
+  readonly channel: TicketChannel;
+  readonly assignedTo?: PrincipalId;
+  readonly updatedAt: IsoTimestamp;
+}
+
+const queueIndexKey = (record: QueueIndexRecord): EntityKey => ({
+  partition: record.ticketId,
+  id: record.id,
+});
+
+export const queueIndex = defineCollection<QueueIndexRecord>({
+  name: "support-desk.queue-index.v1",
+  key: queueIndexKey,
+  codec: jsonCodec(queueIndexKey),
+});
+
+/** Default terminal-retention cutoff shared by projection, repair, and sweep. */
+export const defaultQueueTerminalRetentionMilliseconds = 30 * 86_400_000;
+
+export interface QueueScanBudgets {
+  /** Every adapter-returned physical projection row before confirmation. */
+  readonly maxPhysicalRows: number;
+  /** Complete scan pages attempted by one online queue request. */
+  readonly maxScanPages: number;
+  /** Confirmed active tickets materialized before filter/sort. */
+  readonly maxActiveResults: number;
+  /** Page size passed to `scan` (at most {@link MAX_SCAN_PAGE_SIZE}). */
+  readonly scanPageSize: number;
+}
+
+export const defaultQueueScanBudgets: QueueScanBudgets = Object.freeze({
+  maxPhysicalRows: 10_000,
+  maxScanPages: 100,
+  maxActiveResults: 1_000,
+  scanPageSize: 100,
+});
+
+export interface QueueProjectionHealth {
+  readonly consecutiveFailures: number;
+  readonly lastFailureAt?: IsoTimestamp;
+  readonly lastFailureTicketId?: TicketId;
+  readonly lastFailureMessage?: string;
+}
+
 export interface NotificationInput {
   readonly id: string;
   readonly recipientRef: string;
@@ -629,6 +709,64 @@ export interface LifecycleTicketCommand {
   readonly notification?: NotificationInput;
 }
 
+/**
+ * Staff queue filters applied in application memory after authoritative
+ * confirmation. Storage never filters or sorts projection rows.
+ */
+export interface StaffQueueQuery {
+  readonly status?: TicketStatus | readonly TicketStatus[];
+  readonly priority?: TicketPriority | readonly TicketPriority[];
+  readonly association?: RequesterAssociation | readonly RequesterAssociation[];
+  readonly channel?: TicketChannel | readonly TicketChannel[];
+  /** Exact assignee principal; use with `unassignedOnly` for null assignee. */
+  readonly assignedTo?: PrincipalId;
+  readonly unassignedOnly?: boolean;
+  /** Newest updates first is the default staff presentation. */
+  readonly sort?: "updated_newest" | "updated_oldest";
+}
+
+/** Confirmed active ticket summary for the staff queue surface. */
+export interface StaffQueueItem {
+  readonly ticketId: TicketId;
+  readonly revision: number;
+  readonly status: TicketStatus;
+  readonly priority: TicketPriority;
+  readonly category?: string;
+  readonly requesterAssociation: RequesterAssociation;
+  readonly channel: TicketChannel;
+  readonly assignedTo?: PrincipalId;
+  readonly updatedAt: IsoTimestamp;
+}
+
+export interface StaffQueueResult {
+  readonly items: readonly StaffQueueItem[];
+}
+
+export interface QueueRepairPageOptions {
+  /** Opaque adapter-issued continuation; omit to begin a new repair cycle. */
+  readonly cursor?: string;
+  /** Physical records per authoritative page; at most {@link MAX_SCAN_PAGE_SIZE}. */
+  readonly limit?: number;
+}
+
+export interface QueueRepairPageResult {
+  /** Host-persisted only after this whole page succeeds. */
+  readonly nextCursor: string | null;
+  readonly physicalRows: number;
+  readonly projected: number;
+}
+
+export interface QueueInactiveSweepOptions {
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
+export interface QueueInactiveSweepResult {
+  readonly nextCursor: string | null;
+  readonly physicalRows: number;
+  readonly deleted: number;
+}
+
 export interface SupportDeskApplication {
   createCustomerTicket(
     access: AccessContext,
@@ -649,6 +787,19 @@ export interface SupportDeskApplication {
     access: AccessContext,
     ticketId: TicketId,
   ): Promise<StaffTicketView>;
+  /**
+   * Bounded staff queue over `support-desk.queue-index.v1`. Scans the
+   * projection from a null cursor for one complete cycle, confirms every
+   * candidate against the authoritative ticket, then filters and sorts in
+   * memory. Exhausting any budget returns {@link SupportDeskQueueCapacityError}
+   * with no partial result.
+   */
+  listStaffQueue(
+    access: AccessContext,
+    query?: StaffQueueQuery,
+  ): Promise<StaffQueueResult>;
+  /** In-process projection health for host metrics/dashboards. */
+  queueProjectionHealth(): QueueProjectionHealth;
   replyAsStaff(
     access: AccessContext,
     command: StaffReplyCommand,
@@ -1638,11 +1789,564 @@ async function requestFingerprint(value: unknown): Promise<string> {
     .join("");
 }
 
+function isTerminalTicketStatus(status: TicketStatus): boolean {
+  return status === "resolved" || status === "closed";
+}
+
+function terminalTimestamp(ticket: Ticket): IsoTimestamp {
+  if (ticket.status === "resolved") {
+    return ticket.resolvedAt ?? ticket.updatedAt;
+  }
+  if (ticket.status === "closed") {
+    return ticket.closedAt ?? ticket.resolvedAt ?? ticket.updatedAt;
+  }
+  return ticket.updatedAt;
+}
+
+function ticketBeyondTerminalCutoff(
+  ticket: Ticket,
+  now: IsoTimestamp,
+  terminalRetentionMilliseconds: number,
+): boolean {
+  if (!isTerminalTicketStatus(ticket.status)) {
+    return false;
+  }
+  const nowEpoch = canonicalTimestamp(now, "clock.now()");
+  const terminalEpoch = canonicalTimestamp(
+    terminalTimestamp(ticket),
+    "ticket terminal time",
+  );
+  return nowEpoch - terminalEpoch >= terminalRetentionMilliseconds;
+}
+
+function deriveQueueIndexRecord(ticket: Ticket): QueueIndexRecord {
+  return {
+    ticketId: ticket.id,
+    id: "queue",
+    projectedRevision: ticket.revision,
+    state: isTerminalTicketStatus(ticket.status) ? "inactive" : "active",
+    status: ticket.status,
+    priority: ticket.priority,
+    ...(ticket.category === undefined ? {} : { category: ticket.category }),
+    requesterAssociation: ticket.requester.association,
+    channel: ticket.channel,
+    ...(ticket.assignedTo === undefined
+      ? {}
+      : { assignedTo: ticket.assignedTo }),
+    updatedAt: ticket.updatedAt,
+  };
+}
+
+function queueIndexContentEqual(
+  left: QueueIndexRecord,
+  right: QueueIndexRecord,
+): boolean {
+  return (
+    left.ticketId === right.ticketId &&
+    left.id === right.id &&
+    left.projectedRevision === right.projectedRevision &&
+    left.state === right.state &&
+    left.status === right.status &&
+    left.priority === right.priority &&
+    left.category === right.category &&
+    left.requesterAssociation === right.requesterAssociation &&
+    left.channel === right.channel &&
+    left.assignedTo === right.assignedTo &&
+    left.updatedAt === right.updatedAt
+  );
+}
+
+function queueProjectionKey(ticketId: TicketId): EntityKey {
+  return { partition: ticketId, id: "queue" };
+}
+
+export interface ProjectTicketToQueueOptions {
+  readonly store: Store;
+  readonly clock: Clock;
+  readonly terminalRetentionMilliseconds?: number;
+  readonly maxConflictAttempts?: number;
+}
+
+/**
+ * Load the authoritative ticket and project the entire queue row from it.
+ *
+ * Never accepts a caller-supplied `Ticket` snapshot. Accepts only a newer
+ * revision or an identical equal-revision replay. Authoritative terminal
+ * tickets beyond the shared retention cutoff keep the projection absent or
+ * are conditionally deleted — they never recreate an inactive row.
+ */
+export async function projectTicketToQueue(
+  ticketId: TicketId,
+  options: ProjectTicketToQueueOptions,
+): Promise<"written" | "kept" | "deleted" | "absent"> {
+  requireIdentifier(ticketId, "ticketId");
+  const source = boundaryObject(options, "projectTicketToQueue options");
+  const store = ownDataProperty(
+    source,
+    "store",
+    "projectTicketToQueue options.store",
+  ) as Store;
+  const clock = ownDataProperty(
+    source,
+    "clock",
+    "projectTicketToQueue options.clock",
+  ) as Clock;
+  const rawRetention = ownDataProperty(
+    source,
+    "terminalRetentionMilliseconds",
+    "projectTicketToQueue options.terminalRetentionMilliseconds",
+    true,
+  );
+  const rawAttempts = ownDataProperty(
+    source,
+    "maxConflictAttempts",
+    "projectTicketToQueue options.maxConflictAttempts",
+    true,
+  );
+  const terminalRetentionMilliseconds =
+    rawRetention === undefined
+      ? defaultQueueTerminalRetentionMilliseconds
+      : (rawRetention as number);
+  if (
+    !Number.isSafeInteger(terminalRetentionMilliseconds) ||
+    terminalRetentionMilliseconds < 0
+  ) {
+    throw new TypeError(
+      "terminalRetentionMilliseconds must be a non-negative safe integer",
+    );
+  }
+  const maxConflictAttempts =
+    rawAttempts === undefined ? 4 : (rawAttempts as number);
+  if (
+    !Number.isSafeInteger(maxConflictAttempts) ||
+    maxConflictAttempts <= 0 ||
+    maxConflictAttempts > 20
+  ) {
+    throw new TypeError("maxConflictAttempts must be between 1 and 20");
+  }
+
+  const records = store.collection(supportRecords);
+  const projections = store.collection(queueIndex);
+  const ticketRecord = await records.get(ticketKey(ticketId));
+  if (ticketRecord?.kind !== "ticket") {
+    const existing = await projections.getVersioned(
+      queueProjectionKey(ticketId),
+    );
+    if (existing === null) {
+      return "absent";
+    }
+    const removed = await projections.deleteIfUnchanged(
+      queueProjectionKey(ticketId),
+      existing.version,
+    );
+    return removed ? "deleted" : "kept";
+  }
+
+  const ticket = ticketRecord.ticket;
+  if (ticket.id !== ticketId) {
+    throw new TypeError("stored ticket id does not match its partition");
+  }
+
+  // Sample the host clock only for terminal retention. Active tickets never
+  // consult wall time, so post-commit projection does not consume sequence
+  // clocks used by ticket mutations.
+  if (isTerminalTicketStatus(ticket.status)) {
+    const now = clock.now();
+    if (
+      ticketBeyondTerminalCutoff(ticket, now, terminalRetentionMilliseconds)
+    ) {
+      const existing = await projections.getVersioned(
+        queueProjectionKey(ticketId),
+      );
+      if (existing === null) {
+        return "absent";
+      }
+      const removed = await projections.deleteIfUnchanged(
+        queueProjectionKey(ticketId),
+        existing.version,
+      );
+      return removed ? "deleted" : "kept";
+    }
+  }
+
+  const derived = deriveQueueIndexRecord(ticket);
+  const result = await projections.update(
+    queueProjectionKey(ticketId),
+    (current) => {
+      if (current === null) {
+        return { action: "write", value: derived };
+      }
+      if (current.ticketId !== ticketId || current.id !== "queue") {
+        throw new TypeError("queue projection key does not match its payload");
+      }
+      if (current.projectedRevision > derived.projectedRevision) {
+        return { action: "keep" };
+      }
+      if (current.projectedRevision < derived.projectedRevision) {
+        return { action: "write", value: derived };
+      }
+      if (queueIndexContentEqual(current, derived)) {
+        return { action: "keep" };
+      }
+      throw new SupportDeskConflictError(
+        "Queue projection revision collision with divergent content",
+      );
+    },
+    { maxAttempts: maxConflictAttempts },
+  );
+  return result.written ? "written" : "kept";
+}
+
+function toStaffQueueItem(ticket: Ticket): StaffQueueItem {
+  return Object.freeze({
+    ticketId: ticket.id,
+    revision: ticket.revision,
+    status: ticket.status,
+    priority: ticket.priority,
+    ...(ticket.category === undefined ? {} : { category: ticket.category }),
+    requesterAssociation: ticket.requester.association,
+    channel: ticket.channel,
+    ...(ticket.assignedTo === undefined
+      ? {}
+      : { assignedTo: ticket.assignedTo }),
+    updatedAt: ticket.updatedAt,
+  });
+}
+
+function normalizeFilterList<T extends string>(
+  value: T | readonly T[] | undefined,
+): ReadonlySet<T> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return new Set(Array.isArray(value) ? value : [value as T]);
+}
+
+function staffQueueItemMatches(
+  item: StaffQueueItem,
+  query: StaffQueueQuery,
+): boolean {
+  const statuses = normalizeFilterList(query.status);
+  if (statuses !== undefined && !statuses.has(item.status)) {
+    return false;
+  }
+  const priorities = normalizeFilterList(query.priority);
+  if (priorities !== undefined && !priorities.has(item.priority)) {
+    return false;
+  }
+  const associations = normalizeFilterList(query.association);
+  if (
+    associations !== undefined &&
+    !associations.has(item.requesterAssociation)
+  ) {
+    return false;
+  }
+  const channels = normalizeFilterList(query.channel);
+  if (channels !== undefined && !channels.has(item.channel)) {
+    return false;
+  }
+  if (query.unassignedOnly === true && item.assignedTo !== undefined) {
+    return false;
+  }
+  if (
+    query.assignedTo !== undefined &&
+    (item.assignedTo === undefined || item.assignedTo !== query.assignedTo)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function snapshotStaffQueueQuery(input: unknown): StaffQueueQuery {
+  if (input === undefined) {
+    return Object.freeze({});
+  }
+  const source = boundaryObject(input, "staff queue query");
+  const readOptional = (key: keyof StaffQueueQuery): unknown =>
+    ownDataProperty(source, key, `staff queue query.${key}`, true);
+
+  const status = readOptional("status");
+  const priority = readOptional("priority");
+  const association = readOptional("association");
+  const channel = readOptional("channel");
+  const assignedTo = readOptional("assignedTo");
+  const unassignedOnly = readOptional("unassignedOnly");
+  const sort = readOptional("sort");
+
+  if (assignedTo !== undefined) {
+    if (typeof assignedTo !== "string") {
+      throw new TypeError("staff queue query.assignedTo must be a string");
+    }
+    requireIdentifier(assignedTo, "staff queue query.assignedTo");
+  }
+  if (unassignedOnly !== undefined && typeof unassignedOnly !== "boolean") {
+    throw new TypeError("staff queue query.unassignedOnly must be a boolean");
+  }
+  if (
+    sort !== undefined &&
+    sort !== "updated_newest" &&
+    sort !== "updated_oldest"
+  ) {
+    throw new TypeError(
+      'staff queue query.sort must be "updated_newest" or "updated_oldest"',
+    );
+  }
+
+  const query: StaffQueueQuery = {};
+  if (status !== undefined) {
+    (query as { status?: StaffQueueQuery["status"] }).status =
+      status as StaffQueueQuery["status"];
+  }
+  if (priority !== undefined) {
+    (query as { priority?: StaffQueueQuery["priority"] }).priority =
+      priority as StaffQueueQuery["priority"];
+  }
+  if (association !== undefined) {
+    (query as { association?: StaffQueueQuery["association"] }).association =
+      association as StaffQueueQuery["association"];
+  }
+  if (channel !== undefined) {
+    (query as { channel?: StaffQueueQuery["channel"] }).channel =
+      channel as StaffQueueQuery["channel"];
+  }
+  if (assignedTo !== undefined) {
+    (query as { assignedTo?: PrincipalId }).assignedTo =
+      assignedTo as PrincipalId;
+  }
+  if (unassignedOnly !== undefined) {
+    (query as { unassignedOnly?: boolean }).unassignedOnly =
+      unassignedOnly as boolean;
+  }
+  if (sort !== undefined) {
+    (query as { sort?: StaffQueueQuery["sort"] }).sort =
+      sort as StaffQueueQuery["sort"];
+  }
+  return Object.freeze(query);
+}
+
+/**
+ * Scan one page of authoritative `support-desk.records.v1` rows and project
+ * every ticket found. Hosts persist `nextCursor` only after this call returns
+ * successfully for the whole page.
+ */
+export async function repairQueueProjectionPage(
+  options: ProjectTicketToQueueOptions & QueueRepairPageOptions,
+): Promise<QueueRepairPageResult> {
+  const source = boundaryObject(options, "queue repair page options");
+  const store = ownDataProperty(
+    source,
+    "store",
+    "queue repair page options.store",
+  ) as Store;
+  const clock = ownDataProperty(
+    source,
+    "clock",
+    "queue repair page options.clock",
+  ) as Clock;
+  const rawCursor = ownDataProperty(
+    source,
+    "cursor",
+    "queue repair page options.cursor",
+    true,
+  );
+  const rawLimit = ownDataProperty(
+    source,
+    "limit",
+    "queue repair page options.limit",
+    true,
+  );
+  const rawRetention = ownDataProperty(
+    source,
+    "terminalRetentionMilliseconds",
+    "queue repair page options.terminalRetentionMilliseconds",
+    true,
+  );
+  const rawAttempts = ownDataProperty(
+    source,
+    "maxConflictAttempts",
+    "queue repair page options.maxConflictAttempts",
+    true,
+  );
+  if (rawCursor !== undefined && typeof rawCursor !== "string") {
+    throw new TypeError("queue repair page options.cursor must be a string");
+  }
+  const limit = rawLimit === undefined ? 100 : (rawLimit as number);
+  if (
+    !Number.isSafeInteger(limit) ||
+    limit <= 0 ||
+    limit > MAX_SCAN_PAGE_SIZE
+  ) {
+    throw new TypeError(
+      `queue repair page options.limit must be between 1 and ${MAX_SCAN_PAGE_SIZE}`,
+    );
+  }
+
+  const records = store.collection(supportRecords);
+  const page = await records.scan({
+    limit,
+    ...(rawCursor === undefined ? {} : { cursor: rawCursor as string }),
+  });
+  let projected = 0;
+  for (const entry of page.records) {
+    if (entry.value.kind !== "ticket") {
+      continue;
+    }
+    if (
+      entry.key.id !== "ticket" ||
+      entry.key.partition !== entry.value.partition
+    ) {
+      continue;
+    }
+    await projectTicketToQueue(entry.value.ticket.id, {
+      store,
+      clock,
+      ...(rawRetention === undefined
+        ? {}
+        : { terminalRetentionMilliseconds: rawRetention as number }),
+      ...(rawAttempts === undefined
+        ? {}
+        : { maxConflictAttempts: rawAttempts as number }),
+    });
+    projected += 1;
+  }
+  return {
+    nextCursor: page.nextCursor,
+    physicalRows: page.records.length,
+    projected,
+  };
+}
+
+/**
+ * Sweep inactive queue rows only after reloading the authoritative ticket and
+ * confirming it is still terminal beyond the shared retention cutoff, then
+ * `deleteIfUnchanged`.
+ */
+export async function sweepInactiveQueueProjections(
+  options: ProjectTicketToQueueOptions & QueueInactiveSweepOptions,
+): Promise<QueueInactiveSweepResult> {
+  const source = boundaryObject(options, "queue inactive sweep options");
+  const store = ownDataProperty(
+    source,
+    "store",
+    "queue inactive sweep options.store",
+  ) as Store;
+  const clock = ownDataProperty(
+    source,
+    "clock",
+    "queue inactive sweep options.clock",
+  ) as Clock;
+  const rawCursor = ownDataProperty(
+    source,
+    "cursor",
+    "queue inactive sweep options.cursor",
+    true,
+  );
+  const rawLimit = ownDataProperty(
+    source,
+    "limit",
+    "queue inactive sweep options.limit",
+    true,
+  );
+  const rawRetention = ownDataProperty(
+    source,
+    "terminalRetentionMilliseconds",
+    "queue inactive sweep options.terminalRetentionMilliseconds",
+    true,
+  );
+  if (rawCursor !== undefined && typeof rawCursor !== "string") {
+    throw new TypeError("queue inactive sweep options.cursor must be a string");
+  }
+  const limit = rawLimit === undefined ? 100 : (rawLimit as number);
+  if (
+    !Number.isSafeInteger(limit) ||
+    limit <= 0 ||
+    limit > MAX_SCAN_PAGE_SIZE
+  ) {
+    throw new TypeError(
+      `queue inactive sweep options.limit must be between 1 and ${MAX_SCAN_PAGE_SIZE}`,
+    );
+  }
+  const terminalRetentionMilliseconds =
+    rawRetention === undefined
+      ? defaultQueueTerminalRetentionMilliseconds
+      : (rawRetention as number);
+  if (
+    !Number.isSafeInteger(terminalRetentionMilliseconds) ||
+    terminalRetentionMilliseconds < 0
+  ) {
+    throw new TypeError(
+      "terminalRetentionMilliseconds must be a non-negative safe integer",
+    );
+  }
+
+  const projections = store.collection(queueIndex);
+  const records = store.collection(supportRecords);
+  const page = await projections.scan({
+    limit,
+    ...(rawCursor === undefined ? {} : { cursor: rawCursor as string }),
+  });
+  const now = clock.now();
+  let deleted = 0;
+  for (const entry of page.records) {
+    if (entry.value.state !== "inactive") {
+      continue;
+    }
+    if (
+      entry.key.partition !== entry.value.ticketId ||
+      entry.key.id !== "queue"
+    ) {
+      continue;
+    }
+    const ticketRecord = await records.get(ticketKey(entry.value.ticketId));
+    if (ticketRecord?.kind !== "ticket") {
+      if (
+        await projections.deleteIfUnchanged(
+          queueProjectionKey(entry.value.ticketId),
+          entry.version,
+        )
+      ) {
+        deleted += 1;
+      }
+      continue;
+    }
+    if (
+      !ticketBeyondTerminalCutoff(
+        ticketRecord.ticket,
+        now,
+        terminalRetentionMilliseconds,
+      )
+    ) {
+      continue;
+    }
+    if (
+      await projections.deleteIfUnchanged(
+        queueProjectionKey(entry.value.ticketId),
+        entry.version,
+      )
+    ) {
+      deleted += 1;
+    }
+  }
+  return {
+    nextCursor: page.nextCursor,
+    physicalRows: page.records.length,
+    deleted,
+  };
+}
+
 export function createSupportDeskApplication(options: {
   readonly store: Store;
   readonly clock: Clock;
+  readonly logger?: Logger;
   readonly limits?: Partial<SupportDeskLimits>;
   readonly maxConflictAttempts?: number;
+  /**
+   * Shared terminal-retention cutoff for queue projection, repair, and
+   * inactive-row sweeping (milliseconds). Defaults to 30 days.
+   */
+  readonly queueTerminalRetentionMilliseconds?: number;
+  /** Online staff queue scan budgets. */
+  readonly queueScanBudgets?: Partial<QueueScanBudgets>;
   /**
    * Frozen, deduplicated host allowlist for optional ticket categories.
    * At most 32 values matching `^[a-z][a-z0-9_]{0,31}$`.
@@ -1660,6 +2364,13 @@ export function createSupportDeskApplication(options: {
     "clock",
     "application options.clock",
   ) as Clock;
+  const rawLogger = ownDataProperty(
+    source,
+    "logger",
+    "application options.logger",
+    true,
+  );
+  const logger = rawLogger === undefined ? noopLogger : (rawLogger as Logger);
   const rawLimits = ownDataProperty(
     source,
     "limits",
@@ -1670,6 +2381,18 @@ export function createSupportDeskApplication(options: {
     source,
     "maxConflictAttempts",
     "application options.maxConflictAttempts",
+    true,
+  );
+  const rawTerminalRetention = ownDataProperty(
+    source,
+    "queueTerminalRetentionMilliseconds",
+    "application options.queueTerminalRetentionMilliseconds",
+    true,
+  );
+  const rawQueueBudgets = ownDataProperty(
+    source,
+    "queueScanBudgets",
+    "application options.queueScanBudgets",
     true,
   );
   const allowedCategories = parseAllowedCategories(
@@ -1719,6 +2442,7 @@ export function createSupportDeskApplication(options: {
   const records = store.collection(supportRecords);
   const index = store.collection(customerTicketIndex);
   const numbers = store.collection(ticketNumbers);
+  const projections = store.collection(queueIndex);
   const limits = { ...defaultSupportDeskLimits, ...limitOverrides };
   const maxConflictAttempts = rawMaxConflictAttempts ?? 4;
   if (
@@ -1727,6 +2451,73 @@ export function createSupportDeskApplication(options: {
     maxConflictAttempts > 20
   ) {
     throw new TypeError("maxConflictAttempts must be between 1 and 20");
+  }
+  const terminalRetentionMilliseconds =
+    rawTerminalRetention === undefined
+      ? defaultQueueTerminalRetentionMilliseconds
+      : (rawTerminalRetention as number);
+  if (
+    !Number.isSafeInteger(terminalRetentionMilliseconds) ||
+    terminalRetentionMilliseconds < 0
+  ) {
+    throw new TypeError(
+      "queueTerminalRetentionMilliseconds must be a non-negative safe integer",
+    );
+  }
+  const queueBudgetOverrides: {
+    -readonly [Field in keyof QueueScanBudgets]?: number;
+  } = {};
+  if (rawQueueBudgets !== undefined) {
+    const budgetSource = boundaryObject(
+      rawQueueBudgets,
+      "application options.queueScanBudgets",
+    );
+    for (const field of [
+      "maxPhysicalRows",
+      "maxScanPages",
+      "maxActiveResults",
+      "scanPageSize",
+    ] as const) {
+      const value = ownDataProperty(
+        budgetSource,
+        field,
+        `application options.queueScanBudgets.${field}`,
+        true,
+      );
+      if (value !== undefined) {
+        if (typeof value !== "number") {
+          throw new TypeError(
+            `application options.queueScanBudgets.${field} must be a number`,
+          );
+        }
+        queueBudgetOverrides[field] = value;
+      }
+    }
+  }
+  const queueBudgets: QueueScanBudgets = {
+    ...defaultQueueScanBudgets,
+    ...queueBudgetOverrides,
+  };
+  if (
+    !Number.isSafeInteger(queueBudgets.scanPageSize) ||
+    queueBudgets.scanPageSize <= 0 ||
+    queueBudgets.scanPageSize > MAX_SCAN_PAGE_SIZE
+  ) {
+    throw new TypeError(
+      `queueScanBudgets.scanPageSize must be between 1 and ${MAX_SCAN_PAGE_SIZE}`,
+    );
+  }
+  for (const field of [
+    "maxPhysicalRows",
+    "maxScanPages",
+    "maxActiveResults",
+  ] as const) {
+    const value = queueBudgets[field];
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new TypeError(
+        `queueScanBudgets.${field} must be a positive safe integer`,
+      );
+    }
   }
   const limitMaximums: Readonly<Record<keyof SupportDeskLimits, number>> = {
     maxSubjectCharacters: 1_000,
@@ -1746,6 +2537,71 @@ export function createSupportDeskApplication(options: {
         `${field} must be a positive safe integer no greater than ${limitMaximums[field]}`,
       );
     }
+  }
+
+  let projectionHealth: QueueProjectionHealth = Object.freeze({
+    consecutiveFailures: 0,
+  });
+
+  async function safeProjectQueue(ticketId: TicketId): Promise<void> {
+    try {
+      await projectTicketToQueue(ticketId, {
+        store,
+        clock,
+        terminalRetentionMilliseconds,
+        maxConflictAttempts,
+      });
+      // Health success does not sample the host clock: ticket mutations and
+      // sequence-clock tests must not observe projection bookkeeping as time.
+      projectionHealth = Object.freeze({
+        consecutiveFailures: 0,
+        ...(projectionHealth.lastFailureAt === undefined
+          ? {}
+          : {
+              lastFailureAt: projectionHealth.lastFailureAt,
+              lastFailureTicketId: projectionHealth.lastFailureTicketId,
+              lastFailureMessage: projectionHealth.lastFailureMessage,
+            }),
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "queue projection failed";
+      // Failure path may sample once for diagnostics; rare relative to commits.
+      projectionHealth = Object.freeze({
+        consecutiveFailures: projectionHealth.consecutiveFailures + 1,
+        lastFailureAt: clock.now(),
+        lastFailureTicketId: ticketId,
+        lastFailureMessage: message,
+      });
+      logger.log("error", "support-desk.queue.projection_failed", {
+        ticketId,
+        message,
+      });
+    }
+  }
+
+  async function customerViewAfterChange(
+    principalId: PrincipalId,
+    ticketId: TicketId,
+  ): Promise<CustomerTicketView> {
+    await safeProjectQueue(ticketId);
+    return authoritativeView(
+      records,
+      principalId,
+      ticketId,
+      limits.maxRecordsPerTicket,
+    );
+  }
+
+  async function staffViewAfterChange(
+    ticketId: TicketId,
+  ): Promise<StaffTicketView> {
+    await safeProjectQueue(ticketId);
+    return staffAuthoritativeView(
+      records,
+      ticketId,
+      limits.maxRecordsPerTicket,
+    );
   }
 
   async function reserveCustomerTicket(
@@ -2002,12 +2858,7 @@ export function createSupportDeskApplication(options: {
             fence.generation,
           );
         }
-        return authoritativeView(
-          records,
-          access.principalId,
-          command.ticketId,
-          limits.maxRecordsPerTicket,
-        );
+        return customerViewAfterChange(access.principalId, command.ticketId);
       }
       if (command.category !== undefined) {
         if (
@@ -2218,12 +3069,7 @@ export function createSupportDeskApplication(options: {
         reservation.reservationToken,
         reservation.reservationGeneration,
       );
-      return authoritativeView(
-        records,
-        access.principalId,
-        command.ticketId,
-        limits.maxRecordsPerTicket,
-      );
+      return customerViewAfterChange(access.principalId, command.ticketId);
     },
 
     async replyToCustomerTicket(access, input) {
@@ -2255,12 +3101,7 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return authoritativeView(
-            records,
-            access.principalId,
-            command.ticketId,
-            limits.maxRecordsPerTicket,
-          );
+          return customerViewAfterChange(access.principalId, command.ticketId);
         }
 
         const versioned = await records.getVersioned(
@@ -2382,12 +3223,7 @@ export function createSupportDeskApplication(options: {
           ...(notificationJob === undefined ? [] : [notificationJob]),
         ]);
         if (outcome.committed) {
-          return authoritativeView(
-            records,
-            access.principalId,
-            command.ticketId,
-            limits.maxRecordsPerTicket,
-          );
+          return customerViewAfterChange(access.principalId, command.ticketId);
         }
         const nowDuplicate = await records.get(
           commandKey(command.ticketId, command.commandId),
@@ -2400,12 +3236,7 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return authoritativeView(
-            records,
-            access.principalId,
-            command.ticketId,
-            limits.maxRecordsPerTicket,
-          );
+          return customerViewAfterChange(access.principalId, command.ticketId);
         }
       }
       throw new SupportDeskConflictError();
@@ -2465,6 +3296,107 @@ export function createSupportDeskApplication(options: {
       );
     },
 
+    async listStaffQueue(access, input) {
+      requirePermission(access, supportPermissions.queueRead);
+      requireIdentifier(access.principalId, "principalId");
+      const query = snapshotStaffQueueQuery(input);
+      // Request-local cursor only: every online queue read starts without one
+      // and consumes a single complete projection scan cycle.
+      let cursor: string | undefined;
+      let physicalRows = 0;
+      let pages = 0;
+      const confirmed: StaffQueueItem[] = [];
+      const seenTicketIds = new Set<TicketId>();
+
+      for (;;) {
+        if (pages >= queueBudgets.maxScanPages) {
+          throw new SupportDeskQueueCapacityError(
+            "scan_pages",
+            queueBudgets.maxScanPages,
+          );
+        }
+        pages += 1;
+        // Codec failures abort the scan page; do not return a partial queue.
+        const page = await projections.scan({
+          limit: queueBudgets.scanPageSize,
+          ...(cursor === undefined ? {} : { cursor }),
+        });
+        physicalRows += page.records.length;
+        if (physicalRows > queueBudgets.maxPhysicalRows) {
+          throw new SupportDeskQueueCapacityError(
+            "physical_rows",
+            queueBudgets.maxPhysicalRows,
+          );
+        }
+
+        for (const entry of page.records) {
+          const projection = entry.value;
+          if (
+            projection.id !== "queue" ||
+            entry.key.partition !== projection.ticketId ||
+            entry.key.id !== "queue"
+          ) {
+            continue;
+          }
+          if (projection.state !== "active") {
+            continue;
+          }
+          // Confirm every candidate against the authoritative ticket.
+          const ticketRecord = await records.get(
+            ticketKey(projection.ticketId),
+          );
+          if (ticketRecord?.kind !== "ticket") {
+            continue;
+          }
+          const ticket = ticketRecord.ticket;
+          if (
+            ticket.id !== projection.ticketId ||
+            ticket.revision !== projection.projectedRevision ||
+            isTerminalTicketStatus(ticket.status)
+          ) {
+            continue;
+          }
+          if (seenTicketIds.has(ticket.id)) {
+            // Scan pages may repeat rows; de-duplicate after confirmation.
+            continue;
+          }
+          if (confirmed.length >= queueBudgets.maxActiveResults) {
+            throw new SupportDeskQueueCapacityError(
+              "active_results",
+              queueBudgets.maxActiveResults,
+            );
+          }
+          seenTicketIds.add(ticket.id);
+          confirmed.push(toStaffQueueItem(ticket));
+        }
+
+        if (page.nextCursor === null) {
+          break;
+        }
+        cursor = page.nextCursor;
+      }
+
+      const filtered = confirmed.filter((item) =>
+        staffQueueItemMatches(item, query),
+      );
+      const sort = query.sort ?? "updated_newest";
+      filtered.sort((left, right) => {
+        const byTime =
+          sort === "updated_oldest"
+            ? left.updatedAt.localeCompare(right.updatedAt)
+            : right.updatedAt.localeCompare(left.updatedAt);
+        if (byTime !== 0) {
+          return byTime;
+        }
+        return left.ticketId.localeCompare(right.ticketId);
+      });
+      return { items: filtered.map((item) => Object.freeze({ ...item })) };
+    },
+
+    queueProjectionHealth() {
+      return projectionHealth;
+    },
+
     async replyAsStaff(access, input) {
       requireStaffMutationAccess(access, supportPermissions.replyAny);
       requireIdentifier(access.principalId, "principalId");
@@ -2494,11 +3426,7 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffAuthoritativeView(
-            records,
-            command.ticketId,
-            limits.maxRecordsPerTicket,
-          );
+          return staffViewAfterChange(command.ticketId);
         }
 
         const versioned = await records.getVersioned(
@@ -2610,11 +3538,7 @@ export function createSupportDeskApplication(options: {
           ...(notificationJob === undefined ? [] : [notificationJob]),
         ]);
         if (outcome.committed) {
-          return staffAuthoritativeView(
-            records,
-            command.ticketId,
-            limits.maxRecordsPerTicket,
-          );
+          return staffViewAfterChange(command.ticketId);
         }
         const nowDuplicate = await records.get(
           commandKey(command.ticketId, command.commandId),
@@ -2627,11 +3551,7 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffAuthoritativeView(
-            records,
-            command.ticketId,
-            limits.maxRecordsPerTicket,
-          );
+          return staffViewAfterChange(command.ticketId);
         }
       }
       throw new SupportDeskConflictError();
@@ -2665,11 +3585,7 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffAuthoritativeView(
-            records,
-            command.ticketId,
-            limits.maxRecordsPerTicket,
-          );
+          return staffViewAfterChange(command.ticketId);
         }
 
         const versioned = await records.getVersioned(
@@ -2778,11 +3694,7 @@ export function createSupportDeskApplication(options: {
           },
         ]);
         if (outcome.committed) {
-          return staffAuthoritativeView(
-            records,
-            command.ticketId,
-            limits.maxRecordsPerTicket,
-          );
+          return staffViewAfterChange(command.ticketId);
         }
         const nowDuplicate = await records.get(
           commandKey(command.ticketId, command.commandId),
@@ -2795,11 +3707,7 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffAuthoritativeView(
-            records,
-            command.ticketId,
-            limits.maxRecordsPerTicket,
-          );
+          return staffViewAfterChange(command.ticketId);
         }
       }
       throw new SupportDeskConflictError();
@@ -2842,11 +3750,7 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffAuthoritativeView(
-            records,
-            command.ticketId,
-            limits.maxRecordsPerTicket,
-          );
+          return staffViewAfterChange(command.ticketId);
         }
 
         const versioned = await records.getVersioned(
@@ -3004,11 +3908,7 @@ export function createSupportDeskApplication(options: {
           ...(notificationJob === undefined ? [] : [notificationJob]),
         ]);
         if (outcome.committed) {
-          return staffAuthoritativeView(
-            records,
-            command.ticketId,
-            limits.maxRecordsPerTicket,
-          );
+          return staffViewAfterChange(command.ticketId);
         }
         const nowDuplicate = await records.get(
           commandKey(command.ticketId, command.commandId),
@@ -3021,11 +3921,7 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffAuthoritativeView(
-            records,
-            command.ticketId,
-            limits.maxRecordsPerTicket,
-          );
+          return staffViewAfterChange(command.ticketId);
         }
       }
       throw new SupportDeskConflictError();
@@ -3051,11 +3947,7 @@ export function createSupportDeskApplication(options: {
         if (
           duplicateMatches(duplicate, "change_priority", undefined, fingerprint)
         ) {
-          return staffAuthoritativeView(
-            records,
-            command.ticketId,
-            limits.maxRecordsPerTicket,
-          );
+          return staffViewAfterChange(command.ticketId);
         }
 
         const versioned = await records.getVersioned(
@@ -3120,11 +4012,7 @@ export function createSupportDeskApplication(options: {
           },
         ]);
         if (outcome.committed) {
-          return staffAuthoritativeView(
-            records,
-            command.ticketId,
-            limits.maxRecordsPerTicket,
-          );
+          return staffViewAfterChange(command.ticketId);
         }
         const nowDuplicate = await records.get(
           commandKey(command.ticketId, command.commandId),
@@ -3137,11 +4025,7 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffAuthoritativeView(
-            records,
-            command.ticketId,
-            limits.maxRecordsPerTicket,
-          );
+          return staffViewAfterChange(command.ticketId);
         }
       }
       throw new SupportDeskConflictError();
@@ -3238,11 +4122,7 @@ export function createSupportDeskApplication(options: {
           fingerprint,
         )
       ) {
-        return staffAuthoritativeView(
-          records,
-          command.ticketId,
-          limits.maxRecordsPerTicket,
-        );
+        return staffViewAfterChange(command.ticketId);
       }
 
       const versioned = await records.getVersioned(ticketKey(command.ticketId));
@@ -3382,11 +4262,7 @@ export function createSupportDeskApplication(options: {
         ...(notificationJob === undefined ? [] : [notificationJob]),
       ]);
       if (outcome.committed) {
-        return staffAuthoritativeView(
-          records,
-          command.ticketId,
-          limits.maxRecordsPerTicket,
-        );
+        return staffViewAfterChange(command.ticketId);
       }
       const nowDuplicate = await records.get(
         commandKey(command.ticketId, command.commandId),
@@ -3399,11 +4275,7 @@ export function createSupportDeskApplication(options: {
           fingerprint,
         )
       ) {
-        return staffAuthoritativeView(
-          records,
-          command.ticketId,
-          limits.maxRecordsPerTicket,
-        );
+        return staffViewAfterChange(command.ticketId);
       }
     }
     throw new SupportDeskConflictError();

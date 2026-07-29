@@ -13,7 +13,7 @@ implementation agent does not invent another access path:
 | `support-desk.inbound-receipts.v1`           | Declared and tested; processing arrives with inbound mail |
 | `support-desk.delivery-callback-receipts.v1` | Implemented                                               |
 | `support-desk.ticket-numbers.v1`             | Implemented                                               |
-| `support-desk.queue-index.v1`                | Planned in Buildout Task 5                                |
+| `support-desk.queue-index.v1`                | Implemented                                               |
 | Inbound threading indexes                    | Not declared until Buildout Task 11                       |
 
 The approved target is not permission to create all planned collections at
@@ -167,8 +167,7 @@ A number is never a lookup capability or authorization fact.
 
 ## Staff queue projection
 
-Buildout Task 5 declares `support-desk.queue-index.v1`. It stores one row per
-ticket with:
+`support-desk.queue-index.v1` stores one row per ticket with:
 
 - partition: ticket ID;
 - ID: `queue`;
@@ -181,35 +180,40 @@ It stores no message content, requester email, routing token, or permission
 decision.
 
 The projection is a separate collection, so it cannot commit atomically with
-the ticket. Projection accepts a ticket ID, reloads the authoritative ticket,
-and derives the entire row; it never accepts a caller-supplied ticket snapshot.
-After a ticket transaction succeeds, the application invokes that projector.
-A repeating cursor-aware worker scans authoritative `ticket` records in
-`support-desk.records.v1` and repairs missed writes. Older projection revisions
-cannot replace newer ones; an equal revision with different content is
-corruption and fails closed.
+the ticket. `projectTicketToQueue` accepts a ticket ID, reloads the
+authoritative ticket, and derives the entire row; it never accepts a
+caller-supplied ticket snapshot. After a ticket transaction succeeds, the
+application invokes that projector without failing the committed command when
+the projection write fails (logged; exposed via `queueProjectionHealth`).
+`repairQueueProjectionPage` is a repeating cursor-aware worker that scans
+authoritative `ticket` records in `support-desk.records.v1` and repairs missed
+writes. Older projection revisions cannot replace newer ones; an equal revision
+with different content is corruption and fails closed.
 
-Staff queue reads scan this projection in bounded pages, load every candidate
-ticket by authoritative key, discard stale or inactive candidates, then filter
-and sort. One request has separate hard budgets for physical rows, scan pages,
-and confirmed active results; every adapter-returned physical record counts
-before authoritative confirmation or application filtering, while a codec
-failure aborts the page safely. Reaching any budget before `nextCursor: null`
-returns no partial queue and an observable operational capacity error. The read
-scan cursor is request-local: every queue request starts without one and
-consumes one complete scan cycle only when it remains within all budgets. The
-authoritative repair cursor is host-persisted after complete pages. A
-projection row never grants access.
+Staff queue reads (`listStaffQueue`) scan this projection in bounded pages,
+load every candidate ticket by authoritative key, discard stale or inactive
+candidates, then filter and sort. One request has separate hard budgets for
+physical rows, scan pages, and confirmed active results
+(`queueScanBudgets`); every adapter-returned physical record counts before
+authoritative confirmation or application filtering, while a codec failure
+aborts the page safely. Reaching any budget before `nextCursor: null` returns
+`SupportDeskQueueCapacityError` with no partial queue. The read scan cursor is
+request-local: every queue request starts without one and consumes one complete
+scan cycle only when it remains within all budgets. The authoritative repair
+cursor is host-persisted after complete pages. A projection row never grants
+access.
 
 Resolved and closed tickets receive an inactive row at their resulting
-revision. Projection, repair, and sweeping share one configured terminal
-retention cutoff. Once the authoritative ticket is still terminal beyond that
-cutoff, projection and repair keep its queue row absent or conditionally delete
-one instead of recreating an inactive row. The sweep reloads the authoritative
-ticket before using `deleteIfUnchanged`; a row or ticket changed after
-enumeration survives. Because every delayed projector reloads current
-authoritative state, it cannot resurrect a reclaimed stale snapshot. Reopening
-the ticket makes current state active and recreates the projection.
+revision. Projection, repair, and `sweepInactiveQueueProjections` share one
+configured terminal retention cutoff
+(`queueTerminalRetentionMilliseconds`, default 30 days). Once the authoritative
+ticket is still terminal beyond that cutoff, projection and repair keep its
+queue row absent or conditionally delete one instead of recreating an inactive
+row. The sweep reloads the authoritative ticket before using
+`deleteIfUnchanged`; a row or ticket changed after enumeration survives.
+Because every delayed projector reloads current authoritative state, it cannot
+resurrect a reclaimed stale snapshot. Reopening the ticket makes current state
+active and recreates the projection.
 
 ## Outbox discovery
 

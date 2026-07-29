@@ -3218,12 +3218,14 @@ describe("staff application services", () => {
     const application = createSupportDeskApplication({
       store,
       clock: sequenceClock(
-        "2026-07-27T12:00:00.000Z",
-        "2026-07-27T12:01:00.000Z",
-        "2026-07-27T12:02:00.000Z",
-        "2026-07-27T12:03:00.000Z",
-        "2026-07-27T12:04:00.000Z",
-        "2026-07-27T12:05:00.000Z",
+        "2026-07-27T12:00:00.000Z", // create
+        "2026-07-27T12:01:00.000Z", // close-early (throws after sampling)
+        "2026-07-27T12:02:00.000Z", // resolve mutation
+        "2026-07-27T12:02:00.000Z", // resolve queue projection terminal check
+        "2026-07-27T12:03:00.000Z", // close mutation
+        "2026-07-27T12:03:00.000Z", // close queue projection terminal check
+        "2026-07-27T12:04:00.000Z", // resolve-closed (throws after sampling)
+        "2026-07-27T12:05:00.000Z", // reopen mutation (active projection needs no clock)
       ),
     });
     await seedCustomerTicket(application);
@@ -3271,7 +3273,8 @@ describe("staff application services", () => {
     expect(reopened.ticket.status).toBe("waiting_on_support");
     expect(reopened.ticket.resolvedAt).toBeUndefined();
     expect(reopened.ticket.closedAt).toBeUndefined();
-    // create, failed close, resolve, close, failed resolve-closed, reopen
+    // create, failed close, resolve (+projection), close (+projection),
+    // failed resolve-closed, reopen
     expect(reopened.ticket.customerUpdatedAt).toBe("2026-07-27T12:05:00.000Z");
 
     // Staff reply on a closed ticket is allowed via support_replied after reopen

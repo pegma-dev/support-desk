@@ -13,6 +13,8 @@ Staff services use the same application factory and ticket partition:
 | Method                   | Permission(s)                                     | Effect                                                              |
 | ------------------------ | ------------------------------------------------- | ------------------------------------------------------------------- |
 | `readStaffTicket`        | `support.queue.read`                              | Authoritative ticket plus every message (including internal notes)  |
+| `listStaffQueue`         | `support.queue.read`                              | Bounded projection scan; confirm each row; filter/sort in memory    |
+| `queueProjectionHealth`  | (none; process-local)                             | Consecutive projection failures and last success/failure timestamps |
 | `replyAsStaff`           | `support.queue.read` + `support.ticket.reply.any` | Customer-visible staff reply → `waiting_on_customer`; optional mail |
 | `addNote`                | `support.queue.read` + `support.ticket.note`      | Internal note; no mail; status and `customerUpdatedAt` unchanged    |
 | `assignTicket`           | `support.queue.read` + `support.ticket.assign`    | Assign or unassign; status unchanged                                |
@@ -21,6 +23,26 @@ Staff services use the same application factory and ticket partition:
 | `closeTicket`            | `support.queue.read` + `support.ticket.manage`    | → `closed` (resolved only)                                          |
 | `reopenTicket`           | `support.queue.read` + `support.ticket.manage`    | resolved/closed → `waiting_on_support`                              |
 | `readTicketAuditHistory` | `support.audit.read`                              | Ordered Audit history for one ticket                                |
+
+### Staff queue projection
+
+`support-desk.queue-index.v1` holds one projection row per ticket (partition =
+ticket ID, id = `queue`). After every successful ticket-changing command the
+application calls `projectTicketToQueue`, which reloads the authoritative
+ticket and writes a revision-fenced row. Projection failure is logged and
+reflected in `queueProjectionHealth`; it never rolls back the committed
+command.
+
+Online `listStaffQueue` starts at a null cursor, scans the projection for one
+complete cycle with request-local cursors only, confirms every candidate
+against the ticket, then filters and sorts in memory. Separate budgets
+(`queueScanBudgets`: physical rows, pages, active results) fail closed with
+`SupportDeskQueueCapacityError` and no partial result. Hosts schedule
+`repairQueueProjectionPage` (authoritative `support-desk.records.v1` ticket
+scan; persist cursor after each complete page) and
+`sweepInactiveQueueProjections` (reload ticket, then `deleteIfUnchanged` when
+still terminal beyond `queueTerminalRetentionMilliseconds`). The projection is
+never ownership or permission evidence.
 
 Staff reads return `StaffTicketView` (full `Ticket` and all `TicketMessage`
 rows). Mutations that return that view also require `support.queue.read` so a
