@@ -772,12 +772,12 @@ describe("customer application services", () => {
           JSON.stringify({
             type: "create_customer_ticket",
             ticketId: command.ticketId,
+            ticketNumber: created.ticket.number,
             messageId: command.messageId,
             subject: command.subject,
             body: command.body,
             requesterEmail: null,
             notification: null,
-            ticketNumber: created.ticket.number,
           }),
         ),
       )

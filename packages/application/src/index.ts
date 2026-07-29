@@ -1488,9 +1488,19 @@ export function createSupportDeskApplication(options: {
         // Pre-Task-3 receipts included ticketNumber in the fingerprint.
         const existingTicket = await records.get(ticketKey(command.ticketId));
         if (existingTicket?.kind === "ticket") {
+          // Pre-Task-3 hashed ticketNumber immediately after ticketId.
           const legacyFingerprint = await requestFingerprint({
-            ...fingerprintPayload,
+            type: fingerprintPayload.type,
+            ticketId: fingerprintPayload.ticketId,
             ticketNumber: existingTicket.ticket.number,
+            messageId: fingerprintPayload.messageId,
+            subject: fingerprintPayload.subject,
+            body: fingerprintPayload.body,
+            ...(command.category === undefined
+              ? {}
+              : { category: command.category }),
+            requesterEmail: fingerprintPayload.requesterEmail,
+            notification: fingerprintPayload.notification,
           });
           createIsReplay = duplicateMatches(
             existingCreate,
