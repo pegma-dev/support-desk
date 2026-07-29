@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createSupportDeskApplication,
+  defaultQueueTerminalRetentionMilliseconds,
   projectTicketToQueue,
   queueIndex,
   repairQueueProjectionPage,
@@ -21,6 +22,10 @@ import {
   sweepInactiveQueueProjections,
   type QueueIndexRecord,
 } from "../packages/application/src/index.js";
+
+const defaultRetention = {
+  terminalRetentionMilliseconds: defaultQueueTerminalRetentionMilliseconds,
+} as const;
 import { TABLE_PORT } from "../test/azurite.js";
 
 const ACCOUNT = "devstoreaccount1";
@@ -172,6 +177,7 @@ function describeQueueProjection(label: string, fixture: () => StoreFixture) {
         store,
         clock: fixedClock("2026-07-27T12:00:01.000Z"),
         limit: 100,
+        ...defaultRetention,
       });
       expect(repaired.projected).toBeGreaterThanOrEqual(1);
       expect(
@@ -295,6 +301,7 @@ function describeQueueProjection(label: string, fixture: () => StoreFixture) {
       const fenced = await projectTicketToQueue("ticket-stale", {
         store,
         clock: fixedClock("2026-07-27T12:10:00.000Z"),
+        ...defaultRetention,
       });
       expect(fenced).toBe("kept");
       expect(
@@ -573,6 +580,7 @@ function describeQueueProjection(label: string, fixture: () => StoreFixture) {
         store,
         clock: fixedClock("2026-07-27T12:00:00.000Z"),
         limit: 1,
+        ...defaultRetention,
       });
       expect(first.nextCursor).not.toBeNull();
       // Starting again without a cursor begins a new cycle; pages may repeat.
@@ -580,6 +588,7 @@ function describeQueueProjection(label: string, fixture: () => StoreFixture) {
         store,
         clock: fixedClock("2026-07-27T12:00:00.000Z"),
         limit: 1,
+        ...defaultRetention,
       });
       expect(again.physicalRows).toBe(1);
 
@@ -592,12 +601,14 @@ function describeQueueProjection(label: string, fixture: () => StoreFixture) {
                 store,
                 clock: fixedClock("2026-07-27T12:00:00.000Z"),
                 limit: 10,
+                ...defaultRetention,
               })
             : await repairQueueProjectionPage({
                 store,
                 clock: fixedClock("2026-07-27T12:00:00.000Z"),
                 limit: 10,
                 cursor,
+                ...defaultRetention,
               });
         if (page.nextCursor === null) {
           break;
@@ -622,6 +633,7 @@ function describeQueueProjection(label: string, fixture: () => StoreFixture) {
         store,
         clock: fixedClock("2026-07-27T12:00:00.000Z"),
         limit: 1,
+        ...defaultRetention,
       });
       // Host would persist only after success:
       expect(firstPage.nextCursor).not.toBeNull();
@@ -632,6 +644,7 @@ function describeQueueProjection(label: string, fixture: () => StoreFixture) {
         clock: fixedClock("2026-07-27T12:00:00.000Z"),
         limit: 1,
         cursor: hostCursor,
+        ...defaultRetention,
       });
       expect(secondPage.physicalRows).toBe(1);
 

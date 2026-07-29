@@ -41,8 +41,10 @@ against the ticket, then filters and sorts in memory. Separate budgets
 `repairQueueProjectionPage` (authoritative `support-desk.records.v1` ticket
 scan; persist cursor after each complete page) and
 `sweepInactiveQueueProjections` (reload ticket, then `deleteIfUnchanged` when
-still terminal beyond `queueTerminalRetentionMilliseconds`). The projection is
-never ownership or permission evidence.
+still terminal beyond the shared cutoff). Both workers require an explicit
+`terminalRetentionMilliseconds` — hosts must pass the same value configured on
+the application so projection, repair, and sweep share one cutoff. The
+projection is never ownership or permission evidence.
 
 Staff reads return `StaffTicketView` (full `Ticket` and all `TicketMessage`
 rows). Mutations that return that view also require `support.queue.read` so a

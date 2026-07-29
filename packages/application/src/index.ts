@@ -1863,7 +1863,12 @@ function queueProjectionKey(ticketId: TicketId): EntityKey {
 export interface ProjectTicketToQueueOptions {
   readonly store: Store;
   readonly clock: Clock;
-  readonly terminalRetentionMilliseconds?: number;
+  /**
+   * Shared terminal-retention cutoff used by projection, repair, and sweep.
+   * Hosts must pass the same value to every worker invocation that they
+   * configured on the application (no silent per-worker default).
+   */
+  readonly terminalRetentionMilliseconds: number;
   readonly maxConflictAttempts?: number;
 }
 
@@ -1895,7 +1900,6 @@ export async function projectTicketToQueue(
     source,
     "terminalRetentionMilliseconds",
     "projectTicketToQueue options.terminalRetentionMilliseconds",
-    true,
   );
   const rawAttempts = ownDataProperty(
     source,
@@ -1903,10 +1907,12 @@ export async function projectTicketToQueue(
     "projectTicketToQueue options.maxConflictAttempts",
     true,
   );
-  const terminalRetentionMilliseconds =
-    rawRetention === undefined
-      ? defaultQueueTerminalRetentionMilliseconds
-      : (rawRetention as number);
+  if (typeof rawRetention !== "number") {
+    throw new TypeError(
+      "projectTicketToQueue options.terminalRetentionMilliseconds must be a number",
+    );
+  }
+  const terminalRetentionMilliseconds = rawRetention;
   if (
     !Number.isSafeInteger(terminalRetentionMilliseconds) ||
     terminalRetentionMilliseconds < 0
@@ -2063,21 +2069,48 @@ function staffQueueItemMatches(
   return true;
 }
 
-function snapshotStringOrStringArray(
+const QUEUE_FILTER_STATUSES: readonly Ticket["status"][] = [
+  "open",
+  "waiting_on_support",
+  "waiting_on_customer",
+  "resolved",
+  "closed",
+];
+const QUEUE_FILTER_PRIORITIES: readonly TicketPriority[] = [
+  "low",
+  "normal",
+  "high",
+  "urgent",
+];
+const QUEUE_FILTER_ASSOCIATIONS = [
+  "authenticated",
+  "matched_email",
+  "unverified",
+] as const;
+const QUEUE_FILTER_CHANNELS = ["web", "email", "api"] as const;
+
+function snapshotEnumOrEnumArray<T extends string>(
   value: unknown,
   field: string,
-): string | readonly string[] {
+  allowed: readonly T[],
+): T | readonly T[] {
+  const allow = (candidate: string): T => {
+    if (!(allowed as readonly string[]).includes(candidate)) {
+      throw new TypeError(`${field} must be one of: ${allowed.join(", ")}`);
+    }
+    return candidate as T;
+  };
   if (typeof value === "string") {
-    return value;
+    return allow(value);
   }
   if (Array.isArray(value)) {
-    const items: string[] = [];
+    const items: T[] = [];
     for (let index = 0; index < value.length; index += 1) {
       const item = ownDataProperty(value, index, `${field}[${index}]`);
       if (typeof item !== "string") {
         throw new TypeError(`${field} must be a string or an array of strings`);
       }
-      items.push(item);
+      items.push(allow(item));
     }
     return items;
   }
@@ -2122,31 +2155,35 @@ function snapshotStaffQueueQuery(input: unknown): StaffQueueQuery {
   const query: StaffQueueQuery = {};
   if (status !== undefined) {
     (query as { status?: StaffQueueQuery["status"] }).status =
-      snapshotStringOrStringArray(
+      snapshotEnumOrEnumArray(
         status,
         "staff queue query.status",
-      ) as StaffQueueQuery["status"];
+        QUEUE_FILTER_STATUSES,
+      );
   }
   if (priority !== undefined) {
     (query as { priority?: StaffQueueQuery["priority"] }).priority =
-      snapshotStringOrStringArray(
+      snapshotEnumOrEnumArray(
         priority,
         "staff queue query.priority",
-      ) as StaffQueueQuery["priority"];
+        QUEUE_FILTER_PRIORITIES,
+      );
   }
   if (association !== undefined) {
     (query as { association?: StaffQueueQuery["association"] }).association =
-      snapshotStringOrStringArray(
+      snapshotEnumOrEnumArray(
         association,
         "staff queue query.association",
-      ) as StaffQueueQuery["association"];
+        QUEUE_FILTER_ASSOCIATIONS,
+      );
   }
   if (channel !== undefined) {
     (query as { channel?: StaffQueueQuery["channel"] }).channel =
-      snapshotStringOrStringArray(
+      snapshotEnumOrEnumArray(
         channel,
         "staff queue query.channel",
-      ) as StaffQueueQuery["channel"];
+        QUEUE_FILTER_CHANNELS,
+      );
   }
   if (assignedTo !== undefined) {
     (query as { assignedTo?: PrincipalId }).assignedTo =
@@ -2198,7 +2235,6 @@ export async function repairQueueProjectionPage(
     source,
     "terminalRetentionMilliseconds",
     "queue repair page options.terminalRetentionMilliseconds",
-    true,
   );
   const rawAttempts = ownDataProperty(
     source,
@@ -2208,6 +2244,11 @@ export async function repairQueueProjectionPage(
   );
   if (rawCursor !== undefined && typeof rawCursor !== "string") {
     throw new TypeError("queue repair page options.cursor must be a string");
+  }
+  if (typeof rawRetention !== "number") {
+    throw new TypeError(
+      "queue repair page options.terminalRetentionMilliseconds must be a number",
+    );
   }
   const limit = rawLimit === undefined ? 100 : (rawLimit as number);
   if (
@@ -2239,9 +2280,7 @@ export async function repairQueueProjectionPage(
     await projectTicketToQueue(entry.value.ticket.id, {
       store,
       clock,
-      ...(rawRetention === undefined
-        ? {}
-        : { terminalRetentionMilliseconds: rawRetention as number }),
+      terminalRetentionMilliseconds: rawRetention,
       ...(rawAttempts === undefined
         ? {}
         : { maxConflictAttempts: rawAttempts as number }),
@@ -2290,10 +2329,14 @@ export async function sweepInactiveQueueProjections(
     source,
     "terminalRetentionMilliseconds",
     "queue inactive sweep options.terminalRetentionMilliseconds",
-    true,
   );
   if (rawCursor !== undefined && typeof rawCursor !== "string") {
     throw new TypeError("queue inactive sweep options.cursor must be a string");
+  }
+  if (typeof rawRetention !== "number") {
+    throw new TypeError(
+      "queue inactive sweep options.terminalRetentionMilliseconds must be a number",
+    );
   }
   const limit = rawLimit === undefined ? 100 : (rawLimit as number);
   if (
@@ -2305,10 +2348,7 @@ export async function sweepInactiveQueueProjections(
       `queue inactive sweep options.limit must be between 1 and ${MAX_SCAN_PAGE_SIZE}`,
     );
   }
-  const terminalRetentionMilliseconds =
-    rawRetention === undefined
-      ? defaultQueueTerminalRetentionMilliseconds
-      : (rawRetention as number);
+  const terminalRetentionMilliseconds = rawRetention;
   if (
     !Number.isSafeInteger(terminalRetentionMilliseconds) ||
     terminalRetentionMilliseconds < 0
