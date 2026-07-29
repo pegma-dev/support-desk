@@ -1010,6 +1010,10 @@ function customerMessages(
 }
 
 function toCustomerTicketSummary(ticket: Ticket): CustomerTicketSummary {
+  // Pre-Task-2 durable tickets lack customerUpdatedAt; fall back to staff
+  // updatedAt so list/detail remain ordered and DTO-complete without a
+  // separate migration of unpublished test data.
+  const customerUpdatedAt = ticket.customerUpdatedAt ?? ticket.updatedAt;
   return Object.freeze({
     id: ticket.id,
     number: ticket.number,
@@ -1018,7 +1022,7 @@ function toCustomerTicketSummary(ticket: Ticket): CustomerTicketSummary {
     status: ticket.status,
     channel: ticket.channel,
     createdAt: ticket.createdAt,
-    customerUpdatedAt: ticket.customerUpdatedAt,
+    customerUpdatedAt,
   });
 }
 
@@ -1383,7 +1387,10 @@ export function createSupportDeskApplication(options: {
         messageId: command.messageId,
         subject: command.subject,
         body: command.body,
-        category: command.category ?? null,
+        // Omit absent category so pre-category receipts still match retries.
+        ...(command.category === undefined
+          ? {}
+          : { category: command.category }),
         requesterEmail: command.requesterEmail ?? null,
         notification: stableNotification(command.notification),
       });

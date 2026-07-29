@@ -582,6 +582,106 @@ describe("customer application services", () => {
     ).toThrow(/own data property/);
   });
 
+  it("replays category-less creates with the legacy fingerprint shape", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+    const command = {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 1,
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+    };
+    const created = await application.createCustomerTicket(caller, command);
+
+    // Simulate a receipt written before category existed in the fingerprint.
+    const legacyFingerprint = await crypto.subtle
+      .digest(
+        "SHA-256",
+        new TextEncoder().encode(
+          JSON.stringify({
+            type: "create_customer_ticket",
+            ticketId: command.ticketId,
+            ticketNumber: command.ticketNumber,
+            messageId: command.messageId,
+            subject: command.subject,
+            body: command.body,
+            requesterEmail: null,
+            notification: null,
+          }),
+        ),
+      )
+      .then((digest) =>
+        [...new Uint8Array(digest)]
+          .map((byte) => byte.toString(16).padStart(2, "0"))
+          .join(""),
+      );
+    const records = store.collection(supportRecords);
+    const receipt = await records.get({
+      partition: "ticket-1",
+      id: "command:command-1",
+    });
+    expect(receipt?.kind).toBe("command");
+    if (receipt?.kind === "command") {
+      await records.update(
+        { partition: "ticket-1", id: "command:command-1" },
+        () => ({
+          action: "write",
+          value: { ...receipt, requestFingerprint: legacyFingerprint },
+        }),
+      );
+    }
+
+    const replayed = await application.createCustomerTicket(caller, command);
+    expect(replayed.ticket).toEqual(created.ticket);
+  });
+
+  it("backfills customerUpdatedAt for legacy durable tickets", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+    await application.createCustomerTicket(caller, {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 1,
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+    });
+
+    const records = store.collection(supportRecords);
+    await records.update({ partition: "ticket-1", id: "ticket" }, (current) => {
+      if (current?.kind !== "ticket") {
+        return { action: "keep" };
+      }
+      const { customerUpdatedAt: _drop, ...legacyTicket } = current.ticket as {
+        readonly customerUpdatedAt?: string;
+      } & typeof current.ticket;
+      return {
+        action: "write",
+        value: {
+          ...current,
+          ticket: legacyTicket as typeof current.ticket,
+        },
+      };
+    });
+
+    const view = await application.readCustomerTicket(caller, "ticket-1");
+    expect(view.ticket.customerUpdatedAt).toBe("2026-07-27T12:00:00.000Z");
+    const listed = await application.listCustomerTickets(caller);
+    expect(listed[0]?.customerUpdatedAt).toBe("2026-07-27T12:00:00.000Z");
+  });
+
   it("includes category in the create idempotency fingerprint", async () => {
     const store = createMemoryStore();
     const application = createSupportDeskApplication({
