@@ -17,6 +17,7 @@ import {
   inboundReceiptLocation,
   inboundReceipts,
   pruneCustomerTicketIndex,
+  queueIndex,
   recordDeliveryCallback,
   supportPermissions,
   supportRecords,
@@ -164,6 +165,17 @@ async function exerciseDeclaredCollections(store: Store): Promise<void> {
   expect(index).not.toBeNull();
   expectCodecKey(customerTicketIndex, index!);
   expect(await indexes.list(caller.principalId)).toEqual([index]);
+
+  const queues = store.collection(queueIndex);
+  const queueRow = await queues.get({ partition: "ticket-1", id: "queue" });
+  expect(queueRow).toMatchObject({
+    ticketId: "ticket-1",
+    id: "queue",
+    state: "active",
+    projectedRevision: 3,
+  });
+  expectCodecKey(queueIndex, queueRow!);
+  expect(await queues.get(queueIndex.key(queueRow!))).toEqual(queueRow);
 
   await indexes.update(
     { partition: caller.principalId, id: "tickets" },
