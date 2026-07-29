@@ -2057,6 +2057,27 @@ function staffQueueItemMatches(
   return true;
 }
 
+function snapshotStringOrStringArray(
+  value: unknown,
+  field: string,
+): string | readonly string[] {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const items: string[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const item = ownDataProperty(value, index, `${field}[${index}]`);
+      if (typeof item !== "string") {
+        throw new TypeError(`${field} must be a string or an array of strings`);
+      }
+      items.push(item);
+    }
+    return items;
+  }
+  throw new TypeError(`${field} must be a string or an array of strings`);
+}
+
 function snapshotStaffQueueQuery(input: unknown): StaffQueueQuery {
   if (input === undefined) {
     return Object.freeze({});
@@ -2095,19 +2116,31 @@ function snapshotStaffQueueQuery(input: unknown): StaffQueueQuery {
   const query: StaffQueueQuery = {};
   if (status !== undefined) {
     (query as { status?: StaffQueueQuery["status"] }).status =
-      status as StaffQueueQuery["status"];
+      snapshotStringOrStringArray(
+        status,
+        "staff queue query.status",
+      ) as StaffQueueQuery["status"];
   }
   if (priority !== undefined) {
     (query as { priority?: StaffQueueQuery["priority"] }).priority =
-      priority as StaffQueueQuery["priority"];
+      snapshotStringOrStringArray(
+        priority,
+        "staff queue query.priority",
+      ) as StaffQueueQuery["priority"];
   }
   if (association !== undefined) {
     (query as { association?: StaffQueueQuery["association"] }).association =
-      association as StaffQueueQuery["association"];
+      snapshotStringOrStringArray(
+        association,
+        "staff queue query.association",
+      ) as StaffQueueQuery["association"];
   }
   if (channel !== undefined) {
     (query as { channel?: StaffQueueQuery["channel"] }).channel =
-      channel as StaffQueueQuery["channel"];
+      snapshotStringOrStringArray(
+        channel,
+        "staff queue query.channel",
+      ) as StaffQueueQuery["channel"];
   }
   if (assignedTo !== undefined) {
     (query as { assignedTo?: PrincipalId }).assignedTo =
@@ -2573,10 +2606,15 @@ export function createSupportDeskApplication(options: {
         lastFailureTicketId: ticketId,
         lastFailureMessage: message,
       });
-      logger.log("error", "support-desk.queue.projection_failed", {
-        ticketId,
-        message,
-      });
+      // Logging must never fail a committed command's response path.
+      try {
+        logger.log("error", "support-desk.queue.projection_failed", {
+          ticketId,
+          message,
+        });
+      } catch {
+        // ignore logger transport failures
+      }
     }
   }
 

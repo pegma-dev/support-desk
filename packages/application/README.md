@@ -14,7 +14,7 @@ Staff services use the same application factory and ticket partition:
 | ------------------------ | ------------------------------------------------- | ------------------------------------------------------------------- |
 | `readStaffTicket`        | `support.queue.read`                              | Authoritative ticket plus every message (including internal notes)  |
 | `listStaffQueue`         | `support.queue.read`                              | Bounded projection scan; confirm each row; filter/sort in memory    |
-| `queueProjectionHealth`  | (none; process-local)                             | Consecutive projection failures and last success/failure timestamps |
+| `queueProjectionHealth`  | (none; process-local)                             | Consecutive projection failures and last failure metadata           |
 | `replyAsStaff`           | `support.queue.read` + `support.ticket.reply.any` | Customer-visible staff reply → `waiting_on_customer`; optional mail |
 | `addNote`                | `support.queue.read` + `support.ticket.note`      | Internal note; no mail; status and `customerUpdatedAt` unchanged    |
 | `assignTicket`           | `support.queue.read` + `support.ticket.assign`    | Assign or unassign; status unchanged                                |
