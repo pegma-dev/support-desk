@@ -93,15 +93,12 @@ describe("host-neutral public composition", () => {
     });
 
     const send = await composition.runMailSendPage(1);
-    const repair = await composition.runQueueRepairPage(1);
+    const sendCursorAfterSend = composition.cursors.get("mail.send");
+    expect(sendCursorAfterSend).toBe(send.nextCursor);
+    expect(composition.cursors.get("queue.repair")).toBeUndefined();
 
-    expect(composition.cursors.get("mail.send")).toBe(send.nextCursor);
+    const repair = await composition.runQueueRepairPage(1);
+    expect(composition.cursors.get("mail.send")).toBe(sendCursorAfterSend);
     expect(composition.cursors.get("queue.repair")).toBe(repair.nextCursor);
-    // Separate loop keys must not overwrite each other even when both end.
-    expect(composition.cursors.get("mail.send")).not.toBe(
-      composition.cursors.get("queue.repair") === undefined
-        ? "missing"
-        : "shared-wrongly",
-    );
   });
 });
