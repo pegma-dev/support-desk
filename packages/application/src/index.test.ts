@@ -3558,6 +3558,43 @@ describe("staff application services", () => {
         assigneeId: "staff-1",
       }),
     ).rejects.toMatchObject({ field: "ticket_partition", maximum: 6 });
+    await expect(
+      application.replyToCustomerTicket(
+        access("customer-1", allCustomerPermissions),
+        {
+          commandId: "customer-reply-over",
+          correlationId: "c",
+          ticketId: "ticket-1",
+          messageId: "customer-over",
+          body: "Should not fit.",
+        },
+      ),
+    ).rejects.toMatchObject({ field: "ticket_partition", maximum: 6 });
+    await expect(
+      application.readTicketAuditHistory(staff, "ticket-1"),
+    ).resolves.toHaveLength(1);
+  });
+
+  it("rejects creates that cannot fit in the partition budget", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      limits: { maxRecordsPerTicket: 5 },
+    });
+    await expect(
+      application.createCustomerTicket(
+        access("customer-1", allCustomerPermissions),
+        {
+          commandId: "create-over",
+          correlationId: "c",
+          ticketId: "ticket-over",
+          messageId: "msg-over",
+          subject: "Too many rows",
+          body: "Create needs six physical rows.",
+        },
+      ),
+    ).rejects.toMatchObject({ field: "ticket_partition", maximum: 5 });
   });
 
   it("does not let assignment or notes leak into customer DTOs or timestamps", async () => {

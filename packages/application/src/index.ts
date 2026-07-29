@@ -1200,8 +1200,10 @@ async function authoritativeView(
   records: CollectionStore<SupportRecord>,
   principalId: PrincipalId,
   ticketId: TicketId,
+  maxRecordsPerTicket: number,
 ): Promise<CustomerTicketView> {
   const all = await records.list(ticketId);
+  enforcePartitionRecordLimit(all.length, maxRecordsPerTicket);
   const ticketRecord = all.find(
     (record): record is TicketRecord => record.kind === "ticket",
   );
@@ -1952,7 +1954,12 @@ export function createSupportDeskApplication(options: {
             fence.generation,
           );
         }
-        return authoritativeView(records, access.principalId, command.ticketId);
+        return authoritativeView(
+          records,
+          access.principalId,
+          command.ticketId,
+          limits.maxRecordsPerTicket,
+        );
       }
       if (command.category !== undefined) {
         if (
@@ -2121,6 +2128,13 @@ export function createSupportDeskApplication(options: {
         },
         ...(notificationJob === undefined ? [] : [notificationJob]),
       ];
+      // Create starts an empty partition; fail closed if the first write would
+      // exceed the configured physical-record budget.
+      enforcePartitionRecordLimit(
+        0,
+        limits.maxRecordsPerTicket,
+        actions.length,
+      );
       const outcome = await records.transact(command.ticketId, actions);
       if (!outcome.committed) {
         const existing = await records.get(
@@ -2144,7 +2158,12 @@ export function createSupportDeskApplication(options: {
         reservation.reservationToken,
         reservation.reservationGeneration,
       );
-      return authoritativeView(records, access.principalId, command.ticketId);
+      return authoritativeView(
+        records,
+        access.principalId,
+        command.ticketId,
+        limits.maxRecordsPerTicket,
+      );
     },
 
     async replyToCustomerTicket(access, input) {
@@ -2180,6 +2199,7 @@ export function createSupportDeskApplication(options: {
             records,
             access.principalId,
             command.ticketId,
+            limits.maxRecordsPerTicket,
           );
         }
 
@@ -2193,6 +2213,12 @@ export function createSupportDeskApplication(options: {
         ) {
           throw new SupportDeskNotFoundError();
         }
+        const partitionRows = await records.list(command.ticketId);
+        enforcePartitionRecordLimit(
+          partitionRows.length,
+          limits.maxRecordsPerTicket,
+          command.notification === undefined ? 3 : 4,
+        );
         const quota = await records.getVersioned(
           ticketQuotaKey(command.ticketId),
         );
@@ -2300,6 +2326,7 @@ export function createSupportDeskApplication(options: {
             records,
             access.principalId,
             command.ticketId,
+            limits.maxRecordsPerTicket,
           );
         }
         const nowDuplicate = await records.get(
@@ -2317,6 +2344,7 @@ export function createSupportDeskApplication(options: {
             records,
             access.principalId,
             command.ticketId,
+            limits.maxRecordsPerTicket,
           );
         }
       }
@@ -2339,6 +2367,7 @@ export function createSupportDeskApplication(options: {
                 records,
                 access.principalId,
                 hint.ticketId,
+                limits.maxRecordsPerTicket,
               )
             ).ticket,
           );
@@ -2357,7 +2386,12 @@ export function createSupportDeskApplication(options: {
       requirePermission(access, supportPermissions.readOwn);
       requireIdentifier(access.principalId, "principalId");
       requireIdentifier(ticketId, "ticketId");
-      return authoritativeView(records, access.principalId, ticketId);
+      return authoritativeView(
+        records,
+        access.principalId,
+        ticketId,
+        limits.maxRecordsPerTicket,
+      );
     },
 
     async readStaffTicket(access, ticketId) {
@@ -2983,8 +3017,15 @@ export function createSupportDeskApplication(options: {
       requirePermission(access, supportPermissions.auditRead);
       requireIdentifier(access.principalId, "principalId");
       requireIdentifier(ticketId, "ticketId");
-      const ticket = await records.get(ticketKey(ticketId));
-      if (ticket?.kind !== "ticket") {
+      const partitionRows = await records.list(ticketId);
+      enforcePartitionRecordLimit(
+        partitionRows.length,
+        limits.maxRecordsPerTicket,
+      );
+      const ticket = partitionRows.find(
+        (record): record is TicketRecord => record.kind === "ticket",
+      );
+      if (ticket === undefined) {
         throw new SupportDeskNotFoundError();
       }
       return supportAudit.history(records, ticketId);
