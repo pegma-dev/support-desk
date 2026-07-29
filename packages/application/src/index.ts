@@ -405,6 +405,21 @@ export const customerTicketIndex = defineCollection<CustomerTicketIndexRecord>({
   codec: jsonCodec(customerTicketIndexKey),
 });
 
+const ticketNumberKey = (_record: TicketNumberRecord): EntityKey => ({
+  partition: ticketNumberPartition,
+  id: ticketNumberRecordId,
+});
+
+/**
+ * One counter per Support Desk instance. Reservation is outside the ticket
+ * transaction; gaps are accepted when a later create step fails.
+ */
+export const ticketNumbers = defineCollection<TicketNumberRecord>({
+  name: "support-desk.ticket-numbers.v1",
+  key: ticketNumberKey,
+  codec: jsonCodec(ticketNumberKey),
+});
+
 const inboundReceiptKey = (record: InboundReceipt): EntityKey => ({
   partition: record.bucket,
   id: receiptSlotId(record.slot, "inbound receipt slot"),
@@ -445,7 +460,6 @@ export interface CreateCustomerTicketCommand {
   readonly commandId: string;
   readonly correlationId: string;
   readonly ticketId: TicketId;
-  readonly ticketNumber: number;
   readonly messageId: MessageId;
   readonly subject: string;
   readonly body: string;
@@ -454,6 +468,17 @@ export interface CreateCustomerTicketCommand {
   readonly requesterEmail?: string;
   readonly notification?: NotificationInput;
 }
+
+/**
+ * Instance-scoped positive ticket-number counter.
+ * Partition and id are fixed: `instance` / `ticket-number`.
+ */
+export interface TicketNumberRecord {
+  readonly lastIssued: number;
+}
+
+export const ticketNumberPartition = "instance";
+export const ticketNumberRecordId = "ticket-number";
 
 export interface ReplyToCustomerTicketCommand {
   readonly commandId: string;
@@ -847,11 +872,6 @@ function snapshotCreateCustomerTicketCommand(
       "create command.correlationId",
     ),
     ticketId: ownDataProperty(source, "ticketId", "create command.ticketId"),
-    ticketNumber: ownDataProperty(
-      source,
-      "ticketNumber",
-      "create command.ticketNumber",
-    ),
     messageId: ownDataProperty(source, "messageId", "create command.messageId"),
     subject: ownDataProperty(source, "subject", "create command.subject"),
     body: ownDataProperty(source, "body", "create command.body"),
@@ -874,9 +894,6 @@ function snapshotCreateCustomerTicketCommand(
       true,
     ),
   };
-  if (typeof raw.ticketNumber !== "number") {
-    throw new TypeError("create command.ticketNumber must be a number");
-  }
   const category = snapshotCategory(raw.category, "create command.category");
   const requesterEmail = normalizeRequesterEmail(raw.requesterEmail);
   const notification =
@@ -890,7 +907,6 @@ function snapshotCreateCustomerTicketCommand(
       "create command.correlationId",
     ),
     ticketId: boundaryString(raw.ticketId, "create command.ticketId"),
-    ticketNumber: raw.ticketNumber,
     messageId: boundaryString(raw.messageId, "create command.messageId"),
     subject: boundaryString(raw.subject, "create command.subject"),
     body: boundaryString(raw.body, "create command.body"),
@@ -968,6 +984,33 @@ function deliveryContent(
         subject: input.subject,
         outboundMessageId: input.outboundMessageId,
       };
+}
+
+function bindNotificationTicketNumber(
+  input: NotificationInput,
+  ticketNumber: number,
+): NotificationInput {
+  const ticketNumberText = String(ticketNumber);
+  const names = Object.keys(input.variables);
+  if (
+    !Object.hasOwn(input.variables, "ticket_number") &&
+    names.length >= maxNotificationVariables
+  ) {
+    throw new TypeError(
+      `notification.variables may contain at most ${maxNotificationVariables} values`,
+    );
+  }
+  const variables: Record<string, string> = {
+    ...input.variables,
+    ticket_number: ticketNumberText,
+  };
+  // Re-validate the final map so injection cannot exceed count/byte limits.
+  const frozenVariables = snapshotNotificationVariables(variables);
+  return Object.freeze({
+    ...input,
+    subject: input.subject.replaceAll("{{ticket_number}}", ticketNumberText),
+    variables: frozenVariables,
+  });
 }
 
 function toCustomerMessage(message: TicketMessage): CustomerMessage {
@@ -1199,6 +1242,7 @@ export function createSupportDeskApplication(options: {
   }
   const records = store.collection(supportRecords);
   const index = store.collection(customerTicketIndex);
+  const numbers = store.collection(ticketNumbers);
   const limits = { ...defaultSupportDeskLimits, ...limitOverrides };
   const maxConflictAttempts = rawMaxConflictAttempts ?? 4;
   if (
@@ -1369,6 +1413,35 @@ export function createSupportDeskApplication(options: {
     }
   }
 
+  async function reserveTicketNumber(): Promise<number> {
+    const result = await numbers.update(
+      { partition: ticketNumberPartition, id: ticketNumberRecordId },
+      (current) => {
+        const lastIssued = current?.lastIssued ?? 0;
+        if (!Number.isSafeInteger(lastIssued) || lastIssued < 0) {
+          throw new SupportDeskConflictError(
+            "Ticket number counter is corrupt",
+          );
+        }
+        if (lastIssued >= Number.MAX_SAFE_INTEGER) {
+          throw new SupportDeskConflictError(
+            "Ticket number sequence is exhausted",
+          );
+        }
+        return {
+          action: "write",
+          value: { lastIssued: lastIssued + 1 },
+        };
+      },
+      { maxAttempts: maxConflictAttempts },
+    );
+    const issued = result.value?.lastIssued;
+    if (issued === undefined || !Number.isSafeInteger(issued) || issued <= 0) {
+      throw new SupportDeskConflictError("Ticket number was not reserved");
+    }
+    return issued;
+  }
+
   return {
     async createCustomerTicket(access, input) {
       requirePermission(access, supportPermissions.create);
@@ -1380,10 +1453,9 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(command.correlationId, "correlationId");
       enforceLimit(command.subject, "subject", limits.maxSubjectCharacters);
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
-      const fingerprint = await requestFingerprint({
-        type: "create_customer_ticket",
+      const fingerprintPayload = {
+        type: "create_customer_ticket" as const,
         ticketId: command.ticketId,
-        ticketNumber: command.ticketNumber,
         messageId: command.messageId,
         subject: command.subject,
         body: command.body,
@@ -1393,20 +1465,52 @@ export function createSupportDeskApplication(options: {
           : { category: command.category }),
         requesterEmail: command.requesterEmail ?? null,
         notification: stableNotification(command.notification),
-      });
+      };
+      const fingerprint = await requestFingerprint(fingerprintPayload);
       // Replay an already committed create before host allowlist checks so a
       // later config change cannot break idempotent retries of the same command.
+      // Replay never reserves another instance ticket number.
       const existingCreate = await records.get(
         commandKey(command.ticketId, command.commandId),
       );
+      let createIsReplay = duplicateMatches(
+        existingCreate,
+        "create_customer_ticket",
+        command.messageId,
+        fingerprint,
+      );
       if (
-        duplicateMatches(
-          existingCreate,
-          "create_customer_ticket",
-          command.messageId,
-          fingerprint,
-        )
+        !createIsReplay &&
+        existingCreate?.kind === "command" &&
+        existingCreate.commandType === "create_customer_ticket" &&
+        existingCreate.messageId === command.messageId
       ) {
+        // Pre-Task-3 receipts included ticketNumber in the fingerprint.
+        const existingTicket = await records.get(ticketKey(command.ticketId));
+        if (existingTicket?.kind === "ticket") {
+          // Pre-Task-3 hashed ticketNumber immediately after ticketId.
+          const legacyFingerprint = await requestFingerprint({
+            type: fingerprintPayload.type,
+            ticketId: fingerprintPayload.ticketId,
+            ticketNumber: existingTicket.ticket.number,
+            messageId: fingerprintPayload.messageId,
+            subject: fingerprintPayload.subject,
+            body: fingerprintPayload.body,
+            ...(command.category === undefined
+              ? {}
+              : { category: command.category }),
+            requesterEmail: fingerprintPayload.requesterEmail,
+            notification: fingerprintPayload.notification,
+          });
+          createIsReplay = duplicateMatches(
+            existingCreate,
+            "create_customer_ticket",
+            command.messageId,
+            legacyFingerprint,
+          );
+        }
+      }
+      if (createIsReplay) {
         // A crash after ticket commit and before index confirmation must still
         // converge the principal hint on retry.
         const fence = await records.get(ticketReservationKey(command.ticketId));
@@ -1434,10 +1538,18 @@ export function createSupportDeskApplication(options: {
         }
       }
 
+      // Reserve outside the ticket transaction; gaps are accepted if create fails.
+      const ticketNumber = await reserveTicketNumber();
+      // Bind host-supplied notification content to the reserved number so mail
+      // cannot advertise a guessed ticket number.
+      const notification =
+        command.notification === undefined
+          ? undefined
+          : bindNotificationTicketNumber(command.notification, ticketNumber);
       const now = clock.now();
       const ticket = createTicket({
         id: command.ticketId,
-        number: command.ticketNumber,
+        number: ticketNumber,
         subject: command.subject,
         channel: "web",
         ...(command.category === undefined
@@ -1464,15 +1576,15 @@ export function createSupportDeskApplication(options: {
         createdAt: now,
       };
       const notificationJob =
-        command.notification === undefined
+        notification === undefined
           ? undefined
           : deliveryJobAction(
               command.ticketId,
               command.messageId,
               now,
-              command.notification,
+              notification,
             );
-      const notificationContent = deliveryContent(command.notification);
+      const notificationContent = deliveryContent(notification);
       const reservation = await reserveCustomerTicket(
         access.principalId,
         command.ticketId,

@@ -23,6 +23,15 @@ on that allowlist; category never changes authorization or initial priority
 and is part of the create idempotency fingerprint. Category is preserved for
 the ticket life.
 
+Ticket numbers are reserved by the application from
+`support-desk.ticket-numbers.v1` (`instance` / `ticket-number`) before create.
+Controllers supply server-minted ticket and command IDs but not ticket numbers.
+Replay returns the committed number without reserving another; gaps after a
+failed create are accepted; exhaustion fails closed before ticket persistence.
+When a create includes a notification, Support Desk sets the
+`ticket_number` variable to the reserved number and substitutes
+`{{ticket_number}}` in the notification subject.
+
 `customerUpdatedAt` advances on create and on customer-visible messages or
 lifecycle changes. Internal notes, assignment, and priority changes advance
 only staff-facing `updatedAt` (in core workflow events).

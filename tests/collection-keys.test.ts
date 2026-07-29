@@ -22,6 +22,9 @@ import {
   supportRecords,
   sweepDeliveryCallbackReceipts,
   sweepInboundReceipts,
+  ticketNumberPartition,
+  ticketNumberRecordId,
+  ticketNumbers,
 } from "../packages/application/src/index.js";
 import { TABLE_PORT } from "../test/azurite.js";
 
@@ -79,7 +82,6 @@ async function exerciseDeclaredCollections(store: Store): Promise<void> {
     commandId: "command-1",
     correlationId: "correlation-1",
     ticketId: "ticket-1",
-    ticketNumber: 42,
     messageId: "message-1",
     subject: "Cannot open my plan",
     body: "The plan page stays blank.",
@@ -94,6 +96,15 @@ async function exerciseDeclaredCollections(store: Store): Promise<void> {
     },
   });
 
+  const numbers = store.collection(ticketNumbers);
+  const counter = await numbers.get({
+    partition: ticketNumberPartition,
+    id: ticketNumberRecordId,
+  });
+  expect(counter).toEqual({ lastIssued: 1 });
+  expectCodecKey(ticketNumbers, counter!);
+  expect(await numbers.get(ticketNumbers.key(counter!))).toEqual(counter);
+
   const records = store.collection(supportRecords);
   const supportValues = await records.list("ticket-1");
   expect(supportValues.map((value) => value.kind).sort()).toEqual([
@@ -105,6 +116,11 @@ async function exerciseDeclaredCollections(store: Store): Promise<void> {
     "ticket_quota",
     "ticket_reservation",
   ]);
+  const ticket = supportValues.find((value) => value.kind === "ticket");
+  expect(ticket?.kind).toBe("ticket");
+  if (ticket?.kind === "ticket") {
+    expect(ticket.ticket.number).toBe(1);
+  }
   for (const value of supportValues) {
     expectCodecKey(supportRecords, value);
     expect(await records.get(supportRecords.key(value))).toEqual(value);

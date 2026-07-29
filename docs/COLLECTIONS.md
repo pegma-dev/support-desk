@@ -12,7 +12,7 @@ implementation agent does not invent another access path:
 | `support-desk.customer-ticket-index.v1`      | Implemented                                               |
 | `support-desk.inbound-receipts.v1`           | Declared and tested; processing arrives with inbound mail |
 | `support-desk.delivery-callback-receipts.v1` | Implemented                                               |
-| `support-desk.ticket-numbers.v1`             | Planned in Buildout Task 3                                |
+| `support-desk.ticket-numbers.v1`             | Implemented                                               |
 | `support-desk.queue-index.v1`                | Planned in Buildout Task 5                                |
 | Inbound threading indexes                    | Not declared until Buildout Task 11                       |
 
@@ -84,6 +84,17 @@ partition, embeds each `AuditEvent` in the record union, and drops
 `defineAudit(...).action(...)` into the same `transact` as the ticket mutation.
 History is read through Audit's `history` helper (sequence, then time, then
 id). The pure domain `TicketEvent` is not persisted as a second audit contract.
+
+## Ticket numbers
+
+`support-desk.ticket-numbers.v1` holds one `{ lastIssued }` counter at
+partition `instance` and id `ticket-number`. Customer create reserves the next
+positive safe integer with `update` and a decider before the ticket
+transaction. The counter does not share the ticket partition, so a failed
+create may leave a gap; it must never issue a duplicate. Command replay returns
+the already committed ticket number and does not reserve again. Exhaustion at
+`Number.MAX_SAFE_INTEGER` fails closed before ticket persistence. Numbers are
+instance-scoped display and threading aids, not secrets or capabilities.
 
 ## Read hints and receipts
 

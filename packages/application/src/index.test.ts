@@ -34,6 +34,9 @@ import {
   type SupportRecord,
   sweepDeliveryCallbackReceipts,
   sweepInboundReceipts,
+  ticketNumberPartition,
+  ticketNumberRecordId,
+  ticketNumbers,
 } from "./index.js";
 
 function access(
@@ -84,7 +87,6 @@ describe("customer application services", () => {
         commandId: "command-1",
         correlationId: "correlation-1",
         ticketId: "ticket-1",
-        ticketNumber: 42,
         messageId: "message-1",
         subject: "Cannot open my plan",
         body: "The plan page stays blank.",
@@ -93,15 +95,24 @@ describe("customer application services", () => {
           recipientRef: "support-queue",
           templateId: "staff.new-ticket",
           templateVersion: 1,
-          variables: { ticket_number: "42" },
-          subject: "[Ticket #42] Cannot open my plan",
+          variables: { ticket_number: "ignored" },
+          subject: "[Ticket #{{ticket_number}}] Cannot open my plan",
           outboundMessageId: "<support.notification-1@example.test>",
         },
       },
     );
 
     expect(created.ticket.id).toBe("ticket-1");
-    expect(created.ticket.number).toBe(42);
+    expect(created.ticket.number).toBe(1);
+    const delivery = (
+      await store.collection(supportRecords).list("ticket-1")
+    ).find((record) => record.kind === "message");
+    expect(
+      delivery?.kind === "message" && delivery.deliveryContent,
+    ).toMatchObject({
+      variables: { ticket_number: "1" },
+      subject: "[Ticket #1] Cannot open my plan",
+    });
     expect(created.ticket.customerUpdatedAt).toBe("2026-07-27T12:00:00.000Z");
     expect(created.messages.map((message) => message.body)).toEqual([
       "The plan page stays blank.",
@@ -158,7 +169,6 @@ describe("customer application services", () => {
       commandId: "command-1",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 42,
       messageId: "message-1",
       subject: "Question",
       body: "Please help.",
@@ -194,7 +204,6 @@ describe("customer application services", () => {
       commandId: "command-1",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 42,
       messageId: "message-1",
       subject: "Question",
       body: "Please help.",
@@ -205,7 +214,6 @@ describe("customer application services", () => {
         commandId: "command-2",
         correlationId: "correlation-2",
         ticketId: "ticket-1",
-        ticketNumber: 43,
         messageId: "message-2",
         subject: "Collision",
         body: "Should not commit.",
@@ -238,7 +246,6 @@ describe("customer application services", () => {
       commandId: "command-1",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 42,
       messageId: "message-1",
       subject: "Question",
       body: "Please help.",
@@ -272,7 +279,6 @@ describe("customer application services", () => {
       commandId: "command-1",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 42,
       messageId: "message-1",
       subject: "Question",
       body: "Please help.",
@@ -311,7 +317,6 @@ describe("customer application services", () => {
       commandId: "command-1",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 42,
       messageId: "message-1",
       subject: "Question",
       body: "Please help.",
@@ -343,7 +348,6 @@ describe("customer application services", () => {
       commandId: "command-1",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 42,
       messageId: "message-1",
       subject: "Product feedback",
       body: "Please help.",
@@ -355,7 +359,7 @@ describe("customer application services", () => {
 
     expect(created.ticket).toEqual({
       id: "ticket-1",
-      number: 42,
+      number: 1,
       subject: "Product feedback",
       category: "feedback",
       status: "open",
@@ -442,7 +446,6 @@ describe("customer application services", () => {
         commandId: `${label}-create`,
         correlationId: `${label}-correlation`,
         ticketId: `${label}-ticket`,
-        ticketNumber: 1,
         messageId: `${label}-message`,
         subject: `${label} question`,
         body: "Hello",
@@ -477,7 +480,6 @@ describe("customer application services", () => {
         commandId: "denied",
         correlationId: "denied",
         ticketId: "ticket-denied",
-        ticketNumber: 1,
         messageId: "message-denied",
         subject: "Should fail",
         body: "No permission",
@@ -498,7 +500,6 @@ describe("customer application services", () => {
       commandId: "command-1",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 1,
       messageId: "message-1",
       subject: "Question",
       body: "Please help.",
@@ -593,7 +594,6 @@ describe("customer application services", () => {
       commandId: "command-1",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 1,
       messageId: "message-1",
       subject: "Question",
       body: "Please help.",
@@ -608,7 +608,6 @@ describe("customer application services", () => {
           JSON.stringify({
             type: "create_customer_ticket",
             ticketId: command.ticketId,
-            ticketNumber: command.ticketNumber,
             messageId: command.messageId,
             subject: command.subject,
             body: command.body,
@@ -653,7 +652,6 @@ describe("customer application services", () => {
       commandId: "command-1",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 1,
       messageId: "message-1",
       subject: "Question",
       body: "Please help.",
@@ -687,6 +685,157 @@ describe("customer application services", () => {
     expect(listed[0]?.customerUpdatedAt).toBe("2026-07-27T12:00:00.000Z");
   });
 
+  it("reserves unique monotonic ticket numbers and tolerates create gaps", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      maxConflictAttempts: 20,
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+
+    const concurrent = await Promise.all(
+      [1, 2, 3, 4, 5].map((n) =>
+        application.createCustomerTicket(caller, {
+          commandId: `command-${n}`,
+          correlationId: `correlation-${n}`,
+          ticketId: `ticket-${n}`,
+          messageId: `message-${n}`,
+          subject: `Question ${n}`,
+          body: "Please help.",
+        }),
+      ),
+    );
+    const numbers = concurrent
+      .map((view) => view.ticket.number)
+      .sort((a, b) => a - b);
+    expect(numbers).toEqual([1, 2, 3, 4, 5]);
+    expect(new Set(numbers).size).toBe(5);
+
+    // A failed create after reservation leaves a gap but no duplicate.
+    const counter = store.collection(ticketNumbers);
+    await counter.update(
+      { partition: ticketNumberPartition, id: ticketNumberRecordId },
+      (current) => ({
+        action: "write",
+        value: { lastIssued: (current?.lastIssued ?? 0) + 1 },
+      }),
+    );
+    const afterGap = await application.createCustomerTicket(caller, {
+      commandId: "command-after-gap",
+      correlationId: "correlation-after-gap",
+      ticketId: "ticket-after-gap",
+      messageId: "message-after-gap",
+      subject: "After gap",
+      body: "Still unique.",
+    });
+    expect(afterGap.ticket.number).toBe(7);
+
+    const first = concurrent[0]!;
+    const replay = await application.createCustomerTicket(caller, {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      messageId: "message-1",
+      subject: "Question 1",
+      body: "Please help.",
+    });
+    expect(replay.ticket.number).toBe(first.ticket.number);
+    const counterAfterReplay = await counter.get({
+      partition: ticketNumberPartition,
+      id: ticketNumberRecordId,
+    });
+    expect(counterAfterReplay?.lastIssued).toBe(7);
+  });
+
+  it("replays creates committed with legacy ticketNumber fingerprints", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+    const command = {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+    };
+    const created = await application.createCustomerTicket(caller, command);
+    const records = store.collection(supportRecords);
+    const legacyFingerprint = await crypto.subtle
+      .digest(
+        "SHA-256",
+        new TextEncoder().encode(
+          JSON.stringify({
+            type: "create_customer_ticket",
+            ticketId: command.ticketId,
+            ticketNumber: created.ticket.number,
+            messageId: command.messageId,
+            subject: command.subject,
+            body: command.body,
+            requesterEmail: null,
+            notification: null,
+          }),
+        ),
+      )
+      .then((digest) =>
+        [...new Uint8Array(digest)]
+          .map((byte) => byte.toString(16).padStart(2, "0"))
+          .join(""),
+      );
+    const receipt = await records.get({
+      partition: "ticket-1",
+      id: "command:command-1",
+    });
+    if (receipt?.kind === "command") {
+      await records.update(
+        { partition: "ticket-1", id: "command:command-1" },
+        () => ({
+          action: "write",
+          value: { ...receipt, requestFingerprint: legacyFingerprint },
+        }),
+      );
+    }
+    const before = await store.collection(ticketNumbers).get({
+      partition: ticketNumberPartition,
+      id: ticketNumberRecordId,
+    });
+    const replayed = await application.createCustomerTicket(caller, command);
+    expect(replayed.ticket.number).toBe(created.ticket.number);
+    const after = await store.collection(ticketNumbers).get({
+      partition: ticketNumberPartition,
+      id: ticketNumberRecordId,
+    });
+    expect(after?.lastIssued).toBe(before?.lastIssued);
+  });
+
+  it("fails closed when the ticket number sequence is exhausted", async () => {
+    const store = createMemoryStore();
+    await store.collection(ticketNumbers).insertIfAbsent({
+      lastIssued: Number.MAX_SAFE_INTEGER,
+    });
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+
+    await expect(
+      application.createCustomerTicket(caller, {
+        commandId: "command-1",
+        correlationId: "correlation-1",
+        ticketId: "ticket-1",
+        messageId: "message-1",
+        subject: "Question",
+        body: "Please help.",
+      }),
+    ).rejects.toBeInstanceOf(SupportDeskConflictError);
+    expect(await store.collection(supportRecords).list("ticket-1")).toEqual([]);
+  });
+
   it("includes category in the create idempotency fingerprint", async () => {
     const store = createMemoryStore();
     const application = createSupportDeskApplication({
@@ -699,7 +848,6 @@ describe("customer application services", () => {
       commandId: "command-1",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 1,
       messageId: "message-1",
       subject: "Question",
       body: "Please help.",
@@ -726,7 +874,6 @@ describe("customer application services", () => {
       commandId: "command-1",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 1,
       messageId: "message-1",
       subject: "Question",
       body: "Please help.",
@@ -775,7 +922,6 @@ describe("customer application services", () => {
       commandId: "command-1",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 1,
       messageId: "message-1",
       subject: "Question",
       body: "Please help.",
@@ -806,7 +952,6 @@ describe("customer application services", () => {
         commandId: "command-2",
         ticketId: "ticket-2",
         messageId: "message-2",
-        ticketNumber: 2,
       }),
     ).rejects.toThrow(/category is not configured/);
   });
@@ -824,7 +969,6 @@ describe("customer application services", () => {
         commandId: "denied",
         correlationId: "denied",
         ticketId: "ticket-denied",
-        ticketNumber: 1,
         messageId: "message-denied",
         subject: "Bug",
         body: "Still denied",
@@ -837,7 +981,6 @@ describe("customer application services", () => {
       commandId: "command-1",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 1,
       messageId: "message-1",
       subject: "Bug",
       body: "Broken",
@@ -847,7 +990,6 @@ describe("customer application services", () => {
       commandId: "command-2",
       correlationId: "correlation-2",
       ticketId: "ticket-2",
-      ticketNumber: 2,
       messageId: "message-2",
       subject: "Question",
       body: "Curious",
@@ -879,7 +1021,6 @@ describe("customer application services", () => {
       commandId: "command-1",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 1,
       messageId: "message-1",
       subject: "Question",
       body: "Start",
@@ -911,7 +1052,6 @@ describe("customer application services", () => {
       commandId: "command-1",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 42,
       messageId: "message-1",
       subject: "Question",
       body: "Please help.",
@@ -974,7 +1114,6 @@ describe("customer application services", () => {
       commandId: "create",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 42,
       messageId: "message-1",
       subject: "Question",
       body: "Start.",
@@ -1070,7 +1209,6 @@ describe("customer application services", () => {
       commandId: "create",
       correlationId: "create-correlation",
       ticketId: "ticket",
-      ticketNumber: 1,
       messageId: "message",
       subject: "Question",
       body: "Start.",
@@ -1119,7 +1257,6 @@ describe("customer application services", () => {
       commandId: "create",
       correlationId: "correlation",
       ticketId: "ticket-1",
-      ticketNumber: 1,
       messageId: "message-1",
       subject: "Question",
       body: "Start.",
@@ -1130,7 +1267,6 @@ describe("customer application services", () => {
         commandId: "denied",
         correlationId: "denied",
         ticketId: "ticket-2",
-        ticketNumber: 2,
         messageId: "message-2",
         subject: "Question",
         body: "Start.",
@@ -1169,7 +1305,6 @@ describe("customer application services", () => {
           commandId: "create",
           correlationId: "correlation",
           ticketId: "ticket",
-          ticketNumber: 1,
           messageId: "message",
           subject: "too long",
           body: "short",
@@ -1190,7 +1325,6 @@ describe("customer application services", () => {
       commandId: "create",
       correlationId: "correlation",
       ticketId: "ticket",
-      ticketNumber: 1,
       messageId: "message",
       subject: "Question",
       body: "Start.",
@@ -1349,7 +1483,6 @@ describe("customer application services", () => {
       commandId: "create",
       correlationId: "correlation",
       ticketId: "ticket",
-      ticketNumber: 1,
       messageId: "message",
       subject: "Question",
       body: "Start.",
@@ -1420,7 +1553,6 @@ describe("customer application services", () => {
       commandId: "create",
       correlationId: "correlation",
       ticketId: "ticket",
-      ticketNumber: 1,
       messageId: "message",
       subject: "Question",
       body: "Start.",
@@ -1479,7 +1611,6 @@ describe("customer application services", () => {
             commandId: "create",
             correlationId: "correlation",
             ticketId: "ticket",
-            ticketNumber: 1,
             messageId: "message",
             subject: "Question",
             body:
@@ -1513,14 +1644,13 @@ describe("customer application services", () => {
         "commandId",
         "correlationId",
         "ticketId",
-        "ticketNumber",
         "messageId",
         "subject",
         "body",
         "requesterEmail",
         "notification",
       ].map((key) => descriptorReads.get(key)),
-    ).toEqual(Array.from({ length: 9 }, () => 1));
+    ).toEqual(Array.from({ length: 8 }, () => 1));
     expect(created.messages[0]?.body).toBe("Original body.");
   });
 
@@ -1535,7 +1665,6 @@ describe("customer application services", () => {
       commandId: "create",
       correlationId: "correlation",
       ticketId: "ticket",
-      ticketNumber: 1,
       messageId: "message",
       subject: "Question",
       body: "Start.",
@@ -1589,7 +1718,6 @@ describe("customer application services", () => {
       commandId: "create",
       correlationId: "correlation",
       ticketId: "ticket",
-      ticketNumber: 1,
       messageId: "public",
       subject: "Question",
       body: "Start.",
@@ -1657,7 +1785,6 @@ describe("customer application services", () => {
       commandId: "create",
       correlationId: "correlation",
       ticketId: "ticket",
-      ticketNumber: 1,
       messageId: "initial",
       subject: "Question",
       body: "Start.",
@@ -1715,7 +1842,6 @@ describe("customer application services", () => {
         commandId: "create",
         correlationId: "correlation",
         ticketId: "ticket",
-        ticketNumber: 1,
         messageId: "message",
         subject: "Question",
         body: "Start.",
@@ -1920,7 +2046,6 @@ describe("customer application services", () => {
       commandId: "create",
       correlationId: "correlation",
       ticketId: "ticket",
-      ticketNumber: 1,
       messageId: "message",
       subject: "Question",
       body: "Start.",
@@ -2042,7 +2167,6 @@ describe("customer application services", () => {
       commandId: "create-1",
       correlationId: "correlation-1",
       ticketId: "ticket-1",
-      ticketNumber: 1,
       messageId: "message-1",
       subject: "Question",
       body: "Start.",
@@ -2061,7 +2185,6 @@ describe("customer application services", () => {
         commandId: "create-2",
         correlationId: "correlation-2",
         ticketId: "ticket-2",
-        ticketNumber: 2,
         messageId: "message-2",
         subject: "Question",
         body: "Start.",
@@ -2190,7 +2313,6 @@ describe("customer application services", () => {
       commandId: "create",
       correlationId: "correlation",
       ticketId: "ticket",
-      ticketNumber: 1,
       messageId: "message",
       subject: "Question",
       body: "Start.",
@@ -2282,7 +2404,6 @@ describe("customer application services", () => {
       commandId: `create-${suffix}`,
       correlationId: `correlation-${suffix}`,
       ticketId: "ticket",
-      ticketNumber: 1,
       messageId: `message-${suffix}`,
       subject: "Question",
       body: "Start.",
@@ -2537,7 +2658,6 @@ describe("customer application services", () => {
         commandId: "create",
         correlationId: "correlation",
         ticketId: "ticket",
-        ticketNumber: 1,
         messageId: "message",
         subject: "Question",
         body: "Start.",
@@ -2702,7 +2822,6 @@ describe("customer application services", () => {
       commandId: "create",
       correlationId: "correlation",
       ticketId: "ticket",
-      ticketNumber: 1,
       messageId: "message-0",
       subject: "Question",
       body,
@@ -2711,8 +2830,9 @@ describe("customer application services", () => {
         recipientRef: "support",
         templateId: "staff.new-ticket",
         templateVersion: 1,
-        variables: { body: "y".repeat(8_192) },
-        subject: "[Ticket #1] Question",
+        // Leave one byte so reserved ticket_number can be injected.
+        variables: { body: "y".repeat(8_191) },
+        subject: "[Ticket #{{ticket_number}}] Question",
         outboundMessageId: "<support.notify@example.test>",
       },
     });
