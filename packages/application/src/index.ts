@@ -1014,7 +1014,11 @@ async function authoritativeView(
   };
 }
 
-function freezeAllowedCategories(
+/**
+ * Validate and copy host-supplied category allowlist into a private Set.
+ * The host array is not retained; the Set is application-owned state.
+ */
+function parseAllowedCategories(
   input: unknown,
 ): ReadonlySet<string> | undefined {
   if (input === undefined) {
@@ -1116,7 +1120,7 @@ export function createSupportDeskApplication(options: {
     "application options.maxConflictAttempts",
     true,
   );
-  const allowedCategories = freezeAllowedCategories(
+  const allowedCategories = parseAllowedCategories(
     ownDataProperty(
       source,
       "allowedCategories",
