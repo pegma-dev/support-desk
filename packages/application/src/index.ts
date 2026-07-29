@@ -1961,6 +1961,12 @@ export async function projectTicketToQueue(
       if (existing === null) {
         return "absent";
       }
+      // Only prune a projection that still matches this terminal revision.
+      // A concurrent reopen can land a newer active row between the ticket
+      // read and this delete; that row must be preserved for repair to see.
+      if (existing.value.projectedRevision !== ticket.revision) {
+        return "kept";
+      }
       const removed = await projections.deleteIfUnchanged(
         queueProjectionKey(ticketId),
         existing.version,
@@ -3353,10 +3359,23 @@ export function createSupportDeskApplication(options: {
             queueBudgets.maxScanPages,
           );
         }
+        const remainingPhysical = queueBudgets.maxPhysicalRows - physicalRows;
+        if (remainingPhysical <= 0) {
+          throw new SupportDeskQueueCapacityError(
+            "physical_rows",
+            queueBudgets.maxPhysicalRows,
+          );
+        }
         pages += 1;
+        // Request only what the remaining physical-row budget allows so the
+        // configured maximum actually bounds adapter work.
+        const pageLimit = Math.min(
+          queueBudgets.scanPageSize,
+          remainingPhysical,
+        );
         // Codec failures abort the scan page; do not return a partial queue.
         const page = await projections.scan({
-          limit: queueBudgets.scanPageSize,
+          limit: pageLimit,
           ...(cursor === undefined ? {} : { cursor }),
         });
         physicalRows += page.records.length;
