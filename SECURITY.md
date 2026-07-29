@@ -45,3 +45,21 @@ Applications integrating Support Desk remain responsible for:
 
 An email-address match can help associate a ticket with an account, but it does
 not authenticate the sender or grant access to that account.
+
+## First package release checklist
+
+Before advertising `@pegma/support-desk-*` `0.1.0` for host consumption:
+
+- [x] public packages ship only `dist/**`, `package.json`, `README.md`, and `LICENSE`;
+- [x] exact internal workspace pins and reviewed external `0.x` pins;
+- [x] trusted-publisher OIDC publish workflow without token fallback;
+- [x] host composition example and public-entry-point integration tests;
+- [x] documented error categories for host HTTP mapping;
+- [x] documented host-owned worker and sweep schedules;
+- [x] private vulnerability reporting path in this file;
+- [ ] packages visible on the public npm registry at exact `0.1.0`;
+- [ ] trusted publishers configured for each package after first publish;
+- [ ] signed annotated `v0.1.0` tag at the release commit.
+
+Production data readiness (retention, export, redaction, threat model) remains
+Buildout Task 12 and is intentionally outside this first package set.

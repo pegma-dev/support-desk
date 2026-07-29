@@ -6,15 +6,17 @@
 A composable, open-source support queue for web and email.
 
 > [!IMPORTANT]
-> Support Desk is in early `0.x` development. Its public API is not stable, its
-> packages are not published, and it is not ready for production use.
+> Support Desk is in early `0.x` development. The first advertised package set is
+> exact `0.1.0`. Until that set is visible on the public npm registry, hosts must
+> not treat Git branches, copied source, or local paths as a production install.
 
-Implemented in source today: the customer-facing and staff detail/mutation
-application services, declared collections, Authorization Core permission
-boundaries, transactional audit and mail projections, provider-neutral
-outbound workers and callbacks, and safe versioned templates. The durable
-reference deployment, customer UI, staff queue projection, inbound mailbox,
-and first package release remain future phases.
+Implemented in source today: the customer-facing and staff application
+services, the repairable staff queue projection, declared collections,
+Authorization Core permission boundaries, transactional audit and mail
+projections, provider-neutral outbound workers and callbacks, safe versioned
+templates, and a host-neutral composition example. Durable host deployments,
+customer UI, staff UI, inbound mailbox, and production hardening remain later
+buildout tasks.
 
 ## What it will do
 
@@ -92,14 +94,28 @@ The organization profile is at
 | `@pegma/support-desk-application` | Authorized customer services, collections, audit, and outbox |
 | `@pegma/support-desk-templates`   | Safe versioned templates and optional host-branded packs     |
 
-Packages publish under the `@pegma` scope. Nothing here is published yet.
-
-There is deliberately no storage package and no access package. Staff queue,
-inbound email, and the knowledge pipeline remain future work; see the
+Packages publish under the `@pegma` scope at exact `0.1.0` once the release
+procedure in [docs/RELEASING.md](docs/RELEASING.md) completes. There is
+deliberately no storage package and no access package. Inbound email and the
+knowledge pipeline remain later work; see the
 [project plan](docs/PROJECT_PLAN.md) and
 [declared-collection reference](docs/COLLECTIONS.md).
 
 ## Example
+
+A complete memory-backed composition (customer + staff + fake mail + worker
+cursors, no framework) lives in
+[examples/composition](examples/composition/README.md):
+
+```sh
+npm ci
+npm run example
+```
+
+Host HTTP mapping and scheduler ownership are documented in
+[docs/HOST_COMPOSITION.md](docs/HOST_COMPOSITION.md).
+
+Pure domain transitions remain available from core:
 
 ```ts
 import { applyTicketEvent, createTicket } from "@pegma/support-desk-core";
@@ -151,6 +167,9 @@ npm run format:check
 - [Architecture](docs/ARCHITECTURE.md)
 - [Project plan](docs/PROJECT_PLAN.md)
 - [Declared collections](docs/COLLECTIONS.md)
+- [Host composition](docs/HOST_COMPOSITION.md)
+- [Release notes](docs/RELEASE_NOTES.md)
+- [Releasing](docs/RELEASING.md)
 
 ## Contributing and security
 

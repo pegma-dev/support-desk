@@ -1,65 +1,64 @@
-# Publishes every public workspace package to npm.
-#
-# Runs when a GitHub release is published, so the tag, the release notes, and
-# the published version are one action rather than three.
-#
-# AUTHENTICATION
-#
-# This package is configured on npmjs.com to accept publishes only from a
-# trusted publisher: this repository, this workflow file. Authentication is a
-# short-lived OIDC token minted per run, so there is no long-lived credential
-# to leak, rotate, or forget to delete. `--provenance` additionally attaches a
-# signed attestation tying the tarball to the commit that built it.
-#
-# There is deliberately no token fallback. If OIDC fails, the publish should
-# fail loudly rather than quietly reaching for a secret.
-#
-# Bootstrapping a NEW package is the one case this cannot cover: npm will not
-# let you configure a trusted publisher for a package that does not exist yet
-# (https://github.com/npm/cli/issues/8544). Publish version 0.1.0 once from a
-# workstation with `npm publish -w <package>`, add the trusted publisher on
-# npmjs.com, and every release after that runs here.
+# Publishes exact tarballs prepared from a stable GitHub release tag.
+# Authentication is npm trusted-publisher OIDC only; no token fallback exists.
 
 name: Publish
 
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write # OIDC: trusted publishing and provenance attestation
 
 concurrency:
-  group: publish-${{ github.ref }}
+  group: npm-publish
   cancel-in-progress: false
 
 jobs:
-  publish:
+  prepare:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+      RELEASE_COMMIT: ${{ github.sha }}
+      RELEASE_ALLOWED_SIGNERS: ${{ vars.RELEASE_ALLOWED_SIGNERS }}
 
     steps:
-      - name: Check out repository
+      - name: Check out the release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Fetch the protected release branch
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
+
+      - name: Configure approved release signers
+        shell: bash
+        run: |
+          if [[ -z "${RELEASE_ALLOWED_SIGNERS}" ]]; then
+            echo "::error::RELEASE_ALLOWED_SIGNERS must contain the reviewed SSH allowed-signers entries"
+            exit 1
+          fi
+          allowed_signers="${RUNNER_TEMP}/release-allowed-signers"
+          umask 077
+          printf '%s\n' "${RELEASE_ALLOWED_SIGNERS}" > "${allowed_signers}"
+          git config --local gpg.format ssh
+          git config --local gpg.ssh.allowedSignersFile "${allowed_signers}"
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
-          cache: npm
+          node-version: 24.18.0
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
 
-      # Trusted publishing needs npm 11.5.1 or newer, which is ahead of what
-      # some Node images bundle.
-      - name: Use a current npm
-        run: npm install -g npm@latest
+      - name: Use the reviewed npm release
+        run: npm install --global npm@11.18.0
 
       - name: Install dependencies
         run: npm ci
 
-      # Publishing runs the same gate as CI. A release should never ship
-      # something that would have failed a pull request.
       - name: Check formatting
         run: npm run format:check
 
@@ -69,5 +68,56 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Publish
-        run: npm publish --workspaces --provenance
+      - name: Prepare and verify release tarballs
+        run: npm run release:pack -- -- --require-clean --require-main-ancestor --require-release-tag --expected-release-commit "${RELEASE_COMMIT}" --output .release
+
+      - name: Upload the prepared release
+        id: upload
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: support-desk-release-${{ github.run_id }}
+          path: .release/
+          if-no-files-found: error
+          include-hidden-files: true
+          overwrite: true
+          retention-days: 30
+
+      - name: Record the prepared artifact digest
+        run: echo "Prepared artifact SHA-256 ${{ steps.upload.outputs.artifact-digest }}" >> "${GITHUB_STEP_SUMMARY}"
+
+  publish:
+    needs: prepare
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_COMMIT: ${{ github.sha }}
+
+    steps:
+      - name: Check out the exact release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name }}
+          fetch-depth: 1
+
+      - name: Set up Node.js and the npm registry
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.18.0
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Use the reviewed npm release
+        run: npm install --global npm@11.18.0
+
+      - name: Download the prepared release
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: support-desk-release-${{ github.run_id }}
+          path: .release
+
+      - name: Publish verified prepared tarballs
+        run: npm run release:publish -- -- --expected-release-commit "${RELEASE_COMMIT}" --manifest .release/package-manifest.json

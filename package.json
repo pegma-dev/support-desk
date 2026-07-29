@@ -17,7 +17,11 @@
     "clean": "tsc -b --clean",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "npm run build && vitest run"
+    "test": "npm run build && vitest run",
+    "release:check": "node scripts/release-packages.mjs check",
+    "release:pack": "node scripts/release-packages.mjs pack",
+    "release:publish": "node scripts/release-packages.mjs publish",
+    "example": "npm run build && node --experimental-strip-types examples/composition/run.ts"
   },
   "devDependencies": {
     "@azure/data-tables": "^13.3.2",
@@ -28,5 +32,6 @@
     "prettier": "^3.9.6",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
-  }
+  },
+  "packageManager": "npm@11.18.0"
 }
