@@ -121,7 +121,8 @@ function freezeTicket(ticket: Ticket): Ticket {
 function nextRevision(
   ticket: Ticket,
   occurredAt: IsoTimestamp,
-): Pick<Ticket, "revision" | "updatedAt"> {
+  options: { readonly customerVisible: boolean },
+): Pick<Ticket, "revision" | "updatedAt" | "customerUpdatedAt"> {
   const eventTime = timestamp(occurredAt, "event.occurredAt");
   const currentTime = timestamp(ticket.updatedAt, "ticket.updatedAt");
 
@@ -134,6 +135,9 @@ function nextRevision(
   return {
     revision: ticket.revision + 1,
     updatedAt: occurredAt,
+    customerUpdatedAt: options.customerVisible
+      ? occurredAt
+      : ticket.customerUpdatedAt,
   };
 }
 
@@ -144,6 +148,9 @@ export function createTicket(input: CreateTicketInput): Ticket {
   requireOneOf(input.channel, TICKET_CHANNELS, "channel");
   if (input.priority !== undefined) {
     requireOneOf(input.priority, TICKET_PRIORITIES, "priority");
+  }
+  if (input.category !== undefined) {
+    requireText(input.category, "category");
   }
   timestamp(input.createdAt, "createdAt");
   validateRequester(input.requester);
@@ -157,12 +164,14 @@ export function createTicket(input: CreateTicketInput): Ticket {
     number: input.number,
     revision: 1,
     subject: input.subject,
+    ...(input.category === undefined ? {} : { category: input.category }),
     channel: input.channel,
     status: "open",
     priority: input.priority ?? "normal",
     requester: input.requester,
     createdAt: input.createdAt,
     updatedAt: input.createdAt,
+    customerUpdatedAt: input.createdAt,
   });
 }
 
@@ -187,27 +196,25 @@ export function applyTicketEvent(ticket: Ticket, event: TicketEvent): Ticket {
     requireText(event.actorId, "event.actorId");
   }
 
-  const revision = nextRevision(ticket, event.occurredAt);
-
   switch (event.type) {
     case "customer_replied":
       return freezeTicket({
         ...activeTicket(ticket),
-        ...revision,
+        ...nextRevision(ticket, event.occurredAt, { customerVisible: true }),
         status: "waiting_on_support",
       });
 
     case "support_replied":
       return freezeTicket({
         ...activeTicket(ticket),
-        ...revision,
+        ...nextRevision(ticket, event.occurredAt, { customerVisible: true }),
         status: "waiting_on_customer",
       });
 
     case "note_added":
       return freezeTicket({
         ...ticket,
-        ...revision,
+        ...nextRevision(ticket, event.occurredAt, { customerVisible: false }),
       });
 
     case "resolved":
@@ -218,7 +225,7 @@ export function applyTicketEvent(ticket: Ticket, event: TicketEvent): Ticket {
       }
       return freezeTicket({
         ...activeTicket(ticket),
-        ...revision,
+        ...nextRevision(ticket, event.occurredAt, { customerVisible: true }),
         status: "resolved",
         resolvedAt: event.occurredAt,
       });
@@ -229,7 +236,7 @@ export function applyTicketEvent(ticket: Ticket, event: TicketEvent): Ticket {
       }
       return freezeTicket({
         ...ticket,
-        ...revision,
+        ...nextRevision(ticket, event.occurredAt, { customerVisible: true }),
         status: "closed",
         closedAt: event.occurredAt,
       });
@@ -242,7 +249,7 @@ export function applyTicketEvent(ticket: Ticket, event: TicketEvent): Ticket {
       }
       return freezeTicket({
         ...activeTicket(ticket),
-        ...revision,
+        ...nextRevision(ticket, event.occurredAt, { customerVisible: true }),
         status: "waiting_on_support",
       });
 
@@ -250,6 +257,9 @@ export function applyTicketEvent(ticket: Ticket, event: TicketEvent): Ticket {
       if (event.assigneeId !== null) {
         requireText(event.assigneeId, "event.assigneeId");
       }
+      const revision = nextRevision(ticket, event.occurredAt, {
+        customerVisible: false,
+      });
       const { assignedTo: _assignedTo, ...unassigned } = ticket;
       return freezeTicket(
         event.assigneeId === null
@@ -262,7 +272,7 @@ export function applyTicketEvent(ticket: Ticket, event: TicketEvent): Ticket {
       requireOneOf(event.priority, TICKET_PRIORITIES, "event.priority");
       return freezeTicket({
         ...ticket,
-        ...revision,
+        ...nextRevision(ticket, event.occurredAt, { customerVisible: false }),
         priority: event.priority,
       });
 

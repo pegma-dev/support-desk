@@ -25,7 +25,8 @@ memory tests, and real-adapter tests.
 `support-desk.records.v1` is a heterogeneous collection partitioned by ticket
 ID. One partition contains:
 
-- `ticket`: current ticket state;
+- `ticket`: current ticket state, including optional host `category`, staff
+  `updatedAt`, and customer-visible `customerUpdatedAt`;
 - `quota`: conflict-safe message count for the hard per-ticket cap;
 - `reservation`: committed or cancelled customer-index reservation fence;
 - `message:<message-id>`: canonical customer or internal messages, including

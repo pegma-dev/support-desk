@@ -449,6 +449,8 @@ export interface CreateCustomerTicketCommand {
   readonly messageId: MessageId;
   readonly subject: string;
   readonly body: string;
+  /** Optional host-configured opaque category from the application allowlist. */
+  readonly category?: string;
   readonly requesterEmail?: string;
   readonly notification?: NotificationInput;
 }
@@ -465,9 +467,26 @@ export interface ReplyToCustomerTicketCommand {
 const maxNotificationVariables = 32;
 const maxNotificationVariableBytes = 8_192;
 const maxNotificationVariableTotalBytes = 8_192;
+const maxAllowedCategories = 32;
+const categoryPattern = /^[a-z][a-z0-9_]{0,31}$/;
+
+/**
+ * Customer-safe ticket fields. Omits requester evidence, priority, assignee,
+ * staff-facing `updatedAt`, revision, and every other staff-only field.
+ */
+export interface CustomerTicketSummary {
+  readonly id: TicketId;
+  readonly number: number;
+  readonly subject: string;
+  readonly category?: string;
+  readonly status: Ticket["status"];
+  readonly channel: Ticket["channel"];
+  readonly createdAt: Ticket["createdAt"];
+  readonly customerUpdatedAt: Ticket["customerUpdatedAt"];
+}
 
 export interface CustomerTicketView {
-  readonly ticket: Ticket;
+  readonly ticket: CustomerTicketSummary;
   readonly messages: readonly TicketMessage[];
 }
 
@@ -480,7 +499,9 @@ export interface SupportDeskApplication {
     access: AccessContext,
     command: ReplyToCustomerTicketCommand,
   ): Promise<CustomerTicketView>;
-  listCustomerTickets(access: AccessContext): Promise<readonly Ticket[]>;
+  listCustomerTickets(
+    access: AccessContext,
+  ): Promise<readonly CustomerTicketSummary[]>;
   readCustomerTicket(
     access: AccessContext,
     ticketId: TicketId,
@@ -784,6 +805,21 @@ function normalizeRequesterEmail(value: unknown): string | undefined {
   return `${local}@${domain.toLowerCase()}`;
 }
 
+function snapshotCategory(value: unknown, field: string): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new TypeError(`${field} must be a string`);
+  }
+  if (!categoryPattern.test(value)) {
+    throw new TypeError(
+      `${field} must match ${categoryPattern.source} and contain no controls`,
+    );
+  }
+  return value;
+}
+
 function snapshotCreateCustomerTicketCommand(
   input: CreateCustomerTicketCommand,
 ): CreateCustomerTicketCommand {
@@ -804,6 +840,12 @@ function snapshotCreateCustomerTicketCommand(
     messageId: ownDataProperty(source, "messageId", "create command.messageId"),
     subject: ownDataProperty(source, "subject", "create command.subject"),
     body: ownDataProperty(source, "body", "create command.body"),
+    category: ownDataProperty(
+      source,
+      "category",
+      "create command.category",
+      true,
+    ),
     requesterEmail: ownDataProperty(
       source,
       "requesterEmail",
@@ -820,6 +862,7 @@ function snapshotCreateCustomerTicketCommand(
   if (typeof raw.ticketNumber !== "number") {
     throw new TypeError("create command.ticketNumber must be a number");
   }
+  const category = snapshotCategory(raw.category, "create command.category");
   const requesterEmail = normalizeRequesterEmail(raw.requesterEmail);
   const notification =
     raw.notification === undefined
@@ -836,6 +879,7 @@ function snapshotCreateCustomerTicketCommand(
     messageId: boundaryString(raw.messageId, "create command.messageId"),
     subject: boundaryString(raw.subject, "create command.subject"),
     body: boundaryString(raw.body, "create command.body"),
+    ...(category === undefined ? {} : { category }),
     ...(requesterEmail === undefined ? {} : { requesterEmail }),
     ...(notification === undefined ? {} : { notification }),
   });
@@ -935,6 +979,19 @@ function customerMessages(records: readonly SupportRecord[]): TicketMessage[] {
     .map((record) => record.message);
 }
 
+function toCustomerTicketSummary(ticket: Ticket): CustomerTicketSummary {
+  return Object.freeze({
+    id: ticket.id,
+    number: ticket.number,
+    subject: ticket.subject,
+    ...(ticket.category === undefined ? {} : { category: ticket.category }),
+    status: ticket.status,
+    channel: ticket.channel,
+    createdAt: ticket.createdAt,
+    customerUpdatedAt: ticket.customerUpdatedAt,
+  });
+}
+
 async function authoritativeView(
   records: CollectionStore<SupportRecord>,
   principalId: PrincipalId,
@@ -952,9 +1009,47 @@ async function authoritativeView(
     throw new SupportDeskNotFoundError();
   }
   return {
-    ticket: ticketRecord.ticket,
+    ticket: toCustomerTicketSummary(ticketRecord.ticket),
     messages: customerMessages(all),
   };
+}
+
+function freezeAllowedCategories(
+  input: unknown,
+): ReadonlySet<string> | undefined {
+  if (input === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(input)) {
+    throw new TypeError(
+      "application options.allowedCategories must be an array",
+    );
+  }
+  if (input.length > maxAllowedCategories) {
+    throw new TypeError(
+      `application options.allowedCategories may contain at most ${maxAllowedCategories} values`,
+    );
+  }
+  const values = new Set<string>();
+  for (let index = 0; index < input.length; index += 1) {
+    const field = `application options.allowedCategories[${index}]`;
+    const value = ownDataProperty(input, index, field);
+    if (typeof value !== "string") {
+      throw new TypeError(`${field} must be a string`);
+    }
+    if (!categoryPattern.test(value)) {
+      throw new TypeError(
+        `${field} must match ${categoryPattern.source} and contain no controls`,
+      );
+    }
+    if (values.has(value)) {
+      throw new TypeError(
+        "application options.allowedCategories must not contain duplicates",
+      );
+    }
+    values.add(value);
+  }
+  return values;
 }
 
 function duplicateMatches(
@@ -992,6 +1087,11 @@ export function createSupportDeskApplication(options: {
   readonly clock: Clock;
   readonly limits?: Partial<SupportDeskLimits>;
   readonly maxConflictAttempts?: number;
+  /**
+   * Frozen, deduplicated host allowlist for optional ticket categories.
+   * At most 32 values matching `^[a-z][a-z0-9_]{0,31}$`.
+   */
+  readonly allowedCategories?: readonly string[];
 }): SupportDeskApplication {
   const source = boundaryObject(options, "application options");
   const store = ownDataProperty(
@@ -1015,6 +1115,14 @@ export function createSupportDeskApplication(options: {
     "maxConflictAttempts",
     "application options.maxConflictAttempts",
     true,
+  );
+  const allowedCategories = freezeAllowedCategories(
+    ownDataProperty(
+      source,
+      "allowedCategories",
+      "application options.allowedCategories",
+      true,
+    ),
   );
   const limitOverrides: {
     -readonly [Field in keyof SupportDeskLimits]?: number;
@@ -1234,6 +1342,16 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(command.correlationId, "correlationId");
       enforceLimit(command.subject, "subject", limits.maxSubjectCharacters);
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
+      if (command.category !== undefined) {
+        if (
+          allowedCategories === undefined ||
+          !allowedCategories.has(command.category)
+        ) {
+          throw new TypeError(
+            "create command.category is not configured for this Support Desk instance",
+          );
+        }
+      }
       const fingerprint = await requestFingerprint({
         type: "create_customer_ticket",
         ticketId: command.ticketId,
@@ -1241,6 +1359,7 @@ export function createSupportDeskApplication(options: {
         messageId: command.messageId,
         subject: command.subject,
         body: command.body,
+        category: command.category ?? null,
         requesterEmail: command.requesterEmail ?? null,
         notification: stableNotification(command.notification),
       });
@@ -1251,6 +1370,9 @@ export function createSupportDeskApplication(options: {
         number: command.ticketNumber,
         subject: command.subject,
         channel: "web",
+        ...(command.category === undefined
+          ? {}
+          : { category: command.category }),
         requester: {
           association: "authenticated",
           principalId: access.principalId,
@@ -1599,7 +1721,7 @@ export function createSupportDeskApplication(options: {
         partition: access.principalId,
         id: "tickets",
       });
-      const tickets: Ticket[] = [];
+      const tickets: CustomerTicketSummary[] = [];
       for (const hint of hints?.entries ?? []) {
         try {
           tickets.push(
@@ -1618,7 +1740,7 @@ export function createSupportDeskApplication(options: {
         }
       }
       return tickets.sort((left, right) =>
-        right.updatedAt.localeCompare(left.updatedAt),
+        right.customerUpdatedAt.localeCompare(left.customerUpdatedAt),
       );
     },
 

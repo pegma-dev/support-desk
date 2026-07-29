@@ -40,9 +40,29 @@ describe("createTicket", () => {
       },
       createdAt: "2026-07-24T13:00:00.000Z",
       updatedAt: "2026-07-24T13:00:00.000Z",
+      customerUpdatedAt: "2026-07-24T13:00:00.000Z",
     });
     expect(Object.isFrozen(created)).toBe(true);
     expect(Object.isFrozen(created.requester)).toBe(true);
+  });
+
+  it("preserves an optional category and sets both update timestamps", () => {
+    const created = createTicket({
+      id: "ticket-1",
+      number: 1001,
+      subject: "Cannot access my subscription",
+      channel: "web",
+      category: "bug",
+      requester: {
+        association: "authenticated",
+        principalId: "customer-1",
+      },
+      createdAt: "2026-07-24T13:00:00.000Z",
+    });
+
+    expect(created.category).toBe("bug");
+    expect(created.customerUpdatedAt).toBe(created.createdAt);
+    expect(created.updatedAt).toBe(created.createdAt);
   });
 
   it("requires association evidence appropriate to the requester", () => {
@@ -250,6 +270,68 @@ describe("applyTicketEvent", () => {
     expect(updated.priority).toBe("high");
     expect(updated.status).toBe("open");
     expect(updated.revision).toBe(2);
+  });
+
+  it("advances customerUpdatedAt only for customer-visible changes", () => {
+    const base = createTicket({
+      id: "ticket-1",
+      number: 1001,
+      subject: "Question",
+      channel: "web",
+      category: "question",
+      requester: {
+        association: "authenticated",
+        principalId: "customer-1",
+      },
+      createdAt: "2026-07-24T13:00:00.000Z",
+    });
+
+    const noted = applyTicketEvent(base, {
+      type: "note_added",
+      actorId: "support-1",
+      occurredAt: "2026-07-24T13:05:00.000Z",
+    });
+    expect(noted.updatedAt).toBe("2026-07-24T13:05:00.000Z");
+    expect(noted.customerUpdatedAt).toBe("2026-07-24T13:00:00.000Z");
+    expect(noted.category).toBe("question");
+
+    const assigned = applyTicketEvent(noted, {
+      type: "assigned",
+      actorId: "admin-1",
+      assigneeId: "support-1",
+      occurredAt: "2026-07-24T13:06:00.000Z",
+    });
+    expect(assigned.updatedAt).toBe("2026-07-24T13:06:00.000Z");
+    expect(assigned.customerUpdatedAt).toBe("2026-07-24T13:00:00.000Z");
+    expect(assigned.category).toBe("question");
+
+    const prioritized = applyTicketEvent(assigned, {
+      type: "priority_changed",
+      actorId: "support-1",
+      priority: "high",
+      occurredAt: "2026-07-24T13:07:00.000Z",
+    });
+    expect(prioritized.updatedAt).toBe("2026-07-24T13:07:00.000Z");
+    expect(prioritized.customerUpdatedAt).toBe("2026-07-24T13:00:00.000Z");
+    expect(prioritized.priority).toBe("high");
+    expect(prioritized.category).toBe("question");
+
+    const staffReplied = applyTicketEvent(prioritized, {
+      type: "support_replied",
+      actorId: "support-1",
+      occurredAt: "2026-07-24T13:08:00.000Z",
+    });
+    expect(staffReplied.updatedAt).toBe("2026-07-24T13:08:00.000Z");
+    expect(staffReplied.customerUpdatedAt).toBe("2026-07-24T13:08:00.000Z");
+    expect(staffReplied.category).toBe("question");
+
+    const resolved = applyTicketEvent(staffReplied, {
+      type: "resolved",
+      actorId: "support-1",
+      occurredAt: "2026-07-24T13:09:00.000Z",
+    });
+    expect(resolved.customerUpdatedAt).toBe("2026-07-24T13:09:00.000Z");
+    expect(resolved.category).toBe("question");
   });
 
   it("clones and freezes requesters on transitioned persisted tickets", () => {

@@ -41,13 +41,24 @@ export interface Ticket {
   readonly number: number;
   readonly revision: number;
   readonly subject: string;
+  /**
+   * Optional host-configured opaque label (for example `bug` or `feedback`).
+   * Never establishes identity, permission, priority, or assignment.
+   */
+  readonly category?: string;
   readonly channel: TicketChannel;
   readonly status: TicketStatus;
   readonly priority: TicketPriority;
   readonly requester: TicketRequester;
   readonly assignedTo?: PrincipalId;
   readonly createdAt: IsoTimestamp;
+  /** Staff-facing update time; advances on every accepted ticket change. */
   readonly updatedAt: IsoTimestamp;
+  /**
+   * Customer-visible update time. Advances for customer-visible messages and
+   * lifecycle changes; notes, assignment, and priority leave it unchanged.
+   */
+  readonly customerUpdatedAt: IsoTimestamp;
   readonly resolvedAt?: IsoTimestamp;
   readonly closedAt?: IsoTimestamp;
 }
@@ -82,6 +93,8 @@ export interface CreateTicketInput {
   readonly subject: string;
   readonly channel: TicketChannel;
   readonly priority?: TicketPriority;
+  /** Optional host-validated opaque category; preserved for the ticket life. */
+  readonly category?: string;
   readonly requester: TicketRequester;
   readonly createdAt: IsoTimestamp;
 }

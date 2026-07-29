@@ -8,6 +8,23 @@ Customer create uses `support.ticket.create`; list and read both use the
 documented `support.ticket.read.own` permission and then confirm authoritative
 ownership; reply uses `support.ticket.reply.own`.
 
+Customer create, list, read, and reply return explicit safe DTOs
+(`CustomerTicketSummary` / `CustomerTicketView`), not the authoritative
+`Ticket`. Summaries include id, number, subject, optional category, status,
+channel, `createdAt`, and `customerUpdatedAt`. They omit requester evidence,
+priority, assignee, staff-facing `updatedAt`, revision, audit history, and
+delivery state. List order uses `customerUpdatedAt`.
+
+Hosts pass a frozen, deduplicated `allowedCategories` option (at most 32
+values matching `^[a-z][a-z0-9_]{0,31}$`). A supplied create category must be
+on that allowlist; category never changes authorization or initial priority
+and is part of the create idempotency fingerprint. Category is preserved for
+the ticket life.
+
+`customerUpdatedAt` advances on create and on customer-visible messages or
+lifecycle changes. Internal notes, assignment, and priority changes advance
+only staff-facing `updatedAt` (in core workflow events).
+
 Accepted-change history is exact `@pegma/audit@0.1.0` projected into the
 ticket partition with `defineAudit`. Create and reply drop Audit transaction
 actions beside the state change; history is read through Audit, not a private
