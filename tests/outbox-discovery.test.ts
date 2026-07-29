@@ -93,7 +93,8 @@ function azureFixture(): StoreFixture {
 async function createTicket(
   store: Store,
   ticketId: string,
-  ticketNumber: number,
+  /** Display value for notification template variables only (not command input). */
+  notificationTicketNumber: number,
   maxAttempts?: number,
 ): Promise<void> {
   await createSupportDeskApplication({
@@ -103,7 +104,6 @@ async function createTicket(
     commandId: `create-${ticketId}`,
     correlationId: `correlation-${ticketId}`,
     ticketId,
-    ticketNumber,
     messageId: `message-${ticketId}`,
     subject: "Question",
     body: "Help.",
@@ -112,9 +112,9 @@ async function createTicket(
       recipientRef: "support@example.test",
       templateId: template.id,
       templateVersion: template.version,
-      variables: { ticket_number: String(ticketNumber) },
-      subject: `[Ticket #${ticketNumber}] Question`,
-      outboundMessageId: `<support.notify-${ticketNumber}@example.test>`,
+      variables: { ticket_number: String(notificationTicketNumber) },
+      subject: `[Ticket #${notificationTicketNumber}] Question`,
+      outboundMessageId: `<support.notify-${notificationTicketNumber}@example.test>`,
       ...(maxAttempts === undefined ? {} : { maxAttempts }),
     },
   });

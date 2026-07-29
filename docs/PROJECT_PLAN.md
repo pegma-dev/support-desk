@@ -3,10 +3,10 @@
 ## Status
 
 **Stage:** The customer-facing Phase 1/2 application slice and the source
-portion of Phase 6 are implemented. Buildout Tasks 1–2 (Audit alignment and
-dual-host customer contract) are complete. Staff services, host-applied abuse
-limits, and every deployment phase remain open; every
-`@pegma/support-desk-*` package is unpublished.
+portion of Phase 6 are implemented. Buildout Tasks 1–3 (Audit alignment,
+dual-host customer contract, and instance ticket-number reservation) are
+complete. Staff services, host-applied abuse limits, and every deployment
+phase remain open; every `@pegma/support-desk-*` package is unpublished.
 
 **Initial reference applications:** retiregolden.org for paid customer support
 on Azure, and pegma.dev for authenticated product feedback on Cloudflare. The
