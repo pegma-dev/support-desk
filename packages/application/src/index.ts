@@ -2645,14 +2645,19 @@ export function createSupportDeskApplication(options: {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "queue projection failed";
-      // Failure path may sample once for diagnostics; rare relative to commits.
+      // Failure diagnostics must never fail a committed command response.
+      let lastFailureAt: IsoTimestamp | undefined;
+      try {
+        lastFailureAt = clock.now();
+      } catch {
+        lastFailureAt = undefined;
+      }
       projectionHealth = Object.freeze({
         consecutiveFailures: projectionHealth.consecutiveFailures + 1,
-        lastFailureAt: clock.now(),
+        ...(lastFailureAt === undefined ? {} : { lastFailureAt }),
         lastFailureTicketId: ticketId,
         lastFailureMessage: message,
       });
-      // Logging must never fail a committed command's response path.
       try {
         logger.log("error", "support-desk.queue.projection_failed", {
           ticketId,
@@ -3392,19 +3397,31 @@ export function createSupportDeskApplication(options: {
       const confirmed: StaffQueueItem[] = [];
       const seenTicketIds = new Set<TicketId>();
 
+      const capacityExhausted = (
+        budget: SupportDeskQueueCapacityError["budget"],
+        maximum: number,
+      ): never => {
+        try {
+          logger.log("warn", "support-desk.queue.capacity_exhausted", {
+            budget,
+            maximum,
+            physicalRows,
+            pages,
+            activeResults: confirmed.length,
+          });
+        } catch {
+          // ignore logger transport failures
+        }
+        throw new SupportDeskQueueCapacityError(budget, maximum);
+      };
+
       for (;;) {
         if (pages >= queueBudgets.maxScanPages) {
-          throw new SupportDeskQueueCapacityError(
-            "scan_pages",
-            queueBudgets.maxScanPages,
-          );
+          capacityExhausted("scan_pages", queueBudgets.maxScanPages);
         }
         const remainingPhysical = queueBudgets.maxPhysicalRows - physicalRows;
         if (remainingPhysical <= 0) {
-          throw new SupportDeskQueueCapacityError(
-            "physical_rows",
-            queueBudgets.maxPhysicalRows,
-          );
+          capacityExhausted("physical_rows", queueBudgets.maxPhysicalRows);
         }
         pages += 1;
         // Request only what the remaining physical-row budget allows so the
@@ -3420,10 +3437,7 @@ export function createSupportDeskApplication(options: {
         });
         physicalRows += page.records.length;
         if (physicalRows > queueBudgets.maxPhysicalRows) {
-          throw new SupportDeskQueueCapacityError(
-            "physical_rows",
-            queueBudgets.maxPhysicalRows,
-          );
+          capacityExhausted("physical_rows", queueBudgets.maxPhysicalRows);
         }
 
         for (const entry of page.records) {
@@ -3458,10 +3472,7 @@ export function createSupportDeskApplication(options: {
             continue;
           }
           if (confirmed.length >= queueBudgets.maxActiveResults) {
-            throw new SupportDeskQueueCapacityError(
-              "active_results",
-              queueBudgets.maxActiveResults,
-            );
+            capacityExhausted("active_results", queueBudgets.maxActiveResults);
           }
           seenTicketIds.add(ticket.id);
           confirmed.push(toStaffQueueItem(ticket));
