@@ -2897,6 +2897,15 @@ describe("staff application services", () => {
     });
     await seedCustomerTicket(application);
     const empty = access("staff-1", []);
+    // Mutations also require queue.read so the full ticket response is not a
+    // read-boundary bypass; empty policy fails on that gate first.
+    const mutationOnly = {
+      reply: access("staff-1", [supportPermissions.replyAny]),
+      note: access("staff-1", [supportPermissions.note]),
+      assign: access("staff-1", [supportPermissions.assign]),
+      manage: access("staff-1", [supportPermissions.manage]),
+    };
+    const queueOnly = access("staff-1", [supportPermissions.queueRead]);
 
     await expect(
       application.readStaffTicket(empty, "ticket-1"),
@@ -2904,7 +2913,7 @@ describe("staff application services", () => {
       new SupportDeskAuthorizationError(supportPermissions.queueRead),
     );
     await expect(
-      application.replyAsStaff(empty, {
+      application.replyAsStaff(mutationOnly.reply, {
         commandId: "staff-reply",
         correlationId: "c",
         ticketId: "ticket-1",
@@ -2912,10 +2921,10 @@ describe("staff application services", () => {
         body: "Reply",
       }),
     ).rejects.toEqual(
-      new SupportDeskAuthorizationError(supportPermissions.replyAny),
+      new SupportDeskAuthorizationError(supportPermissions.queueRead),
     );
     await expect(
-      application.addNote(empty, {
+      application.addNote(mutationOnly.note, {
         commandId: "note",
         correlationId: "c",
         ticketId: "ticket-1",
@@ -2923,11 +2932,80 @@ describe("staff application services", () => {
         body: "Note",
       }),
     ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.queueRead),
+    );
+    await expect(
+      application.assignTicket(mutationOnly.assign, {
+        commandId: "assign",
+        correlationId: "c",
+        ticketId: "ticket-1",
+        assigneeId: "staff-1",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.queueRead),
+    );
+    await expect(
+      application.changePriority(mutationOnly.manage, {
+        commandId: "priority",
+        correlationId: "c",
+        ticketId: "ticket-1",
+        priority: "high",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.queueRead),
+    );
+    await expect(
+      application.resolveTicket(mutationOnly.manage, {
+        commandId: "resolve",
+        correlationId: "c",
+        ticketId: "ticket-1",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.queueRead),
+    );
+    await expect(
+      application.closeTicket(mutationOnly.manage, {
+        commandId: "close",
+        correlationId: "c",
+        ticketId: "ticket-1",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.queueRead),
+    );
+    await expect(
+      application.reopenTicket(mutationOnly.manage, {
+        commandId: "reopen",
+        correlationId: "c",
+        ticketId: "ticket-1",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.queueRead),
+    );
+    await expect(
+      application.replyAsStaff(queueOnly, {
+        commandId: "staff-reply-2",
+        correlationId: "c",
+        ticketId: "ticket-1",
+        messageId: "m3",
+        body: "Reply",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.replyAny),
+    );
+    await expect(
+      application.addNote(queueOnly, {
+        commandId: "note-2",
+        correlationId: "c",
+        ticketId: "ticket-1",
+        messageId: "m4",
+        body: "Note",
+      }),
+    ).rejects.toEqual(
       new SupportDeskAuthorizationError(supportPermissions.note),
     );
     await expect(
-      application.assignTicket(empty, {
-        commandId: "assign",
+      application.assignTicket(queueOnly, {
+        commandId: "assign-2",
         correlationId: "c",
         ticketId: "ticket-1",
         assigneeId: "staff-1",
@@ -2936,38 +3014,11 @@ describe("staff application services", () => {
       new SupportDeskAuthorizationError(supportPermissions.assign),
     );
     await expect(
-      application.changePriority(empty, {
-        commandId: "priority",
+      application.changePriority(queueOnly, {
+        commandId: "priority-2",
         correlationId: "c",
         ticketId: "ticket-1",
         priority: "high",
-      }),
-    ).rejects.toEqual(
-      new SupportDeskAuthorizationError(supportPermissions.manage),
-    );
-    await expect(
-      application.resolveTicket(empty, {
-        commandId: "resolve",
-        correlationId: "c",
-        ticketId: "ticket-1",
-      }),
-    ).rejects.toEqual(
-      new SupportDeskAuthorizationError(supportPermissions.manage),
-    );
-    await expect(
-      application.closeTicket(empty, {
-        commandId: "close",
-        correlationId: "c",
-        ticketId: "ticket-1",
-      }),
-    ).rejects.toEqual(
-      new SupportDeskAuthorizationError(supportPermissions.manage),
-    );
-    await expect(
-      application.reopenTicket(empty, {
-        commandId: "reopen",
-        correlationId: "c",
-        ticketId: "ticket-1",
       }),
     ).rejects.toEqual(
       new SupportDeskAuthorizationError(supportPermissions.manage),
@@ -3447,6 +3498,66 @@ describe("staff application services", () => {
         assigneeId: "staff-1",
       }),
     ).rejects.toBeInstanceOf(SupportDeskNotFoundError);
+  });
+
+  it("commits resolution notification mail with the lifecycle change", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-27T12:05:00.000Z",
+      ),
+    });
+    await seedCustomerTicket(application);
+    const staff = access("staff-1", allStaffPermissions);
+    const resolved = await application.resolveTicket(staff, {
+      commandId: "resolve-notify",
+      correlationId: "c-resolve",
+      ticketId: "ticket-1",
+      messageId: "resolve-msg",
+      body: "We resolved your request.",
+      notification: {
+        id: "notify-resolved",
+        recipientRef: "customer-1",
+        templateId: "customer.resolved",
+        templateVersion: 1,
+        variables: { status: "resolved" },
+        subject: "Ticket resolved",
+        outboundMessageId: "<resolve@example.test>",
+      },
+    });
+    expect(resolved.ticket.status).toBe("resolved");
+    expect(
+      resolved.messages.some((message) => message.id === "resolve-msg"),
+    ).toBe(true);
+    const deliveries = (
+      await store.collection(supportRecords).list("ticket-1")
+    ).filter((record) => record.kind === "delivery_job");
+    expect(deliveries).toHaveLength(1);
+    expect(
+      deliveries[0]?.kind === "delivery_job" ? deliveries[0].job.id : undefined,
+    ).toBe("notify-resolved");
+  });
+
+  it("fails closed when a ticket partition exceeds the record budget", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      limits: { maxRecordsPerTicket: 6 },
+    });
+    await seedCustomerTicket(application);
+    // Create leaves ticket + quota + reservation + message + audit + command = 6.
+    const staff = access("staff-1", allStaffPermissions);
+    await expect(
+      application.assignTicket(staff, {
+        commandId: "assign-over",
+        correlationId: "c",
+        ticketId: "ticket-1",
+        assigneeId: "staff-1",
+      }),
+    ).rejects.toMatchObject({ field: "ticket_partition", maximum: 6 });
   });
 
   it("does not let assignment or notes leak into customer DTOs or timestamps", async () => {

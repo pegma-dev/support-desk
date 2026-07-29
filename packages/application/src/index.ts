@@ -36,6 +36,12 @@ export interface SupportDeskLimits {
   readonly maxMessageCharacters: number;
   readonly maxTicketsPerPrincipal: number;
   readonly maxMessagesPerTicket: number;
+  /**
+   * Hard cap on physical records in one ticket partition (ticket, messages,
+   * audit, commands, delivery jobs, quota, reservation). Reads and mutations
+   * fail closed when the partition would exceed this bound.
+   */
+  readonly maxRecordsPerTicket: number;
 }
 
 export const defaultSupportDeskLimits: SupportDeskLimits = Object.freeze({
@@ -43,6 +49,7 @@ export const defaultSupportDeskLimits: SupportDeskLimits = Object.freeze({
   maxMessageCharacters: 20_000,
   maxTicketsPerPrincipal: 100,
   maxMessagesPerTicket: 100,
+  maxRecordsPerTicket: 512,
 });
 
 export class SupportDeskAuthorizationError extends Error {
@@ -68,7 +75,12 @@ export class SupportDeskConflictError extends Error {
 
 export class SupportDeskLimitError extends Error {
   constructor(
-    readonly field: "subject" | "body" | "customer_tickets" | "ticket_messages",
+    readonly field:
+      | "subject"
+      | "body"
+      | "customer_tickets"
+      | "ticket_messages"
+      | "ticket_partition",
     readonly maximum: number,
   ) {
     super(`${field} exceeds the configured limit of ${maximum}`);
@@ -598,6 +610,15 @@ export interface LifecycleTicketCommand {
   readonly commandId: string;
   readonly correlationId: string;
   readonly ticketId: TicketId;
+  /**
+   * Optional customer-visible system message and mail, committed in the same
+   * ticket transaction as the lifecycle change (for example a resolution
+   * notification). When any of these is set, `messageId` and `body` are
+   * required so mail content binds to a real message record.
+   */
+  readonly messageId?: MessageId;
+  readonly body?: string;
+  readonly notification?: NotificationInput;
 }
 
 export interface SupportDeskApplication {
@@ -1283,11 +1304,23 @@ function staffMessages(records: readonly SupportRecord[]): TicketMessage[] {
     .map((record) => Object.freeze({ ...record.message }));
 }
 
+function enforcePartitionRecordLimit(
+  recordCount: number,
+  maximum: number,
+  additional = 0,
+): void {
+  if (recordCount + additional > maximum) {
+    throw new SupportDeskLimitError("ticket_partition", maximum);
+  }
+}
+
 async function staffAuthoritativeView(
   records: CollectionStore<SupportRecord>,
   ticketId: TicketId,
+  maxRecordsPerTicket: number,
 ): Promise<StaffTicketView> {
   const all = await records.list(ticketId);
+  enforcePartitionRecordLimit(all.length, maxRecordsPerTicket);
   const ticketRecord = all.find(
     (record): record is TicketRecord => record.kind === "ticket",
   );
@@ -1298,6 +1331,15 @@ async function staffAuthoritativeView(
     ticket: ticketRecord.ticket,
     messages: staffMessages(all),
   };
+}
+
+/** Staff mutations that return full ticket detail also require queue read. */
+function requireStaffMutationAccess(
+  access: AccessContext,
+  permission: string,
+): void {
+  requirePermission(access, supportPermissions.queueRead);
+  requirePermission(access, permission);
 }
 
 function clampTicketTime(
@@ -1488,11 +1530,45 @@ function snapshotLifecycleTicketCommand(
       `${field}.correlationId`,
     ),
     ticketId: ownDataProperty(source, "ticketId", `${field}.ticketId`),
+    messageId: ownDataProperty(source, "messageId", `${field}.messageId`, true),
+    body: ownDataProperty(source, "body", `${field}.body`, true),
+    notification: ownDataProperty(
+      source,
+      "notification",
+      `${field}.notification`,
+      true,
+    ),
   };
+  const notification =
+    raw.notification === undefined
+      ? undefined
+      : snapshotNotification(raw.notification);
+  const messageId =
+    raw.messageId === undefined
+      ? undefined
+      : boundaryString(raw.messageId, `${field}.messageId`);
+  const body =
+    raw.body === undefined
+      ? undefined
+      : boundaryString(raw.body, `${field}.body`);
+  if (
+    notification !== undefined ||
+    messageId !== undefined ||
+    body !== undefined
+  ) {
+    if (messageId === undefined || body === undefined) {
+      throw new TypeError(
+        `${field} requires messageId and body when recording a lifecycle message or notification`,
+      );
+    }
+  }
   return Object.freeze({
     commandId: boundaryString(raw.commandId, `${field}.commandId`),
     correlationId: boundaryString(raw.correlationId, `${field}.correlationId`),
     ticketId: boundaryString(raw.ticketId, `${field}.ticketId`),
+    ...(messageId === undefined ? {} : { messageId }),
+    ...(body === undefined ? {} : { body }),
+    ...(notification === undefined ? {} : { notification }),
   });
 }
 
@@ -1564,6 +1640,7 @@ export function createSupportDeskApplication(options: {
       "maxMessageCharacters",
       "maxTicketsPerPrincipal",
       "maxMessagesPerTicket",
+      "maxRecordsPerTicket",
     ] as const) {
       const value = ownDataProperty(
         limitSource,
@@ -1606,6 +1683,7 @@ export function createSupportDeskApplication(options: {
     maxMessageCharacters: 20_000,
     maxTicketsPerPrincipal: 1_000,
     maxMessagesPerTicket: 100,
+    maxRecordsPerTicket: 2_000,
   };
   for (const field of Object.keys(limits) as (keyof SupportDeskLimits)[]) {
     const value = limits[field];
@@ -2286,11 +2364,15 @@ export function createSupportDeskApplication(options: {
       requirePermission(access, supportPermissions.queueRead);
       requireIdentifier(access.principalId, "principalId");
       requireIdentifier(ticketId, "ticketId");
-      return staffAuthoritativeView(records, ticketId);
+      return staffAuthoritativeView(
+        records,
+        ticketId,
+        limits.maxRecordsPerTicket,
+      );
     },
 
     async replyAsStaff(access, input) {
-      requirePermission(access, supportPermissions.replyAny);
+      requireStaffMutationAccess(access, supportPermissions.replyAny);
       requireIdentifier(access.principalId, "principalId");
       const command = snapshotStaffReplyCommand(input);
       requireIdentifier(command.ticketId, "ticketId");
@@ -2318,7 +2400,11 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffAuthoritativeView(records, command.ticketId);
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
         }
 
         const versioned = await records.getVersioned(
@@ -2327,6 +2413,12 @@ export function createSupportDeskApplication(options: {
         if (versioned?.value.kind !== "ticket") {
           throw new SupportDeskNotFoundError();
         }
+        const partitionRows = await records.list(command.ticketId);
+        enforcePartitionRecordLimit(
+          partitionRows.length,
+          limits.maxRecordsPerTicket,
+          command.notification === undefined ? 3 : 4,
+        );
         const quota = await records.getVersioned(
           ticketQuotaKey(command.ticketId),
         );
@@ -2424,7 +2516,11 @@ export function createSupportDeskApplication(options: {
           ...(notificationJob === undefined ? [] : [notificationJob]),
         ]);
         if (outcome.committed) {
-          return staffAuthoritativeView(records, command.ticketId);
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
         }
         const nowDuplicate = await records.get(
           commandKey(command.ticketId, command.commandId),
@@ -2437,14 +2533,18 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffAuthoritativeView(records, command.ticketId);
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
         }
       }
       throw new SupportDeskConflictError();
     },
 
     async addNote(access, input) {
-      requirePermission(access, supportPermissions.note);
+      requireStaffMutationAccess(access, supportPermissions.note);
       requireIdentifier(access.principalId, "principalId");
       const command = snapshotAddNoteCommand(input);
       requireIdentifier(command.ticketId, "ticketId");
@@ -2471,7 +2571,11 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffAuthoritativeView(records, command.ticketId);
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
         }
 
         const versioned = await records.getVersioned(
@@ -2480,6 +2584,12 @@ export function createSupportDeskApplication(options: {
         if (versioned?.value.kind !== "ticket") {
           throw new SupportDeskNotFoundError();
         }
+        const partitionRows = await records.list(command.ticketId);
+        enforcePartitionRecordLimit(
+          partitionRows.length,
+          limits.maxRecordsPerTicket,
+          3,
+        );
         const quota = await records.getVersioned(
           ticketQuotaKey(command.ticketId),
         );
@@ -2574,7 +2684,11 @@ export function createSupportDeskApplication(options: {
           },
         ]);
         if (outcome.committed) {
-          return staffAuthoritativeView(records, command.ticketId);
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
         }
         const nowDuplicate = await records.get(
           commandKey(command.ticketId, command.commandId),
@@ -2587,14 +2701,18 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffAuthoritativeView(records, command.ticketId);
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
         }
       }
       throw new SupportDeskConflictError();
     },
 
     async assignTicket(access, input) {
-      requirePermission(access, supportPermissions.assign);
+      requireStaffMutationAccess(access, supportPermissions.assign);
       requireIdentifier(access.principalId, "principalId");
       const command = snapshotAssignTicketCommand(input);
       requireIdentifier(command.ticketId, "ticketId");
@@ -2616,7 +2734,11 @@ export function createSupportDeskApplication(options: {
         if (
           duplicateMatches(duplicate, "assign_ticket", undefined, fingerprint)
         ) {
-          return staffAuthoritativeView(records, command.ticketId);
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
         }
 
         const versioned = await records.getVersioned(
@@ -2625,6 +2747,12 @@ export function createSupportDeskApplication(options: {
         if (versioned?.value.kind !== "ticket") {
           throw new SupportDeskNotFoundError();
         }
+        const partitionRows = await records.list(command.ticketId);
+        enforcePartitionRecordLimit(
+          partitionRows.length,
+          limits.maxRecordsPerTicket,
+          2,
+        );
         const statusBefore = versioned.value.ticket.status;
         const customerUpdatedBefore = versioned.value.ticket.customerUpdatedAt;
         const now = clampTicketTime(
@@ -2681,7 +2809,11 @@ export function createSupportDeskApplication(options: {
           },
         ]);
         if (outcome.committed) {
-          return staffAuthoritativeView(records, command.ticketId);
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
         }
         const nowDuplicate = await records.get(
           commandKey(command.ticketId, command.commandId),
@@ -2694,14 +2826,18 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffAuthoritativeView(records, command.ticketId);
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
         }
       }
       throw new SupportDeskConflictError();
     },
 
     async changePriority(access, input) {
-      requirePermission(access, supportPermissions.manage);
+      requireStaffMutationAccess(access, supportPermissions.manage);
       requireIdentifier(access.principalId, "principalId");
       const command = snapshotChangePriorityCommand(input);
       requireIdentifier(command.ticketId, "ticketId");
@@ -2720,7 +2856,11 @@ export function createSupportDeskApplication(options: {
         if (
           duplicateMatches(duplicate, "change_priority", undefined, fingerprint)
         ) {
-          return staffAuthoritativeView(records, command.ticketId);
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
         }
 
         const versioned = await records.getVersioned(
@@ -2729,6 +2869,12 @@ export function createSupportDeskApplication(options: {
         if (versioned?.value.kind !== "ticket") {
           throw new SupportDeskNotFoundError();
         }
+        const partitionRows = await records.list(command.ticketId);
+        enforcePartitionRecordLimit(
+          partitionRows.length,
+          limits.maxRecordsPerTicket,
+          2,
+        );
         const statusBefore = versioned.value.ticket.status;
         const customerUpdatedBefore = versioned.value.ticket.customerUpdatedAt;
         const now = clampTicketTime(
@@ -2779,7 +2925,11 @@ export function createSupportDeskApplication(options: {
           },
         ]);
         if (outcome.committed) {
-          return staffAuthoritativeView(records, command.ticketId);
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
         }
         const nowDuplicate = await records.get(
           commandKey(command.ticketId, command.commandId),
@@ -2792,7 +2942,11 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffAuthoritativeView(records, command.ticketId);
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
         }
       }
       throw new SupportDeskConflictError();
@@ -2850,15 +3004,24 @@ export function createSupportDeskApplication(options: {
       readonly field: string;
     },
   ): Promise<StaffTicketView> {
-    requirePermission(access, supportPermissions.manage);
+    requireStaffMutationAccess(access, supportPermissions.manage);
     requireIdentifier(access.principalId, "principalId");
     const command = snapshotLifecycleTicketCommand(input, spec.field);
     requireIdentifier(command.ticketId, "ticketId");
     requireIdentifier(command.commandId, "commandId");
     requireIdentifier(command.correlationId, "correlationId");
+    if (command.messageId !== undefined) {
+      requireIdentifier(command.messageId, "messageId");
+    }
+    if (command.body !== undefined) {
+      enforceLimit(command.body, "body", limits.maxMessageCharacters);
+    }
     const fingerprint = await requestFingerprint({
       type: spec.commandType,
       ticketId: command.ticketId,
+      messageId: command.messageId ?? null,
+      body: command.body ?? null,
+      notification: stableNotification(command.notification),
     });
 
     for (let attempt = 1; attempt <= maxConflictAttempts; attempt += 1) {
@@ -2866,15 +3029,57 @@ export function createSupportDeskApplication(options: {
         commandKey(command.ticketId, command.commandId),
       );
       if (
-        duplicateMatches(duplicate, spec.commandType, undefined, fingerprint)
+        duplicateMatches(
+          duplicate,
+          spec.commandType,
+          command.messageId,
+          fingerprint,
+        )
       ) {
-        return staffAuthoritativeView(records, command.ticketId);
+        return staffAuthoritativeView(
+          records,
+          command.ticketId,
+          limits.maxRecordsPerTicket,
+        );
       }
 
       const versioned = await records.getVersioned(ticketKey(command.ticketId));
       if (versioned?.value.kind !== "ticket") {
         throw new SupportDeskNotFoundError();
       }
+      const partitionRows = await records.list(command.ticketId);
+      const addedRecords =
+        command.messageId === undefined
+          ? 2 // audit + command
+          : command.notification === undefined
+            ? 3 // message + audit + command
+            : 4; // message + audit + command + delivery
+      enforcePartitionRecordLimit(
+        partitionRows.length,
+        limits.maxRecordsPerTicket,
+        addedRecords,
+      );
+
+      let quotaVersion: Awaited<
+        ReturnType<CollectionStore<SupportRecord>["getVersioned"]>
+      > = null;
+      if (command.messageId !== undefined) {
+        quotaVersion = await records.getVersioned(
+          ticketQuotaKey(command.ticketId),
+        );
+        if (quotaVersion?.value.kind !== "ticket_quota") {
+          throw new SupportDeskConflictError(
+            "Ticket partition quota metadata is missing",
+          );
+        }
+        if (quotaVersion.value.messageCount >= limits.maxMessagesPerTicket) {
+          throw new SupportDeskLimitError(
+            "ticket_messages",
+            limits.maxMessagesPerTicket,
+          );
+        }
+      }
+
       const now = clampTicketTime(
         clock.now(),
         versioned.value.ticket.updatedAt,
@@ -2884,15 +3089,70 @@ export function createSupportDeskApplication(options: {
         actorId: access.principalId,
         occurredAt: now,
       });
-      // Customer-visible lifecycle: advances customerUpdatedAt via core. Mail for
-      // resolution is host-composed from a staff reply or a later notification
-      // path that binds content to a real message record.
+      // Optional system message + mail commit with the lifecycle change so a
+      // resolution notification cannot be lost after the ticket is resolved.
+      const systemMessage: TicketMessage | undefined =
+        command.messageId === undefined || command.body === undefined
+          ? undefined
+          : {
+              id: command.messageId,
+              ticketId: command.ticketId,
+              authorKind: "system",
+              channel: "web",
+              visibility: "customer",
+              format: "plain_text",
+              body: command.body,
+              createdAt: now,
+            };
+      const notificationContent = deliveryContent(command.notification);
+      const notificationJob =
+        command.notification === undefined || command.messageId === undefined
+          ? undefined
+          : deliveryJobAction(
+              command.ticketId,
+              command.messageId,
+              now,
+              command.notification,
+            );
       const outcome = await records.transact(command.ticketId, [
         {
           action: "putIfUnchanged",
           version: versioned.version,
           value: { ...versioned.value, ticket: updated },
         },
+        ...(quotaVersion === null ||
+        systemMessage === undefined ||
+        quotaVersion.value.kind !== "ticket_quota"
+          ? []
+          : [
+              {
+                action: "putIfUnchanged" as const,
+                version: quotaVersion.version,
+                value: {
+                  kind: "ticket_quota" as const,
+                  partition: command.ticketId,
+                  id: "quota" as const,
+                  messageCount: quotaVersion.value.messageCount + 1,
+                },
+              },
+            ]),
+        ...(systemMessage === undefined
+          ? []
+          : [
+              {
+                action: "insert" as const,
+                value: {
+                  kind: "message" as const,
+                  partition: command.ticketId,
+                  id: `message:${command.messageId}`,
+                  ordinal: updated.revision,
+                  message: systemMessage,
+                  ...(notificationContent === undefined
+                    ? {}
+                    : { deliveryContent: notificationContent }),
+                },
+              },
+            ]),
         ticketAuditAction({
           commandId: command.commandId,
           correlationId: command.correlationId,
@@ -2910,21 +3170,38 @@ export function createSupportDeskApplication(options: {
             id: `command:${command.commandId}`,
             commandId: command.commandId,
             commandType: spec.commandType,
+            ...(command.messageId === undefined
+              ? {}
+              : { messageId: command.messageId }),
             requestFingerprint: fingerprint,
             completedAt: now,
           },
         },
+        ...(notificationJob === undefined ? [] : [notificationJob]),
       ]);
       if (outcome.committed) {
-        return staffAuthoritativeView(records, command.ticketId);
+        return staffAuthoritativeView(
+          records,
+          command.ticketId,
+          limits.maxRecordsPerTicket,
+        );
       }
       const nowDuplicate = await records.get(
         commandKey(command.ticketId, command.commandId),
       );
       if (
-        duplicateMatches(nowDuplicate, spec.commandType, undefined, fingerprint)
+        duplicateMatches(
+          nowDuplicate,
+          spec.commandType,
+          command.messageId,
+          fingerprint,
+        )
       ) {
-        return staffAuthoritativeView(records, command.ticketId);
+        return staffAuthoritativeView(
+          records,
+          command.ticketId,
+          limits.maxRecordsPerTicket,
+        );
       }
     }
     throw new SupportDeskConflictError();

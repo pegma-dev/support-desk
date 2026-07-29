@@ -10,24 +10,29 @@ ownership; reply uses `support.ticket.reply.own`.
 
 Staff services use the same application factory and ticket partition:
 
-| Method                   | Permission                 | Effect                                                              |
-| ------------------------ | -------------------------- | ------------------------------------------------------------------- |
-| `readStaffTicket`        | `support.queue.read`       | Authoritative ticket plus every message (including internal notes)  |
-| `replyAsStaff`           | `support.ticket.reply.any` | Customer-visible staff reply → `waiting_on_customer`; optional mail |
-| `addNote`                | `support.ticket.note`      | Internal note; no mail; status and `customerUpdatedAt` unchanged    |
-| `assignTicket`           | `support.ticket.assign`    | Assign or unassign; status unchanged                                |
-| `changePriority`         | `support.ticket.manage`    | Priority only; status unchanged                                     |
-| `resolveTicket`          | `support.ticket.manage`    | → `resolved` (closed tickets must reopen first)                     |
-| `closeTicket`            | `support.ticket.manage`    | → `closed` (resolved only)                                          |
-| `reopenTicket`           | `support.ticket.manage`    | resolved/closed → `waiting_on_support`                              |
-| `readTicketAuditHistory` | `support.audit.read`       | Ordered Audit history for one ticket                                |
+| Method                   | Permission(s)                             | Effect                                                              |
+| ------------------------ | ----------------------------------------- | ------------------------------------------------------------------- |
+| `readStaffTicket`        | `support.queue.read`                      | Authoritative ticket plus every message (including internal notes)  |
+| `replyAsStaff`           | `queue.read` + `support.ticket.reply.any` | Customer-visible staff reply → `waiting_on_customer`; optional mail |
+| `addNote`                | `queue.read` + `support.ticket.note`      | Internal note; no mail; status and `customerUpdatedAt` unchanged    |
+| `assignTicket`           | `queue.read` + `support.ticket.assign`    | Assign or unassign; status unchanged                                |
+| `changePriority`         | `queue.read` + `support.ticket.manage`    | Priority only; status unchanged                                     |
+| `resolveTicket`          | `queue.read` + `support.ticket.manage`    | → `resolved` (closed tickets must reopen first)                     |
+| `closeTicket`            | `queue.read` + `support.ticket.manage`    | → `closed` (resolved only)                                          |
+| `reopenTicket`           | `queue.read` + `support.ticket.manage`    | resolved/closed → `waiting_on_support`                              |
+| `readTicketAuditHistory` | `support.audit.read`                      | Ordered Audit history for one ticket                                |
 
 Staff reads return `StaffTicketView` (full `Ticket` and all `TicketMessage`
-rows). They do not require queue membership claims or browser-supplied actor
-IDs—only an `AccessContext` and the authoritative ticket id. Unknown ticket
-IDs throw the same content-free not-found error used for customer ownership
-misses. A staff reply to a closed ticket moves it directly to
-`waiting_on_customer` without a separate reopen event (MVP lifecycle rule).
+rows). Mutations that return that view also require `support.queue.read` so a
+narrow write permission cannot bypass the staff-detail boundary. They do not
+require queue membership claims or browser-supplied actor IDs—only an
+`AccessContext` and the authoritative ticket id. Unknown ticket IDs throw the
+same content-free not-found error used for customer ownership misses. A staff
+reply to a closed ticket moves it directly to `waiting_on_customer` without a
+separate reopen event (MVP lifecycle rule). Lifecycle commands may include an
+optional customer-visible system message and notification so resolution mail
+commits in the same ticket transaction as the status change. Partition reads
+and mutations also enforce `limits.maxRecordsPerTicket` (default 512).
 
 Customer create, list, read, and reply return explicit safe DTOs
 (`CustomerTicketSummary` / `CustomerMessage` / `CustomerTicketView`), not the
