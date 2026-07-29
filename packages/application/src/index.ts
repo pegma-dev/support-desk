@@ -1482,6 +1482,22 @@ export function createSupportDeskApplication(options: {
 
       // Reserve outside the ticket transaction; gaps are accepted if create fails.
       const ticketNumber = await reserveTicketNumber();
+      // Bind host-supplied notification content to the reserved number so mail
+      // cannot advertise a guessed ticket number.
+      const notification =
+        command.notification === undefined
+          ? undefined
+          : Object.freeze({
+              ...command.notification,
+              subject: command.notification.subject.replaceAll(
+                "{{ticket_number}}",
+                String(ticketNumber),
+              ),
+              variables: Object.freeze({
+                ...command.notification.variables,
+                ticket_number: String(ticketNumber),
+              }),
+            });
       const now = clock.now();
       const ticket = createTicket({
         id: command.ticketId,
@@ -1512,15 +1528,15 @@ export function createSupportDeskApplication(options: {
         createdAt: now,
       };
       const notificationJob =
-        command.notification === undefined
+        notification === undefined
           ? undefined
           : deliveryJobAction(
               command.ticketId,
               command.messageId,
               now,
-              command.notification,
+              notification,
             );
-      const notificationContent = deliveryContent(command.notification);
+      const notificationContent = deliveryContent(notification);
       const reservation = await reserveCustomerTicket(
         access.principalId,
         command.ticketId,

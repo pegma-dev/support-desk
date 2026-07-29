@@ -28,6 +28,9 @@ Ticket numbers are reserved by the application from
 Controllers supply server-minted ticket and command IDs but not ticket numbers.
 Replay returns the committed number without reserving another; gaps after a
 failed create are accepted; exhaustion fails closed before ticket persistence.
+When a create includes a notification, Support Desk sets the
+`ticket_number` variable to the reserved number and substitutes
+`{{ticket_number}}` in the notification subject.
 
 `customerUpdatedAt` advances on create and on customer-visible messages or
 lifecycle changes. Internal notes, assignment, and priority changes advance

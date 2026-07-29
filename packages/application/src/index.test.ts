@@ -95,8 +95,8 @@ describe("customer application services", () => {
           recipientRef: "support-queue",
           templateId: "staff.new-ticket",
           templateVersion: 1,
-          variables: { ticket_number: "42" },
-          subject: "[Ticket #42] Cannot open my plan",
+          variables: { ticket_number: "ignored" },
+          subject: "[Ticket #{{ticket_number}}] Cannot open my plan",
           outboundMessageId: "<support.notification-1@example.test>",
         },
       },
@@ -104,6 +104,15 @@ describe("customer application services", () => {
 
     expect(created.ticket.id).toBe("ticket-1");
     expect(created.ticket.number).toBe(1);
+    const delivery = (
+      await store.collection(supportRecords).list("ticket-1")
+    ).find((record) => record.kind === "message");
+    expect(
+      delivery?.kind === "message" && delivery.deliveryContent,
+    ).toMatchObject({
+      variables: { ticket_number: "1" },
+      subject: "[Ticket #1] Cannot open my plan",
+    });
     expect(created.ticket.customerUpdatedAt).toBe("2026-07-27T12:00:00.000Z");
     expect(created.messages.map((message) => message.body)).toEqual([
       "The plan page stays blank.",

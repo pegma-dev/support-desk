@@ -93,8 +93,6 @@ function azureFixture(): StoreFixture {
 async function createTicket(
   store: Store,
   ticketId: string,
-  /** Display value for notification template variables only (not command input). */
-  notificationTicketNumber: number,
   maxAttempts?: number,
 ): Promise<void> {
   await createSupportDeskApplication({
@@ -112,9 +110,9 @@ async function createTicket(
       recipientRef: "support@example.test",
       templateId: template.id,
       templateVersion: template.version,
-      variables: { ticket_number: String(notificationTicketNumber) },
-      subject: `[Ticket #${notificationTicketNumber}] Question`,
-      outboundMessageId: `<support.notify-${notificationTicketNumber}@example.test>`,
+      variables: { ticket_number: "placeholder" },
+      subject: "[Ticket #{{ticket_number}}] Question",
+      outboundMessageId: `<support.notify-${ticketId}@example.test>`,
       ...(maxAttempts === undefined ? {} : { maxAttempts }),
     },
   });
@@ -211,7 +209,7 @@ async function completeReconciliationCycle(
 
 async function exerciseAtomicProjection(fixture: StoreFixture): Promise<void> {
   const records = fixture.store.collection(supportRecords);
-  await createTicket(fixture.store, "ticket", 42);
+  await createTicket(fixture.store, "ticket");
 
   const message = await records.get({
     partition: "ticket",
@@ -226,9 +224,9 @@ async function exerciseAtomicProjection(fixture: StoreFixture): Promise<void> {
     deliveryContent: {
       templateId: "staff.new-ticket",
       templateVersion: 1,
-      variables: { ticket_number: "42" },
-      subject: "[Ticket #42] Question",
-      outboundMessageId: "<support.notify-42@example.test>",
+      variables: { ticket_number: "1" },
+      subject: "[Ticket #1] Question",
+      outboundMessageId: "<support.notify-ticket@example.test>",
     },
   });
   expect(delivery).toMatchObject({
@@ -255,10 +253,10 @@ async function exerciseAtomicProjection(fixture: StoreFixture): Promise<void> {
     ),
     mail: {
       recipient: "support@example.test",
-      subject: "[Ticket #42] Question",
-      text: "New ticket 42",
-      html: "<p>New ticket 42</p>",
-      headers: { "message-id": "<support.notify-42@example.test>" },
+      subject: "[Ticket #1] Question",
+      text: "New ticket 1",
+      html: "<p>New ticket 1</p>",
+      headers: { "message-id": "<support.notify-ticket@example.test>" },
     },
   });
 }
@@ -266,8 +264,8 @@ async function exerciseAtomicProjection(fixture: StoreFixture): Promise<void> {
 async function exerciseCrashAndCursorRecovery(
   fixture: StoreFixture,
 ): Promise<void> {
-  await createTicket(fixture.store, "alpha", 1);
-  await createTicket(fixture.store, "zulu", 2);
+  await createTicket(fixture.store, "alpha");
+  await createTicket(fixture.store, "zulu");
   const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
   const firstWorker = worker(fixture.freshStore(), { send });
   const first = await firstWorker.runSendPage({ limit: 1 });
@@ -288,7 +286,7 @@ async function exerciseCrashAndCursorRecovery(
 async function exerciseSeparateCursorCycles(
   fixture: StoreFixture,
 ): Promise<void> {
-  await createTicket(fixture.store, "ticket", 1);
+  await createTicket(fixture.store, "ticket");
   const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
   await completeSendCycle(
     worker(fixture.store, { send }, { acceptedCallbackMilliseconds: 1_000 }),
@@ -414,7 +412,7 @@ describe.each([
 describe("authoritative Support mail scan boundary", () => {
   it("rejects a decoded mail row whose physical scan key disagrees", async () => {
     const store = createMemoryStore();
-    await createTicket(store, "ticket", 1);
+    await createTicket(store, "ticket");
     const mismatched = worker(physicalKeyMismatchStore(store), {
       send: async () => ({ providerMessageRef: "provider-ref" }),
     });
@@ -456,7 +454,7 @@ describe("authoritative Support mail scan boundary", () => {
     "rejects poisoned %s before provider send",
     async (_description, poison, expected) => {
       const store = createMemoryStore();
-      await createTicket(store, "ticket", 1);
+      await createTicket(store, "ticket");
       const send = vi.fn(async () => ({ providerMessageRef: "provider-ref" }));
       const poisoned = worker(poisonedDeliveryWrapperStore(store, poison), {
         send,
@@ -470,7 +468,7 @@ describe("authoritative Support mail scan boundary", () => {
 
   it("preserves Support-owned wrapper metadata through generic transitions", async () => {
     const store = createMemoryStore();
-    await createTicket(store, "ticket", 1);
+    await createTicket(store, "ticket");
     const records = store.collection(supportRecords);
     const before = await records.get({
       partition: "ticket",
