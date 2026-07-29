@@ -1,3 +1,4 @@
+import { auditRecordId, defineAudit, type AuditEvent } from "@pegma/audit";
 import { hasPermission, type AccessContext } from "@pegma/authorization-core";
 import { defineMail, maxMailAttempts, type MailJob } from "@pegma/mail";
 import type { Clock, IsoTimestamp, PrincipalId } from "@pegma/spine";
@@ -113,16 +114,11 @@ interface MessageRecord {
   readonly deliveryContent?: DeliveryContent | undefined;
 }
 
-interface AuditRecord {
+interface AuditMemberRecord {
   readonly kind: "audit";
   readonly partition: TicketId;
   readonly id: string;
-  readonly eventType: "ticket_created" | "customer_replied";
-  readonly resultingRevision: number;
-  readonly actorId: PrincipalId;
-  readonly occurredAt: IsoTimestamp;
-  readonly correlationId: string;
-  readonly commandId: string;
+  readonly event: AuditEvent;
 }
 
 interface CommandRecord {
@@ -157,9 +153,23 @@ export type SupportRecord =
   | TicketQuotaRecord
   | TicketReservationRecord
   | MessageRecord
-  | AuditRecord
+  | AuditMemberRecord
   | CommandRecord
   | DeliveryJob;
+
+/** Closed MVP registry of durable accepted-change audit action names. */
+export const supportTicketAuditActions = Object.freeze({
+  created: "support.ticket.created",
+  customerReplied: "support.ticket.customer_replied",
+  staffReplied: "support.ticket.staff_replied",
+  noteAdded: "support.ticket.note_added",
+  assigned: "support.ticket.assigned",
+  unassigned: "support.ticket.unassigned",
+  priorityChanged: "support.ticket.priority_changed",
+  resolved: "support.ticket.resolved",
+  closed: "support.ticket.closed",
+  reopened: "support.ticket.reopened",
+} as const);
 
 export interface CustomerTicketIndexEntry {
   readonly ticketId: TicketId;
@@ -318,6 +328,69 @@ export const supportMail = defineMail<SupportRecord>({
     return record.job;
   },
 });
+
+function requireAuditMember(record: AuditMemberRecord): void {
+  if (
+    record.partition !== record.event.subject ||
+    record.id !== auditRecordId(record.event.id)
+  ) {
+    throw new TypeError(
+      "stored audit member does not match its nested AuditEvent",
+    );
+  }
+}
+
+/**
+ * Project generic audit events into Support Desk's durable record union.
+ *
+ * Physical identity is `auditRecordId(event.id)`; the event itself is the
+ * accepted-change record. Domain `TicketEvent` values stay pure workflow input.
+ */
+export const supportAudit = defineAudit<SupportRecord>({
+  collection: supportRecords,
+  toRecord(event) {
+    const record: AuditMemberRecord = {
+      kind: "audit",
+      partition: event.subject,
+      id: auditRecordId(event.id),
+      event,
+    };
+    requireAuditMember(record);
+    return record;
+  },
+  toEvent(record) {
+    if (record.kind !== "audit") {
+      return null;
+    }
+    requireAuditMember(record);
+    return record.event;
+  },
+});
+
+function customerTicketAuditAction(input: {
+  readonly commandId: string;
+  readonly correlationId: string;
+  readonly ticketId: TicketId;
+  readonly revision: number;
+  readonly actorId: PrincipalId;
+  readonly occurredAt: IsoTimestamp;
+  readonly action:
+    | typeof supportTicketAuditActions.created
+    | typeof supportTicketAuditActions.customerReplied;
+}): ReturnType<typeof supportAudit.action> {
+  return supportAudit.action({
+    id: input.commandId,
+    occurredAt: input.occurredAt,
+    actor: { kind: "principal", principalId: input.actorId },
+    action: input.action,
+    subject: input.ticketId,
+    sequence: input.revision,
+    details: {
+      commandId: input.commandId,
+      correlationId: input.correlationId,
+    },
+  });
+}
 
 const customerTicketIndexKey = (
   record: CustomerTicketIndexRecord,
@@ -1293,20 +1366,15 @@ export function createSupportDeskApplication(options: {
               : { deliveryContent: notificationContent }),
           },
         },
-        {
-          action: "insert",
-          value: {
-            kind: "audit",
-            partition: command.ticketId,
-            id: `event:00000001:${command.commandId}`,
-            eventType: "ticket_created",
-            resultingRevision: ticket.revision,
-            actorId: access.principalId,
-            occurredAt: now,
-            correlationId: command.correlationId,
-            commandId: command.commandId,
-          },
-        },
+        customerTicketAuditAction({
+          commandId: command.commandId,
+          correlationId: command.correlationId,
+          ticketId: command.ticketId,
+          revision: ticket.revision,
+          actorId: access.principalId,
+          occurredAt: now,
+          action: supportTicketAuditActions.created,
+        }),
         {
           action: "insert",
           value: {
@@ -1472,20 +1540,15 @@ export function createSupportDeskApplication(options: {
                 : { deliveryContent: notificationContent }),
             },
           },
-          {
-            action: "insert",
-            value: {
-              kind: "audit",
-              partition: command.ticketId,
-              id: `event:${String(updated.revision).padStart(8, "0")}:${command.commandId}`,
-              eventType: "customer_replied",
-              resultingRevision: updated.revision,
-              actorId: access.principalId,
-              occurredAt: now,
-              correlationId: command.correlationId,
-              commandId: command.commandId,
-            },
-          },
+          customerTicketAuditAction({
+            commandId: command.commandId,
+            correlationId: command.correlationId,
+            ticketId: command.ticketId,
+            revision: updated.revision,
+            actorId: access.principalId,
+            occurredAt: now,
+            action: supportTicketAuditActions.customerReplied,
+          }),
           {
             action: "insert",
             value: {

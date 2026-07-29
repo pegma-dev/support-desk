@@ -8,6 +8,12 @@ Customer create uses `support.ticket.create`; list and read both use the
 documented `support.ticket.read.own` permission and then confirm authoritative
 ownership; reply uses `support.ticket.reply.own`.
 
+Accepted-change history is exact `@pegma/audit@0.1.0` projected into the
+ticket partition with `defineAudit`. Create and reply drop Audit transaction
+actions beside the state change; history is read through Audit, not a private
+sorter. Domain `TicketEvent` remains pure workflow input and is not stored as
+a second audit shape. Authorization Core is exact `0.1.2`.
+
 Create and reply commands are snapshotted from own data properties exactly
 once before validation, idempotency fingerprinting, or persistence. Accessors
 are rejected without being executed. Optional requester email is a contact
