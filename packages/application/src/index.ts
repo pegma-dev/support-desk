@@ -597,6 +597,14 @@ export interface AssignTicketCommand {
   readonly ticketId: TicketId;
   /** Principal to assign, or null to unassign. */
   readonly assigneeId: PrincipalId | null;
+  /**
+   * Optional assignment notification (for example to the new assignee),
+   * committed in the same ticket transaction. When any of these is set,
+   * `messageId` and `body` are required so mail binds to a real message.
+   */
+  readonly messageId?: MessageId;
+  readonly body?: string;
+  readonly notification?: NotificationInput;
 }
 
 export interface ChangePriorityCommand {
@@ -1203,10 +1211,10 @@ async function authoritativeView(
   maxRecordsPerTicket: number,
 ): Promise<CustomerTicketView> {
   const all = await records.list(ticketId);
-  enforcePartitionRecordLimit(all.length, maxRecordsPerTicket);
   const ticketRecord = all.find(
     (record): record is TicketRecord => record.kind === "ticket",
   );
+  // Ownership before partition errors so foreign ticket IDs never leak capacity.
   if (
     ticketRecord === undefined ||
     ticketRecord.ticket.requester.association !== "authenticated" ||
@@ -1214,6 +1222,7 @@ async function authoritativeView(
   ) {
     throw new SupportDeskNotFoundError();
   }
+  enforcePartitionRecordLimit(all.length, maxRecordsPerTicket);
   return {
     ticket: toCustomerTicketSummary(ticketRecord.ticket),
     messages: customerMessages(all),
@@ -1453,9 +1462,45 @@ function snapshotAssignTicketCommand(
       "assigneeId",
       "assign command.assigneeId",
     ),
+    messageId: ownDataProperty(
+      source,
+      "messageId",
+      "assign command.messageId",
+      true,
+    ),
+    body: ownDataProperty(source, "body", "assign command.body", true),
+    notification: ownDataProperty(
+      source,
+      "notification",
+      "assign command.notification",
+      true,
+    ),
   };
   if (raw.assigneeId !== null && typeof raw.assigneeId !== "string") {
     throw new TypeError("assign command.assigneeId must be a string or null");
+  }
+  const notification =
+    raw.notification === undefined
+      ? undefined
+      : snapshotNotification(raw.notification);
+  const messageId =
+    raw.messageId === undefined
+      ? undefined
+      : boundaryString(raw.messageId, "assign command.messageId");
+  const body =
+    raw.body === undefined
+      ? undefined
+      : boundaryString(raw.body, "assign command.body");
+  if (
+    notification !== undefined ||
+    messageId !== undefined ||
+    body !== undefined
+  ) {
+    if (messageId === undefined || body === undefined) {
+      throw new TypeError(
+        "assign command requires messageId and body when recording a notification message",
+      );
+    }
   }
   return Object.freeze({
     commandId: boundaryString(raw.commandId, "assign command.commandId"),
@@ -1468,6 +1513,9 @@ function snapshotAssignTicketCommand(
       raw.assigneeId === null
         ? null
         : boundaryString(raw.assigneeId, "assign command.assigneeId"),
+    ...(messageId === undefined ? {} : { messageId }),
+    ...(body === undefined ? {} : { body }),
+    ...(notification === undefined ? {} : { notification }),
   });
 }
 
@@ -2755,10 +2803,19 @@ export function createSupportDeskApplication(options: {
       if (command.assigneeId !== null) {
         requireIdentifier(command.assigneeId, "assigneeId");
       }
+      if (command.messageId !== undefined) {
+        requireIdentifier(command.messageId, "messageId");
+      }
+      if (command.body !== undefined) {
+        enforceLimit(command.body, "body", limits.maxMessageCharacters);
+      }
       const fingerprint = await requestFingerprint({
         type: "assign_ticket",
         ticketId: command.ticketId,
         assigneeId: command.assigneeId,
+        messageId: command.messageId ?? null,
+        body: command.body ?? null,
+        notification: stableNotification(command.notification),
       });
 
       for (let attempt = 1; attempt <= maxConflictAttempts; attempt += 1) {
@@ -2766,7 +2823,12 @@ export function createSupportDeskApplication(options: {
           commandKey(command.ticketId, command.commandId),
         );
         if (
-          duplicateMatches(duplicate, "assign_ticket", undefined, fingerprint)
+          duplicateMatches(
+            duplicate,
+            "assign_ticket",
+            command.messageId,
+            fingerprint,
+          )
         ) {
           return staffAuthoritativeView(
             records,
@@ -2781,12 +2843,37 @@ export function createSupportDeskApplication(options: {
         if (versioned?.value.kind !== "ticket") {
           throw new SupportDeskNotFoundError();
         }
+        const addedRecords =
+          command.messageId === undefined
+            ? 2
+            : command.notification === undefined
+              ? 3
+              : 4;
         const partitionRows = await records.list(command.ticketId);
         enforcePartitionRecordLimit(
           partitionRows.length,
           limits.maxRecordsPerTicket,
-          2,
+          addedRecords,
         );
+        let quotaVersion: Awaited<
+          ReturnType<CollectionStore<SupportRecord>["getVersioned"]>
+        > = null;
+        if (command.messageId !== undefined) {
+          quotaVersion = await records.getVersioned(
+            ticketQuotaKey(command.ticketId),
+          );
+          if (quotaVersion?.value.kind !== "ticket_quota") {
+            throw new SupportDeskConflictError(
+              "Ticket partition quota metadata is missing",
+            );
+          }
+          if (quotaVersion.value.messageCount >= limits.maxMessagesPerTicket) {
+            throw new SupportDeskLimitError(
+              "ticket_messages",
+              limits.maxMessagesPerTicket,
+            );
+          }
+        }
         const statusBefore = versioned.value.ticket.status;
         const customerUpdatedBefore = versioned.value.ticket.customerUpdatedAt;
         const now = clampTicketTime(
@@ -2807,12 +2894,70 @@ export function createSupportDeskApplication(options: {
             "Assignment unexpectedly changed customer-visible ticket state",
           );
         }
+        // Optional system message + mail so assignment notifications share the
+        // ticket transaction with the assignment itself.
+        const systemMessage: TicketMessage | undefined =
+          command.messageId === undefined || command.body === undefined
+            ? undefined
+            : {
+                id: command.messageId,
+                ticketId: command.ticketId,
+                authorKind: "system",
+                channel: "web",
+                visibility: "internal",
+                format: "plain_text",
+                body: command.body,
+                createdAt: now,
+              };
+        const notificationContent = deliveryContent(command.notification);
+        const notificationJob =
+          command.notification === undefined || command.messageId === undefined
+            ? undefined
+            : deliveryJobAction(
+                command.ticketId,
+                command.messageId,
+                now,
+                command.notification,
+              );
         const outcome = await records.transact(command.ticketId, [
           {
             action: "putIfUnchanged",
             version: versioned.version,
             value: { ...versioned.value, ticket: updated },
           },
+          ...(quotaVersion === null ||
+          systemMessage === undefined ||
+          quotaVersion.value.kind !== "ticket_quota"
+            ? []
+            : [
+                {
+                  action: "putIfUnchanged" as const,
+                  version: quotaVersion.version,
+                  value: {
+                    kind: "ticket_quota" as const,
+                    partition: command.ticketId,
+                    id: "quota" as const,
+                    messageCount: quotaVersion.value.messageCount + 1,
+                  },
+                },
+              ]),
+          ...(systemMessage === undefined
+            ? []
+            : [
+                {
+                  action: "insert" as const,
+                  value: {
+                    kind: "message" as const,
+                    partition: command.ticketId,
+                    id: `message:${command.messageId}`,
+                    ordinal: updated.revision,
+                    message: systemMessage,
+                    ...(notificationContent === undefined
+                      ? {}
+                      : { deliveryContent: notificationContent }),
+                  },
+                },
+              ]),
           ticketAuditAction({
             commandId: command.commandId,
             correlationId: command.correlationId,
@@ -2837,10 +2982,14 @@ export function createSupportDeskApplication(options: {
               id: `command:${command.commandId}`,
               commandId: command.commandId,
               commandType: "assign_ticket",
+              ...(command.messageId === undefined
+                ? {}
+                : { messageId: command.messageId }),
               requestFingerprint: fingerprint,
               completedAt: now,
             },
           },
+          ...(notificationJob === undefined ? [] : [notificationJob]),
         ]);
         if (outcome.committed) {
           return staffAuthoritativeView(
@@ -2856,7 +3005,7 @@ export function createSupportDeskApplication(options: {
           duplicateMatches(
             nowDuplicate,
             "assign_ticket",
-            undefined,
+            command.messageId,
             fingerprint,
           )
         ) {

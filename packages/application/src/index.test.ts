@@ -3575,6 +3575,65 @@ describe("staff application services", () => {
     ).resolves.toHaveLength(1);
   });
 
+  it("commits assignment notifications with the assignment change", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-27T12:05:00.000Z",
+      ),
+    });
+    await seedCustomerTicket(application);
+    const staff = access("staff-1", allStaffPermissions);
+    const assigned = await application.assignTicket(staff, {
+      commandId: "assign-notify",
+      correlationId: "c-assign",
+      ticketId: "ticket-1",
+      assigneeId: "staff-2",
+      messageId: "assign-msg",
+      body: "Assigned to staff-2.",
+      notification: {
+        id: "notify-assigned",
+        recipientRef: "staff-2",
+        templateId: "staff.assigned",
+        templateVersion: 1,
+        variables: { assignee: "staff-2" },
+        subject: "Ticket assigned",
+        outboundMessageId: "<assign@example.test>",
+      },
+    });
+    expect(assigned.ticket.assignedTo).toBe("staff-2");
+    expect(assigned.ticket.status).toBe("open");
+    expect(
+      assigned.messages.some(
+        (message) =>
+          message.id === "assign-msg" && message.visibility === "internal",
+      ),
+    ).toBe(true);
+    const deliveries = (
+      await store.collection(supportRecords).list("ticket-1")
+    ).filter((record) => record.kind === "delivery_job");
+    expect(deliveries).toHaveLength(1);
+  });
+
+  it("does not leak partition limits for foreign ticket IDs", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      limits: { maxRecordsPerTicket: 6 },
+    });
+    await seedCustomerTicket(application, "ticket-1", "customer-1");
+    // At capacity; foreign principal must still see not-found, not limit.
+    await expect(
+      application.readCustomerTicket(
+        access("other-customer", allCustomerPermissions),
+        "ticket-1",
+      ),
+    ).rejects.toBeInstanceOf(SupportDeskNotFoundError);
+  });
+
   it("rejects creates that cannot fit in the partition budget", async () => {
     const store = createMemoryStore();
     const application = createSupportDeskApplication({
