@@ -374,11 +374,33 @@ describe("customer application services", () => {
       "subject",
     ]);
     expect(listed).toEqual([created.ticket]);
+    expect(created.messages[0]).toEqual({
+      id: "message-1",
+      ticketId: "ticket-1",
+      authorKind: "customer",
+      channel: "web",
+      visibility: "customer",
+      format: "plain_text",
+      body: "Please help.",
+      createdAt: "2026-07-27T12:00:00.000Z",
+    });
+    expect(Object.keys(created.messages[0]!).sort()).toEqual([
+      "authorKind",
+      "body",
+      "channel",
+      "createdAt",
+      "format",
+      "id",
+      "ticketId",
+      "visibility",
+    ]);
     expect(encoded).not.toContain('"requester"');
     expect(encoded).not.toContain('"priority"');
     expect(encoded).not.toContain('"assignedTo"');
     expect(encoded).not.toContain('"revision"');
     expect(encoded).not.toContain('"updatedAt"');
+    expect(encoded).not.toContain('"authorPrincipalId"');
+    expect(encoded).not.toContain('"externalMessageId"');
     expect(encoded).not.toContain("audit");
     expect(encoded).not.toContain("customer@example.com");
 
@@ -1388,9 +1410,39 @@ describe("customer application services", () => {
         createdAt: "2026-07-27T12:00:00.000Z",
       },
     });
+    await store.collection(supportRecords).insertIfAbsent({
+      kind: "message",
+      partition: "ticket",
+      id: "message:staff-public",
+      ordinal: 3,
+      message: {
+        id: "staff-public",
+        ticketId: "ticket",
+        authorKind: "staff",
+        authorPrincipalId: "staff-1",
+        channel: "web",
+        visibility: "customer",
+        format: "plain_text",
+        body: "Public staff reply.",
+        createdAt: "2026-07-27T12:01:00.000Z",
+        externalMessageId: "<staff@example.test>",
+        inReplyToExternalMessageId: "<prior@example.test>",
+      },
+    });
 
     const view = await application.readCustomerTicket(caller, "ticket");
-    expect(view.messages.map((message) => message.id)).toEqual(["public"]);
+    expect(view.messages.map((message) => message.id)).toEqual([
+      "public",
+      "staff-public",
+    ]);
+    expect(JSON.stringify(view.messages)).not.toContain("staff-1");
+    expect(JSON.stringify(view.messages)).not.toContain("authorPrincipalId");
+    expect(JSON.stringify(view.messages)).not.toContain("externalMessageId");
+    expect(view.messages[1]).toMatchObject({
+      id: "staff-public",
+      authorKind: "staff",
+      body: "Public staff reply.",
+    });
   });
 
   it("rejects unmigrated or duplicate stored message ordinals", async () => {

@@ -9,11 +9,13 @@ documented `support.ticket.read.own` permission and then confirm authoritative
 ownership; reply uses `support.ticket.reply.own`.
 
 Customer create, list, read, and reply return explicit safe DTOs
-(`CustomerTicketSummary` / `CustomerTicketView`), not the authoritative
-`Ticket`. Summaries include id, number, subject, optional category, status,
-channel, `createdAt`, and `customerUpdatedAt`. They omit requester evidence,
-priority, assignee, staff-facing `updatedAt`, revision, audit history, and
-delivery state. List order uses `customerUpdatedAt`.
+(`CustomerTicketSummary` / `CustomerMessage` / `CustomerTicketView`), not the
+authoritative `Ticket` or `TicketMessage`. Summaries include id, number,
+subject, optional category, status, channel, `createdAt`, and
+`customerUpdatedAt`. They omit requester evidence, priority, assignee,
+staff-facing `updatedAt`, revision, audit history, and delivery state.
+Customer messages omit principal IDs and provider threading metadata. List
+order uses `customerUpdatedAt`.
 
 Hosts pass a frozen, deduplicated `allowedCategories` option (at most 32
 values matching `^[a-z][a-z0-9_]{0,31}$`). A supplied create category must be

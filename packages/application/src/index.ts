@@ -485,9 +485,24 @@ export interface CustomerTicketSummary {
   readonly customerUpdatedAt: Ticket["customerUpdatedAt"];
 }
 
+/**
+ * Customer-safe conversation fields. Omits principal IDs and provider
+ * threading metadata that belong on the authoritative message record.
+ */
+export interface CustomerMessage {
+  readonly id: TicketMessage["id"];
+  readonly ticketId: TicketMessage["ticketId"];
+  readonly authorKind: TicketMessage["authorKind"];
+  readonly channel: TicketMessage["channel"];
+  readonly visibility: TicketMessage["visibility"];
+  readonly format: TicketMessage["format"];
+  readonly body: TicketMessage["body"];
+  readonly createdAt: TicketMessage["createdAt"];
+}
+
 export interface CustomerTicketView {
   readonly ticket: CustomerTicketSummary;
-  readonly messages: readonly TicketMessage[];
+  readonly messages: readonly CustomerMessage[];
 }
 
 export interface SupportDeskApplication {
@@ -955,7 +970,22 @@ function deliveryContent(
       };
 }
 
-function customerMessages(records: readonly SupportRecord[]): TicketMessage[] {
+function toCustomerMessage(message: TicketMessage): CustomerMessage {
+  return Object.freeze({
+    id: message.id,
+    ticketId: message.ticketId,
+    authorKind: message.authorKind,
+    channel: message.channel,
+    visibility: message.visibility,
+    format: message.format,
+    body: message.body,
+    createdAt: message.createdAt,
+  });
+}
+
+function customerMessages(
+  records: readonly SupportRecord[],
+): CustomerMessage[] {
   const messages = records.filter(
     (record): record is MessageRecord =>
       record.kind === "message" && record.message.visibility === "customer",
@@ -976,7 +1006,7 @@ function customerMessages(records: readonly SupportRecord[]): TicketMessage[] {
   }
   return messages
     .sort((left, right) => left.ordinal - right.ordinal)
-    .map((record) => record.message);
+    .map((record) => toCustomerMessage(record.message));
 }
 
 function toCustomerTicketSummary(ticket: Ticket): CustomerTicketSummary {
