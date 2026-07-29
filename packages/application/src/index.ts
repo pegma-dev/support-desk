@@ -2020,6 +2020,18 @@ export function createSupportDeskApplication(options: {
         }
       }
 
+      // Fail closed before durable number/index reservation so a too-small
+      // partition budget cannot exhaust the principal ticket index with
+      // reserved-but-never-created tickets.
+      const estimatedCreateRows =
+        6 + // ticket, quota, reservation, message, audit, command
+        (command.notification === undefined ? 0 : 1);
+      enforcePartitionRecordLimit(
+        0,
+        limits.maxRecordsPerTicket,
+        estimatedCreateRows,
+      );
+
       // Reserve outside the ticket transaction; gaps are accepted if create fails.
       const ticketNumber = await reserveTicketNumber();
       // Bind host-supplied notification content to the reserved number so mail
