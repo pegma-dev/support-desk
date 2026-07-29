@@ -9,11 +9,12 @@ A composable, open-source support queue for web and email.
 > Support Desk is in early `0.x` development. Its public API is not stable, its
 > packages are not published, and it is not ready for production use.
 
-Implemented in source today: the customer-facing application services and
-declared collections, Authorization Core permission boundaries, transactional
-audit and mail projections, provider-neutral outbound workers and callbacks,
-and safe versioned templates. The durable reference deployment, customer UI,
-staff queue, inbound mailbox, and first package release remain future phases.
+Implemented in source today: the customer-facing and staff detail/mutation
+application services, declared collections, Authorization Core permission
+boundaries, transactional audit and mail projections, provider-neutral
+outbound workers and callbacks, and safe versioned templates. The durable
+reference deployment, customer UI, staff queue projection, inbound mailbox,
+and first package release remain future phases.
 
 ## What it will do
 
