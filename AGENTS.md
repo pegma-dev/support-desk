@@ -45,11 +45,9 @@ entitlements, policy, or an access port. EntitleKit is now Authorization Core;
 if you find the old name anywhere, it is stale.
 
 **Never build a second audit contract or request limiter here.** Accepted
-changes embed `@pegma/audit` actions in the ticket transaction. Buildout Task 1
-replaces the remaining pre-release private audit row before any staff command
-is added. Expensive HTTP entry points use the host's
-`@pegma/rate-limit` durable tier; Support Desk keeps only record size and
-capacity limits.
+changes embed `@pegma/audit` actions in the ticket transaction. Expensive HTTP
+entry points use the host's `@pegma/rate-limit` durable tier; Support Desk
+keeps only record size and capacity limits.
 
 **Do not redeclare what `@pegma/spine` already names.** `PrincipalId`,
 `IsoTimestamp`, `Clock`, `Logger`, and event definitions come from spine and
@@ -148,12 +146,12 @@ persistence remain composition work. Phase 6's provider-neutral outbound-mail
 source is implemented against exact `@pegma/mail@0.1.0`, with Support-owned
 projection, templates, threading metadata, and callback receipts.
 
-Nothing in this repository is published. The remaining private audit row must
-move to exact `@pegma/audit@0.1.0` and Authorization Core must align to exact
-`0.1.2` before staff work. Customer services must also stop returning the full
-authoritative ticket shape before a host route uses them. Phases 3–5 still
-require Azure and D1 host compositions, two customer web experiences, and
-isolated staff queues; provider selection and operation remain host work.
+Nothing in this repository is published. Customer services still return the
+full authoritative ticket shape and must stop before a host route uses them.
+Authorization Core is pinned to exact `0.1.2` and accepted-change history uses
+exact `@pegma/audit@0.1.0`. Phases 3–5 still require Azure and D1 host
+compositions, two customer web experiences, and isolated staff queues;
+provider selection and operation remain host work.
 
 This project was developed under the `@support-desk` scope and moved into Pegma
 on 2026-07-26. The git history begins at that move, nothing was published under

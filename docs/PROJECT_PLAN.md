@@ -30,16 +30,14 @@ conformance cases, not to work around here.
 
 **Access:** Permissions come from
 [`@pegma/authorization-core`](https://github.com/pegma-dev/authorization-core)
-rather than a bespoke access package. Buildout Task 1 upgrades the repository's
-current exact `0.1.0` dependency to the next planned exact target, `0.1.2`. The
+rather than a bespoke access package. The repository pins exact `0.1.2`. The
 planned EntitleKit access adapter was removed on 2026-07-26; EntitleKit is now
 Authorization Core.
 
-**Audit:** Durable accepted-change records come from
-[`@pegma/audit`](https://github.com/pegma-dev/audit) and are embedded in the
-ticket partition. Buildout Task 1 adds the next planned exact dependency,
-`0.1.0`, and replaces the current pre-release private audit-row shape before
-staff commands are added.
+**Audit:** Durable accepted-change records come from exact
+[`@pegma/audit@0.1.0`](https://github.com/pegma-dev/audit) and are embedded in
+the ticket partition through `defineAudit`. The pre-release private audit-row
+shape has been removed.
 
 **Shared types:** `PrincipalId`, the clock, the logger, and typed event
 definitions come from [`@pegma/spine`](https://github.com/pegma-dev/spine).

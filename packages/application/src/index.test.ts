@@ -1,4 +1,5 @@
 import type { AccessContext } from "@pegma/authorization-core";
+import { auditRecordId } from "@pegma/audit";
 import { maxMailAttempts } from "@pegma/mail";
 import { fixedClock } from "@pegma/spine";
 import {
@@ -22,9 +23,11 @@ import {
   pruneCustomerTicketIndex,
   recordDeliveryCallback,
   SupportDeskConflictError,
+  supportAudit,
   supportPermissions,
   supportRecords,
   supportMail,
+  supportTicketAuditActions,
   SupportDeskAuthorizationError,
   SupportDeskLimitError,
   SupportDeskNotFoundError,
@@ -111,6 +114,211 @@ describe("customer application services", () => {
       "ticket_quota",
       "ticket_reservation",
     ]);
+    const history = await supportAudit.history(
+      store.collection(supportRecords),
+      "ticket-1",
+    );
+    expect(history).toEqual([
+      {
+        id: "command-1",
+        occurredAt: "2026-07-27T12:00:00.000Z",
+        actor: { kind: "principal", principalId: "customer-1" },
+        action: supportTicketAuditActions.created,
+        subject: "ticket-1",
+        sequence: 1,
+        details: {
+          commandId: "command-1",
+          correlationId: "correlation-1",
+        },
+      },
+    ]);
+    const auditRecord = records.find((record) => record.kind === "audit");
+    expect(auditRecord?.id).toBe(auditRecordId("command-1"));
+  });
+
+  it("commits create and reply Audit actions with the state change", async () => {
+    const store = createMemoryStore();
+    const records = store.collection(supportRecords);
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+
+    await application.createCustomerTicket(caller, {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 42,
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+    });
+    await application.replyToCustomerTicket(caller, {
+      commandId: "reply-1",
+      correlationId: "correlation-2",
+      ticketId: "ticket-1",
+      messageId: "message-2",
+      body: "More detail.",
+    });
+
+    const history = await supportAudit.history(records, "ticket-1");
+    expect(
+      history.map((event) => [event.action, event.sequence, event.id]),
+    ).toEqual([
+      [supportTicketAuditActions.created, 1, "command-1"],
+      [supportTicketAuditActions.customerReplied, 2, "reply-1"],
+    ]);
+    expect(history.every((event) => event.subject === "ticket-1")).toBe(true);
+  });
+
+  it("leaves no state change or orphan Audit event when a transaction is refused", async () => {
+    const store = createMemoryStore();
+    const records = store.collection(supportRecords);
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+
+    await application.createCustomerTicket(caller, {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 42,
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+    });
+
+    await expect(
+      application.createCustomerTicket(caller, {
+        commandId: "command-2",
+        correlationId: "correlation-2",
+        ticketId: "ticket-1",
+        ticketNumber: 43,
+        messageId: "message-2",
+        subject: "Collision",
+        body: "Should not commit.",
+      }),
+    ).rejects.toBeInstanceOf(SupportDeskConflictError);
+
+    expect(await supportAudit.history(records, "ticket-1")).toHaveLength(1);
+    expect(
+      (await records.list("ticket-1")).filter(
+        (record) => record.kind === "message",
+      ),
+    ).toHaveLength(1);
+    expect(
+      (await records.list("ticket-1")).some(
+        (record) =>
+          record.kind === "command" && record.commandId === "command-2",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not append a second Audit event when a command is replayed", async () => {
+    const store = createMemoryStore();
+    const records = store.collection(supportRecords);
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+    const createCommand = {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 42,
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+    };
+    const replyCommand = {
+      commandId: "reply-1",
+      correlationId: "correlation-2",
+      ticketId: "ticket-1",
+      messageId: "message-2",
+      body: "More detail.",
+    };
+
+    await application.createCustomerTicket(caller, createCommand);
+    await application.createCustomerTicket(caller, createCommand);
+    await application.replyToCustomerTicket(caller, replyCommand);
+    await application.replyToCustomerTicket(caller, replyCommand);
+
+    expect(await supportAudit.history(records, "ticket-1")).toHaveLength(2);
+  });
+
+  it("orders Audit history by ticket revision when timestamps are equal", async () => {
+    const store = createMemoryStore();
+    const records = store.collection(supportRecords);
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+
+    await application.createCustomerTicket(caller, {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 42,
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+    });
+    await application.replyToCustomerTicket(caller, {
+      commandId: "reply-1",
+      correlationId: "correlation-2",
+      ticketId: "ticket-1",
+      messageId: "message-2",
+      body: "More detail.",
+    });
+    await application.replyToCustomerTicket(caller, {
+      commandId: "reply-2",
+      correlationId: "correlation-3",
+      ticketId: "ticket-1",
+      messageId: "message-3",
+      body: "Still more.",
+    });
+
+    const history = await supportAudit.history(records, "ticket-1");
+    expect(new Set(history.map((event) => event.occurredAt))).toEqual(
+      new Set(["2026-07-27T12:00:00.000Z"]),
+    );
+    expect(history.map((event) => event.sequence)).toEqual([1, 2, 3]);
+  });
+
+  it("keeps Audit records out of customer views", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+
+    await application.createCustomerTicket(caller, {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 42,
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+    });
+    const view = await application.readCustomerTicket(caller, "ticket-1");
+    const listed = await application.listCustomerTickets(caller);
+
+    expect(Object.keys(view).sort()).toEqual(["messages", "ticket"]);
+    expect(JSON.stringify(view)).not.toContain("audit");
+    expect(JSON.stringify(view)).not.toContain(
+      supportTicketAuditActions.created,
+    );
+    expect(JSON.stringify(listed)).not.toContain("audit");
+    expect(
+      await supportAudit.history(store.collection(supportRecords), "ticket-1"),
+    ).toHaveLength(1);
   });
 
   it("treats repeated commands as the same completed operation", async () => {
