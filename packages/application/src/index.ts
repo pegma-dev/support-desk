@@ -1010,10 +1010,10 @@ function customerMessages(
 }
 
 function toCustomerTicketSummary(ticket: Ticket): CustomerTicketSummary {
-  // Pre-Task-2 durable tickets lack customerUpdatedAt; fall back to staff
-  // updatedAt so list/detail remain ordered and DTO-complete without a
-  // separate migration of unpublished test data.
-  const customerUpdatedAt = ticket.customerUpdatedAt ?? ticket.updatedAt;
+  // Pre-Task-2 durable tickets lack customerUpdatedAt. Fall back to createdAt
+  // (never staff-only updatedAt) so list/detail stay ordered and DTO-complete
+  // without leaking note/assignment/priority activity.
+  const customerUpdatedAt = ticket.customerUpdatedAt ?? ticket.createdAt;
   return Object.freeze({
     id: ticket.id,
     number: ticket.number,

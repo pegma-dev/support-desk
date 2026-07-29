@@ -642,7 +642,7 @@ describe("customer application services", () => {
     expect(replayed.ticket).toEqual(created.ticket);
   });
 
-  it("backfills customerUpdatedAt for legacy durable tickets", async () => {
+  it("backfills customerUpdatedAt for legacy durable tickets from createdAt", async () => {
     const store = createMemoryStore();
     const application = createSupportDeskApplication({
       store,
@@ -671,13 +671,18 @@ describe("customer application services", () => {
         action: "write",
         value: {
           ...current,
-          ticket: legacyTicket as typeof current.ticket,
+          ticket: {
+            ...legacyTicket,
+            // Staff-only activity must not become the customer-visible stamp.
+            updatedAt: "2026-07-27T15:00:00.000Z",
+          } as typeof current.ticket,
         },
       };
     });
 
     const view = await application.readCustomerTicket(caller, "ticket-1");
     expect(view.ticket.customerUpdatedAt).toBe("2026-07-27T12:00:00.000Z");
+    expect(JSON.stringify(view)).not.toContain("2026-07-27T15:00:00.000Z");
     const listed = await application.listCustomerTickets(caller);
     expect(listed[0]?.customerUpdatedAt).toBe("2026-07-27T12:00:00.000Z");
   });
