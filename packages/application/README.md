@@ -133,3 +133,10 @@ Inbound processing remains a future phase, but its declared receipt collection
 is already hard-bounded to 256 hash slots per partition. Terminal receipt
 retention uses trusted processing time, a 30-day deduplication horizon, and
 version-conditional deletion; in-flight receipts are never swept.
+
+## Host composition
+
+Map application errors to HTTP and schedule host-owned workers using
+[docs/HOST_COMPOSITION.md](../../docs/HOST_COMPOSITION.md). A complete
+memory-backed example is under
+[examples/composition](../../examples/composition/README.md).

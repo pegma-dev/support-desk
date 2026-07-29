@@ -131,31 +131,34 @@ changed workspace package with a provenance attestation. A brand-new package
 cannot use trusted publishing for its first version and needs one manual
 `npm publish` plus a trusted-publisher configuration afterwards.
 
-Nothing in this repository is published yet. A host production dependency must
-wait for the exact public release described by Buildout Task 6; Git branches,
-copied source, unpublished tarballs, and local filesystem dependencies are not
-release substitutes.
+The exact `0.1.0` package set is prepared by Buildout Task 6. A host production
+dependency must wait until those packages are visible on the public registry;
+Git branches, copied source, unpublished tarballs, and local filesystem
+dependencies are not release substitutes. Follow `docs/RELEASING.md` for the
+first publish and later OIDC releases.
 
 ## Where things stand
 
 Foundation plus the customer-facing Phase 1/2 application services, staff
-detail/mutation services (Buildout Task 4), and the staff queue repairable
-projection (Buildout Task 5) are implemented in source: declared collections,
-authorized customer and staff use cases, transactional audit and outbox
-actions, replay receipts, cursor-aware workers (including queue repair and
-inactive-row sweep), and memory/Azurite tests. Phase 2's durable abuse limits
-and host-owned cursor persistence remain composition work. Phase 6's
-provider-neutral outbound-mail source is implemented against exact
+detail/mutation services (Buildout Task 4), the staff queue repairable
+projection (Buildout Task 5), and the host-neutral release candidate (Buildout
+Task 6) are implemented in source: declared collections, authorized customer
+and staff use cases, transactional audit and outbox actions, replay receipts,
+cursor-aware workers (including queue repair and inactive-row sweep),
+memory/Azurite tests, a framework-free composition example, host error and
+scheduler documentation, and the release pack lane for exact `0.1.0`. Phase 2's
+durable abuse limits and host-owned cursor persistence remain composition work.
+Phase 6's provider-neutral outbound-mail source is implemented against exact
 `@pegma/mail@0.1.0`, with Support-owned projection, templates, threading
 metadata, and callback receipts.
 
-Nothing in this repository is published. Customer services return safe DTOs;
-staff services return the authoritative ticket for authorized staff only, and
-the staff queue scans a confirmed projection that is never authorization
-evidence. Authorization Core is pinned to exact `0.1.2` and accepted-change
-history uses exact `@pegma/audit@0.1.0`. Phases 3–5 still require Azure and D1
-host compositions, two customer web experiences, and isolated staff queue UIs;
-provider selection and operation remain host work.
+Packages are versioned at exact `0.1.0` and ready for the first public publish
+described in `docs/RELEASING.md`. Customer services return safe DTOs; staff
+services return the authoritative ticket for authorized staff only, and the
+staff queue scans a confirmed projection that is never authorization evidence.
+Authorization Core is pinned to exact `0.1.2` and accepted-change history uses
+exact `@pegma/audit@0.1.0`. Host Tasks 7–8 begin only after registry publication.
+Provider selection and operation remain host work.
 
 This project was developed under the `@support-desk` scope and moved into Pegma
 on 2026-07-26. The git history begins at that move, nothing was published under

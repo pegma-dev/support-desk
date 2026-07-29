@@ -4,9 +4,10 @@
 
 **Stage:** The customer-facing Phase 1/2 application slice, staff detail and
 mutation services (Buildout Task 4), the staff queue repairable projection
-(Buildout Task 5), and the source portion of Phase 6 are implemented. Buildout
-Tasks 1–5 are complete. Host-applied abuse limits and every deployment phase
-remain open; every `@pegma/support-desk-*` package is unpublished.
+(Buildout Task 5), the host-neutral release candidate (Buildout Task 6), and
+the source portion of Phase 6 are implemented. Buildout Tasks 1–6 are complete
+in source; the exact `0.1.0` package set is prepared for publication. Host
+deployments remain open until those packages are on the public registry.
 
 **Initial reference applications:** retiregolden.org for paid customer support
 on Azure, and pegma.dev for authenticated product feedback on Cloudflare. The
@@ -92,12 +93,14 @@ outbound-mail integration:
   claims, submission generations, and provider idempotency keys remain
   authoritative.
 
-The staff queue projection is implemented in source (Buildout Task 5). Durable
-host compositions and customer web UI remain open. Phase 6 source is
-implemented, but selecting and operating a provider adapter remains host work,
-and no package is published yet. The ordered implementation handoff is
-[`BUILDOUT.md`](BUILDOUT.md); it must be followed one task and one pull request
-at a time.
+The staff queue projection and host-neutral release candidate are implemented
+in source (Buildout Tasks 5–6): public integration tests, the memory-backed
+composition example, host error/scheduler documentation, and the release pack
+lane for exact `0.1.0`. Durable host compositions and customer web UI remain
+open until publication completes. Phase 6 source is implemented, but selecting
+and operating a provider adapter remains host work. The ordered implementation
+handoff is [`BUILDOUT.md`](BUILDOUT.md); it must be followed one task and one
+pull request at a time.
 
 ## Vision
 
