@@ -138,20 +138,21 @@ release substitutes.
 
 ## Where things stand
 
-Foundation plus the customer-facing Phase 1/2 application services are
-implemented in source: declared collections, authorized use cases,
-transactional audit and outbox actions, replay receipts, cursor-aware workers,
-and memory/Azurite tests. Phase 2's durable abuse limits and host-owned cursor
-persistence remain composition work. Phase 6's provider-neutral outbound-mail
-source is implemented against exact `@pegma/mail@0.1.0`, with Support-owned
-projection, templates, threading metadata, and callback receipts.
+Foundation plus the customer-facing Phase 1/2 application services and staff
+detail/mutation services (Buildout Task 4) are implemented in source: declared
+collections, authorized customer and staff use cases, transactional audit and
+outbox actions, replay receipts, cursor-aware workers, and memory/Azurite
+tests. Phase 2's durable abuse limits and host-owned cursor persistence remain
+composition work. Phase 6's provider-neutral outbound-mail source is
+implemented against exact `@pegma/mail@0.1.0`, with Support-owned projection,
+templates, threading metadata, and callback receipts.
 
-Nothing in this repository is published. Customer services still return the
-full authoritative ticket shape and must stop before a host route uses them.
+Nothing in this repository is published. Customer services return safe DTOs;
+staff services return the authoritative ticket for authorized staff only.
 Authorization Core is pinned to exact `0.1.2` and accepted-change history uses
-exact `@pegma/audit@0.1.0`. Phases 3–5 still require Azure and D1 host
-compositions, two customer web experiences, and isolated staff queues;
-provider selection and operation remain host work.
+exact `@pegma/audit@0.1.0`. The staff queue projection (Task 5) and Phases 3–5
+still require Azure and D1 host compositions, two customer web experiences,
+and isolated staff queue UIs; provider selection and operation remain host work.
 
 This project was developed under the `@support-desk` scope and moved into Pegma
 on 2026-07-26. The git history begins at that move, nothing was published under

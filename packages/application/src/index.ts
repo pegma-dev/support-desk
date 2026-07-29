@@ -15,6 +15,7 @@ import type {
   Ticket,
   TicketId,
   TicketMessage,
+  TicketPriority,
 } from "@pegma/support-desk-contracts";
 import { applyTicketEvent, createTicket } from "@pegma/support-desk-core";
 
@@ -22,6 +23,12 @@ export const supportPermissions = Object.freeze({
   create: "support.ticket.create",
   readOwn: "support.ticket.read.own",
   replyOwn: "support.ticket.reply.own",
+  queueRead: "support.queue.read",
+  replyAny: "support.ticket.reply.any",
+  note: "support.ticket.note",
+  assign: "support.ticket.assign",
+  manage: "support.ticket.manage",
+  auditRead: "support.audit.read",
 } as const);
 
 export interface SupportDeskLimits {
@@ -29,6 +36,12 @@ export interface SupportDeskLimits {
   readonly maxMessageCharacters: number;
   readonly maxTicketsPerPrincipal: number;
   readonly maxMessagesPerTicket: number;
+  /**
+   * Hard cap on physical records in one ticket partition (ticket, messages,
+   * audit, commands, delivery jobs, quota, reservation). Reads and mutations
+   * fail closed when the partition would exceed this bound.
+   */
+  readonly maxRecordsPerTicket: number;
 }
 
 export const defaultSupportDeskLimits: SupportDeskLimits = Object.freeze({
@@ -36,6 +49,7 @@ export const defaultSupportDeskLimits: SupportDeskLimits = Object.freeze({
   maxMessageCharacters: 20_000,
   maxTicketsPerPrincipal: 100,
   maxMessagesPerTicket: 100,
+  maxRecordsPerTicket: 512,
 });
 
 export class SupportDeskAuthorizationError extends Error {
@@ -61,7 +75,12 @@ export class SupportDeskConflictError extends Error {
 
 export class SupportDeskLimitError extends Error {
   constructor(
-    readonly field: "subject" | "body" | "customer_tickets" | "ticket_messages",
+    readonly field:
+      | "subject"
+      | "body"
+      | "customer_tickets"
+      | "ticket_messages"
+      | "ticket_partition",
     readonly maximum: number,
   ) {
     super(`${field} exceeds the configured limit of ${maximum}`);
@@ -121,13 +140,28 @@ interface AuditMemberRecord {
   readonly event: AuditEvent;
 }
 
+type SupportCommandType =
+  | "create_customer_ticket"
+  | "reply_customer_ticket"
+  | "staff_reply"
+  | "add_note"
+  | "assign_ticket"
+  | "change_priority"
+  | "resolve_ticket"
+  | "close_ticket"
+  | "reopen_ticket";
+
 interface CommandRecord {
   readonly kind: "command";
   readonly partition: TicketId;
   readonly id: string;
   readonly commandId: string;
-  readonly commandType: "create_customer_ticket" | "reply_customer_ticket";
-  readonly messageId: MessageId;
+  readonly commandType: SupportCommandType;
+  /**
+   * Present for message-producing commands. Absent for assign, priority, and
+   * lifecycle commands that only mutate ticket state.
+   */
+  readonly messageId?: MessageId;
   readonly requestFingerprint: string;
   readonly completedAt: IsoTimestamp;
 }
@@ -367,16 +401,15 @@ export const supportAudit = defineAudit<SupportRecord>({
   },
 });
 
-function customerTicketAuditAction(input: {
+function ticketAuditAction(input: {
   readonly commandId: string;
   readonly correlationId: string;
   readonly ticketId: TicketId;
   readonly revision: number;
   readonly actorId: PrincipalId;
   readonly occurredAt: IsoTimestamp;
-  readonly action:
-    | typeof supportTicketAuditActions.created
-    | typeof supportTicketAuditActions.customerReplied;
+  readonly action: (typeof supportTicketAuditActions)[keyof typeof supportTicketAuditActions];
+  readonly details?: Readonly<Record<string, string>>;
 }): ReturnType<typeof supportAudit.action> {
   return supportAudit.action({
     id: input.commandId,
@@ -388,6 +421,7 @@ function customerTicketAuditAction(input: {
     details: {
       commandId: input.commandId,
       correlationId: input.correlationId,
+      ...(input.details ?? {}),
     },
   });
 }
@@ -530,6 +564,71 @@ export interface CustomerTicketView {
   readonly messages: readonly CustomerMessage[];
 }
 
+/**
+ * Staff-facing ticket detail. Includes the authoritative ticket (requester,
+ * priority, assignee, revision, staff timestamps) and every message, including
+ * internal notes. Audit history is a separate permission-gated read.
+ */
+export interface StaffTicketView {
+  readonly ticket: Ticket;
+  readonly messages: readonly TicketMessage[];
+}
+
+export interface StaffReplyCommand {
+  readonly commandId: string;
+  readonly correlationId: string;
+  readonly ticketId: TicketId;
+  readonly messageId: MessageId;
+  readonly body: string;
+  readonly notification?: NotificationInput;
+}
+
+export interface AddNoteCommand {
+  readonly commandId: string;
+  readonly correlationId: string;
+  readonly ticketId: TicketId;
+  readonly messageId: MessageId;
+  readonly body: string;
+}
+
+export interface AssignTicketCommand {
+  readonly commandId: string;
+  readonly correlationId: string;
+  readonly ticketId: TicketId;
+  /** Principal to assign, or null to unassign. */
+  readonly assigneeId: PrincipalId | null;
+  /**
+   * Optional assignment notification (for example to the new assignee),
+   * committed in the same ticket transaction. When any of these is set,
+   * `messageId` and `body` are required so mail binds to a real message.
+   */
+  readonly messageId?: MessageId;
+  readonly body?: string;
+  readonly notification?: NotificationInput;
+}
+
+export interface ChangePriorityCommand {
+  readonly commandId: string;
+  readonly correlationId: string;
+  readonly ticketId: TicketId;
+  readonly priority: TicketPriority;
+}
+
+export interface LifecycleTicketCommand {
+  readonly commandId: string;
+  readonly correlationId: string;
+  readonly ticketId: TicketId;
+  /**
+   * Optional customer-visible system message and mail, committed in the same
+   * ticket transaction as the lifecycle change (for example a resolution
+   * notification). When any of these is set, `messageId` and `body` are
+   * required so mail content binds to a real message record.
+   */
+  readonly messageId?: MessageId;
+  readonly body?: string;
+  readonly notification?: NotificationInput;
+}
+
 export interface SupportDeskApplication {
   createCustomerTicket(
     access: AccessContext,
@@ -546,6 +645,42 @@ export interface SupportDeskApplication {
     access: AccessContext,
     ticketId: TicketId,
   ): Promise<CustomerTicketView>;
+  readStaffTicket(
+    access: AccessContext,
+    ticketId: TicketId,
+  ): Promise<StaffTicketView>;
+  replyAsStaff(
+    access: AccessContext,
+    command: StaffReplyCommand,
+  ): Promise<StaffTicketView>;
+  addNote(
+    access: AccessContext,
+    command: AddNoteCommand,
+  ): Promise<StaffTicketView>;
+  assignTicket(
+    access: AccessContext,
+    command: AssignTicketCommand,
+  ): Promise<StaffTicketView>;
+  changePriority(
+    access: AccessContext,
+    command: ChangePriorityCommand,
+  ): Promise<StaffTicketView>;
+  resolveTicket(
+    access: AccessContext,
+    command: LifecycleTicketCommand,
+  ): Promise<StaffTicketView>;
+  closeTicket(
+    access: AccessContext,
+    command: LifecycleTicketCommand,
+  ): Promise<StaffTicketView>;
+  reopenTicket(
+    access: AccessContext,
+    command: LifecycleTicketCommand,
+  ): Promise<StaffTicketView>;
+  readTicketAuditHistory(
+    access: AccessContext,
+    ticketId: TicketId,
+  ): Promise<readonly AuditEvent[]>;
 }
 
 function requirePermission(access: AccessContext, permission: string): void {
@@ -1073,11 +1208,13 @@ async function authoritativeView(
   records: CollectionStore<SupportRecord>,
   principalId: PrincipalId,
   ticketId: TicketId,
+  maxRecordsPerTicket: number,
 ): Promise<CustomerTicketView> {
   const all = await records.list(ticketId);
   const ticketRecord = all.find(
     (record): record is TicketRecord => record.kind === "ticket",
   );
+  // Ownership before partition errors so foreign ticket IDs never leak capacity.
   if (
     ticketRecord === undefined ||
     ticketRecord.ticket.requester.association !== "authenticated" ||
@@ -1085,6 +1222,7 @@ async function authoritativeView(
   ) {
     throw new SupportDeskNotFoundError();
   }
+  enforcePartitionRecordLimit(all.length, maxRecordsPerTicket);
   return {
     ticket: toCustomerTicketSummary(ticketRecord.ticket),
     messages: customerMessages(all),
@@ -1136,7 +1274,7 @@ function parseAllowedCategories(
 function duplicateMatches(
   existing: SupportRecord | null,
   commandType: CommandRecord["commandType"],
-  messageId: string,
+  messageId: MessageId | undefined,
   requestFingerprint: string,
 ): boolean {
   return (
@@ -1145,6 +1283,343 @@ function duplicateMatches(
     existing.messageId === messageId &&
     existing.requestFingerprint === requestFingerprint
   );
+}
+
+const TICKET_PRIORITIES: readonly TicketPriority[] = [
+  "low",
+  "normal",
+  "high",
+  "urgent",
+];
+
+function staffMessages(records: readonly SupportRecord[]): TicketMessage[] {
+  const messages = records.filter(
+    (record): record is MessageRecord => record.kind === "message",
+  );
+  const ordinals = new Set<number>();
+  for (const record of messages) {
+    if (!Number.isSafeInteger(record.ordinal) || record.ordinal <= 0) {
+      throw new TypeError(
+        "stored message has no valid explicit ordinal; migrate the record before reading it",
+      );
+    }
+    if (ordinals.has(record.ordinal)) {
+      throw new TypeError(
+        "stored messages contain a duplicate explicit ordinal",
+      );
+    }
+    ordinals.add(record.ordinal);
+  }
+  return messages
+    .sort((left, right) => left.ordinal - right.ordinal)
+    .map((record) => Object.freeze({ ...record.message }));
+}
+
+function enforcePartitionRecordLimit(
+  recordCount: number,
+  maximum: number,
+  additional = 0,
+): void {
+  if (recordCount + additional > maximum) {
+    throw new SupportDeskLimitError("ticket_partition", maximum);
+  }
+}
+
+async function staffAuthoritativeView(
+  records: CollectionStore<SupportRecord>,
+  ticketId: TicketId,
+  maxRecordsPerTicket: number,
+): Promise<StaffTicketView> {
+  const all = await records.list(ticketId);
+  enforcePartitionRecordLimit(all.length, maxRecordsPerTicket);
+  const ticketRecord = all.find(
+    (record): record is TicketRecord => record.kind === "ticket",
+  );
+  if (ticketRecord === undefined) {
+    throw new SupportDeskNotFoundError();
+  }
+  return {
+    ticket: ticketRecord.ticket,
+    messages: staffMessages(all),
+  };
+}
+
+/** Staff mutations that return full ticket detail also require queue read. */
+function requireStaffMutationAccess(
+  access: AccessContext,
+  permission: string,
+): void {
+  requirePermission(access, supportPermissions.queueRead);
+  requirePermission(access, permission);
+}
+
+function clampTicketTime(
+  sampledNow: IsoTimestamp,
+  ticketUpdatedAt: IsoTimestamp,
+): IsoTimestamp {
+  const sampledEpoch = canonicalTimestamp(sampledNow, "clock.now()");
+  const storedEpoch = canonicalTimestamp(ticketUpdatedAt, "ticket.updatedAt");
+  return sampledEpoch < storedEpoch ? ticketUpdatedAt : sampledNow;
+}
+
+function snapshotStaffReplyCommand(
+  input: StaffReplyCommand,
+): StaffReplyCommand {
+  const source = boundaryObject(input, "staff reply command");
+  const raw = {
+    commandId: ownDataProperty(
+      source,
+      "commandId",
+      "staff reply command.commandId",
+    ),
+    correlationId: ownDataProperty(
+      source,
+      "correlationId",
+      "staff reply command.correlationId",
+    ),
+    ticketId: ownDataProperty(
+      source,
+      "ticketId",
+      "staff reply command.ticketId",
+    ),
+    messageId: ownDataProperty(
+      source,
+      "messageId",
+      "staff reply command.messageId",
+    ),
+    body: ownDataProperty(source, "body", "staff reply command.body"),
+    notification: ownDataProperty(
+      source,
+      "notification",
+      "staff reply command.notification",
+      true,
+    ),
+  };
+  const notification =
+    raw.notification === undefined
+      ? undefined
+      : snapshotNotification(raw.notification);
+  return Object.freeze({
+    commandId: boundaryString(raw.commandId, "staff reply command.commandId"),
+    correlationId: boundaryString(
+      raw.correlationId,
+      "staff reply command.correlationId",
+    ),
+    ticketId: boundaryString(raw.ticketId, "staff reply command.ticketId"),
+    messageId: boundaryString(raw.messageId, "staff reply command.messageId"),
+    body: boundaryString(raw.body, "staff reply command.body"),
+    ...(notification === undefined ? {} : { notification }),
+  });
+}
+
+function snapshotAddNoteCommand(input: AddNoteCommand): AddNoteCommand {
+  const source = boundaryObject(input, "add note command");
+  const raw = {
+    commandId: ownDataProperty(
+      source,
+      "commandId",
+      "add note command.commandId",
+    ),
+    correlationId: ownDataProperty(
+      source,
+      "correlationId",
+      "add note command.correlationId",
+    ),
+    ticketId: ownDataProperty(source, "ticketId", "add note command.ticketId"),
+    messageId: ownDataProperty(
+      source,
+      "messageId",
+      "add note command.messageId",
+    ),
+    body: ownDataProperty(source, "body", "add note command.body"),
+  };
+  return Object.freeze({
+    commandId: boundaryString(raw.commandId, "add note command.commandId"),
+    correlationId: boundaryString(
+      raw.correlationId,
+      "add note command.correlationId",
+    ),
+    ticketId: boundaryString(raw.ticketId, "add note command.ticketId"),
+    messageId: boundaryString(raw.messageId, "add note command.messageId"),
+    body: boundaryString(raw.body, "add note command.body"),
+  });
+}
+
+function snapshotAssignTicketCommand(
+  input: AssignTicketCommand,
+): AssignTicketCommand {
+  const source = boundaryObject(input, "assign command");
+  const raw = {
+    commandId: ownDataProperty(source, "commandId", "assign command.commandId"),
+    correlationId: ownDataProperty(
+      source,
+      "correlationId",
+      "assign command.correlationId",
+    ),
+    ticketId: ownDataProperty(source, "ticketId", "assign command.ticketId"),
+    assigneeId: ownDataProperty(
+      source,
+      "assigneeId",
+      "assign command.assigneeId",
+    ),
+    messageId: ownDataProperty(
+      source,
+      "messageId",
+      "assign command.messageId",
+      true,
+    ),
+    body: ownDataProperty(source, "body", "assign command.body", true),
+    notification: ownDataProperty(
+      source,
+      "notification",
+      "assign command.notification",
+      true,
+    ),
+  };
+  if (raw.assigneeId !== null && typeof raw.assigneeId !== "string") {
+    throw new TypeError("assign command.assigneeId must be a string or null");
+  }
+  const notification =
+    raw.notification === undefined
+      ? undefined
+      : snapshotNotification(raw.notification);
+  const messageId =
+    raw.messageId === undefined
+      ? undefined
+      : boundaryString(raw.messageId, "assign command.messageId");
+  const body =
+    raw.body === undefined
+      ? undefined
+      : boundaryString(raw.body, "assign command.body");
+  if (
+    notification !== undefined ||
+    messageId !== undefined ||
+    body !== undefined
+  ) {
+    if (messageId === undefined || body === undefined) {
+      throw new TypeError(
+        "assign command requires messageId and body when recording a notification message",
+      );
+    }
+  }
+  return Object.freeze({
+    commandId: boundaryString(raw.commandId, "assign command.commandId"),
+    correlationId: boundaryString(
+      raw.correlationId,
+      "assign command.correlationId",
+    ),
+    ticketId: boundaryString(raw.ticketId, "assign command.ticketId"),
+    assigneeId:
+      raw.assigneeId === null
+        ? null
+        : boundaryString(raw.assigneeId, "assign command.assigneeId"),
+    ...(messageId === undefined ? {} : { messageId }),
+    ...(body === undefined ? {} : { body }),
+    ...(notification === undefined ? {} : { notification }),
+  });
+}
+
+function snapshotChangePriorityCommand(
+  input: ChangePriorityCommand,
+): ChangePriorityCommand {
+  const source = boundaryObject(input, "change priority command");
+  const raw = {
+    commandId: ownDataProperty(
+      source,
+      "commandId",
+      "change priority command.commandId",
+    ),
+    correlationId: ownDataProperty(
+      source,
+      "correlationId",
+      "change priority command.correlationId",
+    ),
+    ticketId: ownDataProperty(
+      source,
+      "ticketId",
+      "change priority command.ticketId",
+    ),
+    priority: ownDataProperty(
+      source,
+      "priority",
+      "change priority command.priority",
+    ),
+  };
+  if (
+    typeof raw.priority !== "string" ||
+    !TICKET_PRIORITIES.includes(raw.priority as TicketPriority)
+  ) {
+    throw new TypeError(
+      `change priority command.priority must be one of: ${TICKET_PRIORITIES.join(", ")}`,
+    );
+  }
+  return Object.freeze({
+    commandId: boundaryString(
+      raw.commandId,
+      "change priority command.commandId",
+    ),
+    correlationId: boundaryString(
+      raw.correlationId,
+      "change priority command.correlationId",
+    ),
+    ticketId: boundaryString(raw.ticketId, "change priority command.ticketId"),
+    priority: raw.priority as TicketPriority,
+  });
+}
+
+function snapshotLifecycleTicketCommand(
+  input: LifecycleTicketCommand,
+  field: string,
+): LifecycleTicketCommand {
+  const source = boundaryObject(input, field);
+  const raw = {
+    commandId: ownDataProperty(source, "commandId", `${field}.commandId`),
+    correlationId: ownDataProperty(
+      source,
+      "correlationId",
+      `${field}.correlationId`,
+    ),
+    ticketId: ownDataProperty(source, "ticketId", `${field}.ticketId`),
+    messageId: ownDataProperty(source, "messageId", `${field}.messageId`, true),
+    body: ownDataProperty(source, "body", `${field}.body`, true),
+    notification: ownDataProperty(
+      source,
+      "notification",
+      `${field}.notification`,
+      true,
+    ),
+  };
+  const notification =
+    raw.notification === undefined
+      ? undefined
+      : snapshotNotification(raw.notification);
+  const messageId =
+    raw.messageId === undefined
+      ? undefined
+      : boundaryString(raw.messageId, `${field}.messageId`);
+  const body =
+    raw.body === undefined
+      ? undefined
+      : boundaryString(raw.body, `${field}.body`);
+  if (
+    notification !== undefined ||
+    messageId !== undefined ||
+    body !== undefined
+  ) {
+    if (messageId === undefined || body === undefined) {
+      throw new TypeError(
+        `${field} requires messageId and body when recording a lifecycle message or notification`,
+      );
+    }
+  }
+  return Object.freeze({
+    commandId: boundaryString(raw.commandId, `${field}.commandId`),
+    correlationId: boundaryString(raw.correlationId, `${field}.correlationId`),
+    ticketId: boundaryString(raw.ticketId, `${field}.ticketId`),
+    ...(messageId === undefined ? {} : { messageId }),
+    ...(body === undefined ? {} : { body }),
+    ...(notification === undefined ? {} : { notification }),
+  });
 }
 
 function stableNotification(
@@ -1215,6 +1690,7 @@ export function createSupportDeskApplication(options: {
       "maxMessageCharacters",
       "maxTicketsPerPrincipal",
       "maxMessagesPerTicket",
+      "maxRecordsPerTicket",
     ] as const) {
       const value = ownDataProperty(
         limitSource,
@@ -1257,6 +1733,7 @@ export function createSupportDeskApplication(options: {
     maxMessageCharacters: 20_000,
     maxTicketsPerPrincipal: 1_000,
     maxMessagesPerTicket: 100,
+    maxRecordsPerTicket: 2_000,
   };
   for (const field of Object.keys(limits) as (keyof SupportDeskLimits)[]) {
     const value = limits[field];
@@ -1525,7 +2002,12 @@ export function createSupportDeskApplication(options: {
             fence.generation,
           );
         }
-        return authoritativeView(records, access.principalId, command.ticketId);
+        return authoritativeView(
+          records,
+          access.principalId,
+          command.ticketId,
+          limits.maxRecordsPerTicket,
+        );
       }
       if (command.category !== undefined) {
         if (
@@ -1537,6 +2019,18 @@ export function createSupportDeskApplication(options: {
           );
         }
       }
+
+      // Fail closed before durable number/index reservation so a too-small
+      // partition budget cannot exhaust the principal ticket index with
+      // reserved-but-never-created tickets.
+      const estimatedCreateRows =
+        6 + // ticket, quota, reservation, message, audit, command
+        (command.notification === undefined ? 0 : 1);
+      enforcePartitionRecordLimit(
+        0,
+        limits.maxRecordsPerTicket,
+        estimatedCreateRows,
+      );
 
       // Reserve outside the ticket transaction; gaps are accepted if create fails.
       const ticketNumber = await reserveTicketNumber();
@@ -1670,7 +2164,7 @@ export function createSupportDeskApplication(options: {
               : { deliveryContent: notificationContent }),
           },
         },
-        customerTicketAuditAction({
+        ticketAuditAction({
           commandId: command.commandId,
           correlationId: command.correlationId,
           ticketId: command.ticketId,
@@ -1694,6 +2188,13 @@ export function createSupportDeskApplication(options: {
         },
         ...(notificationJob === undefined ? [] : [notificationJob]),
       ];
+      // Create starts an empty partition; fail closed if the first write would
+      // exceed the configured physical-record budget.
+      enforcePartitionRecordLimit(
+        0,
+        limits.maxRecordsPerTicket,
+        actions.length,
+      );
       const outcome = await records.transact(command.ticketId, actions);
       if (!outcome.committed) {
         const existing = await records.get(
@@ -1717,7 +2218,12 @@ export function createSupportDeskApplication(options: {
         reservation.reservationToken,
         reservation.reservationGeneration,
       );
-      return authoritativeView(records, access.principalId, command.ticketId);
+      return authoritativeView(
+        records,
+        access.principalId,
+        command.ticketId,
+        limits.maxRecordsPerTicket,
+      );
     },
 
     async replyToCustomerTicket(access, input) {
@@ -1753,6 +2259,7 @@ export function createSupportDeskApplication(options: {
             records,
             access.principalId,
             command.ticketId,
+            limits.maxRecordsPerTicket,
           );
         }
 
@@ -1766,6 +2273,12 @@ export function createSupportDeskApplication(options: {
         ) {
           throw new SupportDeskNotFoundError();
         }
+        const partitionRows = await records.list(command.ticketId);
+        enforcePartitionRecordLimit(
+          partitionRows.length,
+          limits.maxRecordsPerTicket,
+          command.notification === undefined ? 3 : 4,
+        );
         const quota = await records.getVersioned(
           ticketQuotaKey(command.ticketId),
         );
@@ -1844,7 +2357,7 @@ export function createSupportDeskApplication(options: {
                 : { deliveryContent: notificationContent }),
             },
           },
-          customerTicketAuditAction({
+          ticketAuditAction({
             commandId: command.commandId,
             correlationId: command.correlationId,
             ticketId: command.ticketId,
@@ -1873,6 +2386,7 @@ export function createSupportDeskApplication(options: {
             records,
             access.principalId,
             command.ticketId,
+            limits.maxRecordsPerTicket,
           );
         }
         const nowDuplicate = await records.get(
@@ -1890,6 +2404,7 @@ export function createSupportDeskApplication(options: {
             records,
             access.principalId,
             command.ticketId,
+            limits.maxRecordsPerTicket,
           );
         }
       }
@@ -1912,6 +2427,7 @@ export function createSupportDeskApplication(options: {
                 records,
                 access.principalId,
                 hint.ticketId,
+                limits.maxRecordsPerTicket,
               )
             ).ticket,
           );
@@ -1930,9 +2446,968 @@ export function createSupportDeskApplication(options: {
       requirePermission(access, supportPermissions.readOwn);
       requireIdentifier(access.principalId, "principalId");
       requireIdentifier(ticketId, "ticketId");
-      return authoritativeView(records, access.principalId, ticketId);
+      return authoritativeView(
+        records,
+        access.principalId,
+        ticketId,
+        limits.maxRecordsPerTicket,
+      );
+    },
+
+    async readStaffTicket(access, ticketId) {
+      requirePermission(access, supportPermissions.queueRead);
+      requireIdentifier(access.principalId, "principalId");
+      requireIdentifier(ticketId, "ticketId");
+      return staffAuthoritativeView(
+        records,
+        ticketId,
+        limits.maxRecordsPerTicket,
+      );
+    },
+
+    async replyAsStaff(access, input) {
+      requireStaffMutationAccess(access, supportPermissions.replyAny);
+      requireIdentifier(access.principalId, "principalId");
+      const command = snapshotStaffReplyCommand(input);
+      requireIdentifier(command.ticketId, "ticketId");
+      requireIdentifier(command.messageId, "messageId");
+      requireIdentifier(command.commandId, "commandId");
+      requireIdentifier(command.correlationId, "correlationId");
+      enforceLimit(command.body, "body", limits.maxMessageCharacters);
+      const fingerprint = await requestFingerprint({
+        type: "staff_reply",
+        ticketId: command.ticketId,
+        messageId: command.messageId,
+        body: command.body,
+        notification: stableNotification(command.notification),
+      });
+
+      for (let attempt = 1; attempt <= maxConflictAttempts; attempt += 1) {
+        const duplicate = await records.get(
+          commandKey(command.ticketId, command.commandId),
+        );
+        if (
+          duplicateMatches(
+            duplicate,
+            "staff_reply",
+            command.messageId,
+            fingerprint,
+          )
+        ) {
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
+        }
+
+        const versioned = await records.getVersioned(
+          ticketKey(command.ticketId),
+        );
+        if (versioned?.value.kind !== "ticket") {
+          throw new SupportDeskNotFoundError();
+        }
+        const partitionRows = await records.list(command.ticketId);
+        enforcePartitionRecordLimit(
+          partitionRows.length,
+          limits.maxRecordsPerTicket,
+          command.notification === undefined ? 3 : 4,
+        );
+        const quota = await records.getVersioned(
+          ticketQuotaKey(command.ticketId),
+        );
+        if (quota?.value.kind !== "ticket_quota") {
+          throw new SupportDeskConflictError(
+            "Ticket partition quota metadata is missing",
+          );
+        }
+        if (quota.value.messageCount >= limits.maxMessagesPerTicket) {
+          throw new SupportDeskLimitError(
+            "ticket_messages",
+            limits.maxMessagesPerTicket,
+          );
+        }
+
+        const now = clampTicketTime(
+          clock.now(),
+          versioned.value.ticket.updatedAt,
+        );
+        const updated = applyTicketEvent(versioned.value.ticket, {
+          type: "support_replied",
+          actorId: access.principalId,
+          occurredAt: now,
+        });
+        const message: TicketMessage = {
+          id: command.messageId,
+          ticketId: command.ticketId,
+          authorKind: "staff",
+          authorPrincipalId: access.principalId,
+          channel: "web",
+          visibility: "customer",
+          format: "plain_text",
+          body: command.body,
+          createdAt: now,
+        };
+        const notificationContent = deliveryContent(command.notification);
+        const notificationJob =
+          command.notification === undefined
+            ? undefined
+            : deliveryJobAction(
+                command.ticketId,
+                command.messageId,
+                now,
+                command.notification,
+              );
+        const outcome = await records.transact(command.ticketId, [
+          {
+            action: "putIfUnchanged",
+            version: versioned.version,
+            value: { ...versioned.value, ticket: updated },
+          },
+          {
+            action: "putIfUnchanged",
+            version: quota.version,
+            value: {
+              ...quota.value,
+              messageCount: quota.value.messageCount + 1,
+            },
+          },
+          {
+            action: "insert",
+            value: {
+              kind: "message",
+              partition: command.ticketId,
+              id: `message:${command.messageId}`,
+              ordinal: updated.revision,
+              message,
+              ...(notificationContent === undefined
+                ? {}
+                : { deliveryContent: notificationContent }),
+            },
+          },
+          ticketAuditAction({
+            commandId: command.commandId,
+            correlationId: command.correlationId,
+            ticketId: command.ticketId,
+            revision: updated.revision,
+            actorId: access.principalId,
+            occurredAt: now,
+            action: supportTicketAuditActions.staffReplied,
+          }),
+          {
+            action: "insert",
+            value: {
+              kind: "command",
+              partition: command.ticketId,
+              id: `command:${command.commandId}`,
+              commandId: command.commandId,
+              commandType: "staff_reply",
+              messageId: command.messageId,
+              requestFingerprint: fingerprint,
+              completedAt: now,
+            },
+          },
+          ...(notificationJob === undefined ? [] : [notificationJob]),
+        ]);
+        if (outcome.committed) {
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
+        }
+        const nowDuplicate = await records.get(
+          commandKey(command.ticketId, command.commandId),
+        );
+        if (
+          duplicateMatches(
+            nowDuplicate,
+            "staff_reply",
+            command.messageId,
+            fingerprint,
+          )
+        ) {
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
+        }
+      }
+      throw new SupportDeskConflictError();
+    },
+
+    async addNote(access, input) {
+      requireStaffMutationAccess(access, supportPermissions.note);
+      requireIdentifier(access.principalId, "principalId");
+      const command = snapshotAddNoteCommand(input);
+      requireIdentifier(command.ticketId, "ticketId");
+      requireIdentifier(command.messageId, "messageId");
+      requireIdentifier(command.commandId, "commandId");
+      requireIdentifier(command.correlationId, "correlationId");
+      enforceLimit(command.body, "body", limits.maxMessageCharacters);
+      const fingerprint = await requestFingerprint({
+        type: "add_note",
+        ticketId: command.ticketId,
+        messageId: command.messageId,
+        body: command.body,
+      });
+
+      for (let attempt = 1; attempt <= maxConflictAttempts; attempt += 1) {
+        const duplicate = await records.get(
+          commandKey(command.ticketId, command.commandId),
+        );
+        if (
+          duplicateMatches(
+            duplicate,
+            "add_note",
+            command.messageId,
+            fingerprint,
+          )
+        ) {
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
+        }
+
+        const versioned = await records.getVersioned(
+          ticketKey(command.ticketId),
+        );
+        if (versioned?.value.kind !== "ticket") {
+          throw new SupportDeskNotFoundError();
+        }
+        const partitionRows = await records.list(command.ticketId);
+        enforcePartitionRecordLimit(
+          partitionRows.length,
+          limits.maxRecordsPerTicket,
+          3,
+        );
+        const quota = await records.getVersioned(
+          ticketQuotaKey(command.ticketId),
+        );
+        if (quota?.value.kind !== "ticket_quota") {
+          throw new SupportDeskConflictError(
+            "Ticket partition quota metadata is missing",
+          );
+        }
+        if (quota.value.messageCount >= limits.maxMessagesPerTicket) {
+          throw new SupportDeskLimitError(
+            "ticket_messages",
+            limits.maxMessagesPerTicket,
+          );
+        }
+
+        const statusBefore = versioned.value.ticket.status;
+        const customerUpdatedBefore = versioned.value.ticket.customerUpdatedAt;
+        const now = clampTicketTime(
+          clock.now(),
+          versioned.value.ticket.updatedAt,
+        );
+        const updated = applyTicketEvent(versioned.value.ticket, {
+          type: "note_added",
+          actorId: access.principalId,
+          occurredAt: now,
+        });
+        // Notes must never change lifecycle or customer-visible timestamps.
+        if (
+          updated.status !== statusBefore ||
+          updated.customerUpdatedAt !== customerUpdatedBefore
+        ) {
+          throw new SupportDeskConflictError(
+            "Internal note unexpectedly changed customer-visible ticket state",
+          );
+        }
+        const message: TicketMessage = {
+          id: command.messageId,
+          ticketId: command.ticketId,
+          authorKind: "staff",
+          authorPrincipalId: access.principalId,
+          channel: "web",
+          visibility: "internal",
+          format: "plain_text",
+          body: command.body,
+          createdAt: now,
+        };
+        const outcome = await records.transact(command.ticketId, [
+          {
+            action: "putIfUnchanged",
+            version: versioned.version,
+            value: { ...versioned.value, ticket: updated },
+          },
+          {
+            action: "putIfUnchanged",
+            version: quota.version,
+            value: {
+              ...quota.value,
+              messageCount: quota.value.messageCount + 1,
+            },
+          },
+          {
+            action: "insert",
+            value: {
+              kind: "message",
+              partition: command.ticketId,
+              id: `message:${command.messageId}`,
+              ordinal: updated.revision,
+              message,
+            },
+          },
+          ticketAuditAction({
+            commandId: command.commandId,
+            correlationId: command.correlationId,
+            ticketId: command.ticketId,
+            revision: updated.revision,
+            actorId: access.principalId,
+            occurredAt: now,
+            action: supportTicketAuditActions.noteAdded,
+          }),
+          {
+            action: "insert",
+            value: {
+              kind: "command",
+              partition: command.ticketId,
+              id: `command:${command.commandId}`,
+              commandId: command.commandId,
+              commandType: "add_note",
+              messageId: command.messageId,
+              requestFingerprint: fingerprint,
+              completedAt: now,
+            },
+          },
+        ]);
+        if (outcome.committed) {
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
+        }
+        const nowDuplicate = await records.get(
+          commandKey(command.ticketId, command.commandId),
+        );
+        if (
+          duplicateMatches(
+            nowDuplicate,
+            "add_note",
+            command.messageId,
+            fingerprint,
+          )
+        ) {
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
+        }
+      }
+      throw new SupportDeskConflictError();
+    },
+
+    async assignTicket(access, input) {
+      requireStaffMutationAccess(access, supportPermissions.assign);
+      requireIdentifier(access.principalId, "principalId");
+      const command = snapshotAssignTicketCommand(input);
+      requireIdentifier(command.ticketId, "ticketId");
+      requireIdentifier(command.commandId, "commandId");
+      requireIdentifier(command.correlationId, "correlationId");
+      if (command.assigneeId !== null) {
+        requireIdentifier(command.assigneeId, "assigneeId");
+      }
+      if (command.messageId !== undefined) {
+        requireIdentifier(command.messageId, "messageId");
+      }
+      if (command.body !== undefined) {
+        enforceLimit(command.body, "body", limits.maxMessageCharacters);
+      }
+      const fingerprint = await requestFingerprint({
+        type: "assign_ticket",
+        ticketId: command.ticketId,
+        assigneeId: command.assigneeId,
+        messageId: command.messageId ?? null,
+        body: command.body ?? null,
+        notification: stableNotification(command.notification),
+      });
+
+      for (let attempt = 1; attempt <= maxConflictAttempts; attempt += 1) {
+        const duplicate = await records.get(
+          commandKey(command.ticketId, command.commandId),
+        );
+        if (
+          duplicateMatches(
+            duplicate,
+            "assign_ticket",
+            command.messageId,
+            fingerprint,
+          )
+        ) {
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
+        }
+
+        const versioned = await records.getVersioned(
+          ticketKey(command.ticketId),
+        );
+        if (versioned?.value.kind !== "ticket") {
+          throw new SupportDeskNotFoundError();
+        }
+        const addedRecords =
+          command.messageId === undefined
+            ? 2
+            : command.notification === undefined
+              ? 3
+              : 4;
+        const partitionRows = await records.list(command.ticketId);
+        enforcePartitionRecordLimit(
+          partitionRows.length,
+          limits.maxRecordsPerTicket,
+          addedRecords,
+        );
+        let quotaVersion: Awaited<
+          ReturnType<CollectionStore<SupportRecord>["getVersioned"]>
+        > = null;
+        if (command.messageId !== undefined) {
+          quotaVersion = await records.getVersioned(
+            ticketQuotaKey(command.ticketId),
+          );
+          if (quotaVersion?.value.kind !== "ticket_quota") {
+            throw new SupportDeskConflictError(
+              "Ticket partition quota metadata is missing",
+            );
+          }
+          if (quotaVersion.value.messageCount >= limits.maxMessagesPerTicket) {
+            throw new SupportDeskLimitError(
+              "ticket_messages",
+              limits.maxMessagesPerTicket,
+            );
+          }
+        }
+        const statusBefore = versioned.value.ticket.status;
+        const customerUpdatedBefore = versioned.value.ticket.customerUpdatedAt;
+        const now = clampTicketTime(
+          clock.now(),
+          versioned.value.ticket.updatedAt,
+        );
+        const updated = applyTicketEvent(versioned.value.ticket, {
+          type: "assigned",
+          actorId: access.principalId,
+          assigneeId: command.assigneeId,
+          occurredAt: now,
+        });
+        if (
+          updated.status !== statusBefore ||
+          updated.customerUpdatedAt !== customerUpdatedBefore
+        ) {
+          throw new SupportDeskConflictError(
+            "Assignment unexpectedly changed customer-visible ticket state",
+          );
+        }
+        // Optional system message + mail so assignment notifications share the
+        // ticket transaction with the assignment itself.
+        const systemMessage: TicketMessage | undefined =
+          command.messageId === undefined || command.body === undefined
+            ? undefined
+            : {
+                id: command.messageId,
+                ticketId: command.ticketId,
+                authorKind: "system",
+                channel: "web",
+                visibility: "internal",
+                format: "plain_text",
+                body: command.body,
+                createdAt: now,
+              };
+        const notificationContent = deliveryContent(command.notification);
+        const notificationJob =
+          command.notification === undefined || command.messageId === undefined
+            ? undefined
+            : deliveryJobAction(
+                command.ticketId,
+                command.messageId,
+                now,
+                command.notification,
+              );
+        const outcome = await records.transact(command.ticketId, [
+          {
+            action: "putIfUnchanged",
+            version: versioned.version,
+            value: { ...versioned.value, ticket: updated },
+          },
+          ...(quotaVersion === null ||
+          systemMessage === undefined ||
+          quotaVersion.value.kind !== "ticket_quota"
+            ? []
+            : [
+                {
+                  action: "putIfUnchanged" as const,
+                  version: quotaVersion.version,
+                  value: {
+                    kind: "ticket_quota" as const,
+                    partition: command.ticketId,
+                    id: "quota" as const,
+                    messageCount: quotaVersion.value.messageCount + 1,
+                  },
+                },
+              ]),
+          ...(systemMessage === undefined
+            ? []
+            : [
+                {
+                  action: "insert" as const,
+                  value: {
+                    kind: "message" as const,
+                    partition: command.ticketId,
+                    id: `message:${command.messageId}`,
+                    ordinal: updated.revision,
+                    message: systemMessage,
+                    ...(notificationContent === undefined
+                      ? {}
+                      : { deliveryContent: notificationContent }),
+                  },
+                },
+              ]),
+          ticketAuditAction({
+            commandId: command.commandId,
+            correlationId: command.correlationId,
+            ticketId: command.ticketId,
+            revision: updated.revision,
+            actorId: access.principalId,
+            occurredAt: now,
+            action:
+              command.assigneeId === null
+                ? supportTicketAuditActions.unassigned
+                : supportTicketAuditActions.assigned,
+            details:
+              command.assigneeId === null
+                ? {}
+                : { assigneeId: command.assigneeId },
+          }),
+          {
+            action: "insert",
+            value: {
+              kind: "command",
+              partition: command.ticketId,
+              id: `command:${command.commandId}`,
+              commandId: command.commandId,
+              commandType: "assign_ticket",
+              ...(command.messageId === undefined
+                ? {}
+                : { messageId: command.messageId }),
+              requestFingerprint: fingerprint,
+              completedAt: now,
+            },
+          },
+          ...(notificationJob === undefined ? [] : [notificationJob]),
+        ]);
+        if (outcome.committed) {
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
+        }
+        const nowDuplicate = await records.get(
+          commandKey(command.ticketId, command.commandId),
+        );
+        if (
+          duplicateMatches(
+            nowDuplicate,
+            "assign_ticket",
+            command.messageId,
+            fingerprint,
+          )
+        ) {
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
+        }
+      }
+      throw new SupportDeskConflictError();
+    },
+
+    async changePriority(access, input) {
+      requireStaffMutationAccess(access, supportPermissions.manage);
+      requireIdentifier(access.principalId, "principalId");
+      const command = snapshotChangePriorityCommand(input);
+      requireIdentifier(command.ticketId, "ticketId");
+      requireIdentifier(command.commandId, "commandId");
+      requireIdentifier(command.correlationId, "correlationId");
+      const fingerprint = await requestFingerprint({
+        type: "change_priority",
+        ticketId: command.ticketId,
+        priority: command.priority,
+      });
+
+      for (let attempt = 1; attempt <= maxConflictAttempts; attempt += 1) {
+        const duplicate = await records.get(
+          commandKey(command.ticketId, command.commandId),
+        );
+        if (
+          duplicateMatches(duplicate, "change_priority", undefined, fingerprint)
+        ) {
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
+        }
+
+        const versioned = await records.getVersioned(
+          ticketKey(command.ticketId),
+        );
+        if (versioned?.value.kind !== "ticket") {
+          throw new SupportDeskNotFoundError();
+        }
+        const partitionRows = await records.list(command.ticketId);
+        enforcePartitionRecordLimit(
+          partitionRows.length,
+          limits.maxRecordsPerTicket,
+          2,
+        );
+        const statusBefore = versioned.value.ticket.status;
+        const customerUpdatedBefore = versioned.value.ticket.customerUpdatedAt;
+        const now = clampTicketTime(
+          clock.now(),
+          versioned.value.ticket.updatedAt,
+        );
+        const updated = applyTicketEvent(versioned.value.ticket, {
+          type: "priority_changed",
+          actorId: access.principalId,
+          priority: command.priority,
+          occurredAt: now,
+        });
+        if (
+          updated.status !== statusBefore ||
+          updated.customerUpdatedAt !== customerUpdatedBefore
+        ) {
+          throw new SupportDeskConflictError(
+            "Priority change unexpectedly changed customer-visible ticket state",
+          );
+        }
+        const outcome = await records.transact(command.ticketId, [
+          {
+            action: "putIfUnchanged",
+            version: versioned.version,
+            value: { ...versioned.value, ticket: updated },
+          },
+          ticketAuditAction({
+            commandId: command.commandId,
+            correlationId: command.correlationId,
+            ticketId: command.ticketId,
+            revision: updated.revision,
+            actorId: access.principalId,
+            occurredAt: now,
+            action: supportTicketAuditActions.priorityChanged,
+            details: { priority: command.priority },
+          }),
+          {
+            action: "insert",
+            value: {
+              kind: "command",
+              partition: command.ticketId,
+              id: `command:${command.commandId}`,
+              commandId: command.commandId,
+              commandType: "change_priority",
+              requestFingerprint: fingerprint,
+              completedAt: now,
+            },
+          },
+        ]);
+        if (outcome.committed) {
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
+        }
+        const nowDuplicate = await records.get(
+          commandKey(command.ticketId, command.commandId),
+        );
+        if (
+          duplicateMatches(
+            nowDuplicate,
+            "change_priority",
+            undefined,
+            fingerprint,
+          )
+        ) {
+          return staffAuthoritativeView(
+            records,
+            command.ticketId,
+            limits.maxRecordsPerTicket,
+          );
+        }
+      }
+      throw new SupportDeskConflictError();
+    },
+
+    async resolveTicket(access, input) {
+      return mutateLifecycle(access, input, {
+        commandType: "resolve_ticket",
+        eventType: "resolved",
+        auditAction: supportTicketAuditActions.resolved,
+        field: "resolve command",
+      });
+    },
+
+    async closeTicket(access, input) {
+      return mutateLifecycle(access, input, {
+        commandType: "close_ticket",
+        eventType: "closed",
+        auditAction: supportTicketAuditActions.closed,
+        field: "close command",
+      });
+    },
+
+    async reopenTicket(access, input) {
+      return mutateLifecycle(access, input, {
+        commandType: "reopen_ticket",
+        eventType: "reopened",
+        auditAction: supportTicketAuditActions.reopened,
+        field: "reopen command",
+      });
+    },
+
+    async readTicketAuditHistory(access, ticketId) {
+      requirePermission(access, supportPermissions.auditRead);
+      requireIdentifier(access.principalId, "principalId");
+      requireIdentifier(ticketId, "ticketId");
+      const partitionRows = await records.list(ticketId);
+      enforcePartitionRecordLimit(
+        partitionRows.length,
+        limits.maxRecordsPerTicket,
+      );
+      const ticket = partitionRows.find(
+        (record): record is TicketRecord => record.kind === "ticket",
+      );
+      if (ticket === undefined) {
+        throw new SupportDeskNotFoundError();
+      }
+      return supportAudit.history(records, ticketId);
     },
   };
+
+  async function mutateLifecycle(
+    access: AccessContext,
+    input: LifecycleTicketCommand,
+    spec: {
+      readonly commandType: "resolve_ticket" | "close_ticket" | "reopen_ticket";
+      readonly eventType: "resolved" | "closed" | "reopened";
+      readonly auditAction:
+        | typeof supportTicketAuditActions.resolved
+        | typeof supportTicketAuditActions.closed
+        | typeof supportTicketAuditActions.reopened;
+      readonly field: string;
+    },
+  ): Promise<StaffTicketView> {
+    requireStaffMutationAccess(access, supportPermissions.manage);
+    requireIdentifier(access.principalId, "principalId");
+    const command = snapshotLifecycleTicketCommand(input, spec.field);
+    requireIdentifier(command.ticketId, "ticketId");
+    requireIdentifier(command.commandId, "commandId");
+    requireIdentifier(command.correlationId, "correlationId");
+    if (command.messageId !== undefined) {
+      requireIdentifier(command.messageId, "messageId");
+    }
+    if (command.body !== undefined) {
+      enforceLimit(command.body, "body", limits.maxMessageCharacters);
+    }
+    const fingerprint = await requestFingerprint({
+      type: spec.commandType,
+      ticketId: command.ticketId,
+      messageId: command.messageId ?? null,
+      body: command.body ?? null,
+      notification: stableNotification(command.notification),
+    });
+
+    for (let attempt = 1; attempt <= maxConflictAttempts; attempt += 1) {
+      const duplicate = await records.get(
+        commandKey(command.ticketId, command.commandId),
+      );
+      if (
+        duplicateMatches(
+          duplicate,
+          spec.commandType,
+          command.messageId,
+          fingerprint,
+        )
+      ) {
+        return staffAuthoritativeView(
+          records,
+          command.ticketId,
+          limits.maxRecordsPerTicket,
+        );
+      }
+
+      const versioned = await records.getVersioned(ticketKey(command.ticketId));
+      if (versioned?.value.kind !== "ticket") {
+        throw new SupportDeskNotFoundError();
+      }
+      const partitionRows = await records.list(command.ticketId);
+      const addedRecords =
+        command.messageId === undefined
+          ? 2 // audit + command
+          : command.notification === undefined
+            ? 3 // message + audit + command
+            : 4; // message + audit + command + delivery
+      enforcePartitionRecordLimit(
+        partitionRows.length,
+        limits.maxRecordsPerTicket,
+        addedRecords,
+      );
+
+      let quotaVersion: Awaited<
+        ReturnType<CollectionStore<SupportRecord>["getVersioned"]>
+      > = null;
+      if (command.messageId !== undefined) {
+        quotaVersion = await records.getVersioned(
+          ticketQuotaKey(command.ticketId),
+        );
+        if (quotaVersion?.value.kind !== "ticket_quota") {
+          throw new SupportDeskConflictError(
+            "Ticket partition quota metadata is missing",
+          );
+        }
+        if (quotaVersion.value.messageCount >= limits.maxMessagesPerTicket) {
+          throw new SupportDeskLimitError(
+            "ticket_messages",
+            limits.maxMessagesPerTicket,
+          );
+        }
+      }
+
+      const now = clampTicketTime(
+        clock.now(),
+        versioned.value.ticket.updatedAt,
+      );
+      const updated = applyTicketEvent(versioned.value.ticket, {
+        type: spec.eventType,
+        actorId: access.principalId,
+        occurredAt: now,
+      });
+      // Optional system message + mail commit with the lifecycle change so a
+      // resolution notification cannot be lost after the ticket is resolved.
+      const systemMessage: TicketMessage | undefined =
+        command.messageId === undefined || command.body === undefined
+          ? undefined
+          : {
+              id: command.messageId,
+              ticketId: command.ticketId,
+              authorKind: "system",
+              channel: "web",
+              visibility: "customer",
+              format: "plain_text",
+              body: command.body,
+              createdAt: now,
+            };
+      const notificationContent = deliveryContent(command.notification);
+      const notificationJob =
+        command.notification === undefined || command.messageId === undefined
+          ? undefined
+          : deliveryJobAction(
+              command.ticketId,
+              command.messageId,
+              now,
+              command.notification,
+            );
+      const outcome = await records.transact(command.ticketId, [
+        {
+          action: "putIfUnchanged",
+          version: versioned.version,
+          value: { ...versioned.value, ticket: updated },
+        },
+        ...(quotaVersion === null ||
+        systemMessage === undefined ||
+        quotaVersion.value.kind !== "ticket_quota"
+          ? []
+          : [
+              {
+                action: "putIfUnchanged" as const,
+                version: quotaVersion.version,
+                value: {
+                  kind: "ticket_quota" as const,
+                  partition: command.ticketId,
+                  id: "quota" as const,
+                  messageCount: quotaVersion.value.messageCount + 1,
+                },
+              },
+            ]),
+        ...(systemMessage === undefined
+          ? []
+          : [
+              {
+                action: "insert" as const,
+                value: {
+                  kind: "message" as const,
+                  partition: command.ticketId,
+                  id: `message:${command.messageId}`,
+                  ordinal: updated.revision,
+                  message: systemMessage,
+                  ...(notificationContent === undefined
+                    ? {}
+                    : { deliveryContent: notificationContent }),
+                },
+              },
+            ]),
+        ticketAuditAction({
+          commandId: command.commandId,
+          correlationId: command.correlationId,
+          ticketId: command.ticketId,
+          revision: updated.revision,
+          actorId: access.principalId,
+          occurredAt: now,
+          action: spec.auditAction,
+        }),
+        {
+          action: "insert",
+          value: {
+            kind: "command",
+            partition: command.ticketId,
+            id: `command:${command.commandId}`,
+            commandId: command.commandId,
+            commandType: spec.commandType,
+            ...(command.messageId === undefined
+              ? {}
+              : { messageId: command.messageId }),
+            requestFingerprint: fingerprint,
+            completedAt: now,
+          },
+        },
+        ...(notificationJob === undefined ? [] : [notificationJob]),
+      ]);
+      if (outcome.committed) {
+        return staffAuthoritativeView(
+          records,
+          command.ticketId,
+          limits.maxRecordsPerTicket,
+        );
+      }
+      const nowDuplicate = await records.get(
+        commandKey(command.ticketId, command.commandId),
+      );
+      if (
+        duplicateMatches(
+          nowDuplicate,
+          spec.commandType,
+          command.messageId,
+          fingerprint,
+        )
+      ) {
+        return staffAuthoritativeView(
+          records,
+          command.ticketId,
+          limits.maxRecordsPerTicket,
+        );
+      }
+    }
+    throw new SupportDeskConflictError();
+  }
 }
 
 function canonicalTimestamp(value: IsoTimestamp, field: string): number {

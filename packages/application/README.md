@@ -8,6 +8,32 @@ Customer create uses `support.ticket.create`; list and read both use the
 documented `support.ticket.read.own` permission and then confirm authoritative
 ownership; reply uses `support.ticket.reply.own`.
 
+Staff services use the same application factory and ticket partition:
+
+| Method                   | Permission(s)                                     | Effect                                                              |
+| ------------------------ | ------------------------------------------------- | ------------------------------------------------------------------- |
+| `readStaffTicket`        | `support.queue.read`                              | Authoritative ticket plus every message (including internal notes)  |
+| `replyAsStaff`           | `support.queue.read` + `support.ticket.reply.any` | Customer-visible staff reply → `waiting_on_customer`; optional mail |
+| `addNote`                | `support.queue.read` + `support.ticket.note`      | Internal note; no mail; status and `customerUpdatedAt` unchanged    |
+| `assignTicket`           | `support.queue.read` + `support.ticket.assign`    | Assign or unassign; status unchanged                                |
+| `changePriority`         | `support.queue.read` + `support.ticket.manage`    | Priority only; status unchanged                                     |
+| `resolveTicket`          | `support.queue.read` + `support.ticket.manage`    | → `resolved` (closed tickets must reopen first)                     |
+| `closeTicket`            | `support.queue.read` + `support.ticket.manage`    | → `closed` (resolved only)                                          |
+| `reopenTicket`           | `support.queue.read` + `support.ticket.manage`    | resolved/closed → `waiting_on_support`                              |
+| `readTicketAuditHistory` | `support.audit.read`                              | Ordered Audit history for one ticket                                |
+
+Staff reads return `StaffTicketView` (full `Ticket` and all `TicketMessage`
+rows). Mutations that return that view also require `support.queue.read` so a
+narrow write permission cannot bypass the staff-detail boundary. They do not
+require queue membership claims or browser-supplied actor IDs—only an
+`AccessContext` and the authoritative ticket id. Unknown ticket IDs throw the
+same content-free not-found error used for customer ownership misses. A staff
+reply to a closed ticket moves it directly to `waiting_on_customer` without a
+separate reopen event (MVP lifecycle rule). Lifecycle commands may include an
+optional customer-visible system message and notification so resolution mail
+commits in the same ticket transaction as the status change. Partition reads
+and mutations also enforce `limits.maxRecordsPerTicket` (default 512).
+
 Customer create, list, read, and reply return explicit safe DTOs
 (`CustomerTicketSummary` / `CustomerMessage` / `CustomerTicketView`), not the
 authoritative `Ticket` or `TicketMessage`. Summaries include id, number,
@@ -15,7 +41,8 @@ subject, optional category, status, channel, `createdAt`, and
 `customerUpdatedAt`. They omit requester evidence, priority, assignee,
 staff-facing `updatedAt`, revision, audit history, and delivery state.
 Customer messages omit principal IDs and provider threading metadata. List
-order uses `customerUpdatedAt`.
+order uses `customerUpdatedAt`. Internal notes never appear in customer views
+or customer-visible notification content.
 
 Hosts pass a frozen, deduplicated `allowedCategories` option (at most 32
 values matching `^[a-z][a-z0-9_]{0,31}$`). A supplied create category must be
@@ -37,14 +64,17 @@ lifecycle changes. Internal notes, assignment, and priority changes advance
 only staff-facing `updatedAt` (in core workflow events).
 
 Accepted-change history is exact `@pegma/audit@0.1.0` projected into the
-ticket partition with `defineAudit`. Create and reply drop Audit transaction
-actions beside the state change; history is read through Audit, not a private
-sorter. Domain `TicketEvent` remains pure workflow input and is not stored as
-a second audit shape. Authorization Core is exact `0.1.2`.
+ticket partition with `defineAudit`. Customer create/reply and every staff
+mutation drop Audit transaction actions beside the state change; history is
+read through `readTicketAuditHistory` / Audit, not a private sorter. Domain
+`TicketEvent` remains pure workflow input and is not stored as a second audit
+shape. Authorization Core is exact `0.1.2`.
 
-Create and reply commands are snapshotted from own data properties exactly
+Customer and staff commands are snapshotted from own data properties exactly
 once before validation, idempotency fingerprinting, or persistence. Accessors
-are rejected without being executed. Optional requester email is a contact
+are rejected without being executed. Each mutation uses a server-minted
+command ID, a SHA-256 request fingerprint, bounded conflict retry, and
+trusted ticket time clamped so it never moves backward. Optional requester email is a contact
 snapshot, never an identity key: surrounding whitespace is removed, the DNS
 domain is lowercased, and plain-address syntax, controls, markup, and a
 254-character maximum are enforced.

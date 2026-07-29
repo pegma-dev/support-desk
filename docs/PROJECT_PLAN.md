@@ -2,11 +2,11 @@
 
 ## Status
 
-**Stage:** The customer-facing Phase 1/2 application slice and the source
-portion of Phase 6 are implemented. Buildout Tasks 1–3 (Audit alignment,
-dual-host customer contract, and instance ticket-number reservation) are
-complete. Staff services, host-applied abuse limits, and every deployment
-phase remain open; every `@pegma/support-desk-*` package is unpublished.
+**Stage:** The customer-facing Phase 1/2 application slice, staff detail and
+mutation services (Buildout Task 4), and the source portion of Phase 6 are
+implemented. Buildout Tasks 1–4 are complete. The staff queue projection
+(Task 5), host-applied abuse limits, and every deployment phase remain open;
+every `@pegma/support-desk-*` package is unpublished.
 
 **Initial reference applications:** retiregolden.org for paid customer support
 on Azure, and pegma.dev for authenticated product feedback on Cloudflare. The
@@ -50,8 +50,9 @@ should not introduce another always-on service merely to separate repositories.
 
 ### Implementation status (2026-07-28)
 
-The repository now proves the customer-facing Phase 1/2 application slice and
-the provider-neutral Phase 6 outbound-mail integration:
+The repository now proves the customer-facing Phase 1/2 application slice,
+staff detail and mutation services, and the provider-neutral Phase 6
+outbound-mail integration:
 
 - `@pegma/support-desk-application` declares one authoritative heterogeneous
   collection whose ticket, messages, audit events, command receipts, and
@@ -66,9 +67,15 @@ the provider-neutral Phase 6 outbound-mail integration:
   evidence, priority, assignee, revision, staff-facing `updatedAt`, and audit
   data. Optional host-configured `category` and `customerUpdatedAt` are part of
   the durable ticket and the customer DTO.
-- Customer commands are idempotent by command ID and a SHA-256 request
-  fingerprint. Reply transactions use an opaque version read immediately
-  before the transaction and retry conflicts without losing messages.
+- Staff services read one ticket by id (`support.queue.read`), append
+  customer-visible replies (`support.ticket.reply.any`), append internal notes
+  (`support.ticket.note`), assign or unassign (`support.ticket.assign`), change
+  priority and lifecycle (`support.ticket.manage`), and read Audit history
+  (`support.audit.read`). Staff detail returns the authoritative ticket and all
+  messages; notes never appear in customer views or outbound customer mail.
+- Customer and staff commands are idempotent by command ID and a SHA-256
+  request fingerprint. Mutations use an opaque version read immediately before
+  the transaction and retry conflicts without losing messages.
 - Subject and message-body size limits are configurable application seams.
   Durable request limiting remains host composition work using published exact
   `@pegma/rate-limit@0.1.0`; this repository does not build a private limiter.
@@ -85,12 +92,11 @@ the provider-neutral Phase 6 outbound-mail integration:
   claims, submission generations, and provider idempotency keys remain
   authoritative.
 
-Phases 3, 4, and 5 are not complete. There is no durable reference deployment,
-customer web UI, or staff queue/API in this repository yet. Phase 6 source is
-implemented, but selecting and operating a provider adapter remains host work,
-and no package is published yet. The ordered implementation handoff is
-[`BUILDOUT.md`](BUILDOUT.md); it must be followed one task and one pull request
-at a time.
+The staff queue projection (Buildout Task 5), durable host compositions, and
+customer web UI remain open. Phase 6 source is implemented, but selecting and
+operating a provider adapter remains host work, and no package is published
+yet. The ordered implementation handoff is [`BUILDOUT.md`](BUILDOUT.md); it
+must be followed one task and one pull request at a time.
 
 ## Vision
 

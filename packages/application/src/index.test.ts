@@ -8,6 +8,7 @@ import {
   type Store,
 } from "@pegma/storage-core";
 import { describe, expect, it } from "vitest";
+import { TicketWorkflowError } from "@pegma/support-desk-core";
 import {
   createSupportDeskApplication,
   type CustomerTicketIndexRecord,
@@ -2857,5 +2858,846 @@ describe("customer application services", () => {
         body,
       }),
     ).rejects.toMatchObject({ field: "ticket_messages" });
+  });
+});
+
+const allStaffPermissions = [
+  supportPermissions.queueRead,
+  supportPermissions.replyAny,
+  supportPermissions.note,
+  supportPermissions.assign,
+  supportPermissions.manage,
+  supportPermissions.auditRead,
+] as const;
+
+async function seedCustomerTicket(
+  application: ReturnType<typeof createSupportDeskApplication>,
+  ticketId = "ticket-1",
+  customerId = "customer-1",
+) {
+  await application.createCustomerTicket(
+    access(customerId, allCustomerPermissions),
+    {
+      commandId: `create-${ticketId}`,
+      correlationId: `correlation-${ticketId}`,
+      ticketId,
+      messageId: `message-create-${ticketId}`,
+      subject: "Need help",
+      body: "Something is broken.",
+    },
+  );
+}
+
+describe("staff application services", () => {
+  it("denies each staff service without its required permission", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    await seedCustomerTicket(application);
+    const empty = access("staff-1", []);
+    // Mutations also require queue.read so the full ticket response is not a
+    // read-boundary bypass; empty policy fails on that gate first.
+    const mutationOnly = {
+      reply: access("staff-1", [supportPermissions.replyAny]),
+      note: access("staff-1", [supportPermissions.note]),
+      assign: access("staff-1", [supportPermissions.assign]),
+      manage: access("staff-1", [supportPermissions.manage]),
+    };
+    const queueOnly = access("staff-1", [supportPermissions.queueRead]);
+
+    await expect(
+      application.readStaffTicket(empty, "ticket-1"),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.queueRead),
+    );
+    await expect(
+      application.replyAsStaff(mutationOnly.reply, {
+        commandId: "staff-reply",
+        correlationId: "c",
+        ticketId: "ticket-1",
+        messageId: "m1",
+        body: "Reply",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.queueRead),
+    );
+    await expect(
+      application.addNote(mutationOnly.note, {
+        commandId: "note",
+        correlationId: "c",
+        ticketId: "ticket-1",
+        messageId: "m2",
+        body: "Note",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.queueRead),
+    );
+    await expect(
+      application.assignTicket(mutationOnly.assign, {
+        commandId: "assign",
+        correlationId: "c",
+        ticketId: "ticket-1",
+        assigneeId: "staff-1",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.queueRead),
+    );
+    await expect(
+      application.changePriority(mutationOnly.manage, {
+        commandId: "priority",
+        correlationId: "c",
+        ticketId: "ticket-1",
+        priority: "high",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.queueRead),
+    );
+    await expect(
+      application.resolveTicket(mutationOnly.manage, {
+        commandId: "resolve",
+        correlationId: "c",
+        ticketId: "ticket-1",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.queueRead),
+    );
+    await expect(
+      application.closeTicket(mutationOnly.manage, {
+        commandId: "close",
+        correlationId: "c",
+        ticketId: "ticket-1",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.queueRead),
+    );
+    await expect(
+      application.reopenTicket(mutationOnly.manage, {
+        commandId: "reopen",
+        correlationId: "c",
+        ticketId: "ticket-1",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.queueRead),
+    );
+    await expect(
+      application.replyAsStaff(queueOnly, {
+        commandId: "staff-reply-2",
+        correlationId: "c",
+        ticketId: "ticket-1",
+        messageId: "m3",
+        body: "Reply",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.replyAny),
+    );
+    await expect(
+      application.addNote(queueOnly, {
+        commandId: "note-2",
+        correlationId: "c",
+        ticketId: "ticket-1",
+        messageId: "m4",
+        body: "Note",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.note),
+    );
+    await expect(
+      application.assignTicket(queueOnly, {
+        commandId: "assign-2",
+        correlationId: "c",
+        ticketId: "ticket-1",
+        assigneeId: "staff-1",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.assign),
+    );
+    await expect(
+      application.changePriority(queueOnly, {
+        commandId: "priority-2",
+        correlationId: "c",
+        ticketId: "ticket-1",
+        priority: "high",
+      }),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.manage),
+    );
+    await expect(
+      application.readTicketAuditHistory(empty, "ticket-1"),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.auditRead),
+    );
+  });
+
+  it("reads the full staff ticket including internal notes and staff fields", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-27T12:01:00.000Z",
+        "2026-07-27T12:02:00.000Z",
+      ),
+    });
+    await seedCustomerTicket(application);
+    const staff = access("staff-1", allStaffPermissions);
+    await application.addNote(staff, {
+      commandId: "note-1",
+      correlationId: "c-note",
+      ticketId: "ticket-1",
+      messageId: "note-message",
+      body: "Internal investigation notes.",
+    });
+    await application.assignTicket(staff, {
+      commandId: "assign-1",
+      correlationId: "c-assign",
+      ticketId: "ticket-1",
+      assigneeId: "staff-1",
+    });
+
+    const view = await application.readStaffTicket(staff, "ticket-1");
+    expect(view.ticket.assignedTo).toBe("staff-1");
+    expect(view.ticket.priority).toBe("normal");
+    expect(view.ticket.revision).toBeGreaterThan(1);
+    expect(view.ticket.requester.principalId).toBe("customer-1");
+    expect(view.messages.map((message) => message.visibility)).toEqual([
+      "customer",
+      "internal",
+    ]);
+    expect(view.messages[1]?.body).toBe("Internal investigation notes.");
+  });
+
+  it("makes staff replies customer-visible and moves status to waiting_on_customer", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-27T12:05:00.000Z",
+      ),
+    });
+    await seedCustomerTicket(application);
+    const staff = access("staff-1", allStaffPermissions);
+    const view = await application.replyAsStaff(staff, {
+      commandId: "staff-reply-1",
+      correlationId: "c-reply",
+      ticketId: "ticket-1",
+      messageId: "staff-message-1",
+      body: "Here is the fix.",
+      notification: {
+        id: "notify-staff-reply",
+        recipientRef: "customer-1",
+        templateId: "customer.staff-reply",
+        templateVersion: 1,
+        variables: { body: "Here is the fix." },
+        subject: "Re: Need help",
+        outboundMessageId: "<staff.reply@example.test>",
+      },
+    });
+
+    expect(view.ticket.status).toBe("waiting_on_customer");
+    expect(view.ticket.customerUpdatedAt).toBe("2026-07-27T12:05:00.000Z");
+    const staffMessage = view.messages.find(
+      (message) => message.id === "staff-message-1",
+    );
+    expect(staffMessage).toMatchObject({
+      authorKind: "staff",
+      visibility: "customer",
+      body: "Here is the fix.",
+      authorPrincipalId: "staff-1",
+    });
+    const deliveries = (await store.collection(supportRecords).list("ticket-1"))
+      .filter((record) => record.kind === "delivery_job")
+      .map((record) =>
+        record.kind === "delivery_job" ? record.job.id : undefined,
+      );
+    expect(deliveries).toContain("notify-staff-reply");
+
+    const customer = await application.readCustomerTicket(
+      access("customer-1", allCustomerPermissions),
+      "ticket-1",
+    );
+    expect(customer.messages.map((message) => message.id)).toContain(
+      "staff-message-1",
+    );
+    expect(customer.ticket.status).toBe("waiting_on_customer");
+  });
+
+  it("keeps notes internal without delivery or status change", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-27T12:05:00.000Z",
+      ),
+    });
+    await seedCustomerTicket(application);
+    const staff = access("staff-1", allStaffPermissions);
+    const before = await application.readStaffTicket(staff, "ticket-1");
+    const view = await application.addNote(staff, {
+      commandId: "note-1",
+      correlationId: "c-note",
+      ticketId: "ticket-1",
+      messageId: "note-1",
+      body: "Do not show the customer this.",
+    });
+
+    expect(view.ticket.status).toBe(before.ticket.status);
+    expect(view.ticket.customerUpdatedAt).toBe(before.ticket.customerUpdatedAt);
+    expect(view.ticket.updatedAt).toBe("2026-07-27T12:05:00.000Z");
+    expect(
+      view.messages.some((message) => message.visibility === "internal"),
+    ).toBe(true);
+    const deliveries = (
+      await store.collection(supportRecords).list("ticket-1")
+    ).filter((record) => record.kind === "delivery_job");
+    expect(deliveries).toHaveLength(0);
+
+    const customer = await application.readCustomerTicket(
+      access("customer-1", allCustomerPermissions),
+      "ticket-1",
+    );
+    expect(JSON.stringify(customer)).not.toContain(
+      "Do not show the customer this.",
+    );
+    expect(
+      customer.messages.every((message) => message.visibility === "customer"),
+    ).toBe(true);
+  });
+
+  it("assigns, unassigns, and changes priority without lifecycle shifts", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-27T12:01:00.000Z",
+        "2026-07-27T12:02:00.000Z",
+        "2026-07-27T12:03:00.000Z",
+      ),
+    });
+    await seedCustomerTicket(application);
+    const staff = access("staff-1", allStaffPermissions);
+    const assigned = await application.assignTicket(staff, {
+      commandId: "assign-1",
+      correlationId: "c1",
+      ticketId: "ticket-1",
+      assigneeId: "staff-2",
+    });
+    expect(assigned.ticket.assignedTo).toBe("staff-2");
+    expect(assigned.ticket.status).toBe("open");
+    expect(assigned.ticket.customerUpdatedAt).toBe("2026-07-27T12:00:00.000Z");
+
+    const prioritized = await application.changePriority(staff, {
+      commandId: "priority-1",
+      correlationId: "c2",
+      ticketId: "ticket-1",
+      priority: "urgent",
+    });
+    expect(prioritized.ticket.priority).toBe("urgent");
+    expect(prioritized.ticket.status).toBe("open");
+    expect(prioritized.ticket.customerUpdatedAt).toBe(
+      "2026-07-27T12:00:00.000Z",
+    );
+    expect(prioritized.ticket.assignedTo).toBe("staff-2");
+
+    const unassigned = await application.assignTicket(staff, {
+      commandId: "unassign-1",
+      correlationId: "c3",
+      ticketId: "ticket-1",
+      assigneeId: null,
+    });
+    expect(unassigned.ticket.assignedTo).toBeUndefined();
+    expect(unassigned.ticket.status).toBe("open");
+  });
+
+  it("follows MVP lifecycle rules for resolve, close, and reopen", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-27T12:01:00.000Z",
+        "2026-07-27T12:02:00.000Z",
+        "2026-07-27T12:03:00.000Z",
+        "2026-07-27T12:04:00.000Z",
+        "2026-07-27T12:05:00.000Z",
+      ),
+    });
+    await seedCustomerTicket(application);
+    const staff = access("staff-1", allStaffPermissions);
+
+    await expect(
+      application.closeTicket(staff, {
+        commandId: "close-early",
+        correlationId: "c",
+        ticketId: "ticket-1",
+      }),
+    ).rejects.toBeInstanceOf(TicketWorkflowError);
+
+    const resolved = await application.resolveTicket(staff, {
+      commandId: "resolve-1",
+      correlationId: "c1",
+      ticketId: "ticket-1",
+    });
+    expect(resolved.ticket.status).toBe("resolved");
+    // close-early consumed one clock sample before throwing.
+    expect(resolved.ticket.resolvedAt).toBe("2026-07-27T12:02:00.000Z");
+    expect(resolved.ticket.customerUpdatedAt).toBe("2026-07-27T12:02:00.000Z");
+
+    const closed = await application.closeTicket(staff, {
+      commandId: "close-1",
+      correlationId: "c2",
+      ticketId: "ticket-1",
+    });
+    expect(closed.ticket.status).toBe("closed");
+    expect(closed.ticket.closedAt).toBe("2026-07-27T12:03:00.000Z");
+
+    await expect(
+      application.resolveTicket(staff, {
+        commandId: "resolve-closed",
+        correlationId: "c3",
+        ticketId: "ticket-1",
+      }),
+    ).rejects.toBeInstanceOf(TicketWorkflowError);
+
+    const reopened = await application.reopenTicket(staff, {
+      commandId: "reopen-1",
+      correlationId: "c4",
+      ticketId: "ticket-1",
+    });
+    expect(reopened.ticket.status).toBe("waiting_on_support");
+    expect(reopened.ticket.resolvedAt).toBeUndefined();
+    expect(reopened.ticket.closedAt).toBeUndefined();
+    // create, failed close, resolve, close, failed resolve-closed, reopen
+    expect(reopened.ticket.customerUpdatedAt).toBe("2026-07-27T12:05:00.000Z");
+
+    // Staff reply on a closed ticket is allowed via support_replied after reopen
+    // path above; also prove direct staff reply moves open work to waiting_on_customer.
+    const afterReply = await application.replyAsStaff(staff, {
+      commandId: "staff-reply-after-reopen",
+      correlationId: "c5",
+      ticketId: "ticket-1",
+      messageId: "staff-msg",
+      body: "We reopened and replied.",
+    });
+    expect(afterReply.ticket.status).toBe("waiting_on_customer");
+  });
+
+  it("allows a staff reply to move a closed ticket to waiting_on_customer", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-27T12:01:00.000Z",
+        "2026-07-27T12:02:00.000Z",
+        "2026-07-27T12:03:00.000Z",
+      ),
+    });
+    await seedCustomerTicket(application);
+    const staff = access("staff-1", allStaffPermissions);
+    await application.resolveTicket(staff, {
+      commandId: "resolve-1",
+      correlationId: "c1",
+      ticketId: "ticket-1",
+    });
+    await application.closeTicket(staff, {
+      commandId: "close-1",
+      correlationId: "c2",
+      ticketId: "ticket-1",
+    });
+    const replied = await application.replyAsStaff(staff, {
+      commandId: "reply-closed",
+      correlationId: "c3",
+      ticketId: "ticket-1",
+      messageId: "staff-on-closed",
+      body: "Re-engaging from closed.",
+    });
+    expect(replied.ticket.status).toBe("waiting_on_customer");
+  });
+
+  it("replays staff mutations idempotently and rejects fingerprint mismatches", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-27T12:01:00.000Z",
+        "2026-07-27T12:02:00.000Z",
+      ),
+    });
+    await seedCustomerTicket(application);
+    const staff = access("staff-1", allStaffPermissions);
+    const first = await application.replyAsStaff(staff, {
+      commandId: "staff-reply-1",
+      correlationId: "c1",
+      ticketId: "ticket-1",
+      messageId: "m1",
+      body: "First wording.",
+    });
+    const replay = await application.replyAsStaff(staff, {
+      commandId: "staff-reply-1",
+      correlationId: "c1",
+      ticketId: "ticket-1",
+      messageId: "m1",
+      body: "First wording.",
+    });
+    expect(replay.ticket.revision).toBe(first.ticket.revision);
+    expect(
+      replay.messages.filter((message) => message.authorKind === "staff"),
+    ).toHaveLength(1);
+
+    await expect(
+      application.replyAsStaff(staff, {
+        commandId: "staff-reply-1",
+        correlationId: "c1",
+        ticketId: "ticket-1",
+        messageId: "m1",
+        body: "Different wording.",
+      }),
+    ).rejects.toBeInstanceOf(SupportDeskConflictError);
+
+    const assigned = await application.assignTicket(staff, {
+      commandId: "assign-1",
+      correlationId: "c2",
+      ticketId: "ticket-1",
+      assigneeId: "staff-9",
+    });
+    const assignReplay = await application.assignTicket(staff, {
+      commandId: "assign-1",
+      correlationId: "c2",
+      ticketId: "ticket-1",
+      assigneeId: "staff-9",
+    });
+    expect(assignReplay.ticket.revision).toBe(assigned.ticket.revision);
+    await expect(
+      application.assignTicket(staff, {
+        commandId: "assign-1",
+        correlationId: "c2",
+        ticketId: "ticket-1",
+        assigneeId: "staff-other",
+      }),
+    ).rejects.toBeInstanceOf(SupportDeskConflictError);
+  });
+
+  it("serializes concurrent staff replies without losing either message", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      maxConflictAttempts: 8,
+    });
+    await seedCustomerTicket(application);
+    const staff = access("staff-1", allStaffPermissions);
+    const [left, right] = await Promise.all([
+      application.replyAsStaff(staff, {
+        commandId: "reply-a",
+        correlationId: "ca",
+        ticketId: "ticket-1",
+        messageId: "msg-a",
+        body: "Left reply",
+      }),
+      application.replyAsStaff(staff, {
+        commandId: "reply-b",
+        correlationId: "cb",
+        ticketId: "ticket-1",
+        messageId: "msg-b",
+        body: "Right reply",
+      }),
+    ]);
+    const ids = new Set(
+      [...left.messages, ...right.messages].map((message) => message.id),
+    );
+    expect(ids.has("msg-a")).toBe(true);
+    expect(ids.has("msg-b")).toBe(true);
+    const final = await application.readStaffTicket(staff, "ticket-1");
+    expect(final.messages.map((message) => message.id).sort()).toEqual([
+      "message-create-ticket-1",
+      "msg-a",
+      "msg-b",
+    ]);
+  });
+
+  it("reads audit history only with support.audit.read", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-27T12:01:00.000Z",
+        "2026-07-27T12:02:00.000Z",
+      ),
+    });
+    await seedCustomerTicket(application);
+    const staff = access("staff-1", allStaffPermissions);
+    await application.replyAsStaff(staff, {
+      commandId: "staff-reply-1",
+      correlationId: "c1",
+      ticketId: "ticket-1",
+      messageId: "m1",
+      body: "Helping.",
+    });
+    await application.addNote(staff, {
+      commandId: "note-1",
+      correlationId: "c2",
+      ticketId: "ticket-1",
+      messageId: "n1",
+      body: "Private.",
+    });
+
+    const history = await application.readTicketAuditHistory(staff, "ticket-1");
+    expect(history.map((event) => event.action)).toEqual([
+      supportTicketAuditActions.created,
+      supportTicketAuditActions.staffReplied,
+      supportTicketAuditActions.noteAdded,
+    ]);
+    expect(history.map((event) => event.sequence)).toEqual([1, 2, 3]);
+    expect(history.every((event) => event.subject === "ticket-1")).toBe(true);
+
+    await expect(
+      application.readTicketAuditHistory(
+        access("staff-2", [supportPermissions.queueRead]),
+        "ticket-1",
+      ),
+    ).rejects.toEqual(
+      new SupportDeskAuthorizationError(supportPermissions.auditRead),
+    );
+  });
+
+  it("reveals no ticket content for unknown ticket IDs", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const staff = access("staff-1", allStaffPermissions);
+
+    await expect(
+      application.readStaffTicket(staff, "missing-ticket"),
+    ).rejects.toBeInstanceOf(SupportDeskNotFoundError);
+    await expect(
+      application.readTicketAuditHistory(staff, "missing-ticket"),
+    ).rejects.toBeInstanceOf(SupportDeskNotFoundError);
+    await expect(
+      application.replyAsStaff(staff, {
+        commandId: "x",
+        correlationId: "c",
+        ticketId: "missing-ticket",
+        messageId: "m",
+        body: "Hello",
+      }),
+    ).rejects.toBeInstanceOf(SupportDeskNotFoundError);
+    await expect(
+      application.assignTicket(staff, {
+        commandId: "x",
+        correlationId: "c",
+        ticketId: "missing-ticket",
+        assigneeId: "staff-1",
+      }),
+    ).rejects.toBeInstanceOf(SupportDeskNotFoundError);
+  });
+
+  it("commits resolution notification mail with the lifecycle change", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-27T12:05:00.000Z",
+      ),
+    });
+    await seedCustomerTicket(application);
+    const staff = access("staff-1", allStaffPermissions);
+    const resolved = await application.resolveTicket(staff, {
+      commandId: "resolve-notify",
+      correlationId: "c-resolve",
+      ticketId: "ticket-1",
+      messageId: "resolve-msg",
+      body: "We resolved your request.",
+      notification: {
+        id: "notify-resolved",
+        recipientRef: "customer-1",
+        templateId: "customer.resolved",
+        templateVersion: 1,
+        variables: { status: "resolved" },
+        subject: "Ticket resolved",
+        outboundMessageId: "<resolve@example.test>",
+      },
+    });
+    expect(resolved.ticket.status).toBe("resolved");
+    expect(
+      resolved.messages.some((message) => message.id === "resolve-msg"),
+    ).toBe(true);
+    const deliveries = (
+      await store.collection(supportRecords).list("ticket-1")
+    ).filter((record) => record.kind === "delivery_job");
+    expect(deliveries).toHaveLength(1);
+    expect(
+      deliveries[0]?.kind === "delivery_job" ? deliveries[0].job.id : undefined,
+    ).toBe("notify-resolved");
+  });
+
+  it("fails closed when a ticket partition exceeds the record budget", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      limits: { maxRecordsPerTicket: 6 },
+    });
+    await seedCustomerTicket(application);
+    // Create leaves ticket + quota + reservation + message + audit + command = 6.
+    const staff = access("staff-1", allStaffPermissions);
+    await expect(
+      application.assignTicket(staff, {
+        commandId: "assign-over",
+        correlationId: "c",
+        ticketId: "ticket-1",
+        assigneeId: "staff-1",
+      }),
+    ).rejects.toMatchObject({ field: "ticket_partition", maximum: 6 });
+    await expect(
+      application.replyToCustomerTicket(
+        access("customer-1", allCustomerPermissions),
+        {
+          commandId: "customer-reply-over",
+          correlationId: "c",
+          ticketId: "ticket-1",
+          messageId: "customer-over",
+          body: "Should not fit.",
+        },
+      ),
+    ).rejects.toMatchObject({ field: "ticket_partition", maximum: 6 });
+    await expect(
+      application.readTicketAuditHistory(staff, "ticket-1"),
+    ).resolves.toHaveLength(1);
+  });
+
+  it("commits assignment notifications with the assignment change", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-27T12:05:00.000Z",
+      ),
+    });
+    await seedCustomerTicket(application);
+    const staff = access("staff-1", allStaffPermissions);
+    const assigned = await application.assignTicket(staff, {
+      commandId: "assign-notify",
+      correlationId: "c-assign",
+      ticketId: "ticket-1",
+      assigneeId: "staff-2",
+      messageId: "assign-msg",
+      body: "Assigned to staff-2.",
+      notification: {
+        id: "notify-assigned",
+        recipientRef: "staff-2",
+        templateId: "staff.assigned",
+        templateVersion: 1,
+        variables: { assignee: "staff-2" },
+        subject: "Ticket assigned",
+        outboundMessageId: "<assign@example.test>",
+      },
+    });
+    expect(assigned.ticket.assignedTo).toBe("staff-2");
+    expect(assigned.ticket.status).toBe("open");
+    expect(
+      assigned.messages.some(
+        (message) =>
+          message.id === "assign-msg" && message.visibility === "internal",
+      ),
+    ).toBe(true);
+    const deliveries = (
+      await store.collection(supportRecords).list("ticket-1")
+    ).filter((record) => record.kind === "delivery_job");
+    expect(deliveries).toHaveLength(1);
+  });
+
+  it("does not leak partition limits for foreign ticket IDs", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      limits: { maxRecordsPerTicket: 6 },
+    });
+    await seedCustomerTicket(application, "ticket-1", "customer-1");
+    // At capacity; foreign principal must still see not-found, not limit.
+    await expect(
+      application.readCustomerTicket(
+        access("other-customer", allCustomerPermissions),
+        "ticket-1",
+      ),
+    ).rejects.toBeInstanceOf(SupportDeskNotFoundError);
+  });
+
+  it("rejects creates that cannot fit in the partition budget", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      limits: { maxRecordsPerTicket: 5 },
+    });
+    await expect(
+      application.createCustomerTicket(
+        access("customer-1", allCustomerPermissions),
+        {
+          commandId: "create-over",
+          correlationId: "c",
+          ticketId: "ticket-over",
+          messageId: "msg-over",
+          subject: "Too many rows",
+          body: "Create needs six physical rows.",
+        },
+      ),
+    ).rejects.toMatchObject({ field: "ticket_partition", maximum: 5 });
+  });
+
+  it("does not let assignment or notes leak into customer DTOs or timestamps", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: sequenceClock(
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-27T12:10:00.000Z",
+        "2026-07-27T12:20:00.000Z",
+        "2026-07-27T12:30:00.000Z",
+      ),
+    });
+    await seedCustomerTicket(application);
+    const staff = access("staff-1", allStaffPermissions);
+    await application.addNote(staff, {
+      commandId: "note-1",
+      correlationId: "c1",
+      ticketId: "ticket-1",
+      messageId: "n1",
+      body: "Secret note content.",
+    });
+    await application.assignTicket(staff, {
+      commandId: "assign-1",
+      correlationId: "c2",
+      ticketId: "ticket-1",
+      assigneeId: "staff-1",
+    });
+    await application.changePriority(staff, {
+      commandId: "priority-1",
+      correlationId: "c3",
+      ticketId: "ticket-1",
+      priority: "high",
+    });
+
+    const customer = await application.readCustomerTicket(
+      access("customer-1", allCustomerPermissions),
+      "ticket-1",
+    );
+    expect(customer.ticket.customerUpdatedAt).toBe("2026-07-27T12:00:00.000Z");
+    expect(JSON.stringify(customer)).not.toContain("Secret note content.");
+    expect(JSON.stringify(customer)).not.toContain("assignedTo");
+    expect(JSON.stringify(customer)).not.toContain("priority");
+    expect(JSON.stringify(customer)).not.toContain("staff-1");
+    expect(JSON.stringify(customer)).not.toContain("revision");
   });
 });
