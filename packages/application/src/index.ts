@@ -1376,16 +1376,6 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(command.correlationId, "correlationId");
       enforceLimit(command.subject, "subject", limits.maxSubjectCharacters);
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
-      if (command.category !== undefined) {
-        if (
-          allowedCategories === undefined ||
-          !allowedCategories.has(command.category)
-        ) {
-          throw new TypeError(
-            "create command.category is not configured for this Support Desk instance",
-          );
-        }
-      }
       const fingerprint = await requestFingerprint({
         type: "create_customer_ticket",
         ticketId: command.ticketId,
@@ -1397,6 +1387,31 @@ export function createSupportDeskApplication(options: {
         requesterEmail: command.requesterEmail ?? null,
         notification: stableNotification(command.notification),
       });
+      // Replay an already committed create before host allowlist checks so a
+      // later config change cannot break idempotent retries of the same command.
+      const existingCreate = await records.get(
+        commandKey(command.ticketId, command.commandId),
+      );
+      if (
+        duplicateMatches(
+          existingCreate,
+          "create_customer_ticket",
+          command.messageId,
+          fingerprint,
+        )
+      ) {
+        return authoritativeView(records, access.principalId, command.ticketId);
+      }
+      if (command.category !== undefined) {
+        if (
+          allowedCategories === undefined ||
+          !allowedCategories.has(command.category)
+        ) {
+          throw new TypeError(
+            "create command.category is not configured for this Support Desk instance",
+          );
+        }
+      }
 
       const now = clock.now();
       const ticket = createTicket({

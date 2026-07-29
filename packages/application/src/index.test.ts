@@ -610,6 +610,49 @@ describe("customer application services", () => {
     ).rejects.toBeInstanceOf(SupportDeskConflictError);
   });
 
+  it("replays a committed create after the category is removed from the allowlist", async () => {
+    const store = createMemoryStore();
+    const caller = access("customer-1", allCustomerPermissions);
+    const command = {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      ticketNumber: 1,
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+      category: "feedback",
+    };
+    const first = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      allowedCategories: ["feedback"],
+    });
+    const created = await first.createCustomerTicket(caller, command);
+
+    const afterConfigChange = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+      allowedCategories: ["bug"],
+    });
+    const replayed = await afterConfigChange.createCustomerTicket(
+      caller,
+      command,
+    );
+    expect(replayed.ticket).toEqual(created.ticket);
+    expect(replayed.messages).toEqual(created.messages);
+
+    await expect(
+      afterConfigChange.createCustomerTicket(caller, {
+        ...command,
+        commandId: "command-2",
+        ticketId: "ticket-2",
+        messageId: "message-2",
+        ticketNumber: 2,
+      }),
+    ).rejects.toThrow(/category is not configured/);
+  });
+
   it("does not let category change authorization or initial priority", async () => {
     const store = createMemoryStore();
     const application = createSupportDeskApplication({
