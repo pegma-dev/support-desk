@@ -986,6 +986,33 @@ function deliveryContent(
       };
 }
 
+function bindNotificationTicketNumber(
+  input: NotificationInput,
+  ticketNumber: number,
+): NotificationInput {
+  const ticketNumberText = String(ticketNumber);
+  const names = Object.keys(input.variables);
+  if (
+    !Object.hasOwn(input.variables, "ticket_number") &&
+    names.length >= maxNotificationVariables
+  ) {
+    throw new TypeError(
+      `notification.variables may contain at most ${maxNotificationVariables} values`,
+    );
+  }
+  const variables: Record<string, string> = {
+    ...input.variables,
+    ticket_number: ticketNumberText,
+  };
+  // Re-validate the final map so injection cannot exceed count/byte limits.
+  const frozenVariables = snapshotNotificationVariables(variables);
+  return Object.freeze({
+    ...input,
+    subject: input.subject.replaceAll("{{ticket_number}}", ticketNumberText),
+    variables: frozenVariables,
+  });
+}
+
 function toCustomerMessage(message: TicketMessage): CustomerMessage {
   return Object.freeze({
     id: message.id,
@@ -1426,8 +1453,8 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(command.correlationId, "correlationId");
       enforceLimit(command.subject, "subject", limits.maxSubjectCharacters);
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
-      const fingerprint = await requestFingerprint({
-        type: "create_customer_ticket",
+      const fingerprintPayload = {
+        type: "create_customer_ticket" as const,
         ticketId: command.ticketId,
         messageId: command.messageId,
         subject: command.subject,
@@ -1438,21 +1465,42 @@ export function createSupportDeskApplication(options: {
           : { category: command.category }),
         requesterEmail: command.requesterEmail ?? null,
         notification: stableNotification(command.notification),
-      });
+      };
+      const fingerprint = await requestFingerprint(fingerprintPayload);
       // Replay an already committed create before host allowlist checks so a
       // later config change cannot break idempotent retries of the same command.
       // Replay never reserves another instance ticket number.
       const existingCreate = await records.get(
         commandKey(command.ticketId, command.commandId),
       );
+      let createIsReplay = duplicateMatches(
+        existingCreate,
+        "create_customer_ticket",
+        command.messageId,
+        fingerprint,
+      );
       if (
-        duplicateMatches(
-          existingCreate,
-          "create_customer_ticket",
-          command.messageId,
-          fingerprint,
-        )
+        !createIsReplay &&
+        existingCreate?.kind === "command" &&
+        existingCreate.commandType === "create_customer_ticket" &&
+        existingCreate.messageId === command.messageId
       ) {
+        // Pre-Task-3 receipts included ticketNumber in the fingerprint.
+        const existingTicket = await records.get(ticketKey(command.ticketId));
+        if (existingTicket?.kind === "ticket") {
+          const legacyFingerprint = await requestFingerprint({
+            ...fingerprintPayload,
+            ticketNumber: existingTicket.ticket.number,
+          });
+          createIsReplay = duplicateMatches(
+            existingCreate,
+            "create_customer_ticket",
+            command.messageId,
+            legacyFingerprint,
+          );
+        }
+      }
+      if (createIsReplay) {
         // A crash after ticket commit and before index confirmation must still
         // converge the principal hint on retry.
         const fence = await records.get(ticketReservationKey(command.ticketId));
@@ -1487,17 +1535,7 @@ export function createSupportDeskApplication(options: {
       const notification =
         command.notification === undefined
           ? undefined
-          : Object.freeze({
-              ...command.notification,
-              subject: command.notification.subject.replaceAll(
-                "{{ticket_number}}",
-                String(ticketNumber),
-              ),
-              variables: Object.freeze({
-                ...command.notification.variables,
-                ticket_number: String(ticketNumber),
-              }),
-            });
+          : bindNotificationTicketNumber(command.notification, ticketNumber);
       const now = clock.now();
       const ticket = createTicket({
         id: command.ticketId,

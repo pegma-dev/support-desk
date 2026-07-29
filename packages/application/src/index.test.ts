@@ -748,6 +748,70 @@ describe("customer application services", () => {
     expect(counterAfterReplay?.lastIssued).toBe(7);
   });
 
+  it("replays creates committed with legacy ticketNumber fingerprints", async () => {
+    const store = createMemoryStore();
+    const application = createSupportDeskApplication({
+      store,
+      clock: fixedClock("2026-07-27T12:00:00.000Z"),
+    });
+    const caller = access("customer-1", allCustomerPermissions);
+    const command = {
+      commandId: "command-1",
+      correlationId: "correlation-1",
+      ticketId: "ticket-1",
+      messageId: "message-1",
+      subject: "Question",
+      body: "Please help.",
+    };
+    const created = await application.createCustomerTicket(caller, command);
+    const records = store.collection(supportRecords);
+    const legacyFingerprint = await crypto.subtle
+      .digest(
+        "SHA-256",
+        new TextEncoder().encode(
+          JSON.stringify({
+            type: "create_customer_ticket",
+            ticketId: command.ticketId,
+            messageId: command.messageId,
+            subject: command.subject,
+            body: command.body,
+            requesterEmail: null,
+            notification: null,
+            ticketNumber: created.ticket.number,
+          }),
+        ),
+      )
+      .then((digest) =>
+        [...new Uint8Array(digest)]
+          .map((byte) => byte.toString(16).padStart(2, "0"))
+          .join(""),
+      );
+    const receipt = await records.get({
+      partition: "ticket-1",
+      id: "command:command-1",
+    });
+    if (receipt?.kind === "command") {
+      await records.update(
+        { partition: "ticket-1", id: "command:command-1" },
+        () => ({
+          action: "write",
+          value: { ...receipt, requestFingerprint: legacyFingerprint },
+        }),
+      );
+    }
+    const before = await store.collection(ticketNumbers).get({
+      partition: ticketNumberPartition,
+      id: ticketNumberRecordId,
+    });
+    const replayed = await application.createCustomerTicket(caller, command);
+    expect(replayed.ticket.number).toBe(created.ticket.number);
+    const after = await store.collection(ticketNumbers).get({
+      partition: ticketNumberPartition,
+      id: ticketNumberRecordId,
+    });
+    expect(after?.lastIssued).toBe(before?.lastIssued);
+  });
+
   it("fails closed when the ticket number sequence is exhausted", async () => {
     const store = createMemoryStore();
     await store.collection(ticketNumbers).insertIfAbsent({
@@ -2766,8 +2830,9 @@ describe("customer application services", () => {
         recipientRef: "support",
         templateId: "staff.new-ticket",
         templateVersion: 1,
-        variables: { body: "y".repeat(8_192) },
-        subject: "[Ticket #1] Question",
+        // Leave one byte so reserved ticket_number can be injected.
+        variables: { body: "y".repeat(8_191) },
+        subject: "[Ticket #{{ticket_number}}] Question",
         outboundMessageId: "<support.notify@example.test>",
       },
     });
