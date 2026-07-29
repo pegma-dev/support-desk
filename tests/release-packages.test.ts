@@ -102,9 +102,13 @@ describe("release package metadata", () => {
 
   it("npm pack --dry-run publishes only reviewed dist and package files", () => {
     for (const definition of RELEASE_PACKAGES) {
+      // Prefer workspace selection so npm never treats a relative path as a
+      // remote package name (CI resolved `packages/contracts` as
+      // ssh://git@github.com/packages/contracts.git).
       const stdout = runNpm([
         "pack",
-        join("packages", definition.directory),
+        "--workspace",
+        definition.name,
         "--dry-run",
         "--json",
       ]);
