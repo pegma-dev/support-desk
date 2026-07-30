@@ -57,9 +57,9 @@ Before advertising `@pegma/support-desk-*` `0.1.0` for host consumption:
 - [x] documented error categories for host HTTP mapping;
 - [x] documented host-owned worker and sweep schedules;
 - [x] private vulnerability reporting path in this file;
-- [ ] packages visible on the public npm registry at exact `0.1.0`;
-- [ ] trusted publishers configured for each package after first publish;
-- [ ] signed annotated `v0.1.0` tag at the release commit.
+- [x] packages visible on the public npm registry at exact `0.1.0`;
+- [x] trusted publishers configured for each package after first publish;
+- [x] signed annotated `v0.1.0` tag at the release commit.
 
 Production data readiness (retention, export, redaction, threat model) remains
 Buildout Task 12 and is intentionally outside this first package set.

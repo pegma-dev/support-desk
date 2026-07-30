@@ -2,10 +2,11 @@
 
 ## 0.1.0 — first advertised supported release
 
-Status: prepared as the host-neutral release candidate. Packages are versioned
-at exact `0.1.0` and must be published before either launch host depends on
-them. Until publication completes, hosts must not use a Git branch, copied
-source, local path, or unpublished tarball as a production dependency.
+Status: published. All four packages are on the public npm registry at exact
+`0.1.0`, and the signed annotated `v0.1.0` tag and its GitHub release mark
+the release commit. Hosts may depend on the published packages; a Git branch,
+copied source, local path, or unpublished tarball remains forbidden as a
+production dependency.
 
 ### Packages
 
