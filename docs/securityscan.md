@@ -83,11 +83,12 @@ Excluded:
 ## Findings
 
 ### [LOW] Vulnerable transitive dependencies via dev-only Azurite test emulator
+
 - **Location:** `package.json:31` (`"azurite": "^3.36.0"` devDependency); audit
   chains: `azurite → applicationinsights → @opentelemetry/core <2.8.0`
   (GHSA-8988-4f7v-96qf, moderate), `azurite → rimraf → glob → minimatch →
-  brace-expansion <=5.0.7` (GHSA-mh99-v99m-4gvg, high DoS), `azurite →
-  sequelize/@azure/ms-rest-js → uuid <11.1.1` (GHSA-w5hq-g745-h8pq, moderate).
+brace-expansion <=5.0.7` (GHSA-mh99-v99m-4gvg, high DoS), `azurite →
+sequelize/@azure/ms-rest-js → uuid <11.1.1` (GHSA-w5hq-g745-h8pq, moderate).
 - **Evidence:** `npm audit` reports "12 vulnerabilities (7 moderate, 5 high)";
   every chain terminates at `node_modules/azurite`.
 - **Exploitability:** none in shipped artifacts. Published packages ship only
@@ -102,13 +103,29 @@ Excluded:
   (`npm audit fix --force` currently downgrades azurite to 3.33.0 and is
   breaking — do not apply blindly). Keep Dependabot monthly grouping as-is;
   re-run `npm audit` on each dependency bump. No runtime/host action needed.
+- ⚠️ Disputed 2026-07-29 — not a valid finding: every chain is dev-only,
+  individually unreachable, and has no available remediation. No published
+  package depends on `azurite` (checked all four `packages/*/package.json`), so
+  none of this reaches a shipped artifact. Per advisory: GHSA-w5hq-g745-h8pq
+  affects `uuid` `v3`/`v5`/`v6` with a caller-supplied `buf`, but
+  `@azure/ms-rest-js` and `sequelize` call `v4` only; GHSA-8988-4f7v-96qf needs
+  W3C Baggage extraction and nothing in the tree instantiates
+  `W3CBaggagePropagator`; GHSA-mh99-v99m-4gvg is reached only via
+  `rimrafAsync(this.lokiDBPath)` against the harness-created temp workspace,
+  never an attacker-supplied brace pattern. There is also no fix to apply.
+  `azurite@3.36.0` is already the newest published release. Running
+  `npm audit fix --force` moves _backwards_ to `3.33.0`. Pinning the patched
+  `brace-expansion@5.0.8` through `overrides` breaks `minimatch@3.1.5` with
+  `expand is not a function`, because 5.x exports `{ expand }` instead of a
+  callable module. Tracking guidance in **Fix** above stays correct; no code
+  change is warranted.
 
 ## Phase 3 — Summary
 
 ### Severity counts
 
 | Critical | High | Medium | Low |
-|----------|------|--------|-----|
+| -------- | ---- | ------ | --- |
 | 0        | 0    | 0      | 1   |
 
 ### Per-layer status
@@ -167,7 +184,7 @@ Excluded:
    implemented.
 3. **`@pegma/*` sibling packages** (`storage-core`, `authorization-core`,
    `spine`, `mail`, `audit`) are separate repositories and out of scope; each
-   needs its own scan. This review verified only how support-desk *uses*
+   needs its own scan. This review verified only how support-desk _uses_
    their ports.
 4. **`pruneCustomerTicketIndex` async decider**
    (`packages/application/src/index.ts:4839`): the `update` decider performs
