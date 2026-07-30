@@ -1,6 +1,6 @@
 {
   "name": "@pegma/support-desk-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Pure ticket creation and workflow transitions for Support Desk.",
   "license": "MIT",
   "type": "module",
@@ -29,7 +29,7 @@
     "directory": "packages/core"
   },
   "dependencies": {
-    "@pegma/support-desk-contracts": "0.1.0"
+    "@pegma/support-desk-contracts": "0.1.1"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

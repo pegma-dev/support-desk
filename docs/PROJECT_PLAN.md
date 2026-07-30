@@ -7,8 +7,11 @@ mutation services (Buildout Task 4), the staff queue repairable projection
 (Buildout Task 5), the host-neutral release candidate (Buildout Task 6), and
 the source portion of Phase 6 are implemented. Buildout Tasks 1–6 are
 complete; the exact `0.1.0` package set was published to the public npm
-registry on 2026-07-29 and released as the signed `v0.1.0` tag. Host
-deployments (Buildout Tasks 7–8) are unblocked.
+registry on 2026-07-29 and released as the signed `v0.1.0` tag. The `0.1.1`
+set is prepared, aligning `@pegma/audit` at `0.2.0`, `@pegma/authorization-core`
+at `0.2.0`, and `@pegma/mail` at `0.1.1` so the dependency tree resolves a
+single `@pegma/storage-core@0.4.0`. Host deployments (Buildout Tasks 7–8) are
+unblocked.
 
 **Initial reference applications:** retiregolden.org for paid customer support
 on Azure, and pegma.dev for authenticated product feedback on Cloudflare. The
