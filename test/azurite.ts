@@ -64,6 +64,7 @@ export async function setup(): Promise<void> {
       "127.0.0.1",
       "--tablePort",
       String(TABLE_PORT),
+      "--disableTelemetry",
     ],
     { stdio: "ignore" },
   );
