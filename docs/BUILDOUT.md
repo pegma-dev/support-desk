@@ -381,10 +381,11 @@ server-side query, or using the projection as permission/ownership evidence.
 
 ### Task 6 — close the host-neutral release candidate
 
-**Status (Task 6):** Source complete in this repository: public composition
-tests, host composition docs, release pack lane, and exact `0.1.0` package
-versions. Registry publication and trusted-publisher configuration remain the
-activation steps in `docs/RELEASING.md` before Tasks 7–8.
+**Status (Task 6):** Complete. Source shipped public composition tests, host
+composition docs, the release pack lane, and exact `0.1.0` package versions.
+The `0.1.0` set is published, trusted publishing is configured, and the
+signed `v0.1.0` tag and release exist (see `docs/RELEASING.md`). Tasks 7–8
+are unblocked.
 
 **Goal:** Produce a package release candidate that hosts can compose without
 depending on unpublished filesystem paths.

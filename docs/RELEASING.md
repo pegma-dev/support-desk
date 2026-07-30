@@ -60,15 +60,20 @@ from tarballs prepared with `npm run release:pack -- -- --require-clean` at
 the `0.1.0` release-candidate commit (`6f1d539`).
 
 The signed annotated tag `v0.1.0` and its GitHub release were then created at
-that same commit. The resulting publish workflow run completed the loop: it
-verified the tag signature, ran the complete gate, confirmed every registry
-tarball's `dist.integrity` matched the freshly prepared tarballs, and skipped
-re-publishing all four packages. This proved the OIDC path end to end.
+that same commit. The resulting publish workflow run verified the tag
+signature against the approved signers, ran the complete gate, confirmed
+every registry tarball's `dist.integrity` matched the freshly prepared
+tarballs, and skipped re-publishing all four packages. That run exercised
+signed-tag verification, the gate, artifact preparation, integrity
+comparison, and the skip-on-identical-integrity path. It did not perform a
+live trusted-publisher publication: the first OIDC `npm publish` with
+provenance remains unexercised until the next version ships through the
+workflow.
 
-No manual `npm publish` is ever needed again. If a future brand-new package
-name is added to the set, bootstrap only that package the same way: one
-manual 2FA publish of the prepared tarball, then configure trusted publishing
-for it before the next tagged release.
+No further manual `npm publish` is needed for the existing four package
+names. Only a brand-new package name added to the set requires a bootstrap:
+one manual 2FA publish of the prepared tarball, then configure trusted
+publishing for it before the next tagged release.
 
 ## OIDC releases (`0.1.1` and beyond)
 
