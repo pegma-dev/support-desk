@@ -1,5 +1,16 @@
 # Release notes
 
+## 0.1.1 — dependency alignment
+
+A dependency-only release of the synchronized four-package set.
+`@pegma/support-desk-application` advances `@pegma/audit` to `0.2.0`,
+`@pegma/authorization-core` to `0.2.0`, and `@pegma/mail` to `0.1.1`, so the
+dependency tree resolves a single `@pegma/storage-core@0.4.0` — previously
+audit's transitive `storage-core@0.3.0` split hosts' trees into two
+incompatible `Store` types. The application package already required a
+storage-core `0.4.0` `Store`; runtime behavior and the public API of all four
+packages are unchanged.
+
 ## 0.1.0 — first advertised supported release
 
 Status: published. All four packages are on the public npm registry at exact

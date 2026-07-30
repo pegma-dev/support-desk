@@ -1,6 +1,6 @@
 {
   "name": "@pegma/support-desk-templates",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Safe, versioned notification templates for Support Desk.",
   "license": "MIT",
   "type": "module",
