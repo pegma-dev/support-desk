@@ -112,9 +112,9 @@ sequelize/@azure/ms-rest-js → uuid <11.1.1` (GHSA-w5hq-g745-h8pq, moderate).
   W3C Baggage extraction and nothing in the tree instantiates
   `W3CBaggagePropagator`; GHSA-mh99-v99m-4gvg is reached only via
   `rimrafAsync(this.lokiDBPath)` against the harness-created temp workspace,
-  never an attacker-supplied brace pattern. Nor is there a fix to apply:
-  `azurite@3.36.0` is already the newest published release, `npm audit fix
---force` moves _backwards_ to `3.33.0`, and pinning the patched
+  never an attacker-supplied brace pattern. There is also no fix to apply.
+  `azurite@3.36.0` is already the newest published release. Running
+  `npm audit fix --force` moves _backwards_ to `3.33.0`. Pinning the patched
   `brace-expansion@5.0.8` through `overrides` breaks `minimatch@3.1.5` with
   `expand is not a function`, because 5.x exports `{ expand }` instead of a
   callable module. Tracking guidance in **Fix** above stays correct; no code
