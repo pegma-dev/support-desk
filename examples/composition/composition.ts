@@ -2,11 +2,15 @@
  * Host-neutral Support Desk composition example.
  *
  * NON-PRODUCTION: uses an in-memory Store, synthetic AccessContext values, a
- * fixed Clock, a fake mail provider, and process-local worker cursor stubs.
- * There is no HTTP framework, no session cookie, and no real provider SDK.
+ * fixed Clock, a fake mail provider, and @pegma/scheduler for the five direct
+ * host loops. There is no HTTP framework, no session cookie, and no real
+ * provider SDK.
  *
  * Hosts replace the Store, AccessContext resolution, Clock, mail provider,
- * and durable cursor persistence with production wiring.
+ * and host wakeup (Cron, Timer, queue) with production wiring. Scheduler
+ * checkpoints replace process-local cursors for the five registered loops.
+ * Receipt and principal sweeps stay host-selected and outside the static
+ * task registry.
  */
 import type { AccessContext } from "@pegma/authorization-core";
 import type {
@@ -14,7 +18,18 @@ import type {
   MailReconciliationPort,
   MailWorker,
 } from "@pegma/mail";
-import { fixedClock, type Clock, type IsoTimestamp } from "@pegma/spine";
+import {
+  createScheduler,
+  defineScheduledTasks,
+  type Scheduler,
+  type SchedulerRunResult,
+} from "@pegma/scheduler";
+import {
+  fixedClock,
+  noopLogger,
+  type Clock,
+  type IsoTimestamp,
+} from "@pegma/spine";
 import { createMemoryStore, type Store } from "@pegma/storage-core";
 import {
   createSupportDeskApplication,
@@ -89,26 +104,24 @@ export const customerReplyTemplate = defineTemplate({
   html: '<p>Support replied to ticket #{{ticket_number}}.</p><p>{{message_body}}</p><p><a href="{{ticket_url}}">Open ticket</a></p>',
 });
 
-/**
- * Process-local cursor store that models host-owned worker cursor persistence.
- * A production host must keep one durable key per loop and never share cursors
- * across loops or Support Desk instances.
- */
-export class MemoryCursorStore {
-  readonly #cursors = new Map<string, string | null>();
-
-  get(loop: string): string | null | undefined {
-    return this.#cursors.get(loop);
-  }
-
-  /**
-   * Persist only after a complete page succeeds. Passing `null` ends a cycle;
-   * the next invocation should start without a cursor.
-   */
-  set(loop: string, cursor: string | null): void {
-    this.#cursors.set(loop, cursor);
-  }
-}
+/** Static task ids for the five direct host loops (not receipt/principal sweeps). */
+export type SupportDeskScheduledTasks = {
+  "mail.send": (
+    context: import("@pegma/scheduler").ScheduledTaskContext,
+  ) => Promise<import("@pegma/scheduler").ScheduledTaskResult>;
+  "mail.reconcile": (
+    context: import("@pegma/scheduler").ScheduledTaskContext,
+  ) => Promise<import("@pegma/scheduler").ScheduledTaskResult>;
+  "mail.terminal-sweep": (
+    context: import("@pegma/scheduler").ScheduledTaskContext,
+  ) => Promise<import("@pegma/scheduler").ScheduledTaskResult>;
+  "queue.repair": (
+    context: import("@pegma/scheduler").ScheduledTaskContext,
+  ) => Promise<import("@pegma/scheduler").ScheduledTaskResult>;
+  "queue.inactive-sweep": (
+    context: import("@pegma/scheduler").ScheduledTaskContext,
+  ) => Promise<import("@pegma/scheduler").ScheduledTaskResult>;
+};
 
 export interface ExampleCompositionOptions {
   readonly store?: Store;
@@ -116,13 +129,15 @@ export interface ExampleCompositionOptions {
   readonly terminalRetentionMilliseconds?: number;
   readonly mailProvider?: MailProvider;
   readonly reconciliation?: MailReconciliationPort;
+  readonly instanceId?: string;
+  readonly workerId?: string;
 }
 
 export interface ExampleComposition {
   readonly store: Store;
   readonly clock: Clock;
   readonly application: SupportDeskApplication;
-  readonly cursors: MemoryCursorStore;
+  readonly scheduler: Scheduler<SupportDeskScheduledTasks>;
   readonly terminalRetentionMilliseconds: number;
   readonly sent: ReadonlyArray<Readonly<Record<string, unknown>>>;
   createMailWorker(workerId?: string): MailWorker;
@@ -130,10 +145,12 @@ export interface ExampleComposition {
     readonly examined: number;
     readonly accepted: number;
     readonly nextCursor: string | null;
+    readonly run: SchedulerRunResult;
   }>;
   runMailReconciliationPage(limit?: number): Promise<{
     readonly examined: number;
     readonly nextCursor: string | null;
+    readonly run: SchedulerRunResult;
   }>;
   runMailTerminalSweep(
     terminalBefore: IsoTimestamp,
@@ -141,16 +158,19 @@ export interface ExampleComposition {
   ): Promise<{
     readonly deleted: number;
     readonly nextCursor: string | null;
+    readonly run: SchedulerRunResult;
   }>;
   runQueueRepairPage(limit?: number): Promise<{
     readonly projected: number;
     readonly physicalRows: number;
     readonly nextCursor: string | null;
+    readonly run: SchedulerRunResult;
   }>;
   runQueueInactiveSweep(limit?: number): Promise<{
     readonly deleted: number;
     readonly physicalRows: number;
     readonly nextCursor: string | null;
+    readonly run: SchedulerRunResult;
   }>;
   runCustomerIndexPrune(
     reservedBefore: IsoTimestamp,
@@ -184,6 +204,22 @@ function resolveTemplate(templateId: string, templateVersion: number) {
   return null;
 }
 
+function requireSucceeded(
+  taskId: string,
+  run: SchedulerRunResult,
+): Extract<SchedulerRunResult, { outcome: "succeeded" }> {
+  if (run.outcome !== "succeeded") {
+    const detail =
+      run.outcome === "failed"
+        ? run.failureCategory
+        : run.outcome === "skipped"
+          ? run.reason
+          : run.outcome;
+    throw new Error(`${taskId} did not succeed: ${detail}`);
+  }
+  return run;
+}
+
 export function createExampleComposition(
   options: ExampleCompositionOptions = {},
 ): ExampleComposition {
@@ -192,8 +228,18 @@ export function createExampleComposition(
   const terminalRetentionMilliseconds =
     options.terminalRetentionMilliseconds ??
     defaultQueueTerminalRetentionMilliseconds;
-  const cursors = new MemoryCursorStore();
   const sent: Record<string, unknown>[] = [];
+
+  // Host-selected page parameters for the next manual run. Handlers close over
+  // this bag so static task registration stays parameter-free at the registry.
+  const pageOptions: {
+    limit: number;
+    terminalBefore: IsoTimestamp;
+  } = {
+    limit: 50,
+    terminalBefore: "1970-01-01T00:00:00.000Z",
+  };
+  let manualSeq = 0;
 
   const application = createSupportDeskApplication({
     store,
@@ -265,83 +311,177 @@ export function createExampleComposition(
     });
   };
 
-  const withCursor = async <T extends { nextCursor: string | null }>(
-    loop: string,
-    run: (cursor: string | undefined) => Promise<T>,
-  ): Promise<T> => {
-    const stored = cursors.get(loop);
-    const cursor = stored === undefined || stored === null ? undefined : stored;
-    const page = await run(cursor);
-    cursors.set(loop, page.nextCursor);
-    return page;
+  const tasks = defineScheduledTasks({
+    "mail.send": async ({ checkpoint }) => {
+      const worker = createMailWorker();
+      const page = await worker.runSendPage({
+        limit: pageOptions.limit,
+        ...(checkpoint === undefined ? {} : { cursor: checkpoint }),
+      });
+      return {
+        nextCheckpoint: page.nextCursor,
+        summary: {
+          examined: page.examined,
+          accepted: page.results.filter(
+            (result) => result.status === "accepted",
+          ).length,
+        },
+        more: page.nextCursor !== null,
+      };
+    },
+    "mail.reconcile": async ({ checkpoint }) => {
+      const worker = createMailWorker();
+      const page = await worker.runReconciliationPage({
+        limit: pageOptions.limit,
+        ...(checkpoint === undefined ? {} : { cursor: checkpoint }),
+      });
+      return {
+        nextCheckpoint: page.nextCursor,
+        summary: { examined: page.examined },
+        more: page.nextCursor !== null,
+      };
+    },
+    "mail.terminal-sweep": async ({ checkpoint }) => {
+      const page = await supportMail.sweep(store.collection(supportRecords), {
+        terminalBefore: pageOptions.terminalBefore,
+        limit: pageOptions.limit,
+        ...(checkpoint === undefined ? {} : { cursor: checkpoint }),
+      });
+      return {
+        nextCheckpoint: page.nextCursor,
+        summary: { deleted: page.deleted },
+        more: page.nextCursor !== null,
+      };
+    },
+    "queue.repair": async ({ checkpoint }) => {
+      const page = await repairQueueProjectionPage({
+        store,
+        clock,
+        terminalRetentionMilliseconds,
+        limit: pageOptions.limit,
+        ...(checkpoint === undefined ? {} : { cursor: checkpoint }),
+      });
+      return {
+        nextCheckpoint: page.nextCursor,
+        summary: {
+          projected: page.projected,
+          physical_rows: page.physicalRows,
+        },
+        more: page.nextCursor !== null,
+      };
+    },
+    "queue.inactive-sweep": async ({ checkpoint }) => {
+      const page = await sweepInactiveQueueProjections({
+        store,
+        clock,
+        terminalRetentionMilliseconds,
+        limit: pageOptions.limit,
+        ...(checkpoint === undefined ? {} : { cursor: checkpoint }),
+      });
+      return {
+        nextCheckpoint: page.nextCursor,
+        summary: {
+          deleted: page.deleted,
+          physical_rows: page.physicalRows,
+        },
+        more: page.nextCursor !== null,
+      };
+    },
+  });
+
+  const scheduler = createScheduler({
+    store,
+    clock,
+    logger: noopLogger,
+    instanceId: options.instanceId ?? "support-desk-example",
+    workerId: options.workerId ?? "example-worker",
+    tasks,
+    leaseMilliseconds: 30_000,
+    handlerTimeoutMilliseconds: 25_000,
+  });
+
+  const runManualPage = async (
+    taskId: keyof SupportDeskScheduledTasks & string,
+    limit: number,
+    terminalBefore?: IsoTimestamp,
+  ) => {
+    pageOptions.limit = limit;
+    if (terminalBefore !== undefined) {
+      pageOptions.terminalBefore = terminalBefore;
+    }
+    manualSeq += 1;
+    return scheduler.runManual(taskId, {
+      invocationId: `manual:${taskId}:${String(manualSeq)}`,
+    });
   };
 
   return {
     store,
     clock,
     application,
-    cursors,
+    scheduler,
     terminalRetentionMilliseconds,
     get sent() {
       return sent;
     },
     createMailWorker,
     async runMailSendPage(limit = 50) {
-      const worker = createMailWorker();
-      const page = await withCursor("mail.send", (cursor) =>
-        worker.runSendPage({
-          limit,
-          ...(cursor === undefined ? {} : { cursor }),
-        }),
+      const run = requireSucceeded(
+        "mail.send",
+        await runManualPage("mail.send", limit),
       );
       return {
-        examined: page.examined,
-        accepted: page.results.filter((result) => result.status === "accepted")
-          .length,
-        nextCursor: page.nextCursor,
+        examined: run.result.summary?.examined ?? 0,
+        accepted: run.result.summary?.accepted ?? 0,
+        nextCursor: run.state.checkpoint ?? null,
+        run,
       };
     },
     async runMailReconciliationPage(limit = 50) {
-      const worker = createMailWorker();
-      const page = await withCursor("mail.reconcile", (cursor) =>
-        worker.runReconciliationPage({
-          limit,
-          ...(cursor === undefined ? {} : { cursor }),
-        }),
+      const run = requireSucceeded(
+        "mail.reconcile",
+        await runManualPage("mail.reconcile", limit),
       );
-      return { examined: page.examined, nextCursor: page.nextCursor };
+      return {
+        examined: run.result.summary?.examined ?? 0,
+        nextCursor: run.state.checkpoint ?? null,
+        run,
+      };
     },
     async runMailTerminalSweep(terminalBefore, limit = 50) {
-      const page = await withCursor("mail.terminal-sweep", (cursor) =>
-        supportMail.sweep(store.collection(supportRecords), {
-          terminalBefore,
-          limit,
-          ...(cursor === undefined ? {} : { cursor }),
-        }),
+      const run = requireSucceeded(
+        "mail.terminal-sweep",
+        await runManualPage("mail.terminal-sweep", limit, terminalBefore),
       );
-      return { deleted: page.deleted, nextCursor: page.nextCursor };
+      return {
+        deleted: run.result.summary?.deleted ?? 0,
+        nextCursor: run.state.checkpoint ?? null,
+        run,
+      };
     },
     async runQueueRepairPage(limit = 50) {
-      return withCursor("queue.repair", (cursor) =>
-        repairQueueProjectionPage({
-          store,
-          clock,
-          terminalRetentionMilliseconds,
-          limit,
-          ...(cursor === undefined ? {} : { cursor }),
-        }),
+      const run = requireSucceeded(
+        "queue.repair",
+        await runManualPage("queue.repair", limit),
       );
+      return {
+        projected: run.result.summary?.projected ?? 0,
+        physicalRows: run.result.summary?.physical_rows ?? 0,
+        nextCursor: run.state.checkpoint ?? null,
+        run,
+      };
     },
     async runQueueInactiveSweep(limit = 50) {
-      return withCursor("queue.inactive-sweep", (cursor) =>
-        sweepInactiveQueueProjections({
-          store,
-          clock,
-          terminalRetentionMilliseconds,
-          limit,
-          ...(cursor === undefined ? {} : { cursor }),
-        }),
+      const run = requireSucceeded(
+        "queue.inactive-sweep",
+        await runManualPage("queue.inactive-sweep", limit),
       );
+      return {
+        deleted: run.result.summary?.deleted ?? 0,
+        physicalRows: run.result.summary?.physical_rows ?? 0,
+        nextCursor: run.state.checkpoint ?? null,
+        run,
+      };
     },
     async runCustomerIndexPrune(reservedBefore) {
       return pruneCustomerTicketIndex(store, EXAMPLE_CUSTOMER.principalId, {
@@ -460,7 +600,9 @@ export async function runCompleteExampleFlow(
     ticketId,
   );
 
-  // Host-owned schedulers: mail send and queue repair (cursor stubs persist).
+  // Host-owned scheduler: one bounded mail-send page at a time until the cycle
+  // closes (null checkpoint). The host owns wakeups; this example drives
+  // runManual for the demonstration.
   let mailAccepted = 0;
   let sendCursor: string | null | undefined;
   do {
