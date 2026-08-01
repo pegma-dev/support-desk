@@ -27,8 +27,14 @@ describe("host-neutral public composition", () => {
       "Thanks — we are investigating the export control.",
     ]);
     expect(result.mailSent).toBeGreaterThanOrEqual(1);
-    expect(composition.cursors.get("mail.send")).toBeNull();
-    expect(composition.cursors.get("queue.repair")).toBeNull();
+
+    // Cycle closed: checkpoint cleared after the last successful page.
+    const sendState = await composition.scheduler.getState("mail.send");
+    expect(sendState).not.toBeNull();
+    expect(sendState?.checkpoint).toBeUndefined();
+    const repairState = await composition.scheduler.getState("queue.repair");
+    expect(repairState).not.toBeNull();
+    expect(repairState?.checkpoint).toBeUndefined();
 
     const serialized = JSON.stringify(composition.sent);
     expect(serialized).not.toContain("Internal:");
@@ -72,7 +78,7 @@ describe("host-neutral public composition", () => {
     ).rejects.toBeInstanceOf(SupportDeskAuthorizationError);
   });
 
-  it("keeps independent cursors for mail send and queue repair loops", async () => {
+  it("keeps independent scheduler checkpoints for mail send and queue repair", async () => {
     const composition = createExampleComposition();
     await composition.application.createCustomerTicket(EXAMPLE_CUSTOMER, {
       commandId: "cmd-create-cursor",
@@ -93,12 +99,39 @@ describe("host-neutral public composition", () => {
     });
 
     const send = await composition.runMailSendPage(1);
-    const sendCursorAfterSend = composition.cursors.get("mail.send");
-    expect(sendCursorAfterSend).toBe(send.nextCursor);
-    expect(composition.cursors.get("queue.repair")).toBeUndefined();
+    const sendCheckpoint = send.nextCursor;
+    await expect(
+      composition.scheduler.getState("mail.send"),
+    ).resolves.toMatchObject(
+      sendCheckpoint === null
+        ? { consecutiveFailures: 0 }
+        : { checkpoint: sendCheckpoint },
+    );
+    if (sendCheckpoint === null) {
+      expect(
+        (await composition.scheduler.getState("mail.send"))?.checkpoint,
+      ).toBeUndefined();
+    }
+    await expect(
+      composition.scheduler.getState("queue.repair"),
+    ).resolves.toBeNull();
 
     const repair = await composition.runQueueRepairPage(1);
-    expect(composition.cursors.get("mail.send")).toBe(sendCursorAfterSend);
-    expect(composition.cursors.get("queue.repair")).toBe(repair.nextCursor);
+    await expect(
+      composition.scheduler.getState("mail.send"),
+    ).resolves.toMatchObject(
+      sendCheckpoint === null
+        ? { consecutiveFailures: 0 }
+        : { checkpoint: sendCheckpoint },
+    );
+    if (sendCheckpoint === null) {
+      expect(
+        (await composition.scheduler.getState("mail.send"))?.checkpoint,
+      ).toBeUndefined();
+    }
+    expect(
+      (await composition.scheduler.getState("queue.repair"))?.checkpoint ??
+        null,
+    ).toBe(repair.nextCursor);
   });
 });

@@ -27,6 +27,11 @@ Also require exact peer ecosystem pins used by the application package:
 - `@pegma/audit@0.1.0`
 - `@pegma/mail@0.1.0`
 
+For the five direct host loops, pin the advertised durable coordinator:
+
+- `@pegma/scheduler@0.1.0` (and `@pegma/scheduler-cloudflare@0.1.0` when the
+  host uses Cloudflare Cron Triggers)
+
 Do not depend on a Git branch, copied source, local path, or unpublished
 tarball in a host production install.
 
@@ -77,21 +82,29 @@ typically map it to `409` after the caller was already authorized.
 
 ## Host-owned schedulers
 
-Every loop below is host-scheduled. Persist one opaque cursor per loop after
-each complete page succeeds. Never share a cursor across loops or across
-Support Desk instances. Crash before cursor persistence may repeat a page;
-claims and conditional writes make that safe.
+The host owns wakeups (Cron Trigger, Timer, queue, or operator action). Wire
+the five direct loops through `@pegma/scheduler` at the composition root:
+register static task ids once, map each domain page’s `nextCursor` to
+`nextCheckpoint`, and let the scheduler own leases and durable checkpoints.
+Never share a checkpoint across loops or Support Desk instances. Crash before
+fenced completion may repeat a page; claims and conditional writes make that
+safe. The example composition under `examples/composition` uses
+`createScheduler` + `runManual` for these five tasks.
 
-| Loop                            | Entry point                                                                                     | Cursor                                    | Notes                                                                               |
-| ------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------- |
-| Mail send                       | `supportMail.worker(...).runSendPage`                                                           | host key `mail.send` (name is host-local) | Claims pending jobs and calls the host provider                                     |
-| Mail reconciliation             | `supportMail.worker(...).runReconciliationPage`                                                 | separate from send                        | Resolves ambiguous acceptance                                                       |
-| Mail terminal sweep             | `supportMail.sweep(records, { terminalBefore, cursor, limit })`                                 | separate from send/reconcile              | Deletes acknowledged terminal jobs older than the cutoff                            |
-| Customer-index prune            | `pruneCustomerTicketIndex(store, principalId, { reservedBefore })`                              | optional host bookmark by principal/time  | Drops stale reservations; confirmed ownership is rechecked                          |
-| Inbound receipt sweep           | `sweepInboundReceipts(store, clock, { bucket, processedBefore })`                               | per-bucket host plan                      | Inbound processing is still a later buildout task; the collection and sweeper exist |
-| Delivery-callback receipt sweep | `sweepDeliveryCallbackReceipts(store, clock, { bucket, processedBefore })`                      | per-bucket host plan                      | Retains the 30-day dedupe horizon                                                   |
-| Queue reconciliation / repair   | `repairQueueProjectionPage({ store, clock, terminalRetentionMilliseconds, cursor, limit })`     | host key `queue.repair`                   | Scans authoritative tickets and rewrites projection rows                            |
-| Queue inactive-row sweep        | `sweepInactiveQueueProjections({ store, clock, terminalRetentionMilliseconds, cursor, limit })` | host key `queue.inactive-sweep`           | Conditionally deletes inactive projection rows only after reloading the ticket      |
+Receipt and principal sweeps stay **outside** the static scheduler registry:
+the host selects buckets/principals per invocation and must not invent dynamic
+task ids per bucket.
+
+| Loop                            | Entry point                                                                                     | Coordination                           | Notes                                                                               |
+| ------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------- |
+| Mail send                       | `supportMail.worker(...).runSendPage`                                                           | scheduler task `mail.send`             | Claims pending jobs and calls the host provider                                     |
+| Mail reconciliation             | `supportMail.worker(...).runReconciliationPage`                                                 | scheduler task `mail.reconcile`        | Resolves ambiguous acceptance                                                       |
+| Mail terminal sweep             | `supportMail.sweep(records, { terminalBefore, cursor, limit })`                                 | scheduler task `mail.terminal-sweep`   | Deletes acknowledged terminal jobs older than the cutoff                            |
+| Customer-index prune            | `pruneCustomerTicketIndex(store, principalId, { reservedBefore })`                              | host-selected; not a scheduler task id | Drops stale reservations; confirmed ownership is rechecked                          |
+| Inbound receipt sweep           | `sweepInboundReceipts(store, clock, { bucket, processedBefore })`                               | host-selected per bucket               | Inbound processing is still a later buildout task; the collection and sweeper exist |
+| Delivery-callback receipt sweep | `sweepDeliveryCallbackReceipts(store, clock, { bucket, processedBefore })`                      | host-selected per bucket               | Retains the 30-day dedupe horizon                                                   |
+| Queue reconciliation / repair   | `repairQueueProjectionPage({ store, clock, terminalRetentionMilliseconds, cursor, limit })`     | scheduler task `queue.repair`          | Scans authoritative tickets and rewrites projection rows                            |
+| Queue inactive-row sweep        | `sweepInactiveQueueProjections({ store, clock, terminalRetentionMilliseconds, cursor, limit })` | scheduler task `queue.inactive-sweep`  | Conditionally deletes inactive projection rows only after reloading the ticket      |
 
 Projection, repair, and inactive sweep must share the same
 `terminalRetentionMilliseconds` value configured on the application.
