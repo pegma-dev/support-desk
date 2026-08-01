@@ -28,7 +28,7 @@
     "@pegma/mail": "0.1.1",
     "@pegma/scheduler": "^0.1.0",
     "@pegma/storage-azure-tables": "0.4.0",
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.1.2",
     "azurite": "^3.36.0",
     "prettier": "^3.9.6",
     "typescript": "^7.0.2",
