@@ -1,6 +1,6 @@
 {
   "name": "@pegma/support-desk-application",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Authorized application services, declared collections, and durable outbox records for Support Desk.",
   "license": "MIT",
   "type": "module",
@@ -34,12 +34,12 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@pegma/audit": "0.1.0",
-    "@pegma/authorization-core": "0.1.2",
-    "@pegma/mail": "0.1.0",
+    "@pegma/audit": "0.2.0",
+    "@pegma/authorization-core": "0.2.0",
+    "@pegma/mail": "0.1.1",
     "@pegma/spine": "0.1.1",
     "@pegma/storage-core": "0.4.0",
-    "@pegma/support-desk-contracts": "0.1.0",
-    "@pegma/support-desk-core": "0.1.0"
+    "@pegma/support-desk-contracts": "0.1.1",
+    "@pegma/support-desk-core": "0.1.1"
   }
 }

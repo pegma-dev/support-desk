@@ -53,7 +53,7 @@ describe("release package metadata", () => {
     ]);
   });
 
-  it("ships the first synchronized 0.1.0 package set with exact internal pins", () => {
+  it("ships the synchronized 0.1.1 package set with exact internal pins", () => {
     const manifests = RELEASE_PACKAGES.map(({ directory }) =>
       JSON.parse(
         readFileSync(
@@ -68,19 +68,19 @@ describe("release package metadata", () => {
     }>;
 
     expect(manifests.map(({ name, version }) => ({ name, version }))).toEqual([
-      { name: "@pegma/support-desk-contracts", version: "0.1.0" },
-      { name: "@pegma/support-desk-core", version: "0.1.0" },
-      { name: "@pegma/support-desk-templates", version: "0.1.0" },
-      { name: "@pegma/support-desk-application", version: "0.1.0" },
+      { name: "@pegma/support-desk-contracts", version: "0.1.1" },
+      { name: "@pegma/support-desk-core", version: "0.1.1" },
+      { name: "@pegma/support-desk-templates", version: "0.1.1" },
+      { name: "@pegma/support-desk-application", version: "0.1.1" },
     ]);
     expect(manifests[1]?.dependencies?.["@pegma/support-desk-contracts"]).toBe(
-      "0.1.0",
+      "0.1.1",
     );
     expect(manifests[3]?.dependencies?.["@pegma/support-desk-contracts"]).toBe(
-      "0.1.0",
+      "0.1.1",
     );
     expect(manifests[3]?.dependencies?.["@pegma/support-desk-core"]).toBe(
-      "0.1.0",
+      "0.1.1",
     );
   });
 
