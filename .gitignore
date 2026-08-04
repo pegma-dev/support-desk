@@ -14,3 +14,4 @@ Thumbs.db
 .vscode/
 /.claude/worktrees
 /.grok/dispatch-recon
+/.grok/worktrees
