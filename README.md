@@ -108,6 +108,7 @@ cursors, no framework) lives in
 [examples/composition](examples/composition/README.md):
 
 ```sh
+corepack enable
 pnpm install --frozen-lockfile
 pnpm run example
 ```
@@ -155,6 +156,7 @@ layer written here.
 Support Desk requires Node.js 22 or newer.
 
 ```sh
+corepack enable
 pnpm install --frozen-lockfile
 pnpm run check
 pnpm test

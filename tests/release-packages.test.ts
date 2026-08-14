@@ -7,6 +7,8 @@ import {
   RELEASE_PACKAGES,
   decidePublication,
   parseArguments,
+  parsePnpmLockfileImporters,
+  runNpm as runReleaseNpm,
   validateReleaseTag,
   validateRepository,
 } from "../scripts/release-packages.mjs";
@@ -82,6 +84,78 @@ describe("release package metadata", () => {
 
   it("validates package manifests and the lockfile together", async () => {
     await expect(validateRepository()).resolves.toBeDefined();
+  });
+
+  it("matches each lockfile dependency to its own specifier and resolved version", () => {
+    const importers = parsePnpmLockfileImporters(`importers:
+
+  .:
+    devDependencies:
+      prettier:
+        specifier: ^3.9.6
+        version: 3.9.6
+
+  packages/application:
+    dependencies:
+      '@pegma/spine':
+        specifier: 0.1.1
+        version: 0.1.1
+      '@pegma/support-desk-contracts':
+        specifier: 0.1.1
+        version: link:../contracts
+
+  packages/templates: {}
+
+packages:
+  prettier@3.9.6:
+    resolution: {integrity: sha512-example}
+`);
+    expect(importers["packages/application"]).toEqual({
+      dependencies: {
+        "@pegma/spine": { specifier: "0.1.1", version: "0.1.1" },
+        "@pegma/support-desk-contracts": {
+          specifier: "0.1.1",
+          version: "link:../contracts",
+        },
+      },
+    });
+    expect(importers["packages/templates"]).toEqual({});
+
+    const live = parsePnpmLockfileImporters(
+      readFileSync(join(process.cwd(), "pnpm-lock.yaml"), "utf8"),
+    );
+    expect(
+      live["packages/application"]?.dependencies?.[
+        "@pegma/support-desk-contracts"
+      ],
+    ).toEqual({
+      specifier: "0.1.1",
+      version: "link:../contracts",
+    });
+    expect(
+      live["packages/application"]?.dependencies?.["@pegma/spine"],
+    ).toEqual({
+      specifier: "0.1.1",
+      version: "0.1.1",
+    });
+  });
+
+  it("invokes npm even when npm_execpath points at pnpm", () => {
+    const npmVersion = run(process.platform === "win32" ? "npm.cmd" : "npm", [
+      "--version",
+    ]);
+    const previous = process.env.npm_execpath;
+    process.env.npm_execpath = "/tmp/fake-pnpm.cjs";
+    try {
+      const version = runReleaseNpm(["--version"], { capture: true }).stdout.trim();
+      expect(version).toBe(npmVersion);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.npm_execpath;
+      } else {
+        process.env.npm_execpath = previous;
+      }
+    }
   });
 
   it("requires the release tag to match a public package version", async () => {
@@ -241,7 +315,9 @@ describe("release source authentication", () => {
     // package dependencies in the OIDC job.
     expect(publish).not.toMatch(/\bnpm (?:ci|install)(?! --global)/u);
     expect(publish).toContain("npm install --global npm@11.18.0");
-    expect(publish).toContain("pnpm run release:publish");
+    expect(publish).toContain("node scripts/release-packages.mjs publish");
+    expect(publish).not.toContain("corepack");
+    expect(publish).not.toContain("pnpm");
     expect(workflow).not.toContain("workflow_dispatch");
     expect(workflow).toContain("retention-days: 30");
   });

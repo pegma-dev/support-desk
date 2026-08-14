@@ -87,9 +87,15 @@ function run(command, arguments_, options = {}) {
   return result;
 }
 
-function runNpm(arguments_, options = {}) {
+export function runNpm(arguments_, options = {}) {
+  // Always invoke the npm CLI, never npm_execpath. `pnpm run` sets
+  // npm_execpath to pnpm, and pack / view / the trusted-publishing version
+  // gate / `npm publish --provenance` must stay on reviewed npm.
+  const env = { ...(options.env ?? process.env) };
+  delete env.npm_execpath;
   return run(process.platform === "win32" ? "npm.cmd" : "npm", arguments_, {
     ...options,
+    env,
     shell: process.platform === "win32",
   });
 }
@@ -105,7 +111,18 @@ function runPnpm(arguments_, options = {}) {
   });
 }
 
-function parsePnpmLockImporters(text) {
+function unquoteYamlKey(key) {
+  if (
+    (key.startsWith("'") && key.endsWith("'")) ||
+    (key.startsWith('"') && key.endsWith('"'))
+  ) {
+    return key.slice(1, -1);
+  }
+  return key;
+}
+
+/** Reads pnpm-lock.yaml importers without a YAML dependency. */
+export function parsePnpmLockfileImporters(text) {
   const importers = {};
   let inImporters = false;
   let currentImporter;
@@ -123,7 +140,7 @@ function parsePnpmLockImporters(text) {
     }
     const importerMatch = /^ {2}(\S+):(?: \{\})?$/u.exec(line);
     if (importerMatch) {
-      currentImporter = importerMatch[1];
+      currentImporter = unquoteYamlKey(importerMatch[1]);
       importers[currentImporter] = {};
       currentSection = undefined;
       currentDep = undefined;
@@ -146,17 +163,18 @@ function parsePnpmLockImporters(text) {
       currentSection !== undefined
     ) {
       currentDep = depMatch[1] ?? depMatch[2] ?? depMatch[3];
+      importers[currentImporter][currentSection][currentDep] = {};
       continue;
     }
-    const specifierMatch = /^ {8}specifier: (.+)$/u.exec(line);
+    const fieldMatch = /^ {8}(specifier|version): (.+)$/u.exec(line);
     if (
-      specifierMatch &&
+      fieldMatch &&
       currentImporter !== undefined &&
       currentSection !== undefined &&
       currentDep !== undefined
     ) {
-      importers[currentImporter][currentSection][currentDep] =
-        specifierMatch[1];
+      importers[currentImporter][currentSection][currentDep][fieldMatch[1]] =
+        fieldMatch[2];
     }
   }
   return importers;
@@ -246,11 +264,21 @@ async function validatePackage(root, definition, lockfile) {
   await stat(join(packageDirectory, "LICENSE"));
 
   const lockEntry = lockfile[`packages/${definition.directory}`];
-  if (lockEntry === undefined) {
+  if (lockEntry === undefined || typeof lockEntry !== "object") {
     fail(`${definition.name} is missing from pnpm-lock.yaml`);
   }
   for (const section of DEPENDENCY_SECTIONS) {
     for (const [name, version] of Object.entries(manifest[section] ?? {})) {
+      const lockDependency = lockEntry[section]?.[name];
+      if (
+        lockDependency?.specifier !== version ||
+        typeof lockDependency?.version !== "string" ||
+        lockDependency.version.length === 0
+      ) {
+        fail(
+          `${definition.name} lockfile pin for ${name} must match its own specifier and resolved version`,
+        );
+      }
       if (!RELEASE_NAMES.has(name)) {
         continue;
       }
@@ -260,7 +288,7 @@ async function validatePackage(root, definition, lockfile) {
       );
       if (
         version !== dependencyManifest.version ||
-        lockEntry[section]?.[name] !== version
+        !lockDependency.version.startsWith("link:")
       ) {
         fail(
           `${definition.name} must pin ${name} to its exact workspace version`,
@@ -368,7 +396,7 @@ export async function validateRepository(options = {}) {
   if (!sameJson(actualInventory, expectedInventory)) {
     fail("public workspace inventory does not match the reviewed release list");
   }
-  const lockfile = parsePnpmLockImporters(
+  const lockfile = parsePnpmLockfileImporters(
     await readFile(join(root, "pnpm-lock.yaml"), "utf8"),
   );
   const packages = [];

@@ -23,6 +23,7 @@ or a real mail SDK.
 From the repository root with Node.js 22 or newer:
 
 ```sh
+corepack enable
 pnpm install --frozen-lockfile
 pnpm run example
 ```

@@ -15,6 +15,7 @@ Thank you for helping improve Support Desk.
 Support Desk requires Node.js 22 or newer.
 
 ```sh
+corepack enable
 pnpm install --frozen-lockfile
 pnpm run check
 pnpm test
