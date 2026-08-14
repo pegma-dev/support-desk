@@ -11,15 +11,30 @@ importers:
       '@azure/data-tables':
         specifier: ^13.3.2
         version: 13.3.2
+      '@pegma/authorization-core':
+        specifier: 0.2.0
+        version: 0.2.0
       '@pegma/mail':
         specifier: 0.1.1
         version: 0.1.1
       '@pegma/scheduler':
         specifier: ^0.1.0
         version: 0.1.0
+      '@pegma/spine':
+        specifier: 0.1.1
+        version: 0.1.1
       '@pegma/storage-azure-tables':
         specifier: 0.4.0
         version: 0.4.0
+      '@pegma/storage-core':
+        specifier: 0.4.0
+        version: 0.4.0
+      '@pegma/support-desk-application':
+        specifier: 0.1.1
+        version: link:packages/application
+      '@pegma/support-desk-templates':
+        specifier: 0.1.1
+        version: link:packages/templates
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
