@@ -147,7 +147,9 @@ packages:
     const previous = process.env.npm_execpath;
     process.env.npm_execpath = "/tmp/fake-pnpm.cjs";
     try {
-      const version = runReleaseNpm(["--version"], { capture: true }).stdout.trim();
+      const version = runReleaseNpm(["--version"], {
+        capture: true,
+      }).stdout.trim();
       expect(version).toBe(npmVersion);
     } finally {
       if (previous === undefined) {

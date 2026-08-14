@@ -45,17 +45,16 @@ export interface PnpmLockDependency {
 
 export type PnpmLockImporter = {
   readonly [section: string]:
-    | { readonly [name: string]: PnpmLockDependency }
-    | undefined;
+    { readonly [name: string]: PnpmLockDependency } | undefined;
 };
 
 export function parseArguments(
   arguments_: readonly string[],
 ): ReleaseCommandOptions;
 
-export function parsePnpmLockfileImporters(
-  text: string,
-): { readonly [importer: string]: PnpmLockImporter };
+export function parsePnpmLockfileImporters(text: string): {
+  readonly [importer: string]: PnpmLockImporter;
+};
 
 export function runNpm(
   arguments_: readonly string[],
