@@ -108,8 +108,8 @@ cursors, no framework) lives in
 [examples/composition](examples/composition/README.md):
 
 ```sh
-npm ci
-npm run example
+pnpm install --frozen-lockfile
+pnpm run example
 ```
 
 Host HTTP mapping and scheduler ownership are documented in
@@ -155,10 +155,10 @@ layer written here.
 Support Desk requires Node.js 22 or newer.
 
 ```sh
-npm ci
-npm run check
-npm test
-npm run format:check
+pnpm install --frozen-lockfile
+pnpm run check
+pnpm test
+pnpm run format:check
 ```
 
 ## Documentation

@@ -122,7 +122,7 @@ characters, producing a regex that reads correctly and matches the wrong thing.
 ## Workflow
 
 Work on a `claude/*` branch and open a pull request; `main` is protected by CI.
-The gate is `npm run format:check`, `npm run check`, `npm test` — all three must
+The gate is `pnpm run format:check`, `pnpm run check`, `pnpm test` — all three must
 pass, and CI runs them on Node 22 and 24.
 
 Publishing is trusted-publisher only: no tokens exist. A release is

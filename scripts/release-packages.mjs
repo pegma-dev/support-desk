@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 
 const REPOSITORY_URL = "git+https://github.com/pegma-dev/support-desk.git";
 const NODE_RANGE = ">=22";
+const REVIEWED_PNPM_VERSION = "10.34.5";
 const REVIEWED_NPM_VERSION = "11.18.0";
 const STABLE_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 const DEPENDENCY_SECTIONS = [
@@ -87,14 +88,78 @@ function run(command, arguments_, options = {}) {
 }
 
 function runNpm(arguments_, options = {}) {
-  const npmExecPath = process.env.npm_execpath;
-  if (npmExecPath !== undefined) {
-    return run(process.execPath, [npmExecPath, ...arguments_], options);
-  }
   return run(process.platform === "win32" ? "npm.cmd" : "npm", arguments_, {
     ...options,
     shell: process.platform === "win32",
   });
+}
+
+function runPnpm(arguments_, options = {}) {
+  const pnpmExecPath = process.env.npm_execpath;
+  if (pnpmExecPath !== undefined && /pnpm/i.test(pnpmExecPath)) {
+    return run(process.execPath, [pnpmExecPath, ...arguments_], options);
+  }
+  return run(process.platform === "win32" ? "pnpm.cmd" : "pnpm", arguments_, {
+    ...options,
+    shell: process.platform === "win32",
+  });
+}
+
+function parsePnpmLockImporters(text) {
+  const importers = {};
+  let inImporters = false;
+  let currentImporter;
+  let currentSection;
+  let currentDep;
+  for (const line of text.split(/\r?\n/u)) {
+    if (!inImporters) {
+      if (line === "importers:") {
+        inImporters = true;
+      }
+      continue;
+    }
+    if (line.length > 0 && !line.startsWith(" ") && !line.startsWith("\t")) {
+      break;
+    }
+    const importerMatch = /^ {2}(\S+):(?: \{\})?$/u.exec(line);
+    if (importerMatch) {
+      currentImporter = importerMatch[1];
+      importers[currentImporter] = {};
+      currentSection = undefined;
+      currentDep = undefined;
+      continue;
+    }
+    const sectionMatch =
+      /^ {4}(dependencies|devDependencies|optionalDependencies|peerDependencies):$/u.exec(
+        line,
+      );
+    if (sectionMatch && currentImporter !== undefined) {
+      currentSection = sectionMatch[1];
+      importers[currentImporter][currentSection] = {};
+      currentDep = undefined;
+      continue;
+    }
+    const depMatch = /^ {6}(?:'([^']+)'|"([^"]+)"|([^:]+)):$/u.exec(line);
+    if (
+      depMatch &&
+      currentImporter !== undefined &&
+      currentSection !== undefined
+    ) {
+      currentDep = depMatch[1] ?? depMatch[2] ?? depMatch[3];
+      continue;
+    }
+    const specifierMatch = /^ {8}specifier: (.+)$/u.exec(line);
+    if (
+      specifierMatch &&
+      currentImporter !== undefined &&
+      currentSection !== undefined &&
+      currentDep !== undefined
+    ) {
+      importers[currentImporter][currentSection][currentDep] =
+        specifierMatch[1];
+    }
+  }
+  return importers;
 }
 
 function gitCommand() {
@@ -180,11 +245,9 @@ async function validatePackage(root, definition, lockfile) {
   await stat(join(packageDirectory, "README.md"));
   await stat(join(packageDirectory, "LICENSE"));
 
-  const lockEntry = lockfile.packages?.[`packages/${definition.directory}`];
-  if (lockEntry?.version !== manifest.version) {
-    fail(
-      `${definition.name} version is not synchronized with package-lock.json`,
-    );
+  const lockEntry = lockfile[`packages/${definition.directory}`];
+  if (lockEntry === undefined) {
+    fail(`${definition.name} is missing from pnpm-lock.yaml`);
   }
   for (const section of DEPENDENCY_SECTIONS) {
     for (const [name, version] of Object.entries(manifest[section] ?? {})) {
@@ -296,16 +359,18 @@ export async function validateRepository(options = {}) {
   const rootManifest = await readJson(join(root, "package.json"));
   if (
     rootManifest.private !== true ||
-    rootManifest.packageManager !== `npm@${REVIEWED_NPM_VERSION}`
+    rootManifest.packageManager !== `pnpm@${REVIEWED_PNPM_VERSION}`
   ) {
-    fail(`the private root must pin npm@${REVIEWED_NPM_VERSION}`);
+    fail(`the private root must pin pnpm@${REVIEWED_PNPM_VERSION}`);
   }
   const expectedInventory = RELEASE_PACKAGES.map(({ name }) => name).sort();
   const actualInventory = await publicWorkspaceInventory(root);
   if (!sameJson(actualInventory, expectedInventory)) {
     fail("public workspace inventory does not match the reviewed release list");
   }
-  const lockfile = await readJson(join(root, "package-lock.json"));
+  const lockfile = parsePnpmLockImporters(
+    await readFile(join(root, "pnpm-lock.yaml"), "utf8"),
+  );
   const packages = [];
   for (const definition of RELEASE_PACKAGES) {
     packages.push(await validatePackage(root, definition, lockfile));
@@ -469,7 +534,7 @@ export async function prepareRelease(options = {}) {
     fail(`release output directory must be empty: ${output}`);
   }
 
-  runNpm(["run", "build"], { cwd: root });
+  runPnpm(["run", "build"], { cwd: root });
   const records = [];
   const tagVersion = releaseTag?.slice(1);
   for (const { definition, manifest } of packages) {

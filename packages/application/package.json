@@ -31,7 +31,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
-    "prepack": "npm run build"
+    "prepack": "pnpm run build"
   },
   "dependencies": {
     "@pegma/audit": "0.2.0",

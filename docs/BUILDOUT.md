@@ -23,7 +23,7 @@ help desk." Give it exactly one task below.
    points in integration tests.
 7. Do not add a framework, provider SDK, persistence implementation, access
    model, session model, or private rate limiter here.
-8. Run `npm run format:check`, `npm run check`, and `npm test` before stopping.
+8. Run `pnpm run format:check`, `pnpm run check`, and `pnpm test` before stopping.
 9. Update the relevant documentation in the same pull request. If code and
    docs disagree, the task is not complete.
 10. Stop instead of improvising when a stop condition below is reached.
