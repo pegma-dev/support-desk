@@ -38,9 +38,50 @@ export interface ValidationResult {
 
 export const RELEASE_PACKAGES: readonly ReleasePackageDefinition[];
 
+export interface PnpmLockDependency {
+  readonly specifier?: string;
+  readonly version?: string;
+}
+
+export type PnpmLockImporter = {
+  readonly [section: string]:
+    { readonly [name: string]: PnpmLockDependency } | undefined;
+};
+
 export function parseArguments(
   arguments_: readonly string[],
 ): ReleaseCommandOptions;
+
+export function parsePnpmLockfileImporters(text: string): {
+  readonly [importer: string]: PnpmLockImporter;
+};
+
+export function unquoteYamlScalar(value: string): string;
+
+export function resolvedVersionSatisfies(
+  specifier: string,
+  resolvedVersion: string,
+): boolean;
+
+export function lockDependencyMatches(
+  lockDependency: PnpmLockDependency | undefined,
+  specifier: string,
+  options?: { readonly workspace?: boolean },
+): boolean;
+
+export function runNpm(
+  arguments_: readonly string[],
+  options?: {
+    readonly cwd?: string;
+    readonly env?: Record<string, string | undefined>;
+    readonly capture?: boolean;
+    readonly allowFailure?: boolean;
+  },
+): {
+  readonly status: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+};
 
 export function validateRepository(
   options?: ValidationOptions,

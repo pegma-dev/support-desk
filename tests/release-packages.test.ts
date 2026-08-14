@@ -6,7 +6,12 @@ import { describe, expect, it } from "vitest";
 import {
   RELEASE_PACKAGES,
   decidePublication,
+  lockDependencyMatches,
   parseArguments,
+  parsePnpmLockfileImporters,
+  resolvedVersionSatisfies,
+  runNpm as runReleaseNpm,
+  unquoteYamlScalar,
   validateReleaseTag,
   validateRepository,
 } from "../scripts/release-packages.mjs";
@@ -82,6 +87,148 @@ describe("release package metadata", () => {
 
   it("validates package manifests and the lockfile together", async () => {
     await expect(validateRepository()).resolves.toBeDefined();
+  });
+
+  it("matches each lockfile dependency to its own specifier and resolved version", () => {
+    const importers = parsePnpmLockfileImporters(`importers:
+
+  .:
+    devDependencies:
+      prettier:
+        specifier: ^3.9.6
+        version: 3.9.6
+
+  packages/application:
+    dependencies:
+      '@pegma/spine':
+        specifier: 0.1.1
+        version: 0.1.1
+      '@pegma/support-desk-contracts':
+        specifier: 0.1.1
+        version: link:../contracts
+
+  packages/templates: {}
+
+packages:
+  prettier@3.9.6:
+    resolution: {integrity: sha512-example}
+`);
+    expect(importers["packages/application"]).toEqual({
+      dependencies: {
+        "@pegma/spine": { specifier: "0.1.1", version: "0.1.1" },
+        "@pegma/support-desk-contracts": {
+          specifier: "0.1.1",
+          version: "link:../contracts",
+        },
+      },
+    });
+    expect(importers["packages/templates"]).toEqual({});
+
+    const live = parsePnpmLockfileImporters(
+      readFileSync(join(process.cwd(), "pnpm-lock.yaml"), "utf8"),
+    );
+    expect(
+      live["packages/application"]?.dependencies?.[
+        "@pegma/support-desk-contracts"
+      ],
+    ).toEqual({
+      specifier: "0.1.1",
+      version: "link:../contracts",
+    });
+    expect(
+      live["packages/application"]?.dependencies?.["@pegma/spine"],
+    ).toEqual({
+      specifier: "0.1.1",
+      version: "0.1.1",
+    });
+  });
+
+  it("decodes quoted lockfile specifier and version scalars", () => {
+    expect(unquoteYamlScalar("'1'")).toBe("1");
+    expect(unquoteYamlScalar("'*'")).toBe("*");
+    expect(unquoteYamlScalar('"1"')).toBe("1");
+
+    const importers = parsePnpmLockfileImporters(`importers:
+
+  packages/example:
+    dependencies:
+      b:
+        specifier: '1'
+        version: '1'
+    peerDependencies:
+      '*':
+        specifier: '*'
+        version: 1.2.3
+
+packages:
+`);
+    expect(importers["packages/example"]).toEqual({
+      dependencies: {
+        b: { specifier: "1", version: "1" },
+      },
+      peerDependencies: {
+        "*": { specifier: "*", version: "1.2.3" },
+      },
+    });
+    expect(
+      lockDependencyMatches(
+        importers["packages/example"]?.dependencies?.b,
+        "1",
+      ),
+    ).toBe(true);
+    expect(
+      lockDependencyMatches(
+        importers["packages/example"]?.peerDependencies?.["*"],
+        "*",
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts resolved versions that satisfy a range and still requires exact pins", () => {
+    expect(resolvedVersionSatisfies("1", "1.2.3")).toBe(true);
+    expect(resolvedVersionSatisfies("^1.2.0", "1.2.3")).toBe(true);
+    expect(
+      resolvedVersionSatisfies("^1.2.0", "1.2.3(@types/node@26.1.1)"),
+    ).toBe(true);
+    expect(resolvedVersionSatisfies("^1.2.0", "2.0.0")).toBe(false);
+    expect(resolvedVersionSatisfies("0.1.1", "0.1.1")).toBe(true);
+    expect(resolvedVersionSatisfies("0.1.1", "0.1.2")).toBe(false);
+    expect(
+      lockDependencyMatches(
+        { specifier: "^13.3.2", version: "13.3.2" },
+        "^13.3.2",
+      ),
+    ).toBe(true);
+    expect(
+      lockDependencyMatches({ specifier: "0.1.1", version: "0.1.2" }, "0.1.1"),
+    ).toBe(false);
+    expect(
+      lockDependencyMatches(
+        { specifier: "0.1.1", version: "link:../contracts" },
+        "0.1.1",
+        { workspace: true },
+      ),
+    ).toBe(true);
+  });
+
+  it("invokes npm even when npm_execpath points at pnpm", () => {
+    const npmVersion = run(process.platform === "win32" ? "npm.cmd" : "npm", [
+      "--version",
+    ]);
+    const previous = process.env.npm_execpath;
+    process.env.npm_execpath = "/tmp/fake-pnpm.cjs";
+    try {
+      const version = runReleaseNpm(["--version"], {
+        capture: true,
+      }).stdout.trim();
+      expect(version).toBe(npmVersion);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.npm_execpath;
+      } else {
+        process.env.npm_execpath = previous;
+      }
+    }
   });
 
   it("requires the release tag to match a public package version", async () => {
@@ -241,7 +388,9 @@ describe("release source authentication", () => {
     // package dependencies in the OIDC job.
     expect(publish).not.toMatch(/\bnpm (?:ci|install)(?! --global)/u);
     expect(publish).toContain("npm install --global npm@11.18.0");
-    expect(publish).toContain("pnpm run release:publish");
+    expect(publish).toContain("node scripts/release-packages.mjs publish");
+    expect(publish).not.toContain("corepack");
+    expect(publish).not.toContain("pnpm");
     expect(workflow).not.toContain("workflow_dispatch");
     expect(workflow).toContain("retention-days: 30");
   });

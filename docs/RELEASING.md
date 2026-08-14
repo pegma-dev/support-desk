@@ -77,7 +77,7 @@ publishing for it before the next tagged release.
 
 ## OIDC releases (`0.1.1` and beyond)
 
-Update package versions, internal exact pins, the lockfile, and
+Update package versions, internal exact pins, `pnpm-lock.yaml`, and
 [RELEASE_NOTES.md](RELEASE_NOTES.md) through a reviewed pull request. After
 merge:
 
@@ -92,8 +92,9 @@ The preparation job verifies the signer, tag, release-event commit, main
 ancestry, complete gate, package inventory, and tarball integrity. The run
 then pauses at the `npm-publish` environment until the release maintainer
 approves the deployment on the run page. Only the final `npm-publish` job
-receives `id-token: write`; it installs no dependencies and publishes the
-exact prepared tarballs with provenance in dependency order.
+receives `id-token: write`; it installs no dependencies, does not download
+pnpm, and publishes the exact prepared tarballs with provenance in
+dependency order by invoking `node scripts/release-packages.mjs publish`.
 
 ## Partial-publish recovery
 
