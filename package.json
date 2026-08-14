@@ -17,22 +17,27 @@
     "clean": "tsc -b --clean",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "npm run build && vitest run",
+    "test": "pnpm run build && vitest run",
     "release:check": "node scripts/release-packages.mjs check",
     "release:pack": "node scripts/release-packages.mjs pack",
     "release:publish": "node scripts/release-packages.mjs publish",
-    "example": "npm run build && node --experimental-strip-types examples/composition/run.ts"
+    "example": "pnpm run build && node --experimental-strip-types examples/composition/run.ts"
   },
   "devDependencies": {
     "@azure/data-tables": "^13.3.2",
+    "@pegma/authorization-core": "0.2.0",
     "@pegma/mail": "0.1.1",
     "@pegma/scheduler": "^0.1.0",
+    "@pegma/spine": "0.1.1",
     "@pegma/storage-azure-tables": "0.4.0",
+    "@pegma/storage-core": "0.4.0",
+    "@pegma/support-desk-application": "0.1.1",
+    "@pegma/support-desk-templates": "0.1.1",
     "@types/node": "^26.1.1",
     "azurite": "^3.36.0",
     "prettier": "^3.9.6",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },
-  "packageManager": "npm@11.18.0"
+  "packageManager": "pnpm@10.34.5"
 }

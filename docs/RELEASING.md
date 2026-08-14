@@ -37,11 +37,11 @@ to this repository.
 Every published artifact comes from a protected, signed, annotated `vX.Y.Z`
 tag whose commit is already contained in `origin/main`.
 
-Run `npm run format:check`, `npm run check`, and `npm test` on Node 22 and 24.
+Run `pnpm run format:check`, `pnpm run check`, and `pnpm test` on Node 22 and 24.
 Additionally:
 
 ```sh
-npm run release:check
+pnpm run release:check
 ```
 
 The packer builds once, runs `npm pack` for every public workspace, verifies

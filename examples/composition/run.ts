@@ -1,7 +1,7 @@
 /**
  * Runnable host-neutral composition. From the repository root:
  *
- *   npm run example
+ *   pnpm run example
  *
  * Exits after proving customer create/list/read/reply, staff detail/queue/
  * mutations, internal-note isolation, and one mail-send page.

@@ -30,10 +30,6 @@ function run(command: string, arguments_: string[], cwd?: string): string {
 }
 
 function runNpm(arguments_: string[], cwd = process.cwd()): string {
-  const npmExecPath = process.env["npm_execpath"];
-  if (npmExecPath !== undefined) {
-    return run(process.execPath, [npmExecPath, ...arguments_], cwd);
-  }
   return run(process.platform === "win32" ? "npm.cmd" : "npm", arguments_, cwd);
 }
 
@@ -240,11 +236,12 @@ describe("release source authentication", () => {
     expect(prepare).not.toContain("id-token: write");
     expect(publish).toContain("id-token: write");
     expect(publish).not.toContain("npm ci");
+    expect(publish).not.toContain("pnpm install");
     // Publish may pin the reviewed npm release globally, but must not install
     // package dependencies in the OIDC job.
     expect(publish).not.toMatch(/\bnpm (?:ci|install)(?! --global)/u);
     expect(publish).toContain("npm install --global npm@11.18.0");
-    expect(publish).toContain("npm run release:publish");
+    expect(publish).toContain("pnpm run release:publish");
     expect(workflow).not.toContain("workflow_dispatch");
     expect(workflow).toContain("retention-days: 30");
   });
