@@ -56,6 +56,19 @@ export function parsePnpmLockfileImporters(text: string): {
   readonly [importer: string]: PnpmLockImporter;
 };
 
+export function unquoteYamlScalar(value: string): string;
+
+export function resolvedVersionSatisfies(
+  specifier: string,
+  resolvedVersion: string,
+): boolean;
+
+export function lockDependencyMatches(
+  lockDependency: PnpmLockDependency | undefined,
+  specifier: string,
+  options?: { readonly workspace?: boolean },
+): boolean;
+
 export function runNpm(
   arguments_: readonly string[],
   options?: {

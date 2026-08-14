@@ -20,9 +20,11 @@ or a real mail SDK.
 
 ## Run
 
-From the repository root with Node.js 22 or newer:
+From the repository root with Node.js 22 or newer. Corepack is bundled
+through Node 24; on Node 25 or newer, install it first.
 
 ```sh
+npm install -g corepack
 corepack enable
 pnpm install --frozen-lockfile
 pnpm run example

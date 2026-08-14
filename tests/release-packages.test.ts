@@ -6,9 +6,12 @@ import { describe, expect, it } from "vitest";
 import {
   RELEASE_PACKAGES,
   decidePublication,
+  lockDependencyMatches,
   parseArguments,
   parsePnpmLockfileImporters,
+  resolvedVersionSatisfies,
   runNpm as runReleaseNpm,
+  unquoteYamlScalar,
   validateReleaseTag,
   validateRepository,
 } from "../scripts/release-packages.mjs";
@@ -138,6 +141,73 @@ packages:
       specifier: "0.1.1",
       version: "0.1.1",
     });
+  });
+
+  it("decodes quoted lockfile specifier and version scalars", () => {
+    expect(unquoteYamlScalar("'1'")).toBe("1");
+    expect(unquoteYamlScalar("'*'")).toBe("*");
+    expect(unquoteYamlScalar('"1"')).toBe("1");
+
+    const importers = parsePnpmLockfileImporters(`importers:
+
+  packages/example:
+    dependencies:
+      b:
+        specifier: '1'
+        version: '1'
+    peerDependencies:
+      '*':
+        specifier: '*'
+        version: 1.2.3
+
+packages:
+`);
+    expect(importers["packages/example"]).toEqual({
+      dependencies: {
+        b: { specifier: "1", version: "1" },
+      },
+      peerDependencies: {
+        "*": { specifier: "*", version: "1.2.3" },
+      },
+    });
+    expect(
+      lockDependencyMatches(
+        importers["packages/example"]?.dependencies?.b,
+        "1",
+      ),
+    ).toBe(true);
+    expect(
+      lockDependencyMatches(
+        importers["packages/example"]?.peerDependencies?.["*"],
+        "*",
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts resolved versions that satisfy a range and still requires exact pins", () => {
+    expect(resolvedVersionSatisfies("^1.2.0", "1.2.3")).toBe(true);
+    expect(
+      resolvedVersionSatisfies("^1.2.0", "1.2.3(@types/node@26.1.1)"),
+    ).toBe(true);
+    expect(resolvedVersionSatisfies("^1.2.0", "2.0.0")).toBe(false);
+    expect(resolvedVersionSatisfies("0.1.1", "0.1.1")).toBe(true);
+    expect(resolvedVersionSatisfies("0.1.1", "0.1.2")).toBe(false);
+    expect(
+      lockDependencyMatches(
+        { specifier: "^13.3.2", version: "13.3.2" },
+        "^13.3.2",
+      ),
+    ).toBe(true);
+    expect(
+      lockDependencyMatches({ specifier: "0.1.1", version: "0.1.2" }, "0.1.1"),
+    ).toBe(false);
+    expect(
+      lockDependencyMatches(
+        { specifier: "0.1.1", version: "link:../contracts" },
+        "0.1.1",
+        { workspace: true },
+      ),
+    ).toBe(true);
   });
 
   it("invokes npm even when npm_execpath points at pnpm", () => {
