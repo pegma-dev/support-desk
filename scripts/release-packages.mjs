@@ -229,8 +229,11 @@ function compareStableSemver(left, right) {
 
 export function resolvedVersionSatisfies(specifier, resolvedVersion) {
   const resolved = lockResolvedVersion(resolvedVersion);
+  if (resolved === specifier) {
+    return true;
+  }
   if (STABLE_SEMVER.test(specifier)) {
-    return resolved === specifier;
+    return false;
   }
   const parsedResolved = parseStableSemver(resolved);
   if (parsedResolved === null) {
@@ -238,6 +241,17 @@ export function resolvedVersionSatisfies(specifier, resolvedVersion) {
   }
   if (specifier === "*" || specifier === "x" || specifier === "X") {
     return true;
+  }
+  const majorOnly = /^(0|[1-9]\d*)$/u.exec(specifier);
+  if (majorOnly !== null) {
+    return parsedResolved.major === Number(majorOnly[1]);
+  }
+  const minorOnly = /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.exec(specifier);
+  if (minorOnly !== null) {
+    return (
+      parsedResolved.major === Number(minorOnly[1]) &&
+      parsedResolved.minor === Number(minorOnly[2])
+    );
   }
   const caret = /^\^((0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))$/u.exec(
     specifier,

@@ -185,6 +185,7 @@ packages:
   });
 
   it("accepts resolved versions that satisfy a range and still requires exact pins", () => {
+    expect(resolvedVersionSatisfies("1", "1.2.3")).toBe(true);
     expect(resolvedVersionSatisfies("^1.2.0", "1.2.3")).toBe(true);
     expect(
       resolvedVersionSatisfies("^1.2.0", "1.2.3(@types/node@26.1.1)"),
