@@ -33,7 +33,7 @@
     "@pegma/storage-core": "0.4.0",
     "@pegma/support-desk-application": "0.1.1",
     "@pegma/support-desk-templates": "0.1.1",
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.2.0",
     "azurite": "^3.36.0",
     "prettier": "^3.9.6",
     "typescript": "^7.0.2",
