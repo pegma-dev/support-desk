@@ -28,7 +28,7 @@
     "@pegma/authorization-core": "0.2.0",
     "@pegma/mail": "0.1.1",
     "@pegma/scheduler": "^0.1.0",
-    "@pegma/spine": "0.1.1",
+    "@pegma/spine": "0.1.2",
     "@pegma/storage-azure-tables": "0.4.0",
     "@pegma/storage-core": "0.4.0",
     "@pegma/support-desk-application": "0.1.1",

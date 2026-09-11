@@ -138,8 +138,8 @@ packages:
     expect(
       live["packages/application"]?.dependencies?.["@pegma/spine"],
     ).toEqual({
-      specifier: "0.1.1",
-      version: "0.1.1",
+      specifier: "0.1.2",
+      version: "0.1.2",
     });
   });
 
