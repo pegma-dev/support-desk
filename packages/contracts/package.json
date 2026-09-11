@@ -34,6 +34,6 @@
     "prepack": "pnpm run --silent build"
   },
   "dependencies": {
-    "@pegma/spine": "0.1.1"
+    "@pegma/spine": "0.1.2"
   }
 }

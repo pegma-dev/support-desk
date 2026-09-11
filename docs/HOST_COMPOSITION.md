@@ -21,7 +21,7 @@ npm install @pegma/support-desk-contracts@0.1.0 \
 
 Also require exact peer ecosystem pins used by the application package:
 
-- `@pegma/spine@0.1.1`
+- `@pegma/spine@0.1.2`
 - `@pegma/storage-core@0.4.0`
 - `@pegma/authorization-core@0.1.2`
 - `@pegma/audit@0.1.0`
