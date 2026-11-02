@@ -33,11 +33,11 @@
     "@pegma/storage-core": "0.4.0",
     "@pegma/support-desk-application": "0.1.1",
     "@pegma/support-desk-templates": "0.1.1",
-    "@types/node": "^26.6.3",
+    "@types/node": "^26.6.6",
     "azurite": "^3.37.0",
-    "prettier": "^3.9.9",
+    "prettier": "^3.9.10",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.5"
   },
   "packageManager": "pnpm@10.34.5"
 }
