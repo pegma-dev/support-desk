@@ -30,12 +30,17 @@ dependency tuples, artifact integrity/shasum, tarball URLs, and proposed package
 publication state. Refresh it deliberately with
 [`scripts/knowledge-ai-baseline.mjs`](../scripts/knowledge-ai-baseline.mjs)
 when a task changes its baseline. `pnpm run knowledge-ai:baseline origin/main`
-selects a fetched source ref; omitting the ref selects `HEAD`. Manifests are
+selects a fetched source ref; omitting the ref selects `origin/main`. Fetch
+`origin main` first. The selected commit must belong to fetched `origin/main`.
+Manifests are
 read from that immutable commit, including when the working tree is dirty.
 The snapshot is reviewed handoff evidence, not a CI version selector. CI does
 not run the refresh command or query npm/catalog metadata for these tests.
 Snapshot accuracy is reviewed when refreshing it; the harness does not
 authenticate historical registry metadata or detect later registry changes.
+The refresh retries transient registry failures once, reports all failed names,
+and leaves the prior snapshot unchanged if any lookup fails. The public npm
+registry is intentional; private mirrors are not publication authority here.
 
 The source snapshot is
 [`5278440`](https://github.com/pegma-dev/support-desk/tree/527844007c6dd8083a6747879414d5b9159d46c2),
@@ -70,10 +75,10 @@ conceal the difference with overrides or copied source.
 Freeze the proposed repository name as `pegma-dev/knowledge-base` and package
 names as `@pegma/knowledge-base-contracts`, `@pegma/knowledge-base-core`,
 `@pegma/knowledge-base-application`, and `@pegma/knowledge-base-mcp`.
-The repository was not found through the authenticated GitHub connection and
-the proposed package names were unpublished at the snapshot. This is an
-availability observation, not a reservation or proof of publishing rights.
-KB-01 rechecks availability and organization conventions before creation.
+The [repository](https://github.com/pegma-dev/knowledge-base) was created for
+KB-01 after the initial availability check. The proposed npm package names
+remain unpublished at the refreshed snapshot. This is an availability
+observation, not a reservation or proof of publishing rights.
 Create each package only when its implementation starts. The optional
 `@pegma/support-desk-ai` name is likewise unpublished; SD-02 owns its creation.
 

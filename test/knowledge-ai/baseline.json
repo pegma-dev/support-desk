@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "observedAt": "2026-11-06T21:55:52.240Z",
+  "observedAt": "2026-11-06T22:33:41.022Z",
   "source": {
     "repository": "pegma-dev/support-desk",
     "revision": "527844007c6dd8083a6747879414d5b9159d46c2",
@@ -11,6 +11,11 @@
         "dependencies": {
           "@pegma/spine": "0.1.2"
         },
+        "peerDependencies": {},
+        "optionalDependencies": {},
+        "engines": {
+          "node": ">=22"
+        },
         "manifestPath": "packages/contracts/package.json"
       },
       {
@@ -18,6 +23,11 @@
         "version": "0.1.1",
         "dependencies": {
           "@pegma/support-desk-contracts": "0.1.1"
+        },
+        "peerDependencies": {},
+        "optionalDependencies": {},
+        "engines": {
+          "node": ">=22"
         },
         "manifestPath": "packages/core/package.json"
       },
@@ -33,12 +43,22 @@
           "@pegma/support-desk-contracts": "0.1.1",
           "@pegma/support-desk-core": "0.1.1"
         },
+        "peerDependencies": {},
+        "optionalDependencies": {},
+        "engines": {
+          "node": ">=22"
+        },
         "manifestPath": "packages/application/package.json"
       },
       {
         "name": "@pegma/support-desk-templates",
         "version": "0.1.1",
         "dependencies": {},
+        "peerDependencies": {},
+        "optionalDependencies": {},
+        "engines": {
+          "node": ">=22"
+        },
         "manifestPath": "packages/templates/package.json"
       }
     ]
@@ -48,6 +68,11 @@
       "name": "@pegma/spine",
       "version": "0.1.2",
       "dependencies": {},
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-jueFYJ3oJUacKdiERkEZ7R34xDMiEWXqn4MSA5bpTXzsXhWSap4EJUzKXtXnXuLPPjwJWLn5uoQe98kWQ6NS8A==",
       "shasum": "ab21a0057ab18540157f09596ce8eda4c836dde5",
       "tarball": "https://registry.npmjs.org/@pegma/spine/-/spine-0.1.2.tgz"
@@ -56,6 +81,11 @@
       "name": "@pegma/storage-core",
       "version": "0.4.0",
       "dependencies": {},
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-aWbRhhis4Qs4TvH1Sb+OCI0a0ddOyV+6pm6HhPs+XPlaP86mTaV7OlwkIIPqk5Hw45t//tNaqfaggUeOc7rIGA==",
       "shasum": "ba65320d15291c1093b320fbc9ae6a70c04913fb",
       "tarball": "https://registry.npmjs.org/@pegma/storage-core/-/storage-core-0.4.0.tgz"
@@ -67,6 +97,11 @@
         "@azure/data-tables": "^13.3.1",
         "@pegma/storage-core": "0.4.0"
       },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-cHVrLyQRf8qu2d83fgO7spPxKxAZlOOfvEi/t38S6l3SD2678khJvUMcvAHm/rAQ8BlReDWd6WSnIZuQiI3A1Q==",
       "shasum": "2b7f788759274905e7d395305c2988973eaf3e81",
       "tarball": "https://registry.npmjs.org/@pegma/storage-azure-tables/-/storage-azure-tables-0.4.0.tgz"
@@ -76,6 +111,11 @@
       "version": "0.4.1",
       "dependencies": {
         "@pegma/storage-core": "0.4.0"
+      },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
       },
       "integrity": "sha512-nVH+ppAWi3QwyEX8QVkPOLXNjtblO0jDnnGqCHpbZZzPvFQAVyd/1Bhxg8JdsuOD/UWGktJ26asAKzpNjRol0w==",
       "shasum": "888f77cf8bd2e3cdd96904da3c3fe77989202021",
@@ -88,6 +128,11 @@
         "@pegma/spine": "0.1.1",
         "@pegma/storage-core": "0.4.0"
       },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-gUcfdp1QrLJtaMImA9NzZWfDEIuqBkALepceDIl1NPyCt0ZcdMs2ud8GuppQY5wXCB1/rgCYWYzep2OkDCrMBA==",
       "shasum": "b09ed0965e55b2163ba50c9bf5a22f4eaee0a3ee",
       "tarball": "https://registry.npmjs.org/@pegma/audit/-/audit-0.2.0.tgz"
@@ -96,6 +141,11 @@
       "name": "@pegma/authorization-contracts",
       "version": "0.4.0",
       "dependencies": {},
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-7o+oN/CyBGcDb3rUDzJpLSi7VYS/hAk2h0LfEEPpQmT46Mk/3xLwNrXS6WPuVFT2UMdJNeExgFu7Og6pYbFMMQ==",
       "shasum": "f56ca096484670f12fca969f86899c0ee5a59573",
       "tarball": "https://registry.npmjs.org/@pegma/authorization-contracts/-/authorization-contracts-0.4.0.tgz"
@@ -105,6 +155,11 @@
       "version": "0.4.0",
       "dependencies": {
         "@pegma/authorization-contracts": "0.4.0"
+      },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
       },
       "integrity": "sha512-GkagQwyDfKokB2Nm9EAo6cvKB8c90VN6Or6IdaWeMwCeuseOxDZ8ccxKqccW9YorByE6rHhr2nbxjsNWorZTHQ==",
       "shasum": "cf4381196e332752b80a98d32c3fc10ceaf9239a",
@@ -116,6 +171,11 @@
       "dependencies": {
         "@pegma/authorization-contracts": "0.4.0"
       },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-mVU0zLpOgE7hB0UsqPyIl4kytxpuEklq9y4lsHbeBZVnMmxg1tgFmQF0R0WST69MqtDcALepoLOHhe/CBAE4jA==",
       "shasum": "4d4aa474c223070d2fbb8a20a5f8a2f1cd129881",
       "tarball": "https://registry.npmjs.org/@pegma/authorization-policy/-/authorization-policy-0.4.0.tgz"
@@ -126,6 +186,11 @@
       "dependencies": {
         "@pegma/storage-core": "0.4.0",
         "@pegma/authorization-contracts": "0.4.0"
+      },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
       },
       "integrity": "sha512-nha0Ftd7DYKYajUthYR+rTYdJxy1Gsff0aclriEFmdN6NmJaEPW3ZIsg7OY79MUUZ5HpoXiPU7A1Z35QrFUWOw==",
       "shasum": "960b2cf0987305021b8f4548e87fb72157041656",
@@ -139,6 +204,11 @@
         "@pegma/storage-core": "0.4.0",
         "@pegma/authorization-contracts": "0.4.0"
       },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-TVUiEaN1XTvvbbXThj5OB6qDiMmXl1HNWDhgsJnvWbuxoqd39nEjjD2gXqhJJbPCyjB7hSN73cQgM/3gPtBt0Q==",
       "shasum": "725f06133efed9ed9681f1eed4e11e37721f40b4",
       "tarball": "https://registry.npmjs.org/@pegma/authorization-tokens/-/authorization-tokens-0.4.0.tgz"
@@ -150,6 +220,11 @@
         "@pegma/authorization-storage": "0.4.0",
         "@pegma/authorization-contracts": "0.4.0"
       },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-pnEJ2bI29jP9lnE3lpTnpYUWfjqSuZW/gqq06KPn1+T/bMwhL7b7ff9Ub8wNPaweXZqAUTVq/3YoegmR8ca63Q==",
       "shasum": "e55964fd97ab9f1d1a7efebe2759ca1ea2c37dd4",
       "tarball": "https://registry.npmjs.org/@pegma/authorization-admin/-/authorization-admin-0.4.0.tgz"
@@ -159,6 +234,11 @@
       "version": "0.4.0",
       "dependencies": {
         "@pegma/authorization-contracts": "0.4.0"
+      },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
       },
       "integrity": "sha512-u1q8gwgmUyhlUvl0e/n58jodU9Z0oE29yalsPtyUPZpsC6+4p2zQ8bgd9ACixccPfUqhgfp817b17FrjzkFyWA==",
       "shasum": "be25f2f070b15c82c2efb6fd90dd2f3e5d3b6dae",
@@ -178,6 +258,11 @@
         "unicode-case-folding": "1.1.1",
         "@simplewebauthn/server": "13.3.2"
       },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-r8AsVTnwCSBU2LZZjieW5FgIJ2TUWi5DlU9kp+4tuaWDFfl85EezkD6F5omAFjTnaFqCRN1T2d/KsHoESarB2A==",
       "shasum": "17e454722ab45877e2c82dc03fea2bc3f7c1fbc7",
       "tarball": "https://registry.npmjs.org/@pegma/identity/-/identity-0.1.2.tgz"
@@ -188,6 +273,11 @@
       "dependencies": {
         "@pegma/spine": "0.1.1",
         "@pegma/storage-core": "0.4.0"
+      },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
       },
       "integrity": "sha512-dHGmFzQjHe9O+arGEQUcwutLuZ9+cA409hetiqxzQUXIOHOulOsA4/ywlDDRGiskMijyXLVlxvmGryjxV8NxZQ==",
       "shasum": "bd06f894757dca21c606bf9388aa4f8cd8673ea4",
@@ -200,6 +290,11 @@
         "@pegma/spine": "0.1.1",
         "@pegma/storage-core": "0.4.0"
       },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-gzaXefDW4Rg9Yla5qQOEeDChIm8hoYS6Eed1a4UNZb4BIJAcIkePwz5aZL6Ld5xCk3g8oTWdii78PLplwrzN9A==",
       "shasum": "d2e6e7d826d5358eef3bc52a2af2a4adea01d011",
       "tarball": "https://registry.npmjs.org/@pegma/rate-limit/-/rate-limit-0.2.0.tgz"
@@ -210,6 +305,11 @@
       "dependencies": {
         "@pegma/spine": "0.1.1",
         "@pegma/storage-core": "0.4.0"
+      },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
       },
       "integrity": "sha512-NIYDnjSarXkrfgHqH4nEXq7tEMG02VzXN1nOdPb7obynhpemW5xuTsL05KcJ2mAuIps886wZmqP8jJWACiBdxQ==",
       "shasum": "b5b30b61dfe0dc081abfedb04589533877c46e36",
@@ -222,6 +322,11 @@
         "@pegma/spine": "0.1.1",
         "@pegma/storage-core": "0.4.0"
       },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-Lb2QO4ulqmm4ho/DFs/KDTJ+xXag84GQWCiXu/AeafVg5HMAUA0xEvucNt1QEp2zm2kEtT1aou4+zCjdAqHBcw==",
       "shasum": "28a668ae9462e80ea1fb4435f9d526df494bfa8e",
       "tarball": "https://registry.npmjs.org/@pegma/webhooks/-/webhooks-0.1.1.tgz"
@@ -233,6 +338,11 @@
         "@pegma/spine": "0.1.2",
         "@pegma/storage-core": "0.4.0"
       },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-7iePOd40xeESwdulpxe7CwPiq6Orn3cDDqPIp07hJU8eRu0IupoJ2kmc8DiKBjAdqsRzB1ms1aen+4UXuA2Y1w==",
       "shasum": "f56c9aaf4e7ea50ad06faa9a3a7fec142c6cc041",
       "tarball": "https://registry.npmjs.org/@pegma/scheduler/-/scheduler-0.1.0.tgz"
@@ -243,6 +353,11 @@
       "dependencies": {
         "@pegma/scheduler": "0.1.0"
       },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-u0LCn6xm8SzHuqjtFFVjnQwQQJ9Rlfj78W44A37mLRyZwujFd0AjE7oH3snOP/cCGeB5cAjsefgvcbMDabJHVA==",
       "shasum": "04fa67867d1e1e5604b948108d3efa24bd067127",
       "tarball": "https://registry.npmjs.org/@pegma/scheduler-cloudflare/-/scheduler-cloudflare-0.1.0.tgz"
@@ -251,6 +366,11 @@
       "name": "@pegma/storage-blobs",
       "version": "0.2.0",
       "dependencies": {},
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-XycF8otqmMFsSBsS0eWflP9lHSAoyDJHEvzFu7V4A/FHoS0op2egA+hFpSNd/jPMgdXILvEUJYWgh0reQQnkjQ==",
       "shasum": "7da7b94eb386e71b921a8c18759361ebf33144b2",
       "tarball": "https://registry.npmjs.org/@pegma/storage-blobs/-/storage-blobs-0.2.0.tgz"
@@ -261,6 +381,11 @@
       "dependencies": {
         "@pegma/spine": "0.1.1"
       },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-8HdZauiLdk/B41atlG/ixIXg4N+b0PSUbXELYIEaVBXhtjKvRJEDvod5AaWjHL1X9h3OYuhR3g21UYZuEedIxQ==",
       "shasum": "218baab5364922d4aa51bab132b9d8713fb07d00",
       "tarball": "https://registry.npmjs.org/@pegma/support-desk-contracts/-/support-desk-contracts-0.1.1.tgz"
@@ -270,6 +395,11 @@
       "version": "0.1.1",
       "dependencies": {
         "@pegma/support-desk-contracts": "0.1.1"
+      },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
       },
       "integrity": "sha512-MWQjJbgWHDGY2cub9xTwdHeaoj0O1WLkuaItggf2kQNMUG/wu5vARqSwCQGs1u6W8h/GGiMCKzv0i6OK+err3A==",
       "shasum": "d0133f7549b7944f812e3a1d0d09a375e6ceb86f",
@@ -287,6 +417,11 @@
         "@pegma/authorization-core": "0.2.0",
         "@pegma/support-desk-contracts": "0.1.1"
       },
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-8VQX3sd+4Cd0I39mL9fYutegBlUY9ceAshs0wBvDecwBjCu/u55nwcvifDLWWa3RPfOmXlZ0atIF+VH/qGIOJw==",
       "shasum": "4fffdaa200f5ac550fadfb65381b3cb192bda617",
       "tarball": "https://registry.npmjs.org/@pegma/support-desk-application/-/support-desk-application-0.1.1.tgz"
@@ -295,6 +430,11 @@
       "name": "@pegma/support-desk-templates",
       "version": "0.1.1",
       "dependencies": {},
+      "peerDependencies": {},
+      "optionalDependencies": {},
+      "engines": {
+        "node": ">=22"
+      },
       "integrity": "sha512-qlflI4AUHqoFgF44qwZt+8bW+5vtb3l+3LeH9CE/LqfC9Y9rDk+GsIKQXnrZLr03GMMBXu45N0IkW6dmAV0Cyg==",
       "shasum": "0a1aa6b2ecb79de72e52ba34d1ab94f69a268045",
       "tarball": "https://registry.npmjs.org/@pegma/support-desk-templates/-/support-desk-templates-0.1.1.tgz"

@@ -14,10 +14,21 @@ const sourceRevision = execFileSync(
     "rev-parse",
     "--verify",
     "--end-of-options",
-    (process.argv[2] ?? "HEAD") + "^{commit}",
+    (process.argv[2] ?? "origin/main") + "^{commit}",
   ],
   { cwd: repositoryRoot, encoding: "utf8" },
 ).trim();
+try {
+  execFileSync(
+    "git",
+    ["merge-base", "--is-ancestor", sourceRevision, "refs/remotes/origin/main"],
+    { cwd: repositoryRoot, stdio: "pipe" },
+  );
+} catch {
+  throw new Error(
+    "Source must be reachable from fetched origin/main. Fetch origin main before refreshing a public handoff.",
+  );
+}
 const registryBase = "https://registry.npmjs.org/";
 const packageNames = [
   "@pegma/spine",
@@ -54,10 +65,30 @@ const proposedNames = [
 ];
 
 async function readRegistry(name, allowAbsent = false) {
-  const response = await fetch(
-    new URL(encodeURIComponent(name) + "/latest", registryBase),
-    { signal: AbortSignal.timeout(15_000) },
-  );
+  let response;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      response = await fetch(
+        new URL(encodeURIComponent(name) + "/latest", registryBase),
+        {
+          signal: AbortSignal.timeout(15_000),
+          headers: { "user-agent": "pegma-support-desk-baseline/1.0" },
+        },
+      );
+      if (
+        attempt === 0 &&
+        (response.status === 429 || response.status >= 500)
+      ) {
+        await response.body?.cancel();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        continue;
+      }
+      break;
+    } catch (error) {
+      if (attempt === 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
   if (response.status === 404 && allowAbsent) {
     return { name, status: "not-published" };
   }
@@ -79,6 +110,9 @@ async function readRegistry(name, allowAbsent = false) {
     name,
     version: metadata.version,
     dependencies: metadata.dependencies ?? {},
+    peerDependencies: metadata.peerDependencies ?? {},
+    optionalDependencies: metadata.optionalDependencies ?? {},
+    engines: metadata.engines ?? {},
     integrity: metadata.dist.integrity,
     shasum: metadata.dist.shasum,
     tarball: metadata.dist.tarball,
@@ -96,18 +130,45 @@ const sourcePackages = ["contracts", "core", "application", "templates"].map(
         encoding: "utf8",
       }),
     );
+    if (
+      manifest.name !== "@pegma/support-desk-" + directory ||
+      typeof manifest.version !== "string" ||
+      !/^\d+\.\d+\.\d+$/.test(manifest.version)
+    ) {
+      throw new Error("Invalid source package identity: " + manifestPath);
+    }
     return {
       name: manifest.name,
       version: manifest.version,
       dependencies: manifest.dependencies ?? {},
+      peerDependencies: manifest.peerDependencies ?? {},
+      optionalDependencies: manifest.optionalDependencies ?? {},
+      engines: manifest.engines ?? {},
       manifestPath,
     };
   },
 );
-const [registry, proposedPackages] = await Promise.all([
-  Promise.all(packageNames.map((name) => readRegistry(name))),
-  Promise.all(proposedNames.map((name) => readRegistry(name, true))),
+const names = [...packageNames, ...proposedNames];
+const results = await Promise.allSettled([
+  ...packageNames.map((name) => readRegistry(name)),
+  ...proposedNames.map((name) => readRegistry(name, true)),
 ]);
+const failures = results.flatMap((result, index) =>
+  result.status === "rejected"
+    ? [names[index] + ": " + String(result.reason)]
+    : [],
+);
+if (failures.length > 0) {
+  process.stderr.write(
+    "Snapshot not updated; any previous snapshot is unchanged. Registry failures after bounded retry:\n" +
+      failures.join("\n") +
+      "\n",
+  );
+  process.exit(1);
+}
+const entries = results.map((result) => result.value);
+const registry = entries.slice(0, packageNames.length);
+const proposedPackages = entries.slice(packageNames.length);
 const snapshot = {
   schemaVersion: 1,
   observedAt: new Date().toISOString(),
@@ -128,5 +189,7 @@ process.stdout.write(
     registry.length +
     " published packages and " +
     proposedPackages.length +
-    " proposed names. Review the snapshot before use.\n",
+    " proposed names from source " +
+    sourceRevision +
+    ". Review the snapshot before use.\n",
 );

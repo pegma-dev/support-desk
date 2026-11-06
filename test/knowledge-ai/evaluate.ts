@@ -30,6 +30,9 @@ function turnKey(value: TurnIdentity | undefined): string {
 /**
  * Evaluate captured artifacts against authored oracles. This does not execute
  * or implement KB authorization, publication, routing, or ticket workflow.
+ * Canary matching detects exact literal markers in serialized traces only.
+ * Encoded, fragmented, or paraphrased disclosures require separate semantic
+ * privacy evaluation; a passing result is not a publication/privacy approval.
  */
 export function evaluateObservation(
   scenario: AcceptanceCase,

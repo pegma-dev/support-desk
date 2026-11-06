@@ -73,6 +73,8 @@ validation, provider ZDR status, timing guarantees, or complete workflow
 acceptance. Those require the owning implementation, connector instrumentation,
 versioned semantic rubrics, and host evidence described by the plan. In
 particular, synthetic canary detection is not a general PII detector.
+It checks exact literal markers; encoded, fragmented, or paraphrased disclosures
+need separate semantic privacy evaluation and staff review before publication.
 
 ## Case IDs and ownership
 

@@ -104,7 +104,7 @@ const firstReply: ModelReply = {
 };
 
 describe("knowledge/AI acceptance corpus integrity (not service acceptance)", () => {
-  it("maps every planned scenario to both wholly fictional instances", () => {
+  it("expands the recorded scenario set to both wholly fictional instances", () => {
     expect(acceptanceCases).toHaveLength(80);
     expect(new Set(acceptanceCases.map((item) => item.id)).size).toBe(80);
     for (const scenario of planScenarios) {
