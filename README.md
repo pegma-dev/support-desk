@@ -38,6 +38,11 @@ The first release will stay deliberately smaller than that vision. See the
 [MVP specification](docs/MVP_SPEC.md) and
 [project plan](docs/PROJECT_PLAN.md).
 
+The approved [knowledge-base and AI support implementation plan](docs/KNOWLEDGE_AI_PLAN.md)
+defines the next enhancement: a standalone API/MCP-authored KB and an optional
+ticket-backed support agent, with working integrations on both launch hosts.
+It records the agreed scope and task sequence; these features are planned.
+
 ## How the pieces fit
 
 ```text

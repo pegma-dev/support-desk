@@ -291,25 +291,32 @@ Templates are versioned and branded by the host. Rendering:
 
 ### Knowledge pipeline
 
-Resolved tickets are not automatically public knowledge. A later pipeline may:
+The approved [knowledge/AI plan](KNOWLEDGE_AI_PLAN.md) composes a standalone KB
+with API/MCP authoring, immutable revisions, article-appropriate staging
+verification, collection-level audiences, and bounded authorized retrieval.
+The KB requires neither Support Desk nor GitHub.
 
-1. select eligible resolved tickets;
-2. remove or mask personal and account-specific information;
-3. group recurring problems;
-4. draft an article or answer;
-5. require human review;
-6. publish a versioned knowledge item;
-7. retain traceability to approved sources without exposing them to customers.
+Support Desk contributes drafts from resolutions with confirmed or verified
+evidence. Staff approve exact generalized revisions before customer/bot use.
+Source references and verification evidence remain private to authorized staff.
+Reopened tickets hold pending drafts for reassessment. Durable work and explicit
+reconciliation connect components; there is no cross-store transaction.
 
 ### AI assistant
 
 AI is a consumer of reviewed knowledge and permitted product context, not a
 privileged bypass around authorization.
 
-The first AI capabilities should be retrieval, summarization, and staff-only
-drafting. Customer-visible generation and tool execution require separate
-approval, evaluation, audit, prompt-injection defenses, and data-processing
-decisions.
+The approved enhancement permits evaluated signed-in customer answers and
+escalation, with a ticket from the first message and dedicated assistant
+attribution. Human handoff is deterministic and always available. Initial AI
+authority excludes ticket resolution, account actions, and automatic knowledge,
+issue, or release-follow-up publication. Customer-facing retrieval can use
+approved bot-answer collections only for the permitted customer audience.
+
+Implement the dedicated permissions, evaluation, audit, revision/turn fencing,
+prompt-injection defenses, and disclosed ZDR processing configuration before
+activation. See the plan's task cards for the revised scope of old Task 18.
 
 ## Persistence model
 
@@ -626,6 +633,13 @@ retention, access-review, export, deletion, and legal-hold policies.
 AI processing is disabled until the host has documented which fields may leave
 the primary environment, selected suitable provider settings, and implemented
 redaction and audit controls.
+
+For the approved enhancement, customer-submitted support text may be processed
+without routine human privacy screening under disclosed, verified ZDR-compatible
+provider settings. Keep unnecessary account context and private notes out of
+customer-generation inputs. Derived KB/issue drafts receive their own privacy
+checks and initial staff publication approval. ZDR does not replace the host's
+ticket/evidence retention and deletion policy.
 
 ## Observability
 

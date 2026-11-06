@@ -587,6 +587,13 @@ a version number.
 
 ## Post-MVP queue
 
+The approved [standalone KB and AI implementation plan](KNOWLEDGE_AI_PLAN.md)
+supersedes Task 18's earlier staff-only scope and supplies its own small,
+repository-scoped task cards. Its foundational source work may proceed while
+Task 12 evidence is gathered; production pilots still require that evidence.
+Attachments, macros, and other independent queue items are not prerequisites
+for the KB. Give an implementation agent one task card, not the whole plan.
+
 These tasks are queued after Task 11 and follow the same rules: one task per
 pull request, additive to `0.x` contracts, docs in the same change, and no
 persistence, access model, provider SDK, or private limiter here. Task 12 is
@@ -601,7 +608,7 @@ dependency, not promised dates.
 | 4     | Task 15 — canned responses and macros  | Staff-only, versioned response templates and macros that expand into an explicit staff reply or note; every use is an audited staff command.                                                                                              | A macro would act without a staff command or change permissions.                         |
 | 5     | Task 16 — customer self-service polish | Customer DTO and command polish for portals (pagination of own tickets, closing one's own ticket, clearer status copy hooks) without exposing staff fields.                                                                               | A change needs staff-only fields in a customer DTO.                                      |
 | 6     | Task 17 — abuse composition notes      | Documented and tested composition of `@pegma/rate-limit` for web create/reply and inbound sender/domain/channel throttles, plus abuse-review metrics.                                                                                     | A limiter would have to live inside Support Desk.                                        |
-| 7     | Task 18 — AI triage and drafts         | Optional host hooks for staff-only summaries and reply drafts with an explicit human approval step, model/prompt version audit, and no customer-visible generation.                                                                       | A hook could send, act on an account, or raise permissions without a human approval.     |
+| 7     | Task 18 — superseded AI outline        | Follow `KNOWLEDGE_AI_PLAN.md` for the approved standalone KB, ticket-backed assistant, reviewed learning, bug export, and release-follow-up task cards.                                                                                   | A capability exceeds that plan's initial authority or bypasses its activation gates.     |
 
 ### Task 13 — lifecycle extras
 

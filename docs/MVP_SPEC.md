@@ -454,6 +454,11 @@ not appear in routine logs.
 
 ## Explicit MVP exclusions
 
+These describe the original ticket-only MVP. The approved post-MVP
+[knowledge/AI implementation plan](KNOWLEDGE_AI_PLAN.md) adds evaluated
+customer-visible support answers and reviewed knowledge/engineering workflows
+through separate implementation and activation gates.
+
 - File attachments
 - Live chat and presence
 - SLAs and business-hours calendars
