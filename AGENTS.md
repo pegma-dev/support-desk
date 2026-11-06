@@ -94,11 +94,15 @@ queues, number counters, mail channels, policies, secrets, cursors, and
 retention. Do not add `tenantId`, a cross-cloud database, or a shared control
 plane to join them.
 
-**Human support first.** AI may summarize, retrieve, and draft for staff. It is
-never the authority for a customer-impacting action, it cannot increase a
-caller's permissions, and customer-visible generation or account actions need
-their own permission, evaluation, audit, and human handoff. Internal notes never
-enter customer-visible output — that separation is load-bearing, not stylistic.
+**Human support first.** The approved enhancement in
+`docs/KNOWLEDGE_AI_PLAN.md` permits optional, evaluated customer-visible AI
+answers and escalation through dedicated permissions, audit, and human handoff.
+Those capabilities remain disabled until their implementation and activation
+gates pass. AI must never increase a caller's permissions. The initial AI agent
+cannot resolve tickets or act on accounts. Knowledge publication, GitHub export,
+and release follow-up require staff approval initially; later automation needs the
+plan's separate opt-in and evidence gates. Internal notes never enter
+customer-visible output — that separation is load-bearing, not stylistic.
 
 **Do not create a package before its implementation begins.** An empty adapter
 package makes a compatibility promise while supplying nothing. Package
@@ -179,7 +183,10 @@ were deleted rather than renamed.
 `docs/PROJECT_PLAN.md` is the source of truth for scope, phases, and decisions
 already made. `docs/BUILDOUT.md` is the one-task-per-pull-request implementation
 handoff; give an implementation agent one task from it, never the whole
-roadmap. Then read `docs/ARCHITECTURE.md` for boundaries and persistence,
+roadmap. For the approved standalone KB and AI enhancement, use one task from
+`docs/KNOWLEDGE_AI_PLAN.md`; it supersedes the earlier knowledge package and
+staff-only Task 18 outline without marking those capabilities implemented.
+Then read `docs/ARCHITECTURE.md` for boundaries and persistence,
 `docs/MVP_SPEC.md` for product behavior, and `docs/COLLECTIONS.md` before any
 durable layout change.
 

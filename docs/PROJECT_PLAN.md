@@ -157,8 +157,10 @@ preserving the boundaries needed by a larger support team:
    not duplicate or lose messages.
 7. **Sensitive by default.** Assume customers will send information they should
    not have sent.
-8. **AI earns responsibility gradually.** Retrieval and drafts precede
-   customer-visible automation or account actions.
+8. **AI earns responsibility gradually.** Evaluated customer-visible answers
+   and escalation follow the approved knowledge/AI plan. Staff initially
+   approve knowledge publication, issue exports, and release follow-up;
+   broader automation requires separate evidence and opt-in.
 9. **Reuse code, isolate deployments.** RetireGolden and pegma.dev use the same
    packages with separate stores, queues, mail channels, policies, secrets,
    cursors, and retention rules. Multi-tenancy is not an MVP shortcut.
@@ -167,17 +169,25 @@ preserving the boundaries needed by a larger support team:
 
 The project remains a monorepo until contracts stabilize.
 
-| Package                           | Responsibility                                         | Earliest phase |
-| --------------------------------- | ------------------------------------------------------ | -------------- |
-| `@pegma/support-desk-contracts`   | Ticket, message, event, and adapter contracts          | Foundation     |
-| `@pegma/support-desk-core`        | Pure creation and lifecycle transitions                | Foundation     |
-| `@pegma/support-desk-application` | Authorized use cases, declared collections, and outbox | Phase 1        |
-| `@pegma/support-desk-templates`   | Safe, versioned notification rendering                 | Phase 6        |
-| `@pegma/support-desk-knowledge`   | Reviewed knowledge-item pipeline                       | Phase 10       |
+| Package                           | Responsibility                                          | Earliest phase |
+| --------------------------------- | ------------------------------------------------------- | -------------- |
+| `@pegma/support-desk-contracts`   | Ticket, message, event, and adapter contracts           | Foundation     |
+| `@pegma/support-desk-core`        | Pure creation and lifecycle transitions                 | Foundation     |
+| `@pegma/support-desk-application` | Authorized use cases, declared collections, and outbox  | Phase 1        |
+| `@pegma/support-desk-templates`   | Safe, versioned notification rendering                  | Phase 6        |
+| `@pegma/support-desk-ai`          | Optional KB, support-agent, and engineering integration | Phase 11       |
 
 Packages publish under the `@pegma` scope, one repository per Pegma component.
 They should be created only when implementation begins and remain unpublished
 until the applicable release criteria are met.
+
+The [approved knowledge/AI implementation plan](KNOWLEDGE_AI_PLAN.md) moves
+general product documentation and reviewed knowledge into a standalone Pegma
+knowledge-base component. The previously proposed
+`@pegma/support-desk-knowledge` package will not be created. The KB owns its
+API/MCP-authoritative content and does not depend on Support Desk or GitHub.
+The optional Support Desk integration stays in this repository and is created
+only when its implementation begins.
 
 There is deliberately no storage package and no Azure package. Persistence is
 `@pegma/storage-core`: the application package declares its collections and
@@ -374,6 +384,11 @@ cannot grant website access.
 and incident procedures and install exact public versions from public
 documentation.
 
+This remains a prerequisite for production activation, including the KB/AI
+supervised pilots. Independent KB/AI source implementation and staging
+acceptance may proceed under `KNOWLEDGE_AI_PLAN.md`; neither a source test nor
+that enhancement's build acceptance closes this production-evidence gate.
+
 ### Phase 9 — attachments and operational features
 
 **Goal:** Add features only after the message path is stable.
@@ -398,49 +413,48 @@ phase is intentionally not one large release.
 
 ### Phase 10 — knowledge pipeline
 
-**Goal:** Convert recurring solved problems into reviewed, reusable knowledge.
+**Goal:** Compose a standalone knowledge base for product documentation and
+reviewed support knowledge on both launch hosts.
 
-- Define knowledge-item contracts and provenance.
-- Select eligible resolved tickets.
-- redact customer and account-specific information;
-- cluster recurring questions;
-- draft articles or approved answers;
-- require human review and publication;
-- version and retire knowledge items;
-- measure whether articles actually resolve future questions.
+Approved decisions and repository-scoped task cards are in
+[KNOWLEDGE_AI_PLAN.md](KNOWLEDGE_AI_PLAN.md). Local agents author through
+authenticated API/MCP and submit article-appropriate staging verification.
+Collections own audience permissions, including dedicated customer-safe
+bot-answer collections; articles inherit access. The KB owns revisions,
+evidence, approval, publication, and retrieval without requiring GitHub.
 
-Raw solved tickets remain private. Public knowledge is a separate reviewed
-artifact.
+Ticket-derived drafts require customer-confirmed, staff-verified, or tested
+resolution evidence. Remove customer-specific information, retain private
+source references for authorized staff, and require staff approval before
+customer or bot use. Reopening a ticket holds pending drafts for reassessment.
 
-**Exit criterion:** A reviewer can publish a useful answer derived from solved
-tickets without exposing personal data or treating model output as fact.
+**Exit criterion:** Both hosts demonstrate agent authoring/testing and reviewed
+publication and bounded authorized retrieval. Resolution-to-draft integration
+follows under Phase 11's Support Desk tasks.
 
 ### Phase 11 — AI assistance
 
-**Goal:** Reduce repetitive support work while retaining human control.
+**Goal:** Deliver evaluated signed-in web support on both hosts with explicit
+human handoff, reviewed learning, and safe engineering follow-up.
 
-Progression:
+Follow [KNOWLEDGE_AI_PLAN.md](KNOWLEDGE_AI_PLAN.md), which replaces the earlier
+staff-only execution outline. Every chat starts as a ticket; assistant-handled
+work enters the human queue on escalation. The customer can always request a
+person. The agent initially answers and escalates without resolving tickets
+or acting on accounts. Customer input is processed with disclosed AI use and
+a verified ZDR-compatible provider configuration.
 
-1. Staff-only ticket summary.
-2. Knowledge retrieval for staff.
-3. Staff-only reply draft with citations to approved knowledge.
-4. Customer self-service retrieval before ticket creation.
-5. Carefully evaluated customer-visible generation.
-6. Separately authorized, user-approved product actions if ever justified.
+Verified bug evidence supports AI selection from an admin repository allowlist;
+uncertain routing requires a human. All repositories initially require staff
+approval for sanitized issue export, with stricter checks for public trackers.
+Suspected security issues remain in restricted human review. Confirmed deployed
+fixes prepare customer updates, KB changes, and retests; staff approve sends and
+publication. Future automation is separately configured and evaluated.
 
-Required foundations:
-
-- redaction and data-classification rules;
-- provider and retention decisions;
-- prompt-injection and tool-authorization boundaries;
-- evaluation sets from synthetic and approved historical cases;
-- hallucination and escalation measurements;
-- model and prompt version audit;
-- clear handoff to a human;
-- per-action permission and confirmation.
-
-**Exit criterion:** AI measurably reduces support work without increasing
-privacy incidents, incorrect resolutions, or barriers to human help.
+**Exit criterion:** Full workflow acceptance passes on both hosts, followed by
+separate supervised production pilots. Authorization, privacy, prompt-injection,
+revision races, retries, escalation, model/prompt audit, and operating limits
+are tested. Existing production-evidence gates remain required.
 
 ### Stable `1.0`
 
@@ -490,9 +504,11 @@ The pegma.dev host owns:
   cursors that are not shared with Identity mail;
 - privacy and retention policy for submitted feedback.
 
-pegma.dev tickets remain private conversations. Publication to the roadmap,
-documentation, or GitHub Issues is a later explicit staff action with
-redaction and confirmation, never an automatic side effect.
+pegma.dev tickets remain private conversations. The approved knowledge/AI plan
+adds reviewed, sanitized drafts for knowledge and GitHub Issues; publication
+requires an explicit staff action initially. Later automatic issue filing may
+be enabled per repository after its evidence gates pass. This does not expose
+raw tickets or automatically publish them to the public roadmap.
 
 The two launch hosts do not share a Store, ticket-number counter, queue,
 mailbox, template activation, authorization cache, retention job, or worker
@@ -592,7 +608,9 @@ full-featured support-desk work: lifecycle extras (tags beyond the category
 allowlist, response-target hooks, collision hints), attachments through a
 host blob port, staff-only audited canned responses and macros, customer
 self-service contract polish, rate-limit and abuse composition notes, and
-optional staff-only AI triage and drafts behind explicit human approval.
+the approved standalone KB and evaluated customer-visible AI support work in
+[`KNOWLEDGE_AI_PLAN.md`](KNOWLEDGE_AI_PLAN.md), which supersedes the earlier
+staff-only Task 18 outline.
 Each remains one pull request and stays inside the boundaries above.
 
 One numbered Buildout task is one pull request. Do not parallelize adjacent

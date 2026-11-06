@@ -38,6 +38,11 @@ The first release will stay deliberately smaller than that vision. See the
 [MVP specification](docs/MVP_SPEC.md) and
 [project plan](docs/PROJECT_PLAN.md).
 
+The approved [knowledge-base and AI support implementation plan](docs/KNOWLEDGE_AI_PLAN.md)
+defines the next enhancement: a standalone API/MCP-authored KB and an optional
+ticket-backed support agent, with working integrations on both launch hosts.
+It records the agreed scope and task sequence; these features are planned.
+
 ## How the pieces fit
 
 ```text
@@ -86,8 +91,10 @@ The organization profile is at
 - **Auditability:** Staff actions and state changes must be attributable.
 - **Embeddable first:** The initial product is a library and reference API, not
   a hosted multi-tenant service.
-- **Human support first:** AI may suggest or retrieve; it does not silently
-  become the authority for customer-impacting actions.
+- **Human support first:** The approved enhancement permits evaluated AI
+  answers and escalation with explicit permissions, audit, and human handoff.
+  Staff initially approve knowledge publication, issue export, and release
+  follow-up; AI can never increase a caller's permissions.
 
 ## Current packages
 
@@ -177,6 +184,7 @@ pnpm run format:check
 - [MVP specification](docs/MVP_SPEC.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Project plan](docs/PROJECT_PLAN.md)
+- [Knowledge base and AI implementation plan](docs/KNOWLEDGE_AI_PLAN.md)
 - [Declared collections](docs/COLLECTIONS.md)
 - [Host composition](docs/HOST_COMPOSITION.md)
 - [Release notes](docs/RELEASE_NOTES.md)

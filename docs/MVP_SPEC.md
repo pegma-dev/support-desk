@@ -454,6 +454,11 @@ not appear in routine logs.
 
 ## Explicit MVP exclusions
 
+These describe the original ticket-only MVP. The approved post-MVP
+[knowledge/AI implementation plan](KNOWLEDGE_AI_PLAN.md) adds evaluated
+customer-visible support answers and reviewed knowledge/engineering workflows
+through separate implementation and activation gates.
+
 - File attachments
 - Live chat and presence
 - SLAs and business-hours calendars
@@ -471,7 +476,12 @@ not appear in routine logs.
 
 ## Acceptance criteria
 
-The MVP is complete when:
+The original ticket-only MVP is complete when the criteria below pass. They do
+not establish completion or activation readiness for the post-MVP KB/AI
+enhancement: that additionally requires the
+[full-workflow build acceptance](KNOWLEDGE_AI_PLAN.md#full-workflow-build-acceptance)
+on both hosts, followed by its supervised rollout and existing production
+evidence gates.
 
 1. An eligible RetireGolden customer and an authenticated pegma.dev user can
    each create, list, read, and reply to their own ticket in isolated instances
