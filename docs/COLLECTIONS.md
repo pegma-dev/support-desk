@@ -26,7 +26,9 @@ memory tests, and real-adapter tests.
 ID. One partition contains:
 
 - `ticket`: current ticket state, including optional host `category`, staff
-  `updatedAt`, and customer-visible `customerUpdatedAt`;
+  `updatedAt`, customer-visible `customerUpdatedAt`, optional staff-only `tags`,
+  `firstResponseDueAt`, `resolutionDueAt`, and `firstStaffRespondedAt`, plus
+  the existing current-cycle `resolvedAt`;
 - `quota`: conflict-safe message count for the hard per-ticket cap;
 - `reservation`: committed or cancelled customer-index reservation fence;
 - `message:<message-id>`: canonical customer or internal messages, including
@@ -85,6 +87,17 @@ partition, embeds each `AuditEvent` in the record union, and drops
 `defineAudit(...).action(...)` into the same `transact` as the ticket mutation.
 History is read through Audit's `history` helper (sequence, then time, then
 id). The pure domain `TicketEvent` is not persisted as a second audit contract.
+
+Task 13 staff receipts add optional `resultTicket`, a bounded ticket snapshot
+without conversation bodies. A replay selects immutable message rows whose
+ordinal is at most that ticket revision. The optional revision hint is included
+in new command fingerprints only when supplied, preserving older omitted-hint
+fingerprints. Legacy receipts without snapshots still return current detail.
+Tags and targets share the ticket transaction with its Audit action and receipt;
+no new collection, storage implementation, or cross-partition transaction is
+introduced. Tags have at most 32 safe identifiers (application default 8),
+and each due date is a canonical ISO timestamp. First staff response persists
+through reopen; resolution is cleared on reopen/reply and set on re-resolution.
 
 ## Ticket numbers
 
@@ -248,7 +261,9 @@ steps or create a linked unverified ticket.
 - projected ticket revision;
 - active or inactive projection state;
 - status, priority, optional category, requester association, channel,
-  assignee, and update time.
+  assignee, and update time;
+- optional staff-only tags, first-response/resolution due dates,
+  `firstStaffRespondedAt`, and `resolvedAt`.
 
 It stores no message content, requester email, routing token, or permission
 decision.
@@ -262,7 +277,11 @@ the projection write fails (logged; exposed via `queueProjectionHealth`).
 `repairQueueProjectionPage` is a repeating cursor-aware worker that scans
 authoritative `ticket` records in `support-desk.records.v1` and repairs missed
 writes. Older projection revisions cannot replace newer ones; an equal revision
-with different content is corruption and fails closed.
+with different content is corruption and fails closed, except exact legacy
+rows missing all additive lifecycle fields may be enriched from the freshly
+loaded authoritative ticket at the same revision. Run a complete queue repair
+cycle after upgrading. Target/tag filtering and sorting use authoritative
+fields, never the candidate row values.
 
 Staff queue reads (`listStaffQueue`) scan this projection in bounded pages,
 load every candidate ticket by authoritative key, discard stale or inactive

@@ -11,6 +11,10 @@ or a real mail SDK.
 - customer create, list, read, and reply through
   `@pegma/support-desk-application`;
 - staff detail, queue, note, assign, priority, and reply;
+- `runLifecycleExampleFlow`: normalized staff tags, the synthetic host
+  response-target policy (also wired to inbound), due-soon queue filtering,
+  first response and resolution milestones, safe stale-revision hints, and
+  exact committed replay after a later change;
 - internal notes stay out of the customer view and customer-visible mail body;
 - verified inbound mail: an unknown sender creates a low-priority unverified
   ticket, a provider retry is deduplicated, a threaded follow-up joins the

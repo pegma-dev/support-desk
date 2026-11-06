@@ -22,7 +22,45 @@ Staff services use the same application factory and ticket partition:
 | `resolveTicket`          | `support.queue.read` + `support.ticket.manage`    | → `resolved` (closed tickets must reopen first)                     |
 | `closeTicket`            | `support.queue.read` + `support.ticket.manage`    | → `closed` (resolved only)                                          |
 | `reopenTicket`           | `support.queue.read` + `support.ticket.manage`    | resolved/closed → `waiting_on_support`                              |
+| `setTags`                | `support.queue.read` + `support.ticket.manage`    | Replace staff tags; status, customer time, and mail unchanged       |
 | `readTicketAuditHistory` | `support.audit.read`                              | Ordered Audit history for one ticket                                |
+
+### Optional lifecycle extras
+
+`setTags` requires queue read plus `support.ticket.manage`. Configure
+`allowedTags` (at most 32 raw entries, normalized, deduplicated, sorted) and
+`maxTagsPerTicket` (default 8, maximum 32). Tags follow the category identifier
+discipline after trimming and lowercasing; each raw label is at most 64
+characters with no controls. `[]` clears tags. This command updates staff time
+and revision only, with an atomic `support.ticket.tags_changed` audit action
+and receipt, and no messages or mail. Queue query `tag` matches one label.
+
+Pass optional `responseTargetPolicy: { computeTargets(context) }` to both
+`createSupportDeskApplication` and `createInboundMailProcessor`. The host
+returns canonical ISO `firstResponseDueAt` / `resolutionDueAt` fields as a
+complete replacement on create, customer follow-up (web/email), and priority
+changes. Omitted result fields clear targets; absent policy preserves them.
+The frozen context is content-free and hooks must tolerate retries. First
+public staff reply sets `firstStaffRespondedAt` once. `resolvedAt` describes
+the current resolution cycle; reopen/reply clears it and re-resolution sets
+it again. Calendars, business hours, and presence remain host responsibilities.
+
+Queue queries select `target: "first_response" | "resolution"` (resolution
+by default), `targetState: "overdue" | "due_soon"`, and the latter's required
+`dueSoonMilliseconds` (0 to 30 days, rejected otherwise). Sort by `due_soonest` or `due_latest`,
+with completed/missing targets last and ticket ID tie-breaking. All values
+come from authoritative confirmation within existing scan budgets. Tags,
+targets, and milestones stay out of customer DTOs and automatic customer mail.
+
+Every staff mutation accepts optional `expectedRevision`. A mismatch fails
+before ticket changes with `SupportDeskStaleRevisionError`, exposing only
+`currentRevision` and `updatedAt` for HTTP 409. Omission retains existing
+conflict retries. Replay detection precedes revision checking; new receipts
+return the original result using a ticket snapshot and message revision cutoff.
+Legacy receipts retain current-detail replay. Run queue repair after upgrade
+to enrich old rows; no automatic target or historical milestone backfill runs.
+See [host composition](../../docs/HOST_COMPOSITION.md#optional-lifecycle-extras-task-13)
+for complete retry, lifecycle, and HTTP semantics.
 
 ### Staff queue projection
 

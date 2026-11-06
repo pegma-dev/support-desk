@@ -1,5 +1,29 @@
 # Release notes
 
+## Unreleased — lifecycle extras (Buildout Task 13)
+
+Additive package work against `0.1.1`; no versions, tags, or publication change.
+Task 12 remains pending on both hosts' durable-store production evidence.
+
+- Optional bounded host `allowedTags` and `maxTagsPerTicket`; staff `setTags`
+  with `support.ticket.manage`, normalized idempotency, transactional
+  `support.ticket.tags_changed` Audit action, and staff-time-only changes.
+- Optional `ResponseTargetPolicy` on application and inbound processing;
+  canonical first-response/resolution due dates, one-time first staff response,
+  current-resolution milestones, and confirmed queue tag/target filters and due
+  sorting. Hosts own calendars and presence. Customer DTOs and automatic
+  customer mail omit the new staff fields.
+- Optional `expectedRevision` on every staff mutation and content-safe
+  `SupportDeskStaleRevisionError` (HTTP 409). Exact new staff receipts replay
+  the original ticket and message revision cutoff even after later edits.
+
+Upgrade: existing tickets and receipts remain readable. Missing tags mean no
+tags; absent targets do not match due filters; first-response milestones are
+not inferred from history. Configure the same target policy on web and inbound
+composition, and run a complete queue repair cycle to enrich legacy projection
+rows. No automatic target backfill or new worker is introduced. See
+[host composition](HOST_COMPOSITION.md#optional-lifecycle-extras-task-13).
+
 ## Unreleased — inbound mail (Buildout Task 11)
 
 Additive to the `0.1.1` public surface; package versions are unchanged until

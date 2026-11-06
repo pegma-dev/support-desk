@@ -6,6 +6,7 @@ import {
   EXAMPLE_STAFF,
   runCompleteExampleFlow,
   runInboundExampleFlow,
+  runLifecycleExampleFlow,
 } from "../examples/composition/composition.js";
 import {
   SupportDeskAuthorizationError,
@@ -14,6 +15,14 @@ import {
 } from "@pegma/support-desk-application";
 
 describe("host-neutral public composition", () => {
+  it("exercises staff tags, host targets, and revision collision hints", async () => {
+    const result = await runLifecycleExampleFlow();
+    expect(result.tags).toEqual(["needs_review"]);
+    expect(result.staleRevision).toBe(2);
+    expect(result.customerMetadataHidden).toBe(true);
+    expect(result.firstStaffRespondedAt).toBeDefined();
+    expect(result.resolvedAt).toBeDefined();
+  });
   it("runs complete customer and staff flows through public entry points", async () => {
     const composition = createExampleComposition();
     const result = await runCompleteExampleFlow(composition);
@@ -40,6 +49,14 @@ describe("host-neutral public composition", () => {
     const serialized = JSON.stringify(composition.sent);
     expect(serialized).not.toContain("Internal:");
     expect(serialized).not.toContain("check export entitlement");
+    for (const field of [
+      "tags",
+      "firstResponseDueAt",
+      "resolutionDueAt",
+      "firstStaffRespondedAt",
+      "resolvedAt",
+    ])
+      expect(serialized).not.toContain(`"${field}"`);
   });
 
   it("runs verified inbound mail through the public processor", async () => {

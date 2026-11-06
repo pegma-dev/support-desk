@@ -27,11 +27,25 @@ const releaseVersion = (
 ).version;
 
 function run(command: string, arguments_: string[], cwd?: string): string {
-  return execFileSync(command, arguments_, {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+  // Node refuses to spawn .cmd files without a shell; cmd.exe then joins argv,
+  // so quote every argument rather than trusting paths to be space-free.
+  const viaShell = process.platform === "win32" && command.endsWith(".cmd");
+  if (
+    viaShell &&
+    arguments_.some((argument) => /["%^&|<>!\r\n]/.test(argument))
+  ) {
+    throw new TypeError("unsafe argument for a Windows shell spawn");
+  }
+  return execFileSync(
+    command,
+    viaShell ? arguments_.map((argument) => `"${argument}"`) : arguments_,
+    {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: viaShell,
+    },
+  ).trim();
 }
 
 function runNpm(arguments_: string[], cwd = process.cwd()): string {

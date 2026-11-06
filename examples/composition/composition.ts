@@ -44,6 +44,7 @@ import {
   supportMail,
   supportPermissions,
   supportRecords,
+  SupportDeskStaleRevisionError,
   sweepDeliveryCallbackReceipts,
   sweepInactiveQueueProjections,
   sweepInboundReceipts,
@@ -53,6 +54,7 @@ import {
   type InboundMailProcessor,
   type InboundSenderMatch,
   type SupportDeskApplication,
+  type ResponseTargetPolicy,
 } from "@pegma/support-desk-application";
 import { defineTemplate, renderTemplate } from "@pegma/support-desk-templates";
 
@@ -93,6 +95,18 @@ export const EXAMPLE_CATEGORIES = Object.freeze([
   "documentation",
   "question",
 ] as const);
+
+/** Synthetic host policy: elapsed-time targets, with no calendar or presence. */
+export const exampleResponseTargetPolicy: ResponseTargetPolicy = {
+  computeTargets: ({ createdAt, priority }) => ({
+    firstResponseDueAt: new Date(
+      Date.parse(createdAt) + (priority === "high" ? 3_600_000 : 4 * 3_600_000),
+    ).toISOString(),
+    resolutionDueAt: new Date(
+      Date.parse(createdAt) + 24 * 3_600_000,
+    ).toISOString(),
+  }),
+};
 
 export const staffNewTicketTemplate = defineTemplate({
   id: "example.staff-new-ticket",
@@ -290,6 +304,9 @@ export function createExampleComposition(
     store,
     clock,
     allowedCategories: EXAMPLE_CATEGORIES,
+    allowedTags: ["needs_review", "follow_up"],
+    maxTagsPerTicket: 4,
+    responseTargetPolicy: exampleResponseTargetPolicy,
     queueTerminalRetentionMilliseconds: terminalRetentionMilliseconds,
   });
 
@@ -298,6 +315,7 @@ export function createExampleComposition(
   const inbound = createInboundMailProcessor({
     store,
     clock,
+    responseTargetPolicy: exampleResponseTargetPolicy,
     accountMatcher: {
       async matchSenderEmail({ email }): Promise<InboundSenderMatch> {
         const principalId = EXAMPLE_ACCOUNT_EMAILS[email.toLowerCase()];
@@ -903,5 +921,101 @@ export async function runInboundExampleFlow(
     autoReply,
     matched,
     unverifiedQueueSize: queue.items.length,
+  };
+}
+
+/** Staff-only lifecycle metadata and an explicit changed-since-load handoff. */
+export async function runLifecycleExampleFlow(
+  composition: ExampleComposition = createExampleComposition(),
+) {
+  const { application } = composition;
+  const base = {
+    ticketId: "ticket-lifecycle",
+    correlationId: "corr-lifecycle",
+  };
+  await application.createCustomerTicket(EXAMPLE_CUSTOMER, {
+    ...base,
+    commandId: "lifecycle-create",
+    messageId: "lifecycle-initial",
+    subject: "Synthetic lifecycle question",
+    body: "Please help",
+  });
+  const loaded = await application.readStaffTicket(
+    EXAMPLE_STAFF,
+    base.ticketId,
+  );
+  const tagCommand = {
+    ...base,
+    commandId: "lifecycle-tags",
+    tags: [" NEEDS_REVIEW ", "needs_review"],
+    expectedRevision: loaded.ticket.revision,
+  };
+  const tagged = await application.setTags(EXAMPLE_STAFF, tagCommand);
+  let staleRevision: number | undefined;
+  try {
+    await application.assignTicket(EXAMPLE_STAFF, {
+      ...base,
+      commandId: "lifecycle-stale",
+      expectedRevision: loaded.ticket.revision,
+      assigneeId: EXAMPLE_STAFF.principalId,
+    });
+  } catch (error) {
+    if (!(error instanceof SupportDeskStaleRevisionError)) throw error;
+    // Host would return 409 and ask staff to reload with these safe hints.
+    staleRevision = error.currentRevision;
+  }
+  const priority = await application.changePriority(EXAMPLE_STAFF, {
+    ...base,
+    commandId: "lifecycle-priority",
+    priority: "high",
+    expectedRevision: tagged.ticket.revision,
+  });
+  const replay = await application.setTags(EXAMPLE_STAFF, tagCommand);
+  const due = await application.listStaffQueue(EXAMPLE_STAFF, {
+    tag: "needs_review",
+    target: "first_response",
+    targetState: "due_soon",
+    dueSoonMilliseconds: 4 * 3_600_000,
+    sort: "due_soonest",
+  });
+  const replied = await application.replyAsStaff(EXAMPLE_STAFF, {
+    ...base,
+    commandId: "lifecycle-reply",
+    expectedRevision: priority.ticket.revision,
+    messageId: "lifecycle-reply",
+    body: "We can help.",
+  });
+  const resolved = await application.resolveTicket(EXAMPLE_STAFF, {
+    ...base,
+    commandId: "lifecycle-resolve",
+    expectedRevision: replied.ticket.revision,
+  });
+  const customer = await application.readCustomerTicket(
+    EXAMPLE_CUSTOMER,
+    base.ticketId,
+  );
+  const hidden = [
+    "tags",
+    "firstResponseDueAt",
+    "resolutionDueAt",
+    "firstStaffRespondedAt",
+    "resolvedAt",
+  ].every((field) => !Object.hasOwn(customer.ticket, field));
+  if (
+    staleRevision !== tagged.ticket.revision ||
+    replay.ticket.revision !== tagged.ticket.revision ||
+    due.items.length !== 1 ||
+    !hidden ||
+    resolved.ticket.firstStaffRespondedAt === undefined ||
+    resolved.ticket.resolvedAt === undefined
+  )
+    throw new Error("lifecycle composition invariant failed");
+  return {
+    tags: resolved.ticket.tags,
+    firstResponseDueAt: resolved.ticket.firstResponseDueAt,
+    firstStaffRespondedAt: resolved.ticket.firstStaffRespondedAt,
+    resolvedAt: resolved.ticket.resolvedAt,
+    staleRevision,
+    customerMetadataHidden: hidden,
   };
 }

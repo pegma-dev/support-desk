@@ -79,6 +79,43 @@ export class SupportDeskConflictError extends Error {
   }
 }
 
+/** Content-safe collision hint, available only after staff authorization. */
+export class SupportDeskStaleRevisionError extends SupportDeskConflictError {
+  constructor(
+    readonly currentRevision: number,
+    readonly updatedAt: IsoTimestamp,
+  ) {
+    super("The ticket changed since it was loaded");
+    this.name = "SupportDeskStaleRevisionError";
+  }
+}
+
+export interface ResponseTargets {
+  readonly firstResponseDueAt?: IsoTimestamp;
+  readonly resolutionDueAt?: IsoTimestamp;
+}
+
+/** Content-free facts; hosts own calendars, presence, and target calculation. */
+export interface ResponseTargetContext extends ResponseTargets {
+  readonly reason: "created" | "customer_replied" | "priority_changed";
+  readonly ticketId: TicketId;
+  readonly revision: number;
+  readonly priority: TicketPriority;
+  readonly category?: string;
+  readonly channel: TicketChannel;
+  readonly createdAt: IsoTimestamp;
+  readonly occurredAt: IsoTimestamp;
+  readonly firstStaffRespondedAt?: IsoTimestamp;
+  readonly resolvedAt?: IsoTimestamp;
+}
+
+export interface ResponseTargetPolicy {
+  /** Complete replacement of due timestamps. Must be safe to retry on conflicts. */
+  computeTargets(
+    context: ResponseTargetContext,
+  ): ResponseTargets | Promise<ResponseTargets>;
+}
+
 export class SupportDeskLimitError extends Error {
   constructor(
     readonly field:
@@ -176,6 +213,7 @@ type SupportCommandType =
   | "add_note"
   | "assign_ticket"
   | "change_priority"
+  | "set_tags"
   | "resolve_ticket"
   | "close_ticket"
   | "reopen_ticket"
@@ -195,6 +233,8 @@ interface CommandRecord {
   readonly messageId?: MessageId;
   readonly requestFingerprint: string;
   readonly completedAt: IsoTimestamp;
+  /** New staff commands retain their result; messages are selected by revision. */
+  readonly resultTicket?: Ticket;
 }
 
 interface TicketQuotaRecord {
@@ -231,6 +271,7 @@ export const supportTicketAuditActions = Object.freeze({
   assigned: "support.ticket.assigned",
   unassigned: "support.ticket.unassigned",
   priorityChanged: "support.ticket.priority_changed",
+  tagsChanged: "support.ticket.tags_changed",
   resolved: "support.ticket.resolved",
   closed: "support.ticket.closed",
   reopened: "support.ticket.reopened",
@@ -579,6 +620,11 @@ export interface QueueIndexRecord {
   readonly status: TicketStatus;
   readonly priority: TicketPriority;
   readonly category?: string;
+  readonly tags?: readonly string[];
+  readonly firstResponseDueAt?: IsoTimestamp;
+  readonly resolutionDueAt?: IsoTimestamp;
+  readonly firstStaffRespondedAt?: IsoTimestamp;
+  readonly resolvedAt?: IsoTimestamp;
   readonly requesterAssociation: RequesterAssociation;
   readonly channel: TicketChannel;
   readonly assignedTo?: PrincipalId;
@@ -728,7 +774,19 @@ export interface StaffTicketView {
   readonly messages: readonly TicketMessage[];
 }
 
-export interface StaffReplyCommand {
+export interface StaffRevisionHint {
+  /** Omit to retain automatic conflict retries; supplied values must match. */
+  readonly expectedRevision?: number;
+}
+
+export interface SetTagsCommand extends StaffRevisionHint {
+  readonly commandId: string;
+  readonly correlationId: string;
+  readonly ticketId: TicketId;
+  readonly tags: readonly string[];
+}
+
+export interface StaffReplyCommand extends StaffRevisionHint {
   readonly commandId: string;
   readonly correlationId: string;
   readonly ticketId: TicketId;
@@ -737,7 +795,7 @@ export interface StaffReplyCommand {
   readonly notification?: NotificationInput;
 }
 
-export interface AddNoteCommand {
+export interface AddNoteCommand extends StaffRevisionHint {
   readonly commandId: string;
   readonly correlationId: string;
   readonly ticketId: TicketId;
@@ -745,7 +803,7 @@ export interface AddNoteCommand {
   readonly body: string;
 }
 
-export interface AssignTicketCommand {
+export interface AssignTicketCommand extends StaffRevisionHint {
   readonly commandId: string;
   readonly correlationId: string;
   readonly ticketId: TicketId;
@@ -761,14 +819,14 @@ export interface AssignTicketCommand {
   readonly notification?: NotificationInput;
 }
 
-export interface ChangePriorityCommand {
+export interface ChangePriorityCommand extends StaffRevisionHint {
   readonly commandId: string;
   readonly correlationId: string;
   readonly ticketId: TicketId;
   readonly priority: TicketPriority;
 }
 
-export interface LifecycleTicketCommand {
+export interface LifecycleTicketCommand extends StaffRevisionHint {
   readonly commandId: string;
   readonly correlationId: string;
   readonly ticketId: TicketId;
@@ -788,6 +846,12 @@ export interface LifecycleTicketCommand {
  * confirmation. Storage never filters or sorts projection rows.
  */
 export interface StaffQueueQuery {
+  readonly tag?: string;
+  /** Target filters and due sorting default to resolution. */
+  readonly target?: "first_response" | "resolution";
+  readonly targetState?: "overdue" | "due_soon";
+  /** Required for due_soon; inclusive horizon, at most 30 days. */
+  readonly dueSoonMilliseconds?: number;
   readonly status?: TicketStatus | readonly TicketStatus[];
   readonly priority?: TicketPriority | readonly TicketPriority[];
   readonly association?: RequesterAssociation | readonly RequesterAssociation[];
@@ -796,7 +860,8 @@ export interface StaffQueueQuery {
   readonly assignedTo?: PrincipalId;
   readonly unassignedOnly?: boolean;
   /** Newest updates first is the default staff presentation. */
-  readonly sort?: "updated_newest" | "updated_oldest";
+  readonly sort?:
+    "updated_newest" | "updated_oldest" | "due_soonest" | "due_latest";
 }
 
 /** Confirmed active ticket summary for the staff queue surface. */
@@ -806,6 +871,11 @@ export interface StaffQueueItem {
   readonly status: TicketStatus;
   readonly priority: TicketPriority;
   readonly category?: string;
+  readonly tags?: readonly string[];
+  readonly firstResponseDueAt?: IsoTimestamp;
+  readonly resolutionDueAt?: IsoTimestamp;
+  readonly firstStaffRespondedAt?: IsoTimestamp;
+  readonly resolvedAt?: IsoTimestamp;
   readonly requesterAssociation: RequesterAssociation;
   readonly channel: TicketChannel;
   readonly assignedTo?: PrincipalId;
@@ -889,6 +959,10 @@ export interface SupportDeskApplication {
   changePriority(
     access: AccessContext,
     command: ChangePriorityCommand,
+  ): Promise<StaffTicketView>;
+  setTags(
+    access: AccessContext,
+    command: SetTagsCommand,
   ): Promise<StaffTicketView>;
   resolveTicket(
     access: AccessContext,
@@ -1239,6 +1313,164 @@ function snapshotCategory(value: unknown, field: string): string | undefined {
     );
   }
   return value;
+}
+
+function normalizedTag(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    value.length > 64 ||
+    /[\u0000-\u001F\u007F]/.test(value)
+  ) {
+    throw new TypeError("tag must be a bounded safe identifier");
+  }
+  const tag = value.trim().toLowerCase();
+  if (!categoryPattern.test(tag))
+    throw new TypeError("tag must match the category identifier discipline");
+  return tag;
+}
+
+function snapshotTags(input: unknown): readonly string[] {
+  if (!Array.isArray(input) || input.length > 32) {
+    throw new TypeError("tags must be an array of at most 32 values");
+  }
+  const tags = new Set<string>();
+  for (let index = 0; index < input.length; index += 1) {
+    tags.add(normalizedTag(ownDataProperty(input, index, `tags[${index}]`)));
+  }
+  return Object.freeze([...tags].sort());
+}
+
+function snapshotRevisionHint(source: object): StaffRevisionHint {
+  const value = ownDataProperty(
+    source,
+    "expectedRevision",
+    "expectedRevision",
+    true,
+  );
+  if (value === undefined) return {};
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+    throw new TypeError("expectedRevision must be a positive safe integer");
+  }
+  return { expectedRevision: value };
+}
+
+function requireExpectedRevision(
+  ticket: Ticket,
+  command: StaffRevisionHint,
+): void {
+  if (
+    command.expectedRevision !== undefined &&
+    ticket.revision !== command.expectedRevision
+  ) {
+    throw new SupportDeskStaleRevisionError(ticket.revision, ticket.updatedAt);
+  }
+}
+
+function parseResponseTargetPolicy(
+  input: unknown,
+): ResponseTargetPolicy | undefined {
+  if (input === undefined) return undefined;
+  const source = boundaryObject(input, "responseTargetPolicy");
+  const method = ownDataProperty(
+    source,
+    "computeTargets",
+    "responseTargetPolicy.computeTargets",
+  );
+  if (typeof method !== "function")
+    throw new TypeError("responseTargetPolicy must provide computeTargets()");
+  return Object.freeze({
+    computeTargets: (context: ResponseTargetContext) =>
+      method.call(source, context) as ReturnType<
+        ResponseTargetPolicy["computeTargets"]
+      >,
+  });
+}
+
+function staffLifecycleFields(
+  ticket: Ticket,
+): Pick<
+  Ticket,
+  | "tags"
+  | "firstResponseDueAt"
+  | "resolutionDueAt"
+  | "firstStaffRespondedAt"
+  | "resolvedAt"
+> {
+  return {
+    ...(ticket.tags === undefined
+      ? {}
+      : { tags: Object.freeze([...ticket.tags]) }),
+    ...(ticket.firstResponseDueAt === undefined
+      ? {}
+      : { firstResponseDueAt: ticket.firstResponseDueAt }),
+    ...(ticket.resolutionDueAt === undefined
+      ? {}
+      : { resolutionDueAt: ticket.resolutionDueAt }),
+    ...(ticket.firstStaffRespondedAt === undefined
+      ? {}
+      : { firstStaffRespondedAt: ticket.firstStaffRespondedAt }),
+    ...(ticket.resolvedAt === undefined
+      ? {}
+      : { resolvedAt: ticket.resolvedAt }),
+  };
+}
+
+async function applyResponseTargets(
+  ticket: Ticket,
+  policy: ResponseTargetPolicy | undefined,
+  reason: ResponseTargetContext["reason"],
+): Promise<Ticket> {
+  if (policy === undefined) return ticket;
+  const context: ResponseTargetContext = Object.freeze({
+    reason,
+    ticketId: ticket.id,
+    revision: ticket.revision,
+    priority: ticket.priority,
+    channel: ticket.channel,
+    createdAt: ticket.createdAt,
+    occurredAt: ticket.updatedAt,
+    ...(ticket.category === undefined ? {} : { category: ticket.category }),
+    ...(ticket.firstResponseDueAt === undefined
+      ? {}
+      : { firstResponseDueAt: ticket.firstResponseDueAt }),
+    ...(ticket.resolutionDueAt === undefined
+      ? {}
+      : { resolutionDueAt: ticket.resolutionDueAt }),
+    ...(ticket.firstStaffRespondedAt === undefined
+      ? {}
+      : { firstStaffRespondedAt: ticket.firstStaffRespondedAt }),
+    ...(ticket.resolvedAt === undefined
+      ? {}
+      : { resolvedAt: ticket.resolvedAt }),
+  });
+  const result = boundaryObject(
+    await policy.computeTargets(context),
+    "response targets",
+  );
+  const targets: {
+    firstResponseDueAt?: IsoTimestamp;
+    resolutionDueAt?: IsoTimestamp;
+  } = {};
+  for (const field of ["firstResponseDueAt", "resolutionDueAt"] as const) {
+    const value = ownDataProperty(
+      result,
+      field,
+      `response targets.${field}`,
+      true,
+    );
+    if (value !== undefined) {
+      if (typeof value !== "string")
+        throw new TypeError("response target must be an ISO timestamp");
+      canonicalTimestamp(value, `response targets.${field}`);
+      targets[field] = value;
+    }
+  }
+  const {
+    firstResponseDueAt: _first,
+    resolutionDueAt: _resolution,
+    ...rest
+  } = ticket;
+  return Object.freeze({ ...rest, ...targets });
 }
 
 function snapshotCreateCustomerTicketCommand(
@@ -1646,6 +1878,7 @@ function snapshotStaffReplyCommand(
       ? undefined
       : snapshotNotification(raw.notification);
   return Object.freeze({
+    ...snapshotRevisionHint(source),
     commandId: boundaryString(raw.commandId, "staff reply command.commandId"),
     correlationId: boundaryString(
       raw.correlationId,
@@ -1680,6 +1913,7 @@ function snapshotAddNoteCommand(input: AddNoteCommand): AddNoteCommand {
     body: ownDataProperty(source, "body", "add note command.body"),
   };
   return Object.freeze({
+    ...snapshotRevisionHint(source),
     commandId: boundaryString(raw.commandId, "add note command.commandId"),
     correlationId: boundaryString(
       raw.correlationId,
@@ -1749,6 +1983,7 @@ function snapshotAssignTicketCommand(
     }
   }
   return Object.freeze({
+    ...snapshotRevisionHint(source),
     commandId: boundaryString(raw.commandId, "assign command.commandId"),
     correlationId: boundaryString(
       raw.correlationId,
@@ -1800,6 +2035,7 @@ function snapshotChangePriorityCommand(
     );
   }
   return Object.freeze({
+    ...snapshotRevisionHint(source),
     commandId: boundaryString(
       raw.commandId,
       "change priority command.commandId",
@@ -1859,6 +2095,7 @@ function snapshotLifecycleTicketCommand(
     }
   }
   return Object.freeze({
+    ...snapshotRevisionHint(source),
     commandId: boundaryString(raw.commandId, `${field}.commandId`),
     correlationId: boundaryString(raw.correlationId, `${field}.correlationId`),
     ticketId: boundaryString(raw.ticketId, `${field}.ticketId`),
@@ -1917,6 +2154,7 @@ function ticketBeyondTerminalCutoff(
 function deriveQueueIndexRecord(ticket: Ticket): QueueIndexRecord {
   return {
     ticketId: ticket.id,
+    ...staffLifecycleFields(ticket),
     id: "queue",
     projectedRevision: ticket.revision,
     state: isTerminalTicketStatus(ticket.status) ? "inactive" : "active",
@@ -1944,6 +2182,11 @@ function queueIndexContentEqual(
     left.status === right.status &&
     left.priority === right.priority &&
     left.category === right.category &&
+    JSON.stringify(left.tags ?? []) === JSON.stringify(right.tags ?? []) &&
+    left.firstResponseDueAt === right.firstResponseDueAt &&
+    left.resolutionDueAt === right.resolutionDueAt &&
+    left.firstStaffRespondedAt === right.firstStaffRespondedAt &&
+    left.resolvedAt === right.resolvedAt &&
     left.requesterAssociation === right.requesterAssociation &&
     left.channel === right.channel &&
     left.assignedTo === right.assignedTo &&
@@ -2095,6 +2338,18 @@ export async function projectTicketToQueue(
       if (queueIndexContentEqual(current, derived)) {
         return { action: "keep" };
       }
+      // Pre-Task-13 rows have none of these additive staff fields. Enrich
+      // only that exact legacy shape from freshly loaded authoritative state.
+      const {
+        tags: _tags,
+        firstResponseDueAt: _first,
+        resolutionDueAt: _due,
+        firstStaffRespondedAt: _responded,
+        resolvedAt: _resolved,
+        ...legacy
+      } = derived;
+      if (queueIndexContentEqual(current, legacy))
+        return { action: "write", value: derived };
       throw new SupportDeskConflictError(
         "Queue projection revision collision with divergent content",
       );
@@ -2107,6 +2362,7 @@ export async function projectTicketToQueue(
 function toStaffQueueItem(ticket: Ticket): StaffQueueItem {
   return Object.freeze({
     ticketId: ticket.id,
+    ...staffLifecycleFields(ticket),
     revision: ticket.revision,
     status: ticket.status,
     priority: ticket.priority,
@@ -2132,7 +2388,21 @@ function normalizeFilterList<T extends string>(
 function staffQueueItemMatches(
   item: StaffQueueItem,
   query: StaffQueueQuery,
+  now: number | undefined,
 ): boolean {
+  if (query.tag !== undefined && !(item.tags ?? []).includes(query.tag))
+    return false;
+  if (query.targetState !== undefined) {
+    const due = pendingTargetDue(item, query.target);
+    if (due === undefined || now === undefined) return false;
+    const epoch = canonicalTimestamp(due, "ticket target");
+    if (
+      query.targetState === "overdue"
+        ? epoch >= now
+        : epoch < now || epoch - now > query.dueSoonMilliseconds!
+    )
+      return false;
+  }
   const statuses = normalizeFilterList(query.status);
   if (statuses !== undefined && !statuses.has(item.status)) {
     return false;
@@ -2162,6 +2432,19 @@ function staffQueueItemMatches(
     return false;
   }
   return true;
+}
+
+function pendingTargetDue(
+  item: StaffQueueItem,
+  target: StaffQueueQuery["target"],
+): IsoTimestamp | undefined {
+  return target === "first_response"
+    ? item.firstStaffRespondedAt === undefined
+      ? item.firstResponseDueAt
+      : undefined
+    : item.resolvedAt === undefined
+      ? item.resolutionDueAt
+      : undefined;
 }
 
 const QUEUE_FILTER_STATUSES: readonly Ticket["status"][] = [
@@ -2227,6 +2510,35 @@ function snapshotStaffQueueQuery(input: unknown): StaffQueueQuery {
   const assignedTo = readOptional("assignedTo");
   const unassignedOnly = readOptional("unassignedOnly");
   const sort = readOptional("sort");
+  const rawTag = readOptional("tag");
+  const tag = rawTag === undefined ? undefined : normalizedTag(rawTag);
+  const target = readOptional("target");
+  const targetState = readOptional("targetState");
+  const dueSoonMilliseconds = readOptional("dueSoonMilliseconds");
+  if (
+    target !== undefined &&
+    target !== "first_response" &&
+    target !== "resolution"
+  )
+    throw new TypeError("invalid queue target");
+  if (
+    targetState !== undefined &&
+    targetState !== "overdue" &&
+    targetState !== "due_soon"
+  )
+    throw new TypeError("invalid queue targetState");
+  if (
+    dueSoonMilliseconds !== undefined &&
+    (typeof dueSoonMilliseconds !== "number" ||
+      !Number.isSafeInteger(dueSoonMilliseconds) ||
+      dueSoonMilliseconds < 0 ||
+      dueSoonMilliseconds > 30 * 86_400_000)
+  )
+    throw new TypeError("dueSoonMilliseconds must be between 0 and 30 days");
+  if (targetState === "due_soon" && dueSoonMilliseconds === undefined)
+    throw new TypeError("due_soon requires dueSoonMilliseconds");
+  if (targetState !== "due_soon" && dueSoonMilliseconds !== undefined)
+    throw new TypeError("dueSoonMilliseconds requires targetState due_soon");
 
   if (assignedTo !== undefined) {
     if (typeof assignedTo !== "string") {
@@ -2240,14 +2552,21 @@ function snapshotStaffQueueQuery(input: unknown): StaffQueueQuery {
   if (
     sort !== undefined &&
     sort !== "updated_newest" &&
-    sort !== "updated_oldest"
+    sort !== "updated_oldest" &&
+    sort !== "due_soonest" &&
+    sort !== "due_latest"
   ) {
-    throw new TypeError(
-      'staff queue query.sort must be "updated_newest" or "updated_oldest"',
-    );
+    throw new TypeError("invalid staff queue query.sort");
   }
 
-  const query: StaffQueueQuery = {};
+  const query: StaffQueueQuery = {
+    ...(tag === undefined ? {} : { tag }),
+    ...(target === undefined ? {} : { target }),
+    ...(targetState === undefined ? {} : { targetState }),
+    ...(dueSoonMilliseconds === undefined
+      ? {}
+      : { dueSoonMilliseconds: dueSoonMilliseconds as number }),
+  };
   if (status !== undefined) {
     (query as { status?: StaffQueueQuery["status"] }).status =
       snapshotEnumOrEnumArray(
@@ -2617,6 +2936,11 @@ export function createSupportDeskApplication(options: {
    * At most 32 values matching `^[a-z][a-z0-9_]{0,31}$`.
    */
   readonly allowedCategories?: readonly string[];
+  /** At most 32 normalized, deduplicated staff labels; absent disables adding tags. */
+  readonly allowedTags?: readonly string[];
+  /** Default 8, hard maximum 32. Empty tags always clear the ticket. */
+  readonly maxTagsPerTicket?: number;
+  readonly responseTargetPolicy?: ResponseTargetPolicy;
 }): SupportDeskApplication {
   const source = boundaryObject(options, "application options");
   const store = ownDataProperty(
@@ -2665,6 +2989,33 @@ export function createSupportDeskApplication(options: {
       source,
       "allowedCategories",
       "application options.allowedCategories",
+      true,
+    ),
+  );
+  const rawTags = ownDataProperty(source, "allowedTags", "allowedTags", true);
+  const allowedTags = new Set(
+    rawTags === undefined ? [] : snapshotTags(rawTags),
+  );
+  const rawMaxTags = ownDataProperty(
+    source,
+    "maxTagsPerTicket",
+    "maxTagsPerTicket",
+    true,
+  );
+  const maxTagsPerTicket = rawMaxTags === undefined ? 8 : rawMaxTags;
+  if (
+    typeof maxTagsPerTicket !== "number" ||
+    !Number.isSafeInteger(maxTagsPerTicket) ||
+    maxTagsPerTicket < 1 ||
+    maxTagsPerTicket > 32
+  ) {
+    throw new TypeError("maxTagsPerTicket must be between 1 and 32");
+  }
+  const responseTargetPolicy = parseResponseTargetPolicy(
+    ownDataProperty(
+      source,
+      "responseTargetPolicy",
+      "responseTargetPolicy",
       true,
     ),
   );
@@ -2844,17 +3195,102 @@ export function createSupportDeskApplication(options: {
     );
   }
 
-  async function staffViewAfterChange(
+  async function staffCommandResult(
     ticketId: TicketId,
+    commandId: string,
     threading?: ThreadingHint,
   ): Promise<StaffTicketView> {
     await safeProjectQueue(ticketId);
     await safeIndexThreading(ticketId, threading);
-    return staffAuthoritativeView(
-      records,
-      ticketId,
-      limits.maxRecordsPerTicket,
+    const receipt = await records.get(commandKey(ticketId, commandId));
+    if (receipt?.kind !== "command" || receipt.resultTicket === undefined) {
+      // Pre-Task-13 receipts retain their existing replay behavior.
+      return staffAuthoritativeView(
+        records,
+        ticketId,
+        limits.maxRecordsPerTicket,
+      );
+    }
+    const rows = await records.list(ticketId);
+    enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket);
+    return {
+      ticket: receipt.resultTicket,
+      messages: staffMessages(
+        rows.filter(
+          (row) =>
+            row.kind !== "message" ||
+            row.ordinal <= receipt.resultTicket!.revision,
+        ),
+      ),
+    };
+  }
+
+  async function checkStaffRevision(
+    ticket: Ticket,
+    command: StaffRevisionHint & {
+      readonly ticketId: TicketId;
+      readonly commandId: string;
+    },
+    fingerprint: string,
+  ): Promise<boolean> {
+    if (
+      command.expectedRevision === undefined ||
+      command.expectedRevision === ticket.revision
+    )
+      return false;
+    // A commit may race the first receipt read. Replay wins over a stale hint.
+    const receipt = await records.get(
+      commandKey(command.ticketId, command.commandId),
     );
+    if (
+      receipt?.kind === "command" &&
+      receipt.requestFingerprint === fingerprint
+    )
+      return true;
+    if (receipt !== null)
+      throw new SupportDeskConflictError(
+        "Command ID reused with different input",
+      );
+    requireExpectedRevision(ticket, command);
+    return false;
+  }
+
+  async function staffConflictResult(
+    command: StaffRevisionHint & {
+      readonly ticketId: TicketId;
+      readonly commandId: string;
+      readonly messageId?: MessageId;
+      readonly notification?: NotificationInput;
+    },
+    fingerprint: string,
+  ): Promise<StaffTicketView> {
+    const receipt = await records.get(
+      commandKey(command.ticketId, command.commandId),
+    );
+    if (
+      receipt?.kind === "command" &&
+      receipt.requestFingerprint === fingerprint
+    )
+      return staffCommandResult(
+        command.ticketId,
+        command.commandId,
+        notificationThreading(command),
+      );
+    if (receipt !== null)
+      throw new SupportDeskConflictError(
+        "Command ID reused with different input",
+      );
+    const current = await records.get(ticketKey(command.ticketId));
+    if (
+      current?.kind === "ticket" &&
+      (await checkStaffRevision(current.ticket, command, fingerprint))
+    )
+      return staffCommandResult(
+        command.ticketId,
+        command.commandId,
+        notificationThreading(command),
+      );
+    throw new SupportDeskConflictError();
   }
 
   async function reserveCustomerTicket(
@@ -3130,23 +3566,27 @@ export function createSupportDeskApplication(options: {
           ? undefined
           : bindNotificationTicketNumber(command.notification, ticketNumber);
       const now = clock.now();
-      const ticket = createTicket({
-        id: command.ticketId,
-        number: ticketNumber,
-        subject: command.subject,
-        channel: "web",
-        ...(command.category === undefined
-          ? {}
-          : { category: command.category }),
-        requester: {
-          association: "authenticated",
-          principalId: access.principalId,
-          ...(command.requesterEmail === undefined
+      const ticket = await applyResponseTargets(
+        createTicket({
+          id: command.ticketId,
+          number: ticketNumber,
+          subject: command.subject,
+          channel: "web",
+          ...(command.category === undefined
             ? {}
-            : { email: command.requesterEmail }),
-        },
-        createdAt: now,
-      });
+            : { category: command.category }),
+          requester: {
+            association: "authenticated",
+            principalId: access.principalId,
+            ...(command.requesterEmail === undefined
+              ? {}
+              : { email: command.requesterEmail }),
+          },
+          createdAt: now,
+        }),
+        responseTargetPolicy,
+        "created",
+      );
       const message: TicketMessage = {
         id: command.messageId,
         ticketId: command.ticketId,
@@ -3391,11 +3831,15 @@ export function createSupportDeskApplication(options: {
           sampledEpoch < storedEpoch
             ? versioned.value.ticket.updatedAt
             : sampledNow;
-        const updated = applyTicketEvent(versioned.value.ticket, {
-          type: "customer_replied",
-          actorId: access.principalId,
-          occurredAt: now,
-        });
+        const updated = await applyResponseTargets(
+          applyTicketEvent(versioned.value.ticket, {
+            type: "customer_replied",
+            actorId: access.principalId,
+            occurredAt: now,
+          }),
+          responseTargetPolicy,
+          "customer_replied",
+        );
         const message: TicketMessage = {
           id: command.messageId,
           ticketId: command.ticketId,
@@ -3554,6 +3998,11 @@ export function createSupportDeskApplication(options: {
       requirePermission(access, supportPermissions.queueRead);
       requireIdentifier(access.principalId, "principalId");
       const query = snapshotStaffQueueQuery(input);
+      // One trusted instant for the entire bounded request; no clock read for old queries.
+      const targetNow =
+        query.targetState === undefined
+          ? undefined
+          : canonicalTimestamp(clock.now(), "clock.now()");
       // Request-local cursor only: every online queue read starts without one
       // and consumes a single complete projection scan cycle.
       let cursor: string | undefined;
@@ -3650,10 +4099,33 @@ export function createSupportDeskApplication(options: {
       }
 
       const filtered = confirmed.filter((item) =>
-        staffQueueItemMatches(item, query),
+        staffQueueItemMatches(item, query, targetNow),
       );
       const sort = query.sort ?? "updated_newest";
+      // Parse each pending due date once per read, not once per comparison.
+      const dueEpochs = new Map<StaffQueueItem, number>();
+      if (sort === "due_soonest" || sort === "due_latest") {
+        for (const item of filtered) {
+          const due = pendingTargetDue(item, query.target);
+          if (due !== undefined)
+            dueEpochs.set(item, canonicalTimestamp(due, "ticket target"));
+        }
+      }
       filtered.sort((left, right) => {
+        if (sort === "due_soonest" || sort === "due_latest") {
+          const leftDue = dueEpochs.get(left);
+          const rightDue = dueEpochs.get(right);
+          // Completed and missing targets sort last in both directions.
+          if (leftDue === undefined && rightDue !== undefined) return 1;
+          if (rightDue === undefined && leftDue !== undefined) return -1;
+          const difference =
+            leftDue === undefined || rightDue === undefined
+              ? 0
+              : sort === "due_soonest"
+                ? leftDue - rightDue
+                : rightDue - leftDue;
+          return difference || left.ticketId.localeCompare(right.ticketId);
+        }
         const byTime =
           sort === "updated_oldest"
             ? left.updatedAt.localeCompare(right.updatedAt)
@@ -3680,6 +4152,7 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(command.correlationId, "correlationId");
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
       const fingerprint = await requestFingerprint({
+        ...snapshotRevisionHint(command),
         type: "staff_reply",
         ticketId: command.ticketId,
         messageId: command.messageId,
@@ -3699,18 +4172,31 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffViewAfterChange(
+          return staffCommandResult(
             command.ticketId,
+            command.commandId,
             notificationThreading(command),
           );
         }
 
+        if (duplicate !== null)
+          throw new SupportDeskConflictError(
+            "Command ID reused with different input",
+          );
         const versioned = await records.getVersioned(
           ticketKey(command.ticketId),
         );
         if (versioned?.value.kind !== "ticket") {
           throw new SupportDeskNotFoundError();
         }
+        if (
+          await checkStaffRevision(versioned.value.ticket, command, fingerprint)
+        )
+          return staffCommandResult(
+            command.ticketId,
+            command.commandId,
+            notificationThreading(command),
+          );
         const partitionRows = await records.list(command.ticketId);
         enforcePartitionRecordLimit(
           partitionRows.length,
@@ -3809,13 +4295,15 @@ export function createSupportDeskApplication(options: {
               messageId: command.messageId,
               requestFingerprint: fingerprint,
               completedAt: now,
+              resultTicket: updated,
             },
           },
           ...(notificationJob === undefined ? [] : [notificationJob]),
         ]);
         if (outcome.committed) {
-          return staffViewAfterChange(
+          return staffCommandResult(
             command.ticketId,
+            command.commandId,
             notificationThreading(command),
           );
         }
@@ -3830,13 +4318,14 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffViewAfterChange(
+          return staffCommandResult(
             command.ticketId,
+            command.commandId,
             notificationThreading(command),
           );
         }
       }
-      throw new SupportDeskConflictError();
+      return staffConflictResult(command, fingerprint);
     },
 
     async addNote(access, input) {
@@ -3849,6 +4338,7 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(command.correlationId, "correlationId");
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
       const fingerprint = await requestFingerprint({
+        ...snapshotRevisionHint(command),
         type: "add_note",
         ticketId: command.ticketId,
         messageId: command.messageId,
@@ -3867,15 +4357,27 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffViewAfterChange(command.ticketId);
+          return staffCommandResult(command.ticketId, command.commandId);
         }
 
+        if (duplicate !== null)
+          throw new SupportDeskConflictError(
+            "Command ID reused with different input",
+          );
         const versioned = await records.getVersioned(
           ticketKey(command.ticketId),
         );
         if (versioned?.value.kind !== "ticket") {
           throw new SupportDeskNotFoundError();
         }
+        if (
+          await checkStaffRevision(versioned.value.ticket, command, fingerprint)
+        )
+          return staffCommandResult(
+            command.ticketId,
+            command.commandId,
+            notificationThreading(command),
+          );
         const partitionRows = await records.list(command.ticketId);
         enforcePartitionRecordLimit(
           partitionRows.length,
@@ -3972,11 +4474,12 @@ export function createSupportDeskApplication(options: {
               messageId: command.messageId,
               requestFingerprint: fingerprint,
               completedAt: now,
+              resultTicket: updated,
             },
           },
         ]);
         if (outcome.committed) {
-          return staffViewAfterChange(command.ticketId);
+          return staffCommandResult(command.ticketId, command.commandId);
         }
         const nowDuplicate = await records.get(
           commandKey(command.ticketId, command.commandId),
@@ -3989,10 +4492,10 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffViewAfterChange(command.ticketId);
+          return staffCommandResult(command.ticketId, command.commandId);
         }
       }
-      throw new SupportDeskConflictError();
+      return staffConflictResult(command, fingerprint);
     },
 
     async assignTicket(access, input) {
@@ -4012,6 +4515,7 @@ export function createSupportDeskApplication(options: {
         enforceLimit(command.body, "body", limits.maxMessageCharacters);
       }
       const fingerprint = await requestFingerprint({
+        ...snapshotRevisionHint(command),
         type: "assign_ticket",
         ticketId: command.ticketId,
         assigneeId: command.assigneeId,
@@ -4032,12 +4536,17 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffViewAfterChange(
+          return staffCommandResult(
             command.ticketId,
+            command.commandId,
             notificationThreading(command),
           );
         }
 
+        if (duplicate !== null)
+          throw new SupportDeskConflictError(
+            "Command ID reused with different input",
+          );
         const versioned = await records.getVersioned(
           ticketKey(command.ticketId),
         );
@@ -4050,6 +4559,14 @@ export function createSupportDeskApplication(options: {
             : command.notification === undefined
               ? 3
               : 4;
+        if (
+          await checkStaffRevision(versioned.value.ticket, command, fingerprint)
+        )
+          return staffCommandResult(
+            command.ticketId,
+            command.commandId,
+            notificationThreading(command),
+          );
         const partitionRows = await records.list(command.ticketId);
         enforcePartitionRecordLimit(
           partitionRows.length,
@@ -4188,13 +4705,15 @@ export function createSupportDeskApplication(options: {
                 : { messageId: command.messageId }),
               requestFingerprint: fingerprint,
               completedAt: now,
+              resultTicket: updated,
             },
           },
           ...(notificationJob === undefined ? [] : [notificationJob]),
         ]);
         if (outcome.committed) {
-          return staffViewAfterChange(
+          return staffCommandResult(
             command.ticketId,
+            command.commandId,
             notificationThreading(command),
           );
         }
@@ -4209,13 +4728,14 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffViewAfterChange(
+          return staffCommandResult(
             command.ticketId,
+            command.commandId,
             notificationThreading(command),
           );
         }
       }
-      throw new SupportDeskConflictError();
+      return staffConflictResult(command, fingerprint);
     },
 
     async changePriority(access, input) {
@@ -4226,6 +4746,7 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(command.commandId, "commandId");
       requireIdentifier(command.correlationId, "correlationId");
       const fingerprint = await requestFingerprint({
+        ...snapshotRevisionHint(command),
         type: "change_priority",
         ticketId: command.ticketId,
         priority: command.priority,
@@ -4238,15 +4759,23 @@ export function createSupportDeskApplication(options: {
         if (
           duplicateMatches(duplicate, "change_priority", undefined, fingerprint)
         ) {
-          return staffViewAfterChange(command.ticketId);
+          return staffCommandResult(command.ticketId, command.commandId);
         }
 
+        if (duplicate !== null)
+          throw new SupportDeskConflictError(
+            "Command ID reused with different input",
+          );
         const versioned = await records.getVersioned(
           ticketKey(command.ticketId),
         );
         if (versioned?.value.kind !== "ticket") {
           throw new SupportDeskNotFoundError();
         }
+        if (
+          await checkStaffRevision(versioned.value.ticket, command, fingerprint)
+        )
+          return staffCommandResult(command.ticketId, command.commandId);
         const partitionRows = await records.list(command.ticketId);
         enforcePartitionRecordLimit(
           partitionRows.length,
@@ -4259,12 +4788,16 @@ export function createSupportDeskApplication(options: {
           clock.now(),
           versioned.value.ticket.updatedAt,
         );
-        const updated = applyTicketEvent(versioned.value.ticket, {
-          type: "priority_changed",
-          actorId: access.principalId,
-          priority: command.priority,
-          occurredAt: now,
-        });
+        const updated = await applyResponseTargets(
+          applyTicketEvent(versioned.value.ticket, {
+            type: "priority_changed",
+            actorId: access.principalId,
+            priority: command.priority,
+            occurredAt: now,
+          }),
+          responseTargetPolicy,
+          "priority_changed",
+        );
         if (
           updated.status !== statusBefore ||
           updated.customerUpdatedAt !== customerUpdatedBefore
@@ -4299,11 +4832,12 @@ export function createSupportDeskApplication(options: {
               commandType: "change_priority",
               requestFingerprint: fingerprint,
               completedAt: now,
+              resultTicket: updated,
             },
           },
         ]);
         if (outcome.committed) {
-          return staffViewAfterChange(command.ticketId);
+          return staffCommandResult(command.ticketId, command.commandId);
         }
         const nowDuplicate = await records.get(
           commandKey(command.ticketId, command.commandId),
@@ -4316,10 +4850,109 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffViewAfterChange(command.ticketId);
+          return staffCommandResult(command.ticketId, command.commandId);
         }
       }
-      throw new SupportDeskConflictError();
+      return staffConflictResult(command, fingerprint);
+    },
+
+    async setTags(access, input) {
+      requireStaffMutationAccess(access, supportPermissions.manage);
+      requireIdentifier(access.principalId, "principalId");
+      const source = boundaryObject(input, "set tags command");
+      const command: SetTagsCommand = Object.freeze({
+        ...snapshotRevisionHint(source),
+        commandId: boundaryString(
+          ownDataProperty(source, "commandId", "commandId"),
+          "commandId",
+        ),
+        correlationId: boundaryString(
+          ownDataProperty(source, "correlationId", "correlationId"),
+          "correlationId",
+        ),
+        ticketId: boundaryString(
+          ownDataProperty(source, "ticketId", "ticketId"),
+          "ticketId",
+        ),
+        tags: snapshotTags(ownDataProperty(source, "tags", "tags")),
+      });
+      requireIdentifier(command.ticketId, "ticketId");
+      requireIdentifier(command.commandId, "commandId");
+      requireIdentifier(command.correlationId, "correlationId");
+      const fingerprint = await requestFingerprint({
+        type: "set_tags",
+        ticketId: command.ticketId,
+        tags: command.tags,
+        ...snapshotRevisionHint(command),
+      });
+      for (let attempt = 1; attempt <= maxConflictAttempts; attempt += 1) {
+        const duplicate = await records.get(
+          commandKey(command.ticketId, command.commandId),
+        );
+        if (duplicateMatches(duplicate, "set_tags", undefined, fingerprint))
+          return staffCommandResult(command.ticketId, command.commandId);
+        if (duplicate !== null)
+          throw new SupportDeskConflictError(
+            "Command ID reused with different input",
+          );
+        const versioned = await records.getVersioned(
+          ticketKey(command.ticketId),
+        );
+        if (versioned?.value.kind !== "ticket")
+          throw new SupportDeskNotFoundError();
+        if (
+          await checkStaffRevision(versioned.value.ticket, command, fingerprint)
+        )
+          return staffCommandResult(command.ticketId, command.commandId);
+        if (command.tags.length > maxTagsPerTicket)
+          throw new TypeError("tags exceed maxTagsPerTicket");
+        if (command.tags.some((tag) => !allowedTags.has(tag)))
+          throw new TypeError("tags must be on the host allowlist");
+        const rows = await records.list(command.ticketId);
+        enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket, 2);
+        const now = clampTicketTime(
+          clock.now(),
+          versioned.value.ticket.updatedAt,
+        );
+        const updated = applyTicketEvent(versioned.value.ticket, {
+          type: "tags_changed",
+          actorId: access.principalId,
+          occurredAt: now,
+          tags: command.tags,
+        });
+        const outcome = await records.transact(command.ticketId, [
+          {
+            action: "putIfUnchanged",
+            version: versioned.version,
+            value: { ...versioned.value, ticket: updated },
+          },
+          ticketAuditAction({
+            commandId: command.commandId,
+            correlationId: command.correlationId,
+            ticketId: command.ticketId,
+            revision: updated.revision,
+            actorId: access.principalId,
+            occurredAt: now,
+            action: supportTicketAuditActions.tagsChanged,
+          }),
+          {
+            action: "insert",
+            value: {
+              kind: "command",
+              partition: command.ticketId,
+              id: `command:${command.commandId}`,
+              commandId: command.commandId,
+              commandType: "set_tags",
+              requestFingerprint: fingerprint,
+              completedAt: now,
+              resultTicket: updated,
+            },
+          },
+        ]);
+        if (outcome.committed)
+          return staffCommandResult(command.ticketId, command.commandId);
+      }
+      return staffConflictResult(command, fingerprint);
     },
 
     async resolveTicket(access, input) {
@@ -4394,6 +5027,7 @@ export function createSupportDeskApplication(options: {
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
     }
     const fingerprint = await requestFingerprint({
+      ...snapshotRevisionHint(command),
       type: spec.commandType,
       ticketId: command.ticketId,
       messageId: command.messageId ?? null,
@@ -4413,16 +5047,29 @@ export function createSupportDeskApplication(options: {
           fingerprint,
         )
       ) {
-        return staffViewAfterChange(
+        return staffCommandResult(
           command.ticketId,
+          command.commandId,
           notificationThreading(command),
         );
       }
 
+      if (duplicate !== null)
+        throw new SupportDeskConflictError(
+          "Command ID reused with different input",
+        );
       const versioned = await records.getVersioned(ticketKey(command.ticketId));
       if (versioned?.value.kind !== "ticket") {
         throw new SupportDeskNotFoundError();
       }
+      if (
+        await checkStaffRevision(versioned.value.ticket, command, fingerprint)
+      )
+        return staffCommandResult(
+          command.ticketId,
+          command.commandId,
+          notificationThreading(command),
+        );
       const partitionRows = await records.list(command.ticketId);
       const addedRecords =
         command.messageId === undefined
@@ -4551,13 +5198,15 @@ export function createSupportDeskApplication(options: {
               : { messageId: command.messageId }),
             requestFingerprint: fingerprint,
             completedAt: now,
+            resultTicket: updated,
           },
         },
         ...(notificationJob === undefined ? [] : [notificationJob]),
       ]);
       if (outcome.committed) {
-        return staffViewAfterChange(
+        return staffCommandResult(
           command.ticketId,
+          command.commandId,
           notificationThreading(command),
         );
       }
@@ -4572,13 +5221,14 @@ export function createSupportDeskApplication(options: {
           fingerprint,
         )
       ) {
-        return staffViewAfterChange(
+        return staffCommandResult(
           command.ticketId,
+          command.commandId,
           notificationThreading(command),
         );
       }
     }
-    throw new SupportDeskConflictError();
+    return staffConflictResult(command, fingerprint);
   }
 }
 
@@ -5801,6 +6451,7 @@ export interface InboundMailProcessorOptions {
   readonly threadIndexRetentionMilliseconds?: number;
   /** Frozen category allowlist for host routing decisions. */
   readonly allowedCategories?: readonly string[];
+  readonly responseTargetPolicy?: ResponseTargetPolicy;
   /**
    * Instance subject-marker prefix, for example `SD` for `[SD-1042]`. Without
    * one, subject-marker fallback is disabled.
@@ -6450,6 +7101,9 @@ export function createInboundMailProcessor(
           rawThreadRetention,
           `${field}.threadIndexRetentionMilliseconds`,
         );
+  const responseTargetPolicy = parseResponseTargetPolicy(
+    read("responseTargetPolicy", true),
+  );
   const allowedCategories = parseAllowedCategories(
     read("allowedCategories", true),
     `${field}.allowedCategories`,
@@ -6773,27 +7427,35 @@ export function createInboundMailProcessor(
       const now = clock.now();
       const displayName =
         input.fromName === undefined ? {} : { displayName: input.fromName };
-      const ticket = createTicket({
-        id: ticketId,
-        number: ticketNumber,
-        subject: input.subject,
-        channel: "email",
-        priority: route.priority,
-        ...(route.category === undefined ? {} : { category: route.category }),
-        requester:
-          route.association === "matched_email"
-            ? {
-                association: "matched_email",
-                principalId: route.principalId as PrincipalId,
-                email: input.from,
-                ...displayName,
-              }
-            : { association: "unverified", email: input.from, ...displayName },
-        createdAt: now,
-        ...(route.relatedTicketId === undefined
-          ? {}
-          : { relatedTicketId: route.relatedTicketId }),
-      });
+      const ticket = await applyResponseTargets(
+        createTicket({
+          id: ticketId,
+          number: ticketNumber,
+          subject: input.subject,
+          channel: "email",
+          priority: route.priority,
+          ...(route.category === undefined ? {} : { category: route.category }),
+          requester:
+            route.association === "matched_email"
+              ? {
+                  association: "matched_email",
+                  principalId: route.principalId as PrincipalId,
+                  email: input.from,
+                  ...displayName,
+                }
+              : {
+                  association: "unverified",
+                  email: input.from,
+                  ...displayName,
+                },
+          createdAt: now,
+          ...(route.relatedTicketId === undefined
+            ? {}
+            : { relatedTicketId: route.relatedTicketId }),
+        }),
+        responseTargetPolicy,
+        "created",
+      );
       const notification = await inboundNotification({
         outcome: "created",
         channelId: input.channelId,
@@ -6992,10 +7654,14 @@ export function createInboundMailProcessor(
       const now = clampTicketTime(clock.now(), ticket.updatedAt);
       // Customer-reply semantics: any status, including resolved or closed,
       // moves to waiting_on_support. No actor: email is not authentication.
-      const updated = applyTicketEvent(ticket, {
-        type: "customer_replied",
-        occurredAt: now,
-      });
+      const updated = await applyResponseTargets(
+        applyTicketEvent(ticket, {
+          type: "customer_replied",
+          occurredAt: now,
+        }),
+        responseTargetPolicy,
+        "customer_replied",
+      );
       const notificationContent = deliveryContent(notification);
       const outcome = await records.transact(ticketId, [
         {

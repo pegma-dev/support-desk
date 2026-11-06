@@ -123,6 +123,32 @@ The first asks the workflow to transition. The second records that an
 authorized, idempotent command was accepted. Support Desk must not maintain a
 parallel private audit event shape.
 
+### Lifecycle extras
+
+Tags are an optional bounded staff-only field on the authoritative ticket and
+queue projection. Application validation copies, normalizes, and allowlists
+them; the pure core applies `tags_changed` with staff time only. `setTags`
+shares the existing ticket transaction and Audit contract, requires manage
+plus queue read, and creates no mail.
+
+`ResponseTargetPolicy` is a host port returning canonical ISO due timestamps.
+The application calls it before creation, web/email customer replies, and
+priority commits. It receives frozen content-free facts and must tolerate
+retries. Support Desk owns validation, durable target state, first-public-staff
+reply and resolution milestones, and instant comparison in bounded queue
+reads. Calendar and presence logic do not enter this repository. Target and
+milestone fields never enter customer DTOs or automatic mail content.
+
+Optional staff `expectedRevision` is distinct from the opaque Store version.
+Authorization and command replay are checked first; mismatches fail with only
+current revision and staff update time. Store conditional writes still fence
+every commit and collisions re-read before deciding again. Staff command
+receipts store a bounded result ticket; existing immutable message ordinals
+reconstruct the original response without copying conversations into receipts.
+Legacy receipts retain current-view replay. See
+[host composition](HOST_COMPOSITION.md#optional-lifecycle-extras-task-13)
+for target replacement, reopen, upgrade, and HTTP semantics.
+
 ### Abuse limits
 
 Support Desk enforces record-shape and per-principal/ticket capacity limits.
