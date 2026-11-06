@@ -6,18 +6,21 @@
 A composable, open-source support queue for web and email.
 
 > [!IMPORTANT]
-> Support Desk is in early `0.x` development. The first advertised package set is
-> exact `0.1.0`. Until that set is visible on the public npm registry, hosts must
-> not treat Git branches, copied source, or local paths as a production install.
+> Support Desk is in early `0.x` development. Source packages stay at exact
+> `0.1.1`; lifecycle additions are unreleased. Hosts must consume published
+> versions and cannot substitute Git branches, copied source, or local paths.
 
 Implemented in source today: the customer-facing and staff application
 services, the repairable staff queue projection, declared collections,
 Authorization Core permission boundaries, transactional audit and mail
 projections, provider-neutral outbound workers and callbacks, safe versioned
 templates, provider-neutral inbound mail processing with key-lookup threading
-indexes and loop controls, and a host-neutral composition example. Durable host
+indexes and loop controls, and a host-neutral composition example. Staff-managed
+tags, host-computed response targets and milestones, and revision collision hints are also implemented
+(Buildout Task 13), with all new metadata limited to staff views. Durable host
 deployments, customer UI, staff UI, inbound provider adapters, and production
-hardening remain later buildout tasks.
+hardening remain later buildout tasks. Task 12 stays pending on host durable-store
+evidence; Task 13 changes are additive and package versions remain `0.1.1`.
 
 ## What it will do
 
@@ -95,8 +98,9 @@ The organization profile is at
 | `@pegma/support-desk-application` | Authorized customer services, collections, audit, and outbox |
 | `@pegma/support-desk-templates`   | Safe versioned templates and optional host-branded packs     |
 
-Packages publish under the `@pegma` scope at exact `0.1.0` once the release
-procedure in [docs/RELEASING.md](docs/RELEASING.md) completes. There is
+The first `0.1.0` set is published under the `@pegma` scope. Current source
+packages remain at exact `0.1.1`; unreleased lifecycle work does not publish
+a new set. Follow [docs/RELEASING.md](docs/RELEASING.md) for releases. There is
 deliberately no storage package and no access package. Inbound mail processing
 is implemented (Buildout Task 11); host adapters, production hardening, and the
 knowledge pipeline remain later work. See the

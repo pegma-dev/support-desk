@@ -12,11 +12,13 @@ import {
   createExampleComposition,
   runCompleteExampleFlow,
   runInboundExampleFlow,
+  runLifecycleExampleFlow,
 } from "./composition.ts";
 
 const composition = createExampleComposition();
 const result = await runCompleteExampleFlow(composition);
 const inbound = await runInboundExampleFlow(composition);
+const lifecycle = await runLifecycleExampleFlow(composition);
 
 process.stdout.write(
   [
@@ -31,6 +33,10 @@ process.stdout.write(
     `inboundRetryDuplicate=${String(inbound.retry.duplicateDelivery)}`,
     `inboundFollowUp=${inbound.followUp.outcome}/${String(inbound.followUp.matchMethod)}`,
     `inboundAutoReply=${inbound.autoReply.outcome}/${String(inbound.autoReply.reason)}`,
+    `lifecycleTags=${lifecycle.tags?.join(",")}`,
+    `lifecycleStaleRevision=${String(lifecycle.staleRevision)}`,
+    `lifecycleFirstResponse=${lifecycle.firstStaffRespondedAt}`,
+    `lifecycleResolved=${lifecycle.resolvedAt}`,
     "",
   ].join("\n"),
 );

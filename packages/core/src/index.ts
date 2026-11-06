@@ -114,6 +114,9 @@ function activeTicket(ticket: Ticket): Omit<Ticket, "resolvedAt" | "closedAt"> {
 function freezeTicket(ticket: Ticket): Ticket {
   return Object.freeze({
     ...ticket,
+    ...(ticket.tags === undefined
+      ? {}
+      : { tags: Object.freeze([...ticket.tags]) }),
     requester: Object.freeze({ ...ticket.requester }),
   });
 }
@@ -218,6 +221,7 @@ export function applyTicketEvent(ticket: Ticket, event: TicketEvent): Ticket {
         ...activeTicket(ticket),
         ...nextRevision(ticket, event.occurredAt, { customerVisible: true }),
         status: "waiting_on_customer",
+        firstStaffRespondedAt: ticket.firstStaffRespondedAt ?? event.occurredAt,
       });
 
     case "note_added":
@@ -236,7 +240,10 @@ export function applyTicketEvent(ticket: Ticket, event: TicketEvent): Ticket {
         ...activeTicket(ticket),
         ...nextRevision(ticket, event.occurredAt, { customerVisible: true }),
         status: "resolved",
-        resolvedAt: event.occurredAt,
+        resolvedAt:
+          ticket.status === "resolved"
+            ? (ticket.resolvedAt ?? event.occurredAt)
+            : event.occurredAt,
       });
 
     case "closed":
@@ -275,6 +282,27 @@ export function applyTicketEvent(ticket: Ticket, event: TicketEvent): Ticket {
           ? { ...unassigned, ...revision }
           : { ...unassigned, ...revision, assignedTo: event.assigneeId },
       );
+    }
+
+    case "tags_changed": {
+      if (
+        !Array.isArray(event.tags) ||
+        event.tags.length > 32 ||
+        Array.from(event.tags).some(
+          (tag) =>
+            typeof tag !== "string" || !/^[a-z][a-z0-9_]{0,31}$/.test(tag),
+        ) ||
+        new Set(event.tags).size !== event.tags.length
+      ) {
+        throw new TypeError(
+          "event.tags must contain at most 32 unique safe identifiers",
+        );
+      }
+      return freezeTicket({
+        ...ticket,
+        ...nextRevision(ticket, event.occurredAt, { customerVisible: false }),
+        tags: event.tags,
+      });
     }
 
     case "priority_changed":

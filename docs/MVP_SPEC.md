@@ -69,18 +69,18 @@ process delivery callbacks, and perform maintenance.
 Support Desk asks the host authorization provider for permissions. It does not
 assign business meaning to plan or role names.
 
-| Permission                 | Purpose                                   |
-| -------------------------- | ----------------------------------------- |
-| `support.ticket.create`    | Create an authenticated customer ticket   |
-| `support.ticket.read.own`  | Read a ticket after ownership is verified |
-| `support.ticket.reply.own` | Reply to an owned ticket                  |
-| `support.queue.read`       | View authorized staff queues              |
-| `support.ticket.reply.any` | Send a customer-visible staff reply       |
-| `support.ticket.note`      | Add an internal note                      |
-| `support.ticket.assign`    | Assign or unassign a ticket               |
-| `support.ticket.manage`    | Change priority and lifecycle state       |
-| `support.settings.manage`  | Manage channels and templates             |
-| `support.audit.read`       | Review support audit records              |
+| Permission                 | Purpose                                    |
+| -------------------------- | ------------------------------------------ |
+| `support.ticket.create`    | Create an authenticated customer ticket    |
+| `support.ticket.read.own`  | Read a ticket after ownership is verified  |
+| `support.ticket.reply.own` | Reply to an owned ticket                   |
+| `support.queue.read`       | View authorized staff queues               |
+| `support.ticket.reply.any` | Send a customer-visible staff reply        |
+| `support.ticket.note`      | Add an internal note                       |
+| `support.ticket.assign`    | Assign or unassign a ticket                |
+| `support.ticket.manage`    | Change priority, tags, and lifecycle state |
+| `support.settings.manage`  | Manage channels and templates              |
+| `support.audit.read`       | Review support audit records               |
 
 Possessing `support.ticket.read.own` does not establish ownership. The
 application must also prove that the authenticated principal matches the
@@ -195,6 +195,31 @@ Staff can:
 
 The UI should make customer-visible replies visually distinct from internal
 notes and require an explicit choice before sending.
+
+## Lifecycle extras (Buildout Task 13)
+
+Staff may replace a ticket's bounded tags using the host's normalized allowlist.
+This requires `support.ticket.manage` and queue read and records
+`support.ticket.tags_changed` atomically with the ticket and command receipt.
+Tags affect only staff update time and revision, with no message or mail.
+They never enter customer summaries, detail, or automatic customer mail.
+
+Hosts may supply canonical first-response and resolution due timestamps on
+creation, web/email customer follow-up, and priority changes. Support Desk
+records them, sets `firstStaffRespondedAt` once on the first public staff reply,
+and tracks `resolvedAt` for the current resolution. Repeated resolution
+preserves its timestamp; reopening through an explicit action or a reply clears
+it, and resolving again records a new time. First response survives reopen.
+Calendars, business hours, and presence remain host responsibilities.
+
+Staff queues support tag filters, overdue and bounded due-soon filters, and
+both due-date sort directions after authoritative confirmation. Completed or
+absent targets do not match target-state filters. These dates and milestones
+remain staff-only. All staff commands accept optional `expectedRevision`;
+a mismatch returns a safe changed-since-load hint without a ticket change.
+Exact committed replay wins over staleness and returns its original result.
+See [host composition](HOST_COMPOSITION.md#optional-lifecycle-extras-task-13)
+for exact bounds, replay compatibility, and queue semantics.
 
 ## Ticket lifecycle
 

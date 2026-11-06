@@ -31,6 +31,7 @@ function run(command: string, arguments_: string[], cwd?: string): string {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    shell: process.platform === "win32" && command.endsWith(".cmd"),
   }).trim();
 }
 

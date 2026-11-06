@@ -16,6 +16,13 @@ processing, the reserved receipt lifecycle, and threading indexes) is
 implemented in source and awaits a future synchronized release; provider
 adapters remain host work.
 
+Buildout Task 13 is implemented in source: bounded staff-only tags, host
+response-target hooks and milestones, confirmed queue target filters/sorts,
+and optional revision collision hints. Packages remain at `0.1.1` without a
+release. Task 12 stays pending until both hosts provide durable-store evidence;
+this package-only work is not a production-readiness claim. Business-hours
+calendars and presence remain outside Support Desk.
+
 **Initial reference applications:** retiregolden.org for paid customer support
 on Azure, and pegma.dev for authenticated product feedback on Cloudflare. The
 two hosts compose isolated Support Desk instances; shared packages do not imply
@@ -377,10 +384,12 @@ Candidate work:
 - isolated object storage and authorized downloads;
 - type and size policies plus malware scanning;
 - response templates or macros;
-- tags and category changes beyond the launch allowlists;
-- collision indicators for staff;
+- [x] staff-managed tags from a bounded host allowlist (Task 13);
+- category changes beyond the launch allowlists;
+- [x] revision-based collision hints for staff (Task 13);
 - configurable queue routing;
-- business hours and simple response targets;
+- [x] host-supplied response targets and durable milestones (Task 13);
+- host-owned business hours (no calendar or presence service here);
 - customer satisfaction collection;
 - additional mail adapters.
 

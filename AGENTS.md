@@ -154,12 +154,19 @@ metadata, and callback receipts. The Support Desk slice of Buildout Task 11
 (inbound mail processing, receipt lifecycle, and the threading index) is
 implemented in source; inbound provider adapters remain host work.
 
-Packages are versioned at exact `0.1.0` and ready for the first public publish
-described in `docs/RELEASING.md`. Customer services return safe DTOs; staff
+Buildout Task 13 lifecycle extras are implemented in source: bounded host
+allowlisted staff tags, host-supplied response targets and durable milestones,
+confirmed queue tag/target filtering and due sorts, and optional staff revision
+collision hints. Customer DTOs and automatic customer mail omit these fields.
+Calendars and presence stay host-owned. Task 12 remains pending on both hosts'
+durable-store production evidence. This work does not publish or merge.
+
+The first `0.1.0` package set is published. Source packages remain at exact
+`0.1.1`; follow `docs/RELEASING.md` for a future synchronized release. Customer services return safe DTOs; staff
 services return the authoritative ticket for authorized staff only, and the
 staff queue scans a confirmed projection that is never authorization evidence.
-Authorization Core is pinned to exact `0.1.2` and accepted-change history uses
-exact `@pegma/audit@0.1.0`. Host Tasks 7–8 begin only after registry publication.
+Authorization Core is pinned to exact `0.4.0` and accepted-change history uses
+exact `@pegma/audit@0.2.0`. Host Tasks 7–8 begin only after registry publication.
 Provider selection and operation remain host work.
 
 This project was developed under the `@support-desk` scope and moved into Pegma

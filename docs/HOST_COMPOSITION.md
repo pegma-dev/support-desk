@@ -50,6 +50,9 @@ const application = createSupportDeskApplication({
     "documentation",
     "question",
   ],
+  allowedTags: ["needs_review", "follow_up"],
+  maxTagsPerTicket: 8,
+  responseTargetPolicy, // optional host port; also configure inbound processing
   queueTerminalRetentionMilliseconds: 30 * 86_400_000,
 });
 ```
@@ -77,8 +80,88 @@ diagnostics to a browser.
 | Required Store or provider dependency unavailable                                                                     | `503`                                               |
 | Unexpected failure                                                                                                    | content-free `500` plus a safe correlation ID       |
 
+`SupportDeskStaleRevisionError` maps to `409` with a stable host code and only
+its safe `currentRevision` and `updatedAt` hint fields. It extends
+`SupportDeskConflictError`; handle it before that broader class.
+
 `TicketWorkflowError` from lifecycle transitions is a refused state change; hosts
 typically map it to `409` after the caller was already authorized.
+
+## Optional lifecycle extras (Task 13)
+
+`allowedTags` is copied at construction, normalized by trimming surrounding
+spaces and lowercasing, deduplicated, and sorted. It accepts at most 32 physical
+entries before deduplication. Each input is at most 64 characters, has no
+controls, and normalizes to `^[a-z][a-z0-9_]{0,31}$`, the category identifier
+discipline. `maxTagsPerTicket` defaults to 8 with a hard maximum of 32.
+`setTags(access, { commandId, correlationId, ticketId, tags, expectedRevision? })`
+replaces all tags; `[]` clears them even when no allowlist is configured.
+Adding tags requires an allowlist. Both `support.queue.read` and
+`support.ticket.manage` are required. A normalized set is part of the command
+fingerprint. The ticket, `support.ticket.tags_changed` Audit action, and receipt
+commit together. Tags advance revision and staff `updatedAt` only; they never
+change status, `customerUpdatedAt`, messages, or mail.
+
+Configure the same optional `ResponseTargetPolicy` on the application and
+inbound processor. The host supplies `computeTargets(context)` returning
+`{ firstResponseDueAt?, resolutionDueAt? }` synchronously or asynchronously.
+Values must be canonical ISO timestamps, for example `2026-11-01T12:00:00.000Z`.
+The content-free, frozen context contains ticket ID, resulting revision,
+priority, optional category, channel, created/occurrence times, existing targets,
+and milestones. It contains no subject, body, requester identity, or tags.
+
+The hook runs before commit on web or email creation, accepted customer
+replies through either transport, and staff priority changes. Its reason is
+`created`, `customer_replied`, or `priority_changed`. Its result completely
+replaces the two due fields; omitted fields remove previous targets. Without
+a hook, existing targets are preserved. Invalid output or a rejected hook
+leaves the ticket command uncommitted; retry the same command/event after
+fixing the dependency. Creation may leave a reserved ticket-number gap or
+customer-index reservation, and inbound receipts remain processing. Hooks
+may run again after a conflict or interrupted attempt, so keep them repeatable
+and free of external side effects. Committed command/provider-event replay
+does not run them. Calendars, business hours, holidays, and presence belong
+entirely to the host; Support Desk stores dates and compares instants only.
+
+`firstStaffRespondedAt` is set once by the first customer-visible staff reply
+and survives resolution, closure, and reopening. Notes, assignment messages,
+and lifecycle system messages do not set it. `resolvedAt` records entry into
+resolved; resolving an already resolved ticket preserves it. Closure preserves
+it. Explicit reopening or a customer/staff reply clears it; re-resolution sets
+it to the new resolution time. Reopening preserves due timestamps until a
+configured trigger replaces them; the host policy owns any reset decision.
+Legacy tickets may omit tags, targets, and first-response milestones; there is
+no inferred historical first response or automatic target backfill.
+
+Queue fields are staff-only and come from authoritative confirmation. Query
+`tag` matches one normalized tag. `target` selects `first_response` or
+`resolution` (default); `targetState: "overdue"` means an unmet target strictly
+before the host clock, while `"due_soon"` means from now through the inclusive
+`dueSoonMilliseconds` horizon (required, 0 to 30 days). First-response targets
+are unmet until `firstStaffRespondedAt`; resolution targets are unmet until
+`resolvedAt`. Terminal tickets remain excluded from the active queue. Sorts
+`due_soonest` and `due_latest` use the selected unmet target with missing or
+completed targets last in both directions and ticket ID as tie-breaker.
+Existing update sorts and physical-row/page/result budgets remain in force.
+Run a complete queue repair cycle after upgrading; exact legacy rows can gain
+the additive fields at the same revision after authoritative re-derivation.
+
+All staff mutations (reply, note, assign/unassign, priority, tags, resolve,
+close, reopen) accept an optional positive safe-integer `expectedRevision`.
+Omitting it retains automatic conflict retries. Supplying it requires a match
+after authorization and command-replay detection, on every attempt. A mismatch
+fails before ticket writes or target-hook calls with the content-safe stale
+error above. Reuse of a command ID with changed input, including a changed
+revision hint, remains a command conflict. New staff receipts retain the result
+ticket; immutable message ordinals reconstruct the original conversation up
+to that revision. Exact committed retries return that result even after later
+edits. Legacy receipts without a result ticket retain their earlier current-view
+replay behavior. Controllers should reload staff detail after a stale response
+or when they want the latest state following a replay.
+
+Tags, due timestamps, and milestones never enter customer DTOs or automatic
+customer mail projections. Hosts must keep these fields out of customer
+notification variables and template bodies as well.
 
 ## Inbound mail
 

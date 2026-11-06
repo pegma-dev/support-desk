@@ -46,6 +46,13 @@ export interface Ticket {
    * Never establishes identity, permission, priority, or assignment.
    */
   readonly category?: string;
+  /** Staff-only, host-allowlisted labels. Absent on legacy tickets. */
+  readonly tags?: readonly string[];
+  /** Staff-only targets computed by host policy, never by a local calendar. */
+  readonly firstResponseDueAt?: IsoTimestamp;
+  readonly resolutionDueAt?: IsoTimestamp;
+  /** First customer-visible staff reply; retained through every reopen. */
+  readonly firstStaffRespondedAt?: IsoTimestamp;
   readonly channel: TicketChannel;
   readonly status: TicketStatus;
   readonly priority: TicketPriority;
@@ -59,6 +66,7 @@ export interface Ticket {
    * lifecycle changes; notes, assignment, and priority leave it unchanged.
    */
   readonly customerUpdatedAt: IsoTimestamp;
+  /** Current resolution cycle: retained on close, cleared on reopen or reply. */
   readonly resolvedAt?: IsoTimestamp;
   readonly closedAt?: IsoTimestamp;
   /**
@@ -141,6 +149,11 @@ export type TicketEvent =
       readonly type: "assigned";
       readonly actorId: PrincipalId;
       readonly assigneeId: PrincipalId | null;
+    })
+  | (TicketEventBase & {
+      readonly type: "tags_changed";
+      readonly actorId: PrincipalId;
+      readonly tags: readonly string[];
     })
   | (TicketEventBase & {
       readonly type: "priority_changed";

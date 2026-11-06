@@ -15,3 +15,7 @@ defined.
 
 The optional `retiregolden` export is a host-branded pack, kept separate from
 the generic renderer.
+
+Task 13 staff tags, response targets, and milestones are not customer template
+variables. Keep host-supplied customer notification maps free of this metadata;
+the generic renderer receives only the explicitly supplied variable allowlist.

@@ -573,6 +573,9 @@ tests. Provider SDK and HTTP verification remain host adapters.
 
 ### Task 12 — first production-ready release
 
+**Status (Task 12):** Pending. Both hosts must supply durable-store production
+evidence; Task 13 package work does not satisfy or waive this gate.
+
 Complete retention, export, redaction, deletion, recovery, operational
 dashboards, threat modeling, focused security review, upgrade notes, and
 conformance documentation. Production readiness is an evidence gate, not just
@@ -595,6 +598,30 @@ dependency, not promised dates.
 | 5     | Task 16 — customer self-service polish | Customer DTO and command polish for portals (pagination of own tickets, closing one's own ticket, clearer status copy hooks) without exposing staff fields.                                                                               | A change needs staff-only fields in a customer DTO.                                      |
 | 6     | Task 17 — abuse composition notes      | Documented and tested composition of `@pegma/rate-limit` for web create/reply and inbound sender/domain/channel throttles, plus abuse-review metrics.                                                                                     | A limiter would have to live inside Support Desk.                                        |
 | 7     | Task 18 — AI triage and drafts         | Optional host hooks for staff-only summaries and reply drafts with an explicit human approval step, model/prompt version audit, and no customer-visible generation.                                                                       | A hook could send, act on an account, or raise permissions without a human approval.     |
+
+### Task 13 - lifecycle extras
+
+**Status (Task 13):** Implemented in source, additive to exact `0.1.1` with no
+version bump or publication. This pure package task proceeds independently of
+Task 12's pending host durable-store evidence.
+
+- Staff `setTags` uses bounded host `allowedTags` and `maxTagsPerTicket`,
+  `support.ticket.manage` plus queue read, normalized command fingerprints,
+  and a transactional `support.ticket.tags_changed` Audit action. Tags update
+  staff time only and never create mail.
+- Optional host `ResponseTargetPolicy.computeTargets` runs on creation,
+  customer replies (web/email), and priority changes. Canonical due dates are
+  stored with first-staff-response and resolution milestones, then projected
+  into the confirmed queue for tag and overdue/due-soon filtering and due sort.
+- Optional `expectedRevision` covers all staff mutations with content-safe
+  stale hints and exact committed replay. Omission preserves retry behavior.
+- Customer DTOs and automatic customer mail exclude the new staff metadata.
+- Unit, public-entry memory/Azurite tests, and the composition example exercise
+  all three additions. See [host composition](HOST_COMPOSITION.md#optional-lifecycle-extras-task-13)
+  for bounds, reopen semantics, replay, and upgrade behavior.
+
+**Stop if:** a target needs a business-hours calendar or presence service inside
+Support Desk. Neither is implemented here; hosts supply timestamps.
 
 ## Definition of launch complete
 
