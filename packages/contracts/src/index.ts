@@ -83,6 +83,29 @@ export type MessageVisibility = "customer" | "internal";
 export type MessageFormat = "plain_text" | "markdown";
 
 /**
+ * Host-evaluated sender authentication bound to one inbound email address.
+ *
+ * Hosts derive this only from trusted post-verification evidence. A DMARC
+ * result is usable only when it passes and aligned DKIM or aligned SPF is
+ * true. `host_identity` represents an equivalent host-authenticated identity
+ * bound to the same address. A provider webhook signature alone and raw,
+ * unparsed `Authentication-Results` header text do not satisfy this contract.
+ */
+export type InboundSenderAuthentication =
+  | {
+      readonly method: "dmarc";
+      readonly result: "pass" | "fail";
+      readonly email: string;
+      readonly dkimAligned: boolean;
+      readonly spfAligned: boolean;
+    }
+  | {
+      readonly method: "host_identity";
+      readonly result: "pass" | "fail";
+      readonly email: string;
+    };
+
+/**
  * One canonical message in a ticket conversation.
  *
  * Mail adapters should convert and sanitize provider content before producing

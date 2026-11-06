@@ -106,12 +106,13 @@ outbound-mail integration:
   cursors independently after each complete page. Physical keys, conditional
   claims, submission generations, and provider idempotency keys remain
   authoritative.
-- `createInboundMailProcessor` (Buildout Task 11) accepts verified,
-  provider-neutral inbound mail, reserves the provider-event receipt before
-  ticket work, suppresses bounce and auto-reply loops, and routes by opaque
-  reply token, `In-Reply-To`/`References`, then subject marker through the
-  key-lookup `support-desk.thread-index.v1`. Account-email matching and
-  routing priority are host ports; an email match never authenticates.
+- `createInboundMailProcessor` (Buildout Task 11) accepts provider-neutral
+  inbound mail after host provider verification, snapshots the host-evaluated
+  sender result, reserves the provider-event receipt before ticket work,
+  suppresses bounce and auto-reply loops, and routes by opaque reply token,
+  `In-Reply-To`/`References`, then subject marker through the key-lookup
+  `support-desk.thread-index.v1`. Account-email matching and routing priority
+  are host ports; sender authentication never establishes web identity.
 
 The staff queue projection and host-neutral release candidate are implemented
 in source (Buildout Tasks 5–6): public integration tests, the memory-backed

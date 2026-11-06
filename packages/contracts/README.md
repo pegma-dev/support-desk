@@ -3,6 +3,12 @@
 Provider-neutral ticket, requester, message, and event contracts shared by
 Support Desk packages and host applications.
 
+`InboundSenderAuthentication` carries a host-evaluated result bound to one
+normalized inbound address. DMARC passes require aligned DKIM or aligned SPF;
+`host_identity` represents an equivalent host-authenticated identity. The
+result permits existing-ticket email routing only and never establishes web
+identity or access.
+
 `Ticket` carries optional host-configured `category` and dual timestamps:
 staff-facing `updatedAt` and customer-visible `customerUpdatedAt`. Category is
 an opaque allowlisted label and never establishes identity, permission,

@@ -250,10 +250,10 @@ alone.
 
 ### Mail ingestion adapter
 
-The adapter verifies provider authenticity, constrains MIME parsing, normalizes
-content, extracts threading metadata, and returns provider-neutral input.
-Ticket matching and account association happen in application services under
-explicit policy.
+The adapter verifies provider authenticity, evaluates sender authentication,
+constrains MIME parsing, normalizes content, extracts threading metadata, and
+returns provider-neutral input. Ticket matching and account association happen
+in application services under explicit policy.
 
 `createInboundMailProcessor` is that application service. Its host ports are
 an account matcher (zero, one, or many matches) and a content-free routing
@@ -542,6 +542,10 @@ and repaired by a cursor-aware worker. Replies are matched using:
 - `In-Reply-To` and `References`;
 - ticket marker fallback.
 
+A repeated inbound message's own `Message-ID` is checked for duplicate delivery
+first. When it does not qualify, its ticket remains a relationship hint after
+the token and header locators but before the subject-marker fallback.
+
 The adapter must preserve enough metadata to produce standards-compatible
 threads while keeping provider-specific payloads outside core records.
 
@@ -550,9 +554,13 @@ random, scoped, revocable or expiring where practical, and useless for reading
 ticket content without further authorization. Index rows are hints: each
 lookup reloads the authoritative ticket and causal message before use, rows
 expire with the configured threading retention, and a match joins only when
-the sender equals the recorded requester address (or, without one, only by
-token). Anything else becomes a new unverified ticket with a staff-only
-`relatedTicketId`.
+the case-insensitive normalized sender equals the recorded requester address
+and the host provides a passing sender result bound to that same address. A
+DMARC pass requires aligned DKIM or aligned SPF; an equivalent
+host-authenticated identity also qualifies. Without a recorded requester
+address, only the high-entropy routing token may join. Anything else becomes a
+new unverified ticket with a staff-only `relatedTicketId`, leaving the named
+ticket unchanged.
 
 ## Authorization sequence
 
@@ -581,6 +589,7 @@ verified session
 
 ```text
 verified provider event
+  -> host-evaluated sender result
   -> deduplication
   -> safe parsing
   -> routing/account association
@@ -713,7 +722,8 @@ shortcut for the two launch instances.
 5. Accepted-change history uses `@pegma/audit` in the ticket transaction;
    Support Desk does not own a competing audit contract.
 6. Browser fields never establish principal, role, entitlement, or priority.
-7. Email matching assists routing but does not authenticate.
+7. Sender authentication permits an email reply join but never establishes a
+   principal, web identity, or permission.
 8. Internal notes never enter customer-visible output.
 9. Duplicate provider events are safe.
 10. Ticket updates go through an `update` decider that re-runs on conflict, or

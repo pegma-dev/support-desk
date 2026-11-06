@@ -52,6 +52,7 @@ import {
   type DeliveryCallbackInput,
   type InboundEmailResult,
   type InboundMailProcessor,
+  type InboundSenderAuthentication,
   type InboundSenderMatch,
   type SupportDeskApplication,
   type ResponseTargetPolicy,
@@ -137,6 +138,18 @@ export const EXAMPLE_ACCOUNT_EMAILS: Readonly<Record<string, string>> =
 
 /** This instance's own support address; mail from it is a loop. */
 export const EXAMPLE_SUPPORT_ADDRESS = "support@example.test";
+
+function exampleSenderAuthentication(
+  email: string,
+): InboundSenderAuthentication {
+  return {
+    method: "dmarc",
+    result: "pass",
+    email,
+    dkimAligned: true,
+    spfAligned: false,
+  };
+}
 
 /** Static task ids for the seven direct host loops (not receipt/principal sweeps). */
 export type SupportDeskScheduledTasks = {
@@ -311,7 +324,8 @@ export function createExampleComposition(
   });
 
   // Inbound processing after the host adapter verified the provider webhook,
-  // bounded MIME parsing, and normalized safe text. The ports below are fakes.
+  // evaluated the sender result, bounded MIME parsing, and normalized safe
+  // text. The ports below are fakes.
   const inbound = createInboundMailProcessor({
     store,
     clock,
@@ -838,6 +852,7 @@ export async function runInboundExampleFlow(
     messageId: "msg-inbound-001",
     correlationId: "corr-inbound-001",
     from: "prospect@example.org",
+    senderAuthentication: exampleSenderAuthentication("prospect@example.org"),
     fromName: "Prospective Customer",
     subject: "Do you offer annual billing?",
     body: "Hello, we are evaluating the product. Is annual billing available?",
@@ -859,6 +874,7 @@ export async function runInboundExampleFlow(
     messageId: "msg-inbound-002",
     correlationId: "corr-inbound-002",
     from: "prospect@example.org",
+    senderAuthentication: exampleSenderAuthentication("prospect@example.org"),
     subject: "Re: Do you offer annual billing?",
     body: "Also: do you invoice in EUR?",
     externalMessageId: "<second.prospect@mail.example.org>",
@@ -871,6 +887,7 @@ export async function runInboundExampleFlow(
     messageId: "msg-inbound-003",
     correlationId: "corr-inbound-003",
     from: "prospect@example.org",
+    senderAuthentication: exampleSenderAuthentication("prospect@example.org"),
     subject: "Out of office",
     body: "I am away until Monday.",
     inReplyTo: "<first.prospect@mail.example.org>",
@@ -883,6 +900,7 @@ export async function runInboundExampleFlow(
     messageId: "msg-inbound-004",
     correlationId: "corr-inbound-004",
     from: "member@example.test",
+    senderAuthentication: exampleSenderAuthentication("member@example.test"),
     subject: "Question about my workspace",
     body: "How do I add a teammate?",
   });

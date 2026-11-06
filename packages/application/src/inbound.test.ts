@@ -1,5 +1,6 @@
 import type { AccessContext } from "@pegma/authorization-core";
 import { createMemoryStore, type Store } from "@pegma/storage-core";
+import { createTicket } from "@pegma/support-desk-core";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -24,6 +25,7 @@ import {
   type InboundMailProcessorOptions,
   type InboundNotificationContext,
   type InboundRoutingInput,
+  type InboundSenderAuthentication,
   type InboundSenderMatch,
   type NotificationInput,
   type SupportRecord,
@@ -33,6 +35,23 @@ const T0 = "2026-09-01T12:00:00.000Z";
 const DAY = 86_400_000;
 const TOKEN = "rt_abcdefghijklmnopqrstuvwxyz0123";
 const OTHER_TOKEN = "rt_zyxwvutsrqponmlkjihgfedcba9876";
+
+function authenticatedSender(email: string): InboundSenderAuthentication {
+  return {
+    method: "dmarc",
+    result: "pass",
+    email,
+    dkimAligned: true,
+    spfAligned: false,
+  };
+}
+
+function withoutSenderAuthentication(
+  input: InboundEmailInput,
+): InboundEmailInput {
+  const { senderAuthentication: _senderAuthentication, ...rest } = input;
+  return rest;
+}
 
 function access(
   principalId: string,
@@ -79,13 +98,15 @@ function inbound(
   overrides: Partial<InboundEmailInput> = {},
 ): InboundEmailInput {
   sequence += 1;
+  const from = overrides.from ?? "visitor@example.org";
   return {
     channelId: "support-mailbox",
     providerEventId: `provider-event-${sequence}`,
     ticketId: `inbound-ticket-${sequence}`,
     messageId: `inbound-message-${sequence}`,
     correlationId: `inbound-correlation-${sequence}`,
-    from: "visitor@example.org",
+    from,
+    senderAuthentication: authenticatedSender(from),
     subject: "Question about pricing",
     body: "Hello, I have a question about the team plan.",
     ...overrides,
@@ -185,6 +206,69 @@ async function receiptFor(store: Store, input: InboundEmailInput) {
   return store
     .collection(inboundReceipts)
     .get({ partition: location.bucket, id: `slot:${location.slot}` });
+}
+
+type PriorInboundFingerprintShape =
+  "case_preserving_sender" | "pre_sender_result";
+
+async function priorInboundFingerprint(
+  input: InboundEmailInput,
+  shape: PriorInboundFingerprintShape,
+): Promise<string> {
+  const payload = {
+    type: "inbound_email",
+    channelId: input.channelId,
+    providerEventId: input.providerEventId,
+    from: input.from,
+    ...(shape === "case_preserving_sender" &&
+    input.senderAuthentication !== undefined
+      ? { senderAuthentication: input.senderAuthentication }
+      : {}),
+    fromName: input.fromName ?? null,
+    subject: input.subject,
+    body: input.body,
+    format: input.format ?? "plain_text",
+    externalMessageId: input.externalMessageId ?? null,
+    inReplyTo: input.inReplyTo ?? null,
+    references: input.references ?? [],
+    replyRoutingToken: input.replyRoutingToken ?? null,
+    loopSignals: input.loopSignals ?? {},
+  };
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(payload)),
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function usePriorInboundFingerprint(
+  store: Store,
+  input: InboundEmailInput,
+  shape: PriorInboundFingerprintShape,
+): Promise<string> {
+  const fingerprint = await priorInboundFingerprint(input, shape);
+  const location = await inboundReceiptLocation(
+    input.channelId,
+    input.providerEventId,
+  );
+  await store
+    .collection(inboundReceipts)
+    .update(
+      { partition: location.bucket, id: `slot:${location.slot}` },
+      (current) => {
+        if (current === null) {
+          throw new Error("inbound receipt missing");
+        }
+        const { replayFingerprint: _replayFingerprint, ...prior } = current;
+        return {
+          action: "write",
+          value: { ...prior, payloadFingerprint: fingerprint },
+        };
+      },
+    );
+  return fingerprint;
 }
 
 /** Authenticated web ticket whose confirmation mail carries a reply token. */
@@ -483,6 +567,164 @@ describe("inbound mail: new conversations", () => {
     expect(view.messages[0]?.externalMessageId).toBeUndefined();
     expect(view.messages[0]?.inReplyToExternalMessageId).toBeUndefined();
   });
+
+  it("rejects malformed or inherited sender results before reserving a receipt", async () => {
+    const malformedFixture = fixture();
+    const malformed = inbound({
+      senderAuthentication: {
+        method: "dmarc",
+        result: "pass",
+        email: "visitor@example.org",
+        dkimAligned: "yes",
+        spfAligned: false,
+      } as unknown as InboundSenderAuthentication,
+    });
+    await expect(
+      malformedFixture.processor.processInboundEmail(malformed),
+    ).rejects.toThrow(/dkimAligned must be a boolean/);
+    expect(await receiptFor(malformedFixture.store, malformed)).toBeNull();
+
+    const inheritedFixture = fixture();
+    const inherited = Object.create(
+      authenticatedSender("visitor@example.org"),
+    ) as InboundSenderAuthentication;
+    const inheritedInput = inbound({ senderAuthentication: inherited });
+    await expect(
+      inheritedFixture.processor.processInboundEmail(inheritedInput),
+    ).rejects.toThrow(/method must be an own data property/);
+    expect(await receiptFor(inheritedFixture.store, inheritedInput)).toBeNull();
+
+    const outerFixture = fixture();
+    let inheritedGetterCalls = 0;
+    const prototype = {};
+    Object.defineProperty(prototype, "senderAuthentication", {
+      get() {
+        inheritedGetterCalls += 1;
+        return authenticatedSender("visitor@example.org");
+      },
+    });
+    const outerInput = Object.assign(
+      Object.create(prototype),
+      withoutSenderAuthentication(inbound()),
+    ) as InboundEmailInput;
+    await expect(
+      outerFixture.processor.processInboundEmail(outerInput),
+    ).rejects.toThrow(/senderAuthentication must be an own data property/);
+    expect(inheritedGetterCalls).toBe(0);
+    expect(await receiptFor(outerFixture.store, outerInput)).toBeNull();
+  });
+
+  it("rejects alignment fields on host identity sender results", async () => {
+    for (const key of ["dkimAligned", "spfAligned"] as const) {
+      const f = fixture();
+      const input = inbound({
+        senderAuthentication: {
+          method: "host_identity",
+          result: "pass",
+          email: "visitor@example.org",
+          [key]: false,
+        } as unknown as InboundSenderAuthentication,
+      });
+      await expect(f.processor.processInboundEmail(input)).rejects.toThrow(
+        `${key} is not valid when method is host_identity`,
+      );
+      expect(await receiptFor(f.store, input)).toBeNull();
+    }
+
+    const accessorFixture = fixture();
+    let accessorCalls = 0;
+    const senderAuthentication: Record<string, unknown> = {
+      method: "host_identity",
+      result: "pass",
+      email: "visitor@example.org",
+    };
+    Object.defineProperty(senderAuthentication, "dkimAligned", {
+      enumerable: true,
+      get() {
+        accessorCalls += 1;
+        return false;
+      },
+    });
+    const accessorInput = inbound({
+      senderAuthentication:
+        senderAuthentication as unknown as InboundSenderAuthentication,
+    });
+    await expect(
+      accessorFixture.processor.processInboundEmail(accessorInput),
+    ).rejects.toThrow(/must be an own data property, not an accessor/);
+    expect(accessorCalls).toBe(0);
+    expect(await receiptFor(accessorFixture.store, accessorInput)).toBeNull();
+
+    const inheritedFixture = fixture();
+    let inheritedCalls = 0;
+    const prototype = {};
+    Object.defineProperty(prototype, "spfAligned", {
+      get() {
+        inheritedCalls += 1;
+        return false;
+      },
+    });
+    const inheritedSenderAuthentication = Object.assign(
+      Object.create(prototype),
+      {
+        method: "host_identity",
+        result: "pass",
+        email: "visitor@example.org",
+      },
+    ) as InboundSenderAuthentication;
+    const inheritedInput = inbound({
+      senderAuthentication: inheritedSenderAuthentication,
+    });
+    await expect(
+      inheritedFixture.processor.processInboundEmail(inheritedInput),
+    ).rejects.toThrow(/spfAligned must be an own data property/);
+    expect(inheritedCalls).toBe(0);
+    expect(await receiptFor(inheritedFixture.store, inheritedInput)).toBeNull();
+  });
+
+  it.each(["method", "result", "email", "dkimAligned", "spfAligned"] as const)(
+    "does not execute a sender-result %s accessor",
+    async (key) => {
+      const f = fixture();
+      let getterCalls = 0;
+      const senderAuthentication = authenticatedSender("visitor@example.org");
+      Object.defineProperty(senderAuthentication, key, {
+        configurable: true,
+        enumerable: true,
+        get() {
+          getterCalls += 1;
+          return "unused";
+        },
+      });
+      const input = inbound({ senderAuthentication });
+
+      await expect(f.processor.processInboundEmail(input)).rejects.toThrow(
+        /must be an own data property, not an accessor/,
+      );
+      expect(getterCalls).toBe(0);
+      expect(await receiptFor(f.store, input)).toBeNull();
+    },
+  );
+
+  it("does not execute an accessor for the sender-result object", async () => {
+    const f = fixture();
+    let getterCalls = 0;
+    const input = inbound();
+    Object.defineProperty(input, "senderAuthentication", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return authenticatedSender("visitor@example.org");
+      },
+    });
+
+    await expect(f.processor.processInboundEmail(input)).rejects.toThrow(
+      /must be an own data property, not an accessor/,
+    );
+    expect(getterCalls).toBe(0);
+    expect(await receiptFor(f.store, input)).toBeNull();
+  });
 });
 
 describe("inbound mail: deduplication and idempotency", () => {
@@ -509,6 +751,301 @@ describe("inbound mail: deduplication and idempotency", () => {
     );
     expect(records.filter((record) => record.kind === "audit")).toHaveLength(1);
     expect(f.routingCalls).toHaveLength(1);
+  });
+
+  it("treats sender address case changes as the same provider delivery", async () => {
+    const f = fixture();
+    await webTicket(f);
+    const input = inbound({
+      from: "Customer@Example.ORG",
+      senderAuthentication: {
+        method: "dmarc",
+        result: "pass",
+        email: "CUSTOMER@Example.ORG",
+        dkimAligned: true,
+        spfAligned: false,
+      },
+      replyRoutingToken: TOKEN,
+    });
+    const first = await f.processor.processInboundEmail(input);
+
+    await expect(
+      f.processor.processInboundEmail({
+        ...input,
+        ticketId: "case-retry-ticket",
+        messageId: "case-retry-message",
+        correlationId: "case-retry-correlation",
+        from: "customer@example.org",
+        senderAuthentication: authenticatedSender("customer@example.org"),
+      }),
+    ).resolves.toEqual({ ...first, duplicateDelivery: true });
+    expect(first).toMatchObject({
+      outcome: "replied",
+      ticketId: "web-ticket",
+    });
+    expect(
+      (await f.application.readStaffTicket(staff, "web-ticket")).messages,
+    ).toHaveLength(2);
+  });
+
+  it.each([
+    ["case-preserving sender", "case_preserving_sender"],
+    ["pre-sender-result", "pre_sender_result"],
+  ] as const)(
+    "replays a terminal receipt from the %s format",
+    async (_name, shape) => {
+      const f = fixture();
+      const input = inbound({
+        from: "Customer@example.org",
+        senderAuthentication: {
+          method: "dmarc",
+          result: "pass",
+          email: "CUSTOMER@example.org",
+          dkimAligned: true,
+          spfAligned: false,
+        },
+      });
+      const first = await f.processor.processInboundEmail(input);
+      const priorFingerprint = await usePriorInboundFingerprint(
+        f.store,
+        input,
+        shape,
+      );
+
+      await expect(
+        f.processor.processInboundEmail({
+          ...input,
+          body: "Changed before replay binding.",
+        }),
+      ).rejects.toThrow(
+        "An inbound provider event ID was reused for different content",
+      );
+      await expect(
+        f.processor.processInboundEmail({
+          ...input,
+          ticketId: "prior-terminal-ticket",
+          messageId: "prior-terminal-message",
+          correlationId: "prior-terminal-correlation",
+        }),
+      ).resolves.toEqual({ ...first, duplicateDelivery: true });
+      const boundReceipt = await receiptFor(f.store, input);
+      expect(boundReceipt).toMatchObject({
+        payloadFingerprint: priorFingerprint,
+        replayFingerprint: expect.any(String),
+      });
+      expect(boundReceipt?.replayFingerprint).not.toBe(priorFingerprint);
+      await expect(
+        f.processor.processInboundEmail({
+          ...input,
+          body: "Changed after replay binding.",
+        }),
+      ).rejects.toThrow(
+        "An inbound provider event ID was reused for different content",
+      );
+      await expect(
+        f.processor.processInboundEmail({
+          ...input,
+          senderAuthentication: {
+            ...input.senderAuthentication!,
+            result: "fail",
+          },
+        }),
+      ).rejects.toThrow(
+        "An inbound provider event ID was reused for different content",
+      );
+    },
+  );
+
+  it("resumes a prior nonterminal receipt during concurrent replay", async () => {
+    const backing = createMemoryStore();
+    const stoppedStore: Store = {
+      collection(definition) {
+        const collection = backing.collection(definition);
+        if (definition.name !== supportRecords.name) {
+          return collection;
+        }
+        return {
+          ...collection,
+          async transact() {
+            throw new Error("injected stop before ticket commit");
+          },
+        };
+      },
+    };
+    const stopped = fixture({ store: stoppedStore });
+    const input = inbound({
+      from: "Customer@example.org",
+      senderAuthentication: authenticatedSender("CUSTOMER@example.org"),
+    });
+    await expect(stopped.processor.processInboundEmail(input)).rejects.toThrow(
+      "injected stop before ticket commit",
+    );
+    const priorFingerprint = await usePriorInboundFingerprint(
+      backing,
+      input,
+      "pre_sender_result",
+    );
+    const resumed = fixture({ store: backing });
+
+    const results = await Promise.all([
+      resumed.processor.processInboundEmail(input),
+      resumed.processor.processInboundEmail({
+        ...input,
+        ticketId: "prior-concurrent-ticket",
+        messageId: "prior-concurrent-message",
+        correlationId: "prior-concurrent-correlation",
+      }),
+    ]);
+    expect(results).toEqual([
+      expect.objectContaining({
+        duplicateDelivery: true,
+        outcome: "created",
+        ticketId: input.ticketId,
+      }),
+      expect.objectContaining({
+        duplicateDelivery: true,
+        outcome: "created",
+        ticketId: input.ticketId,
+      }),
+    ]);
+    const location = await inboundReceiptLocation(
+      input.channelId,
+      input.providerEventId,
+    );
+    const commandId = `inbound:${location.bucket.slice(-30)}${location.slot}`;
+    expect(
+      await backing.collection(supportRecords).get({
+        partition: input.ticketId,
+        id: `command:${commandId}`,
+      }),
+    ).toMatchObject({
+      kind: "command",
+      requestFingerprint: priorFingerprint,
+    });
+    expect(await ticketCount(backing)).toBe(1);
+    await expect(
+      resumed.processor.processInboundEmail({
+        ...input,
+        subject: "Changed after concurrent replay.",
+      }),
+    ).rejects.toThrow(
+      "An inbound provider event ID was reused for different content",
+    );
+  });
+
+  it("finalizes a prior command after replay binding", async () => {
+    const backing = createMemoryStore();
+    let failFinalize = true;
+    const store: Store = {
+      collection(definition) {
+        const collection = backing.collection(definition);
+        if (definition.name !== inboundReceipts.name) {
+          return collection;
+        }
+        return {
+          ...collection,
+          async update(key, decide, options) {
+            const current = await collection.get(key);
+            const route = (current as { readonly route?: unknown } | null)
+              ?.route;
+            if (failFinalize && route !== undefined) {
+              failFinalize = false;
+              throw new Error("injected stop after ticket commit");
+            }
+            return collection.update(key, decide, options);
+          },
+        };
+      },
+    };
+    const f = fixture({ store });
+    const input = inbound({
+      from: "Customer@example.org",
+      senderAuthentication: authenticatedSender("CUSTOMER@example.org"),
+    });
+    await expect(f.processor.processInboundEmail(input)).rejects.toThrow(
+      "injected stop after ticket commit",
+    );
+    const priorFingerprint = await usePriorInboundFingerprint(
+      backing,
+      input,
+      "pre_sender_result",
+    );
+    const location = await inboundReceiptLocation(
+      input.channelId,
+      input.providerEventId,
+    );
+    const commandId = `inbound:${location.bucket.slice(-30)}${location.slot}`;
+    await backing
+      .collection(supportRecords)
+      .update(
+        { partition: input.ticketId, id: `command:${commandId}` },
+        (current) => {
+          if (current?.kind !== "command") {
+            throw new Error("inbound command missing");
+          }
+          return {
+            action: "write",
+            value: { ...current, requestFingerprint: priorFingerprint },
+          };
+        },
+      );
+
+    await expect(f.processor.processInboundEmail(input)).resolves.toMatchObject(
+      {
+        duplicateDelivery: true,
+        outcome: "created",
+        ticketId: input.ticketId,
+        messageId: input.messageId,
+      },
+    );
+    expect(await ticketCount(backing)).toBe(1);
+    expect(
+      (await backing.collection(supportRecords).list(input.ticketId)).filter(
+        (record) => record.kind === "message",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("keeps sender-result replay bound to the first provider event", async () => {
+    const f = fixture();
+    await webTicket(f);
+    await f.application.resolveTicket(staff, {
+      commandId: "resolve-before-replay",
+      correlationId: "resolve-before-replay",
+      ticketId: "web-ticket",
+    });
+    const input = withoutSenderAuthentication(
+      inbound({
+        from: "customer@example.org",
+        replyRoutingToken: TOKEN,
+      }),
+    );
+    const first = await f.processor.processInboundEmail(input);
+    expect(first).toMatchObject({
+      outcome: "created",
+      relatedTicketId: "web-ticket",
+    });
+
+    await expect(
+      f.processor.processInboundEmail({
+        ...input,
+        ticketId: "replay-ticket",
+        messageId: "replay-message",
+        correlationId: "replay-correlation",
+      }),
+    ).resolves.toEqual({ ...first, duplicateDelivery: true });
+    await expect(
+      f.processor.processInboundEmail({
+        ...input,
+        ticketId: "changed-ticket",
+        messageId: "changed-message",
+        correlationId: "changed-correlation",
+        senderAuthentication: authenticatedSender("customer@example.org"),
+      }),
+    ).rejects.toThrow(
+      "An inbound provider event ID was reused for different content",
+    );
+    expect((await storedTicket(f.store, "web-ticket")).status).toBe("resolved");
   });
 
   it("rejects a provider event ID reused for different content", async () => {
@@ -609,6 +1146,249 @@ describe("inbound mail: deduplication and idempotency", () => {
     });
   }
 
+  it("rechecks a stored address-only route before resuming ticket work", async () => {
+    const backing = createMemoryStore();
+    const setup = fixture({ store: backing });
+    await webTicket(setup);
+    await setup.application.resolveTicket(staff, {
+      commandId: "resolve-before-stored-route",
+      correlationId: "resolve-before-stored-route",
+      ticketId: "web-ticket",
+    });
+    const before = await setup.application.readStaffTicket(staff, "web-ticket");
+    const physicalRowsBefore = (
+      await backing.collection(supportRecords).list("web-ticket")
+    ).length;
+    const interruptedStore: Store = {
+      collection(definition) {
+        const collection = backing.collection(definition);
+        if (definition.name !== supportRecords.name) {
+          return collection;
+        }
+        return {
+          ...collection,
+          async transact() {
+            throw new Error("injected interruption before ticket commit");
+          },
+        };
+      },
+    };
+    const interrupted = fixture({ store: interruptedStore });
+    const input = withoutSenderAuthentication(
+      inbound({
+        from: "customer@example.org",
+        replyRoutingToken: TOKEN,
+      }),
+    );
+    await expect(
+      interrupted.processor.processInboundEmail(input),
+    ).rejects.toThrow("injected interruption before ticket commit");
+    const location = await inboundReceiptLocation(
+      input.channelId,
+      input.providerEventId,
+    );
+    const key = {
+      partition: location.bucket,
+      id: `slot:${location.slot}`,
+    };
+    await backing.collection(inboundReceipts).update(key, (current) => {
+      if (current === null) {
+        throw new Error("processing receipt missing");
+      }
+      return {
+        action: "write",
+        value: {
+          ...current,
+          route: {
+            kind: "reply",
+            ticketId: "web-ticket",
+            matchMethod: "routing_token",
+          },
+        },
+      };
+    });
+
+    const processing = await receiptFor(backing, input);
+    if (processing === null) {
+      throw new Error("processing receipt missing before resume");
+    }
+    const commandId = `inbound:${location.bucket.slice(-30)}${location.slot}`;
+    let concurrentCommandCommitted: boolean | undefined;
+    const resumed = fixture({
+      store: backing,
+      processor: {
+        routingPolicy: {
+          async routeNewConversation() {
+            const outcome = await backing
+              .collection(supportRecords)
+              .transact("web-ticket", [
+                {
+                  action: "insert",
+                  value: {
+                    kind: "command",
+                    partition: "web-ticket",
+                    id: `command:${commandId}`,
+                    commandId,
+                    commandType: "inbound_email_reply",
+                    messageId: input.messageId,
+                    requestFingerprint: processing.payloadFingerprint,
+                    completedAt: T0,
+                  },
+                },
+              ]);
+            concurrentCommandCommitted = outcome.committed;
+            return { priority: "low" };
+          },
+        },
+      },
+    });
+    const result = await resumed.processor.processInboundEmail(input);
+
+    expect(concurrentCommandCommitted).toBe(false);
+    expect(result).toMatchObject({
+      duplicateDelivery: true,
+      outcome: "created",
+      association: "unverified",
+      relatedTicketId: "web-ticket",
+    });
+    expect(
+      await resumed.application.readStaffTicket(staff, "web-ticket"),
+    ).toEqual(before);
+    const targetRows = await backing
+      .collection(supportRecords)
+      .list("web-ticket");
+    expect(targetRows).toHaveLength(physicalRowsBefore + 1);
+    expect(
+      targetRows.filter(
+        (record) => record.kind === "inbound_reply_reroute_fence",
+      ),
+    ).toHaveLength(1);
+    expect(await receiptFor(backing, input)).toMatchObject({
+      status: "processed",
+      route: {
+        kind: "new_conversation",
+        association: "unverified",
+        relatedTicketId: "web-ticket",
+      },
+    });
+  });
+
+  it("rechecks partition capacity after a concurrent target change", async () => {
+    const backing = createMemoryStore();
+    const setup = fixture({ store: backing });
+    await webTicket(setup);
+    const physicalRowsBefore = (
+      await backing.collection(supportRecords).list("web-ticket")
+    ).length;
+    const interruptedStore: Store = {
+      collection(definition) {
+        const collection = backing.collection(definition);
+        if (definition.name !== supportRecords.name) {
+          return collection;
+        }
+        return {
+          ...collection,
+          async transact() {
+            throw new Error("injected interruption before ticket commit");
+          },
+        };
+      },
+    };
+    const input = withoutSenderAuthentication(
+      inbound({
+        from: "customer@example.org",
+        replyRoutingToken: TOKEN,
+      }),
+    );
+    await expect(
+      fixture({ store: interruptedStore }).processor.processInboundEmail(input),
+    ).rejects.toThrow("injected interruption before ticket commit");
+    const location = await inboundReceiptLocation(
+      input.channelId,
+      input.providerEventId,
+    );
+    await backing.collection(inboundReceipts).update(
+      {
+        partition: location.bucket,
+        id: `slot:${location.slot}`,
+      },
+      (current) => {
+        if (current === null) {
+          throw new Error("processing receipt missing");
+        }
+        return {
+          action: "write",
+          value: {
+            ...current,
+            route: {
+              kind: "reply",
+              ticketId: "web-ticket",
+              matchMethod: "routing_token",
+            },
+          },
+        };
+      },
+    );
+
+    let targetChanged = false;
+    const resumedStore: Store = {
+      collection(definition) {
+        const collection = backing.collection(definition);
+        if (definition.name !== supportRecords.name) {
+          return collection;
+        }
+        return {
+          ...collection,
+          async list(partition) {
+            const rows = await collection.list(partition);
+            if (partition === "web-ticket" && !targetChanged) {
+              targetChanged = true;
+              await setup.application.assignTicket(staff, {
+                commandId: "assign-during-route-check",
+                correlationId: "assign-during-route-check",
+                ticketId: "web-ticket",
+                assigneeId: "staff-2",
+              });
+            }
+            return rows;
+          },
+        };
+      },
+    };
+    const resumed = fixture({
+      store: resumedStore,
+      processor: {
+        limits: { maxRecordsPerTicket: physicalRowsBefore + 2 },
+      },
+    });
+
+    await expect(resumed.processor.processInboundEmail(input)).rejects.toEqual(
+      expect.objectContaining({
+        name: "SupportDeskLimitError",
+        field: "ticket_partition",
+        maximum: physicalRowsBefore + 2,
+      }),
+    );
+    expect(targetChanged).toBe(true);
+    const targetRows = await backing
+      .collection(supportRecords)
+      .list("web-ticket");
+    expect(targetRows).toHaveLength(physicalRowsBefore + 2);
+    expect(
+      targetRows.filter(
+        (record) => record.kind === "inbound_reply_reroute_fence",
+      ),
+    ).toHaveLength(0);
+    expect(await receiptFor(backing, input)).toMatchObject({
+      status: "rerouting",
+      route: {
+        kind: "reply",
+        ticketId: "web-ticket",
+        matchMethod: "routing_token",
+      },
+    });
+  });
+
   it("resumes the reserved identifiers after a crash before the ticket commit", async () => {
     const backing = createMemoryStore();
     let failTransactions = 1;
@@ -704,6 +1484,76 @@ describe("inbound mail: deduplication and idempotency", () => {
     );
   });
 
+  it("keeps committed reply replay ahead of stored-route rechecking", async () => {
+    const backing = createMemoryStore();
+    const setup = fixture({ store: backing });
+    await webTicket(setup);
+    let failFinalize = true;
+    const store: Store = {
+      collection(definition) {
+        const collection = backing.collection(definition);
+        if (definition.name !== inboundReceipts.name) {
+          return collection;
+        }
+        return {
+          ...collection,
+          async update(key, decide, options) {
+            const current = await collection.get(key);
+            const route = (
+              current as { readonly route?: { readonly kind?: unknown } } | null
+            )?.route;
+            if (failFinalize && route?.kind === "reply") {
+              failFinalize = false;
+              throw new Error("injected crash after reply commit");
+            }
+            return collection.update(key, decide, options);
+          },
+        };
+      },
+    };
+    const f = fixture({ store });
+    const input = inbound({
+      from: "customer@example.org",
+      replyRoutingToken: TOKEN,
+    });
+    await expect(f.processor.processInboundEmail(input)).rejects.toThrow(
+      "injected crash after reply commit",
+    );
+    await backing
+      .collection(supportRecords)
+      .update({ partition: "web-ticket", id: "ticket" }, (current) => {
+        if (current?.kind !== "ticket") {
+          throw new Error("ticket missing after reply commit");
+        }
+        return {
+          action: "write",
+          value: {
+            ...current,
+            ticket: {
+              ...current.ticket,
+              requester: {
+                ...current.ticket.requester,
+                email: "changed@example.org",
+              },
+            },
+          },
+        };
+      });
+
+    const result = await f.processor.processInboundEmail(input);
+
+    expect(result).toMatchObject({
+      duplicateDelivery: true,
+      outcome: "replied",
+      ticketId: "web-ticket",
+      messageId: input.messageId,
+    });
+    expect(await ticketCount(backing)).toBe(1);
+    expect(
+      (await f.application.readStaffTicket(staff, "web-ticket")).messages,
+    ).toHaveLength(2);
+  });
+
   it("creates one ticket when the same provider event is processed concurrently", async () => {
     const f = fixture();
     const input = inbound();
@@ -747,6 +1597,365 @@ describe("inbound mail: deduplication and idempotency", () => {
     expect(await ticketCount(f.store)).toBe(1);
   });
 
+  it("creates a linked ticket when a repeated Message-ID lacks a sender result", async () => {
+    const f = fixture();
+    const externalMessageId = "<repeated@mail.example.org>";
+    const first = inbound({ externalMessageId });
+    await f.processor.processInboundEmail(first);
+    const before = await f.application.readStaffTicket(staff, first.ticketId);
+    const repeated = withoutSenderAuthentication(
+      inbound({
+        from: first.from,
+        externalMessageId,
+        body: first.body,
+      }),
+    );
+
+    const result = await f.processor.processInboundEmail(repeated);
+
+    expect(result).toMatchObject({
+      outcome: "created",
+      association: "unverified",
+      matchMethod: "message_id",
+      relatedTicketId: first.ticketId,
+    });
+    expect(await f.application.readStaffTicket(staff, first.ticketId)).toEqual(
+      before,
+    );
+    expect(await ticketCount(f.store)).toBe(2);
+  });
+
+  it("prefers a repeated Message-ID over a conflicting subject marker", async () => {
+    const f = fixture();
+    const externalMessageId = "<repeated-with-marker@mail.example.org>";
+    const first = inbound({ externalMessageId });
+    await f.processor.processInboundEmail(first);
+    await webTicket(f, {
+      ticketId: "marker-ticket",
+      requesterEmail: "marker@example.org",
+    });
+    const markerTicket = await storedTicket(f.store, "marker-ticket");
+    const repeatedBefore = await f.application.readStaffTicket(
+      staff,
+      first.ticketId,
+    );
+    const markerBefore = await f.application.readStaffTicket(
+      staff,
+      "marker-ticket",
+    );
+    const conflicting = withoutSenderAuthentication(
+      inbound({
+        from: first.from,
+        externalMessageId,
+        body: first.body,
+        subject: `Re: [SD-${markerTicket.number}] Marker`,
+      }),
+    );
+
+    await expect(
+      f.processor.processInboundEmail(conflicting),
+    ).resolves.toMatchObject({
+      outcome: "created",
+      association: "unverified",
+      matchMethod: "message_id",
+      relatedTicketId: first.ticketId,
+    });
+    expect(await f.application.readStaffTicket(staff, first.ticketId)).toEqual(
+      repeatedBefore,
+    );
+    expect(await f.application.readStaffTicket(staff, "marker-ticket")).toEqual(
+      markerBefore,
+    );
+    expect(await ticketCount(f.store)).toBe(3);
+  });
+
+  it("normalizes a stored duplicate while another worker finishes", async () => {
+    const backing = createMemoryStore();
+    const setup = fixture({ store: backing });
+    const externalMessageId = "<stored-duplicate@mail.example.org>";
+    const first = inbound({ externalMessageId });
+    await setup.processor.processInboundEmail(first);
+    const interruptedStore: Store = {
+      collection(definition) {
+        const collection = backing.collection(definition);
+        if (definition.name !== supportRecords.name) {
+          return collection;
+        }
+        return {
+          ...collection,
+          async transact() {
+            throw new Error("injected duplicate interruption");
+          },
+        };
+      },
+    };
+    const interrupted = fixture({ store: interruptedStore });
+    const repeated = withoutSenderAuthentication(
+      inbound({
+        from: first.from,
+        externalMessageId,
+        body: first.body,
+      }),
+    );
+    await expect(
+      interrupted.processor.processInboundEmail(repeated),
+    ).rejects.toThrow("injected duplicate interruption");
+    const location = await inboundReceiptLocation(
+      repeated.channelId,
+      repeated.providerEventId,
+    );
+    const receiptKey = {
+      partition: location.bucket,
+      id: `slot:${location.slot}`,
+    };
+    await backing.collection(inboundReceipts).update(receiptKey, (current) => {
+      if (current === null) {
+        throw new Error("stored duplicate receipt missing");
+      }
+      return {
+        action: "write",
+        value: {
+          ...current,
+          route: {
+            kind: "duplicate_message",
+            ticketId: first.ticketId,
+            messageId: first.messageId,
+          },
+        },
+      };
+    });
+
+    let oldFinalizationCommitted: boolean | undefined;
+    const resumed = fixture({
+      store: backing,
+      processor: {
+        routingPolicy: {
+          async routeNewConversation() {
+            const attempted = await backing
+              .collection(inboundReceipts)
+              .update(receiptKey, (current) => {
+                if (current === null) {
+                  throw new Error("stored duplicate receipt missing");
+                }
+                if (current.status !== "processing") {
+                  return { action: "keep" };
+                }
+                return {
+                  action: "write",
+                  value: {
+                    ...current,
+                    status: "processed",
+                    outcome: "duplicate_message",
+                    processedAt: T0,
+                    ticketId: first.ticketId,
+                    messageId: first.messageId,
+                  },
+                };
+              });
+            oldFinalizationCommitted =
+              attempted.value?.status === "processed" &&
+              attempted.value.outcome === "duplicate_message";
+            return { priority: "low" };
+          },
+        },
+      },
+    });
+    const result = await resumed.processor.processInboundEmail(repeated);
+
+    expect(oldFinalizationCommitted).toBe(false);
+    expect(result).toMatchObject({
+      duplicateDelivery: true,
+      outcome: "created",
+      association: "unverified",
+      relatedTicketId: first.ticketId,
+    });
+    expect(await receiptFor(backing, repeated)).toMatchObject({
+      route: {
+        kind: "new_conversation",
+        association: "unverified",
+        relatedTicketId: first.ticketId,
+      },
+    });
+  });
+
+  it("normalizes a stored related association during concurrent creation", async () => {
+    const backing = createMemoryStore();
+    const setup = fixture({ store: backing });
+    await webTicket(setup);
+    const interruptedStore: Store = {
+      collection(definition) {
+        const collection = backing.collection(definition);
+        if (definition.name !== supportRecords.name) {
+          return collection;
+        }
+        return {
+          ...collection,
+          async transact() {
+            throw new Error("injected related interruption");
+          },
+        };
+      },
+    };
+    const interrupted = fixture({ store: interruptedStore });
+    const input = withoutSenderAuthentication(
+      inbound({
+        from: "customer@example.org",
+        replyRoutingToken: TOKEN,
+      }),
+    );
+    await expect(
+      interrupted.processor.processInboundEmail(input),
+    ).rejects.toThrow("injected related interruption");
+    const location = await inboundReceiptLocation(
+      input.channelId,
+      input.providerEventId,
+    );
+    await backing
+      .collection(inboundReceipts)
+      .update(
+        { partition: location.bucket, id: `slot:${location.slot}` },
+        (current) => {
+          if (current === null) {
+            throw new Error("stored related receipt missing");
+          }
+          return {
+            action: "write",
+            value: {
+              ...current,
+              route: {
+                kind: "new_conversation",
+                ticketId: input.ticketId,
+                matchMethod: "routing_token",
+                association: "matched_email",
+                principalId: "matched-customer",
+                priority: "normal",
+                relatedTicketId: "web-ticket",
+              },
+            },
+          };
+        },
+      );
+
+    const processing = await receiptFor(backing, input);
+    if (processing === null) {
+      throw new Error("stored related receipt missing before resume");
+    }
+    const commandId = `inbound:${location.bucket.slice(-30)}${location.slot}`;
+    let oldCreateCommitted: boolean | undefined;
+    const resumed = fixture({
+      store: backing,
+      processor: {
+        routingPolicy: {
+          async routeNewConversation() {
+            const ticket = createTicket({
+              id: input.ticketId,
+              number: 901,
+              subject: input.subject,
+              channel: "email",
+              priority: "normal",
+              requester: {
+                association: "matched_email",
+                principalId: "matched-customer",
+                email: input.from,
+              },
+              createdAt: T0,
+              relatedTicketId: "web-ticket",
+            });
+            const outcome = await backing
+              .collection(supportRecords)
+              .transact(input.ticketId, [
+                {
+                  action: "insert",
+                  value: {
+                    kind: "ticket",
+                    partition: input.ticketId,
+                    id: "ticket",
+                    ticket,
+                  },
+                },
+                {
+                  action: "insert",
+                  value: {
+                    kind: "ticket_quota",
+                    partition: input.ticketId,
+                    id: "quota",
+                    messageCount: 1,
+                  },
+                },
+                {
+                  action: "insert",
+                  value: {
+                    kind: "message",
+                    partition: input.ticketId,
+                    id: `message:${input.messageId}`,
+                    ordinal: ticket.revision,
+                    message: {
+                      id: input.messageId,
+                      ticketId: input.ticketId,
+                      authorKind: "customer",
+                      channel: "email",
+                      visibility: "customer",
+                      format: "plain_text",
+                      body: input.body,
+                      createdAt: T0,
+                    },
+                  },
+                },
+                supportAudit.action({
+                  id: commandId,
+                  occurredAt: T0,
+                  actor: {
+                    kind: "system",
+                    systemId: inboundEmailSystemActorId,
+                  },
+                  action: supportTicketAuditActions.created,
+                  subject: input.ticketId,
+                  sequence: ticket.revision,
+                  details: {
+                    commandId,
+                    correlationId: input.correlationId,
+                    channel: "email",
+                    matchMethod: "routing_token",
+                    association: "matched_email",
+                  },
+                }),
+                {
+                  action: "insert",
+                  value: {
+                    kind: "command",
+                    partition: input.ticketId,
+                    id: `command:${commandId}`,
+                    commandId,
+                    commandType: "inbound_email_create",
+                    messageId: input.messageId,
+                    requestFingerprint: processing.payloadFingerprint,
+                    completedAt: T0,
+                  },
+                },
+              ]);
+            oldCreateCommitted = outcome.committed;
+            return { priority: "low" };
+          },
+        },
+      },
+    });
+    const result = await resumed.processor.processInboundEmail(input);
+
+    expect(oldCreateCommitted).toBe(false);
+    expect(result).toMatchObject({
+      duplicateDelivery: true,
+      outcome: "created",
+      association: "unverified",
+      relatedTicketId: "web-ticket",
+    });
+    expect(
+      (await storedTicket(backing, input.ticketId)).requester,
+    ).toMatchObject({
+      association: "unverified",
+      email: "customer@example.org",
+    });
+  });
+
   it("does not collapse a reused Message-ID into a ticket without a requester email", async () => {
     const f = fixture();
     await webTicket(f, { requesterEmail: null });
@@ -780,7 +1989,7 @@ describe("inbound mail: deduplication and idempotency", () => {
     expect(await ticketCount(f.store)).toBe(2);
   });
 
-  it("keeps receipt sweeping away from processing receipts", async () => {
+  it("keeps receipt sweeping away from nonterminal receipts", async () => {
     const backing = createMemoryStore();
     const store: Store = {
       collection(definition) {
@@ -799,6 +2008,25 @@ describe("inbound mail: deduplication and idempotency", () => {
     const f = fixture({ store });
     const stuck = inbound();
     await expect(f.processor.processInboundEmail(stuck)).rejects.toThrow();
+    const stuckLocation = await inboundReceiptLocation(
+      stuck.channelId,
+      stuck.providerEventId,
+    );
+    await backing.collection(inboundReceipts).update(
+      {
+        partition: stuckLocation.bucket,
+        id: `slot:${stuckLocation.slot}`,
+      },
+      (current) => {
+        if (current === null) {
+          throw new Error("nonterminal receipt missing");
+        }
+        return {
+          action: "write",
+          value: { ...current, status: "rerouting", processedAt: T0 },
+        };
+      },
+    );
     const healthy = fixture({ store: backing });
     const done = inbound({ channelId: stuck.channelId });
     await healthy.processor.processInboundEmail(done);
@@ -816,7 +2044,7 @@ describe("inbound mail: deduplication and idempotency", () => {
         processedBefore: later.now(),
       });
     }
-    expect((await receiptFor(backing, stuck))?.status).toBe("processing");
+    expect((await receiptFor(backing, stuck))?.status).toBe("rerouting");
     expect(await receiptFor(backing, done)).toBeNull();
   });
 });
@@ -869,6 +2097,204 @@ describe("inbound mail: replies and threading", () => {
       details: { matchMethod: "routing_token" },
     });
     expect(f.matcherCalls).toEqual([]);
+  });
+
+  const nonJoiningSenderCases: readonly [
+    string,
+    Partial<InboundEmailInput>,
+    (input: InboundEmailInput) => InboundEmailInput,
+  ][] = [
+    ["missing", { replyRoutingToken: TOKEN }, withoutSenderAuthentication],
+    [
+      "failed",
+      { inReplyTo: "<created.web-ticket@support.example.test>" },
+      (input) => ({
+        ...input,
+        senderAuthentication: {
+          ...authenticatedSender(input.from),
+          result: "fail",
+        },
+      }),
+    ],
+    [
+      "unaligned",
+      { subject: "Re: [SD-1] Export fails" },
+      (input) => ({
+        ...input,
+        senderAuthentication: {
+          ...authenticatedSender(input.from),
+          dkimAligned: false,
+          spfAligned: false,
+        },
+      }),
+    ],
+    [
+      "differently bound",
+      { replyRoutingToken: TOKEN },
+      (input) => ({
+        ...input,
+        senderAuthentication: authenticatedSender("other@example.org"),
+      }),
+    ],
+  ];
+
+  it.each(nonJoiningSenderCases)(
+    "creates a linked ticket for a %s sender result",
+    async (_name, locator, prepare) => {
+      const f = fixture();
+      await webTicket(f);
+      await f.application.resolveTicket(staff, {
+        commandId: "resolve-before-inbound",
+        correlationId: "resolve-before-inbound",
+        ticketId: "web-ticket",
+      });
+      const before = await f.application.readStaffTicket(staff, "web-ticket");
+      const input = prepare(
+        inbound({
+          ...locator,
+          from: "customer@example.org",
+          body: `Follow-up with ${_name} sender result.`,
+        }),
+      );
+
+      const result = await f.processor.processInboundEmail(input);
+
+      expect(result).toMatchObject({
+        outcome: "created",
+        ticketId: input.ticketId,
+        association: "unverified",
+        relatedTicketId: "web-ticket",
+      });
+      const after = await f.application.readStaffTicket(staff, "web-ticket");
+      expect(after.ticket).toEqual(before.ticket);
+      expect(after.messages).toEqual(before.messages);
+      expect(after.ticket.status).toBe("resolved");
+    },
+  );
+
+  it("keeps a non-joining locator unverified before account matching", async () => {
+    const f = fixture({
+      matches: {
+        "customer@example.org": {
+          matches: "one",
+          principalId: "matched-customer",
+        },
+      },
+    });
+    await webTicket(f);
+    const input = withoutSenderAuthentication(
+      inbound({
+        from: "customer@example.org",
+        replyRoutingToken: TOKEN,
+      }),
+    );
+
+    const result = await f.processor.processInboundEmail(input);
+
+    expect(result).toMatchObject({
+      outcome: "created",
+      association: "unverified",
+      relatedTicketId: "web-ticket",
+    });
+    expect(f.matcherCalls).toEqual([]);
+    expect(
+      (await storedTicket(f.store, input.ticketId)).requester,
+    ).toMatchObject({
+      association: "unverified",
+      email: "customer@example.org",
+    });
+  });
+
+  const joiningSenderCases: readonly [
+    string,
+    Partial<InboundEmailInput>,
+    InboundSenderAuthentication,
+  ][] = [
+    [
+      "routing token",
+      { replyRoutingToken: TOKEN },
+      authenticatedSender("CUSTOMER@EXAMPLE.ORG"),
+    ],
+    [
+      "threading header",
+      { inReplyTo: "<created.web-ticket@support.example.test>" },
+      {
+        method: "dmarc",
+        result: "pass",
+        email: "Customer@Example.Org",
+        dkimAligned: false,
+        spfAligned: true,
+      },
+    ],
+    [
+      "subject marker",
+      { subject: "Re: [SD-1] Export fails" },
+      {
+        method: "host_identity",
+        result: "pass",
+        email: "customer@EXAMPLE.org",
+      },
+    ],
+  ];
+
+  it.each(joiningSenderCases)(
+    "joins by %s with a matching sender result",
+    async (_name, locator, senderAuthentication) => {
+      const f = fixture();
+      await webTicket(f);
+      await f.application.resolveTicket(staff, {
+        commandId: "resolve-before-authenticated-inbound",
+        correlationId: "resolve-before-authenticated-inbound",
+        ticketId: "web-ticket",
+      });
+
+      const result = await f.processor.processInboundEmail(
+        inbound({
+          ...locator,
+          from: "Customer@example.ORG",
+          senderAuthentication,
+        }),
+      );
+
+      expect(result).toMatchObject({
+        outcome: "replied",
+        ticketId: "web-ticket",
+      });
+      expect((await storedTicket(f.store, "web-ticket")).status).toBe(
+        "waiting_on_support",
+      );
+    },
+  );
+
+  it("keeps the entry sender-result snapshot across asynchronous work", async () => {
+    const f = fixture();
+    await webTicket(f);
+    const senderAuthentication = authenticatedSender("customer@example.org");
+    const input = inbound({
+      from: "customer@example.org",
+      replyRoutingToken: TOKEN,
+      senderAuthentication,
+    });
+
+    const processing = f.processor.processInboundEmail(input);
+    Object.assign(senderAuthentication as unknown as Record<string, unknown>, {
+      result: "fail",
+      email: "other@example.org",
+      dkimAligned: false,
+      spfAligned: false,
+    });
+    Object.assign(input as unknown as Record<string, unknown>, {
+      senderAuthentication: {
+        method: "host_identity",
+        result: "fail",
+        email: "other@example.org",
+      },
+    });
+
+    await expect(processing).resolves.toMatchObject({
+      outcome: "replied",
+      ticketId: "web-ticket",
+    });
   });
 
   it("joins by In-Reply-To through the outbound Message-ID index", async () => {
@@ -1070,6 +2496,33 @@ describe("inbound mail: replies and threading", () => {
     ).toMatchObject({ outcome: "created", matchMethod: "none" });
   });
 
+  it("keeps multiple subject markers unverified before account matching", async () => {
+    const f = fixture({
+      matches: {
+        "customer@example.org": {
+          matches: "one",
+          principalId: "matched-customer",
+        },
+      },
+    });
+    await webTicket(f);
+    await webTicket(f, { ticketId: "web-ticket-2", token: OTHER_TOKEN });
+    const input = inbound({
+      from: "customer@example.org",
+      subject: "Re: [SD-1] and [SD-2]",
+    });
+
+    const result = await f.processor.processInboundEmail(input);
+
+    expect(result).toMatchObject({
+      outcome: "created",
+      association: "unverified",
+      matchMethod: "subject_marker",
+      relatedTicketId: "web-ticket",
+    });
+    expect(f.matcherCalls).toEqual([]);
+  });
+
   it("does not join on a routing token when the sender differs from the requester", async () => {
     const f = fixture();
     await webTicket(f);
@@ -1091,18 +2544,35 @@ describe("inbound mail: replies and threading", () => {
     await webTicket(f, { requesterEmail: null });
 
     const byHeader = await f.processor.processInboundEmail(
-      inbound({
-        from: "someone@example.org",
-        inReplyTo: "<created.web-ticket@support.example.test>",
-      }),
+      withoutSenderAuthentication(
+        inbound({
+          from: "someone@example.org",
+          inReplyTo: "<created.web-ticket@support.example.test>",
+        }),
+      ),
     );
     expect(byHeader).toMatchObject({
       outcome: "created",
       relatedTicketId: "web-ticket",
     });
 
+    const byMarker = await f.processor.processInboundEmail(
+      withoutSenderAuthentication(
+        inbound({
+          from: "someone@example.org",
+          subject: "Re: [SD-1] Export fails",
+        }),
+      ),
+    );
+    expect(byMarker).toMatchObject({
+      outcome: "created",
+      relatedTicketId: "web-ticket",
+    });
+
     const byToken = await f.processor.processInboundEmail(
-      inbound({ from: "someone@example.org", replyRoutingToken: TOKEN }),
+      withoutSenderAuthentication(
+        inbound({ from: "someone@example.org", replyRoutingToken: TOKEN }),
+      ),
     );
     expect(byToken).toMatchObject({
       outcome: "replied",

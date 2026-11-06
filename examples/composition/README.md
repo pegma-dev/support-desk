@@ -16,10 +16,10 @@ or a real mail SDK.
   first response and resolution milestones, safe stale-revision hints, and
   exact committed replay after a later change;
 - internal notes stay out of the customer view and customer-visible mail body;
-- verified inbound mail: an unknown sender creates a low-priority unverified
-  ticket, a provider retry is deduplicated, a threaded follow-up joins the
-  ticket, an auto-reply is suppressed, and a unique account match is routed as
-  `matched_email` without web access;
+- verified inbound mail with a host-evaluated sender result: an unknown sender
+  creates a low-priority unverified ticket, a provider retry is deduplicated, a
+  threaded follow-up joins the ticket, an auto-reply is suppressed, and a
+  unique account match is routed as `matched_email` without web access;
 - mail send and queue repair as static `createScheduler` tasks
   (`mail.send`, `queue.repair`, `thread-index.repair`, plus reconcile /
   terminal-sweep / inactive-sweep / `thread-index.sweep`) with durable
