@@ -98,9 +98,9 @@ plane to join them.
 `docs/KNOWLEDGE_AI_PLAN.md` permits optional, evaluated customer-visible AI
 answers and escalation through dedicated permissions, audit, and human handoff.
 Those capabilities remain disabled until their implementation and activation
-gates pass. The initial AI agent cannot resolve tickets, act on accounts, or
-increase a caller's permissions. Knowledge publication, GitHub export, and
-release follow-up require staff approval initially; later automation needs the
+gates pass. AI must never increase a caller's permissions. The initial AI agent
+cannot resolve tickets or act on accounts. Knowledge publication, GitHub export,
+and release follow-up require staff approval initially; later automation needs the
 plan's separate opt-in and evidence gates. Internal notes never enter
 customer-visible output — that separation is load-bearing, not stylistic.
 

@@ -22,7 +22,7 @@ private systems. Do not copy them into this repository or pegma.dev.
 
 ## Accepted decisions
 
-| Decision             | Initial delivery                                                                               | Later capability                                                |
+| Decision             | Initial delivery                                                                               | Boundary or later extension                                     |
 | -------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | Hosts                | Both sites; isolated data and configuration                                                    | No shared control plane in this plan                            |
 | Product scope        | Working KB, signed-in chat, essential staff/admin controls on both sites                       | Richer publishing and support interfaces                        |
@@ -56,11 +56,12 @@ educational decision-support boundaries.
 ### Standalone knowledge base
 
 Create the proposed `pegma-dev/knowledge-base` repository when KB-01 begins,
-after checking name availability and organization conventions. Use MIT
-licensing and the normal Pegma validation/release pattern. Proposed package
+after P-00 records repository/package name availability and organization
+conventions. Use MIT licensing and the normal Pegma validation/release pattern.
+Proposed package
 names are contracts, core, application, and an optional MCP adapter under
-`@pegma/knowledge-base-*`; confirm names before first publication. Create each
-package only when its implementation begins, with its own README, LICENSE,
+`@pegma/knowledge-base-*`; confirm names in P-00 before creating manifests.
+Create each package only when its implementation begins, with its own README, LICENSE,
 build-on-pack behavior, and compiled-test exclusion.
 
 The KB owns collections, article revisions, validation requirements and
@@ -263,8 +264,9 @@ unneeded profiles, secrets, private staff notes, and unrelated records out of
 customer-generation inputs and content out of operational logs/traces.
 
 Require documented ZDR-compatible provider account/project, endpoint, model,
-features, and intermediary settings for every customer-content processing path,
-including drafting/classification. Verify them before activation and after
+features, documented exceptions, and intermediary settings for every
+customer-content processing path, including drafting/classification. Verify
+them before activation and after
 relevant configuration changes. Disable AI and retain human support when the
 requirement cannot be met; never silently fall back to another retention mode.
 ZDR is provider configuration with endpoint/feature limitations, not merely a
@@ -402,7 +404,7 @@ still public exposure; previews and checks must cover the entire outbound body.
 
 Search for duplicates within the allowed destination and propose linking an
 existing issue. Attach multiple private tickets to one engineering issue in
-Help Desk. Adding public comments or changing an existing issue follows the
+Support Desk. Adding public comments or changing an existing issue follows the
 same export/approval boundary as creation.
 
 Use a host GitHub App adapter with only required installation/repository
@@ -568,6 +570,12 @@ plane remain outside this first delivery.
 
 Recheck these primary sources when implementing adapters; they establish
 provider/protocol behavior rather than choose a vendor for either host:
+
+These links were fetched successfully on 2026-11-06. At that check, the MCP
+`latest` authorization URL resolved to the dated revision below. P-00 records
+the supported client/protocol versions and provider data-control requirements;
+KB-04 rechecks compatibility before adopting them. A reference snapshot is not
+a promise that a future client supports that revision.
 
 - [Pegma composition catalog](https://pegma.dev/catalog.json): component
   boundaries, publication availability, and exact currently advertised pins.

@@ -594,11 +594,13 @@ Task 12 evidence is gathered; production pilots still require that evidence.
 Attachments, macros, and other independent queue items are not prerequisites
 for the KB. Give an implementation agent one task card, not the whole plan.
 
-These tasks are queued after Task 11 and follow the same rules: one task per
+These tasks follow Task 11 and retain the same rules: one task per
 pull request, additive to `0.x` contracts, docs in the same change, and no
 persistence, access model, provider SDK, or private limiter here. Task 12 is
-the evidence gate for the launch and comes first; the rest are sequenced by
-dependency, not promised dates.
+the first production activation gate, including supervised pilots; passing
+source or staging acceptance cannot satisfy it. Source-only work follows the
+owning task's dependency graph while that evidence is gathered. The table
+records roadmap priority, not a dependency forcing all source work to wait.
 
 | Order | Task                                   | Scope                                                                                                                                                                                                                                     | Stop if                                                                                  |
 | ----- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |

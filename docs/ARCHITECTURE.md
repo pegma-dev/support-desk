@@ -632,11 +632,14 @@ retention, access-review, export, deletion, and legal-hold policies.
 
 AI processing is disabled until the host has documented which fields may leave
 the primary environment, selected suitable provider settings, and implemented
-redaction and audit controls.
+the applicable content-minimization, export-redaction, and audit controls.
 
 For the approved enhancement, customer-submitted support text may be processed
 without routine human privacy screening under disclosed, verified ZDR-compatible
-provider settings. Keep unnecessary account context and private notes out of
+provider settings. This approved processing policy permits submitted sensitive
+context to reach that processor; it does not assume the text was de-identified.
+The activation record must document endpoint/feature exceptions and intermediary
+handling. Keep unnecessary account context and private notes out of
 customer-generation inputs. Derived KB/issue drafts receive their own privacy
 checks and initial staff publication approval. ZDR does not replace the host's
 ticket/evidence retention and deletion policy.

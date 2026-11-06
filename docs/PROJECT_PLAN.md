@@ -384,6 +384,11 @@ cannot grant website access.
 and incident procedures and install exact public versions from public
 documentation.
 
+This remains a prerequisite for production activation, including the KB/AI
+supervised pilots. Independent KB/AI source implementation and staging
+acceptance may proceed under `KNOWLEDGE_AI_PLAN.md`; neither a source test nor
+that enhancement's build acceptance closes this production-evidence gate.
+
 ### Phase 9 — attachments and operational features
 
 **Goal:** Add features only after the message path is stable.
@@ -424,7 +429,8 @@ source references for authorized staff, and require staff approval before
 customer or bot use. Reopening a ticket holds pending drafts for reassessment.
 
 **Exit criterion:** Both hosts demonstrate agent authoring/testing and reviewed
-publication, bounded authorized retrieval, and resolution-to-draft workflows.
+publication and bounded authorized retrieval. Resolution-to-draft integration
+follows under Phase 11's Support Desk tasks.
 
 ### Phase 11 — AI assistance
 
@@ -602,7 +608,9 @@ full-featured support-desk work: lifecycle extras (tags beyond the category
 allowlist, response-target hooks, collision hints), attachments through a
 host blob port, staff-only audited canned responses and macros, customer
 self-service contract polish, rate-limit and abuse composition notes, and
-optional staff-only AI triage and drafts behind explicit human approval.
+the approved standalone KB and evaluated customer-visible AI support work in
+[`KNOWLEDGE_AI_PLAN.md`](KNOWLEDGE_AI_PLAN.md), which supersedes the earlier
+staff-only Task 18 outline.
 Each remains one pull request and stays inside the boundaries above.
 
 One numbered Buildout task is one pull request. Do not parallelize adjacent
