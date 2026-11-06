@@ -141,9 +141,9 @@ delivery callbacks. A partition therefore has exactly 256 possible keys
 instead of growing with every message received by a channel. Receipts carry
 trusted `receivedAt` and terminal `processedAt` times.
 `sweepInboundReceipts` conditionally deletes at most 1,000 terminal receipts
-per call with `deleteIfUnchanged`; it never deletes `processing` receipts and
-enforces a 30-day deduplication horizon even if the caller supplies a newer
-cutoff.
+per call with `deleteIfUnchanged`; it never deletes nonterminal `processing` or
+`rerouting` receipts and enforces a 30-day deduplication horizon even if the
+caller supplies a newer cutoff.
 
 `support-desk.delivery-callback-receipts.v1` hashes provider and provider event
 ID with SHA-256 and uses 128 bits as a stable location: the first 120 bits name
@@ -233,7 +233,8 @@ host-minted IDs), `receivedAt`, and the host-minted `reservedTicketId`,
   retry returns that terminal result.
 
 `sweepInboundReceipts` is unchanged: it deletes only terminal receipts past
-the 30-day horizon and never deletes `processing` receipts.
+the 30-day horizon and never deletes nonterminal `processing` or `rerouting`
+receipts.
 
 ### Threading index
 

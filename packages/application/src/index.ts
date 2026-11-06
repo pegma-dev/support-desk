@@ -6704,6 +6704,14 @@ function snapshotInboundSenderAuthentication(
     `${field}.email`,
   ) as string;
   if (method === "host_identity") {
+    for (const key of ["dkimAligned", "spfAligned"] as const) {
+      ownDataProperty(source, key, `${field}.${key}`, true, true);
+      if (Object.hasOwn(source, key)) {
+        throw new TypeError(
+          `${field}.${key} is not valid when method is host_identity`,
+        );
+      }
+    }
     return Object.freeze({ method, result, email });
   }
   const dkimAligned = ownDataProperty(
@@ -6846,10 +6854,15 @@ function inboundFingerprintPayload(input: InboundEmailSnapshot): unknown {
     type: "inbound_email",
     channelId: input.channelId,
     providerEventId: input.providerEventId,
-    from: input.from,
+    from: input.from.toLowerCase(),
     ...(input.senderAuthentication === undefined
       ? {}
-      : { senderAuthentication: input.senderAuthentication }),
+      : {
+          senderAuthentication: {
+            ...input.senderAuthentication,
+            email: input.senderAuthentication.email.toLowerCase(),
+          },
+        }),
     fromName: input.fromName ?? null,
     subject: input.subject,
     body: input.body,
@@ -7729,6 +7742,14 @@ export function createInboundMailProcessor(
         ambiguous = found.length > 1;
       }
     }
+    // Keep a repeated inbound Message-ID ahead of the display-only subject
+    // marker when a stronger token or threading-header locator did not match.
+    if (candidate === undefined && repeatedMessageTicket !== undefined) {
+      candidate = {
+        ticket: repeatedMessageTicket,
+        method: "message_id",
+      };
+    }
     if (candidate === undefined && subjectMarkerPrefix !== undefined) {
       const markers = subjectMarkerNumbers(input.subject, subjectMarkerPrefix);
       ambiguous = markers.length > 1;
@@ -7738,12 +7759,6 @@ export function createInboundMailProcessor(
           candidate = { ticket: hit.ticket, method: "subject_marker" };
         }
       }
-    }
-    if (candidate === undefined && repeatedMessageTicket !== undefined) {
-      candidate = {
-        ticket: repeatedMessageTicket,
-        method: "message_id",
-      };
     }
     if (
       candidate !== undefined &&

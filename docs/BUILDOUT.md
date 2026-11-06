@@ -537,8 +537,10 @@ tests. Provider SDK and HTTP verification remain host adapters.
   to the normalized `from` address and snapshotted with the rest of the input;
 - matching order routing token → `In-Reply-To`/`References` → subject marker
   (`subjectMarkerPrefix`), each confirmed against authoritative records; a
-  match for a recorded requester address joins only when the normalized sender
-  matches and the host result passes through aligned DKIM, aligned SPF, or an
+  repeated inbound message's own `Message-ID` is checked for duplicate delivery
+  first and, when nonjoining, precedes the subject marker as a relationship
+  hint; a match for a recorded requester address joins only when the normalized
+  sender matches and the host result passes through aligned DKIM, aligned SPF, or an
   equivalent host-authenticated identity (with no recorded address, only the
   high-entropy routing token may join);
 - ambiguous or unsafe matches create a new unverified ticket with the

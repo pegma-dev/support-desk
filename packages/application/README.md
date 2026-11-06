@@ -197,9 +197,12 @@ optional notification. Retries and concurrent duplicates return the first
 delivery's result and identifiers. Matching order is reply token,
 `In-Reply-To`/`References`, then subject marker, all through
 `support-desk.thread-index.v1` key lookups confirmed against authoritative
-records. Unsafe or ambiguous matches create a new unverified ticket with the
-staff-only `Ticket.relatedTicketId`. A unique account match creates a
-`matched_email` ticket that stays invisible to customer web services.
+records. A repeated inbound message's own `Message-ID` is checked for duplicate
+delivery first; when it does not qualify, its ticket precedes the subject
+marker as the related-ticket fallback. Unsafe or ambiguous matches create a new
+unverified ticket with the staff-only `Ticket.relatedTicketId`. A unique account
+match creates a `matched_email` ticket that stays invisible to customer web
+services.
 
 Notifications may carry an optional `replyRoutingToken` (22 to 128 URL-safe
 characters) for the host to render into the reply address. The application

@@ -551,6 +551,74 @@ describe("inbound mail: new conversations", () => {
     expect(await receiptFor(outerFixture.store, outerInput)).toBeNull();
   });
 
+  it("rejects alignment fields on host identity sender results", async () => {
+    for (const key of ["dkimAligned", "spfAligned"] as const) {
+      const f = fixture();
+      const input = inbound({
+        senderAuthentication: {
+          method: "host_identity",
+          result: "pass",
+          email: "visitor@example.org",
+          [key]: false,
+        } as unknown as InboundSenderAuthentication,
+      });
+      await expect(f.processor.processInboundEmail(input)).rejects.toThrow(
+        `${key} is not valid when method is host_identity`,
+      );
+      expect(await receiptFor(f.store, input)).toBeNull();
+    }
+
+    const accessorFixture = fixture();
+    let accessorCalls = 0;
+    const senderAuthentication: Record<string, unknown> = {
+      method: "host_identity",
+      result: "pass",
+      email: "visitor@example.org",
+    };
+    Object.defineProperty(senderAuthentication, "dkimAligned", {
+      enumerable: true,
+      get() {
+        accessorCalls += 1;
+        return false;
+      },
+    });
+    const accessorInput = inbound({
+      senderAuthentication:
+        senderAuthentication as unknown as InboundSenderAuthentication,
+    });
+    await expect(
+      accessorFixture.processor.processInboundEmail(accessorInput),
+    ).rejects.toThrow(/must be an own data property, not an accessor/);
+    expect(accessorCalls).toBe(0);
+    expect(await receiptFor(accessorFixture.store, accessorInput)).toBeNull();
+
+    const inheritedFixture = fixture();
+    let inheritedCalls = 0;
+    const prototype = {};
+    Object.defineProperty(prototype, "spfAligned", {
+      get() {
+        inheritedCalls += 1;
+        return false;
+      },
+    });
+    const inheritedSenderAuthentication = Object.assign(
+      Object.create(prototype),
+      {
+        method: "host_identity",
+        result: "pass",
+        email: "visitor@example.org",
+      },
+    ) as InboundSenderAuthentication;
+    const inheritedInput = inbound({
+      senderAuthentication: inheritedSenderAuthentication,
+    });
+    await expect(
+      inheritedFixture.processor.processInboundEmail(inheritedInput),
+    ).rejects.toThrow(/spfAligned must be an own data property/);
+    expect(inheritedCalls).toBe(0);
+    expect(await receiptFor(inheritedFixture.store, inheritedInput)).toBeNull();
+  });
+
   it.each(["method", "result", "email", "dkimAligned", "spfAligned"] as const)(
     "does not execute a sender-result %s accessor",
     async (key) => {
@@ -620,6 +688,41 @@ describe("inbound mail: deduplication and idempotency", () => {
     );
     expect(records.filter((record) => record.kind === "audit")).toHaveLength(1);
     expect(f.routingCalls).toHaveLength(1);
+  });
+
+  it("treats sender address case changes as the same provider delivery", async () => {
+    const f = fixture();
+    await webTicket(f);
+    const input = inbound({
+      from: "Customer@Example.ORG",
+      senderAuthentication: {
+        method: "dmarc",
+        result: "pass",
+        email: "CUSTOMER@Example.ORG",
+        dkimAligned: true,
+        spfAligned: false,
+      },
+      replyRoutingToken: TOKEN,
+    });
+    const first = await f.processor.processInboundEmail(input);
+
+    await expect(
+      f.processor.processInboundEmail({
+        ...input,
+        ticketId: "case-retry-ticket",
+        messageId: "case-retry-message",
+        correlationId: "case-retry-correlation",
+        from: "customer@example.org",
+        senderAuthentication: authenticatedSender("customer@example.org"),
+      }),
+    ).resolves.toEqual({ ...first, duplicateDelivery: true });
+    expect(first).toMatchObject({
+      outcome: "replied",
+      ticketId: "web-ticket",
+    });
+    expect(
+      (await f.application.readStaffTicket(staff, "web-ticket")).messages,
+    ).toHaveLength(2);
   });
 
   it("keeps sender-result replay bound to the first provider event", async () => {
@@ -1239,6 +1342,50 @@ describe("inbound mail: deduplication and idempotency", () => {
       before,
     );
     expect(await ticketCount(f.store)).toBe(2);
+  });
+
+  it("prefers a repeated Message-ID over a conflicting subject marker", async () => {
+    const f = fixture();
+    const externalMessageId = "<repeated-with-marker@mail.example.org>";
+    const first = inbound({ externalMessageId });
+    await f.processor.processInboundEmail(first);
+    await webTicket(f, {
+      ticketId: "marker-ticket",
+      requesterEmail: "marker@example.org",
+    });
+    const markerTicket = await storedTicket(f.store, "marker-ticket");
+    const repeatedBefore = await f.application.readStaffTicket(
+      staff,
+      first.ticketId,
+    );
+    const markerBefore = await f.application.readStaffTicket(
+      staff,
+      "marker-ticket",
+    );
+    const conflicting = withoutSenderAuthentication(
+      inbound({
+        from: first.from,
+        externalMessageId,
+        body: first.body,
+        subject: `Re: [SD-${markerTicket.number}] Marker`,
+      }),
+    );
+
+    await expect(
+      f.processor.processInboundEmail(conflicting),
+    ).resolves.toMatchObject({
+      outcome: "created",
+      association: "unverified",
+      matchMethod: "message_id",
+      relatedTicketId: first.ticketId,
+    });
+    expect(await f.application.readStaffTicket(staff, first.ticketId)).toEqual(
+      repeatedBefore,
+    );
+    expect(await f.application.readStaffTicket(staff, "marker-ticket")).toEqual(
+      markerBefore,
+    );
+    expect(await ticketCount(f.store)).toBe(3);
   });
 
   it("normalizes a stored duplicate while another worker finishes", async () => {

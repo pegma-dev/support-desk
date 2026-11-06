@@ -328,7 +328,10 @@ Thread matching uses, in order:
 
 Steps 1 and 2 are key lookups, not searches. An external `Message-ID` resolves
 to a ticket through an index collection keyed by that identifier, written when
-the outbound message is recorded.
+the outbound message is recorded. A repeated inbound message's own `Message-ID`
+is checked for duplicate delivery first. If it does not qualify, that ticket is
+the related-ticket candidate after routing-token and threading-header matches
+but before the subject-marker fallback.
 
 The message headers follow the threading fields defined by
 [RFC 5322 section 3.6.4](https://www.rfc-editor.org/rfc/rfc5322#section-3.6.4).

@@ -37,7 +37,10 @@ the next synchronized release.
   `replyRoutingToken` on `NotificationInput` and `DeliveryContent`; optional
   receipt fields for reserved identifiers, routing, and outcome. Existing
   email-backed ticket joins also require the snapshotted host sender result to
-  pass for the same normalized address.
+  pass for the same normalized address. Receipt fingerprints use that same
+  case-insensitive address equivalence, `host_identity` rejects DMARC-only
+  alignment fields, and a repeated inbound `Message-ID` precedes the
+  subject-marker fallback.
 - `@pegma/support-desk-contracts`: `InboundSenderAuthentication`, optional
   staff-only `Ticket.relatedTicketId`, and
   `CreateTicketInput.relatedTicketId`.

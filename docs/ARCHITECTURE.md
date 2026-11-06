@@ -535,6 +535,10 @@ and repaired by a cursor-aware worker. Replies are matched using:
 - `In-Reply-To` and `References`;
 - ticket marker fallback.
 
+A repeated inbound message's own `Message-ID` is checked for duplicate delivery
+first. When it does not qualify, its ticket remains a relationship hint after
+the token and header locators but before the subject-marker fallback.
+
 The adapter must preserve enough metadata to produce standards-compatible
 threads while keeping provider-specific payloads outside core records.
 
