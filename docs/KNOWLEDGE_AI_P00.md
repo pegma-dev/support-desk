@@ -29,14 +29,19 @@ its observation time, source revision/manifests, registry versions and exact
 dependency tuples, artifact integrity/shasum, tarball URLs, and proposed package
 publication state. Refresh it deliberately with
 [`scripts/knowledge-ai-baseline.mjs`](../scripts/knowledge-ai-baseline.mjs)
-when a task changes its baseline. CI uses the frozen data; it must not depend
+when a task changes its baseline. `pnpm run knowledge-ai:baseline origin/main`
+selects a fetched source ref; omitting the ref selects `HEAD`. Manifests are
+read from that immutable commit, including when the working tree is dirty.
+CI uses the frozen data; it must not depend
 on a live npm or catalog response.
 
-The planning merge is source revision
-`d6e9882977209a2db441a4e4deb0b1a5cb42e804`. Its runtime layout matches
-[`8bb7b98`](https://github.com/pegma-dev/support-desk/tree/8bb7b98f6c151f1f9bae0a423ab96370e97b466c),
-the source used for the capacity accounting below. A registry artifact and a
-source checkout are separate baselines, even when their version fields match.
+The source snapshot is
+[`5278440`](https://github.com/pegma-dev/support-desk/tree/527844007c6dd8083a6747879414d5b9159d46c2),
+which includes the planning merge and the subsequently merged verified-sender
+inbound-mail fix. The capacity tests exercise this source's web/staff commands;
+the formula below does not describe inbound-mail receipts or host projections.
+A registry artifact and a source checkout are separate baselines, even when
+their version fields match.
 
 | Verified released foundation                                      | Version at snapshot |
 | ----------------------------------------------------------------- | ------------------- |

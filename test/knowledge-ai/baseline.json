@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "observedAt": "2026-11-06T21:46:31.050Z",
+  "observedAt": "2026-11-06T21:55:52.240Z",
   "source": {
     "repository": "pegma-dev/support-desk",
-    "revision": "d6e9882977209a2db441a4e4deb0b1a5cb42e804",
+    "revision": "527844007c6dd8083a6747879414d5b9159d46c2",
     "packages": [
       {
         "name": "@pegma/support-desk-contracts",

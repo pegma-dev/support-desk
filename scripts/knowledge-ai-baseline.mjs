@@ -5,10 +5,19 @@ import { fileURLToPath } from "node:url";
 // Explicit, read-only network refresh for a reviewed P-00 snapshot.
 // CI consumes the checked-in snapshot and never queries npm.
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
-const sourceRevision = execFileSync("git", ["rev-parse", "HEAD"], {
-  cwd: repositoryRoot,
-  encoding: "utf8",
-}).trim();
+if (process.argv.length > 3) {
+  throw new Error("Usage: node scripts/knowledge-ai-baseline.mjs [source-ref]");
+}
+const sourceRevision = execFileSync(
+  "git",
+  [
+    "rev-parse",
+    "--verify",
+    "--end-of-options",
+    (process.argv[2] ?? "HEAD") + "^{commit}",
+  ],
+  { cwd: repositoryRoot, encoding: "utf8" },
+).trim();
 const registryBase = "https://registry.npmjs.org/";
 const packageNames = [
   "@pegma/spine",
