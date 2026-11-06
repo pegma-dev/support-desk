@@ -35,6 +35,7 @@ import { createMemoryStore, type Store } from "@pegma/storage-core";
 import {
   createInboundMailProcessor,
   createSupportDeskApplication,
+  cleanupUnreferencedAttachmentBlobs,
   defaultQueueTerminalRetentionMilliseconds,
   defaultThreadIndexRetentionMilliseconds,
   pruneCustomerTicketIndex,
@@ -58,6 +59,88 @@ import {
   type ResponseTargetPolicy,
 } from "@pegma/support-desk-application";
 import { defineTemplate, renderTemplate } from "@pegma/support-desk-templates";
+
+/** Synthetic host blob adapter and asynchronous scanner callback; no real scanner. */
+export async function runAttachmentExampleFlow() {
+  const data = new Map<string, Uint8Array>();
+  // Synthetic inventory retains put-time context until maintenance confirms
+  // references. A production host gets this from private blob metadata/inventory.
+  const inventory = new Map<string, { ticketId: string; messageId: string }>();
+  const store = createMemoryStore();
+  const blobs: import("@pegma/support-desk-application").AttachmentBlobPort = {
+    async put(key, bytes, context) {
+      if (data.has(key)) return "exists";
+      inventory.set(key, { ...context });
+      data.set(key, new Uint8Array(bytes));
+    },
+    async get(key, maximumBytes) {
+      const bytes = data.get(key);
+      if (!bytes) throw new Error("Missing blob");
+      if (bytes.length > maximumBytes)
+        throw new Error("Blob exceeds bounded read");
+      return new Uint8Array(bytes);
+    },
+    async delete(key) {
+      data.delete(key);
+    },
+  };
+  const application = createSupportDeskApplication({
+    store,
+    clock: fixedClock("2026-11-01T10:00:00.000Z"),
+    attachments: {
+      blobs,
+    },
+  });
+  const bytes = new TextEncoder().encode("Synthetic diagnostic text");
+  const sha256 = Array.from(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
+  const result = await application.createCustomerTicket(EXAMPLE_CUSTOMER, {
+    ticketId: "attachment-example",
+    messageId: "initial",
+    commandId: "create",
+    correlationId: "example",
+    subject: "Diagnostic",
+    body: "See attached text",
+    attachments: [
+      { filename: "diagnostic.txt", contentType: "text/plain", bytes, sha256 },
+    ],
+  });
+  const state = {
+    ticketId: result.ticket.id,
+    messageId: "initial",
+    attachmentId: result.messages[0]!.attachments![0]!.id,
+    commandId: "scan",
+    correlationId: "example",
+  };
+  // Production: accept this verdict only from the trusted host malware scanner,
+  // after it has scanned these exact immutable bytes and bound the digest.
+  await application.recordAttachmentScanResult(EXAMPLE_STAFF, {
+    ...state,
+    sha256,
+    verdict: "clean",
+  });
+  const download = await application.downloadAttachment(
+    EXAMPLE_CUSTOMER,
+    state,
+  );
+  await application.deleteAttachment(EXAMPLE_STAFF, {
+    ...state,
+    commandId: "redact",
+  });
+  await cleanupUnreferencedAttachmentBlobs({
+    store,
+    blobs,
+    candidates: [...inventory].map(([key, context]) => ({ key, ...context })),
+    // This standalone flow has awaited every write; no other writers exist.
+    // Production must stop admission and drain every process before work().
+    withUploadsPaused: (work) => work(),
+  });
+  if (data.size || download.bytes.length !== bytes.length)
+    throw new Error("Attachment example failed");
+  return { disposition: download.contentDisposition, deleted: data.size === 0 };
+}
 
 /** Synthetic customer principal with the three customer permissions. */
 export const EXAMPLE_CUSTOMER: AccessContext = Object.freeze({
