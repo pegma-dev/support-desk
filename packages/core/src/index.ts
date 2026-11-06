@@ -152,6 +152,12 @@ export function createTicket(input: CreateTicketInput): Ticket {
   if (input.category !== undefined) {
     requireText(input.category, "category");
   }
+  if (input.relatedTicketId !== undefined) {
+    requireText(input.relatedTicketId, "relatedTicketId");
+    if (input.relatedTicketId === input.id) {
+      throw new TypeError("relatedTicketId must name a different ticket");
+    }
+  }
   timestamp(input.createdAt, "createdAt");
   validateRequester(input.requester);
 
@@ -172,6 +178,9 @@ export function createTicket(input: CreateTicketInput): Ticket {
     createdAt: input.createdAt,
     updatedAt: input.createdAt,
     customerUpdatedAt: input.createdAt,
+    ...(input.relatedTicketId === undefined
+      ? {}
+      : { relatedTicketId: input.relatedTicketId }),
   });
 }
 

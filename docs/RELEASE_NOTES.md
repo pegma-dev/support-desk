@@ -1,5 +1,25 @@
 # Release notes
 
+## Unreleased — inbound mail (Buildout Task 11)
+
+Additive to the `0.1.1` public surface; package versions are unchanged until
+the next synchronized release.
+
+- `@pegma/support-desk-application`: `createInboundMailProcessor` with the
+  `InboundEmailInput`, `InboundAccountMatcher`, `InboundRoutingPolicy`, and
+  `InboundNotificationPolicy` ports; the implemented inbound receipt
+  lifecycle; the new `support-desk.thread-index.v1` collection with
+  `repairThreadIndexPage` and `sweepThreadIndexPage`; optional
+  `replyRoutingToken` on `NotificationInput` and `DeliveryContent`; optional
+  receipt fields for reserved identifiers, routing, and outcome.
+- `@pegma/support-desk-contracts`: optional staff-only `Ticket.relatedTicketId`
+  and `CreateTicketInput.relatedTicketId`.
+- `@pegma/support-desk-core`: `createTicket` validates and preserves
+  `relatedTicketId`.
+
+Upgrade note: after deploying, run one complete `repairThreadIndexPage` cycle
+so tickets and notifications recorded earlier gain threading rows.
+
 ## 0.1.1 — dependency alignment
 
 A dependency-only release of the synchronized four-package set.

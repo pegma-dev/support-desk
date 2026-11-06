@@ -129,10 +129,37 @@ Reply timestamps are sampled and validated on every transaction attempt, then
 clamped to the stored ticket's `updatedAt` so clock skew cannot move a
 conversation backward.
 
-Inbound processing remains a future phase, but its declared receipt collection
-is already hard-bounded to 256 hash slots per partition. Terminal receipt
-retention uses trusted processing time, a 30-day deduplication horizon, and
-version-conditional deletion; in-flight receipts are never swept.
+### Inbound mail
+
+`createInboundMailProcessor({ store, clock, accountMatcher, routingPolicy,
+notificationPolicy?, subjectMarkerPrefix?, supportAddresses?, ... })` returns
+`processInboundEmail(input)`. The host calls it only after verifying the
+provider event and normalizing bounded MIME into `InboundEmailInput` (safe
+text, sender address, threading headers, candidate reply token, and loop
+signals). There is no permission check: the caller is a trusted worker, and
+the input has no principal, role, plan, priority, or session field.
+
+Processing reserves the `support-desk.inbound-receipts.v1` receipt with
+`insertIfAbsent` before ticket work (256 hash slots per partition), suppresses
+bounce and auto-reply loops, persists one routing decision on the receipt,
+and then creates or replies in one ticket-partition transaction with an Audit
+event (`system` actor `support-desk.inbound-email`), a command receipt, and an
+optional notification. Retries and concurrent duplicates return the first
+delivery's result and identifiers. Matching order is reply token,
+`In-Reply-To`/`References`, then subject marker, all through
+`support-desk.thread-index.v1` key lookups confirmed against authoritative
+records. Unsafe or ambiguous matches create a new unverified ticket with the
+staff-only `Ticket.relatedTicketId`. A unique account match creates a
+`matched_email` ticket that stays invisible to customer web services.
+
+Notifications may carry an optional `replyRoutingToken` (22 to 128 URL-safe
+characters) for the host to render into the reply address. The application
+indexes it by SHA-256, with each notification `Message-ID` and every ticket
+number, after commit. Schedule `repairThreadIndexPage` and
+`sweepThreadIndexPage` with the same `threadIndexRetentionMilliseconds` as the
+processor. Terminal receipt retention uses trusted processing time, a 30-day
+deduplication horizon, and version-conditional deletion; in-flight receipts
+are never swept.
 
 ## Host composition
 

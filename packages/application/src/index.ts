@@ -13,6 +13,7 @@ import {
   type StoredRecord,
 } from "@pegma/storage-core";
 import type {
+  MessageFormat,
   MessageId,
   RequesterAssociation,
   Ticket,
@@ -125,6 +126,12 @@ export interface DeliveryContent {
   readonly variables: Readonly<Record<string, string>>;
   readonly subject: string;
   readonly outboundMessageId: string;
+  /**
+   * Optional host-minted opaque reply-routing token rendered into the reply
+   * address. Indexed by SHA-256 in `support-desk.thread-index.v1`; never a
+   * read capability and never logged.
+   */
+  readonly replyRoutingToken?: string;
 }
 
 function encodeIdempotencyPart(value: string): string {
@@ -171,7 +178,9 @@ type SupportCommandType =
   | "change_priority"
   | "resolve_ticket"
   | "close_ticket"
-  | "reopen_ticket";
+  | "reopen_ticket"
+  | "inbound_email_create"
+  | "inbound_email_reply";
 
 interface CommandRecord {
   readonly kind: "command";
@@ -253,10 +262,66 @@ export interface InboundReceipt {
   readonly receivedAt: IsoTimestamp;
   /** Trusted host time at which processing reached a terminal status. */
   readonly processedAt?: IsoTimestamp;
+  /** Resulting ticket; present only on a terminal receipt that names one. */
   readonly ticketId?: TicketId;
+  /** Resulting message; present only on a terminal receipt that names one. */
   readonly messageId?: MessageId;
   readonly diagnostic?: string;
+  /**
+   * Host-minted ticket ID reserved by the first delivery. Every retry of the
+   * same provider event reuses it instead of the retry's own identifiers.
+   */
+  readonly reservedTicketId?: TicketId;
+  /** Host-minted message ID reserved by the first delivery. */
+  readonly reservedMessageId?: MessageId;
+  readonly correlationId?: string;
+  /** First routing decision; never re-decided once written. */
+  readonly route?: InboundReceiptRoute;
+  readonly outcome?: InboundEmailOutcome;
 }
+
+/** How inbound mail was associated with an existing ticket, if at all. */
+export type InboundMatchMethod =
+  "routing_token" | "message_id" | "subject_marker" | "none";
+
+/** Coarse, content-free reason an inbound message created no message. */
+export type InboundSuppressionReason =
+  | "auto_submitted"
+  | "precedence"
+  | "auto_reply_header"
+  | "bounce"
+  | "delivery_report"
+  | "support_address_loop";
+
+export type InboundEmailOutcome =
+  "created" | "replied" | "duplicate_message" | "suppressed" | "rejected";
+
+/** Routing decision persisted on the receipt before any ticket work. */
+export type InboundReceiptRoute =
+  | {
+      readonly kind: "suppressed";
+      readonly reason: InboundSuppressionReason;
+    }
+  | {
+      readonly kind: "duplicate_message";
+      readonly ticketId: TicketId;
+      readonly messageId: MessageId;
+    }
+  | {
+      readonly kind: "reply";
+      readonly ticketId: TicketId;
+      readonly matchMethod: Exclude<InboundMatchMethod, "none">;
+    }
+  | {
+      readonly kind: "new_conversation";
+      readonly ticketId: TicketId;
+      readonly matchMethod: InboundMatchMethod;
+      readonly association: "matched_email" | "unverified";
+      readonly principalId?: PrincipalId;
+      readonly priority: InboundRoutingPriority;
+      readonly category?: string;
+      readonly relatedTicketId?: TicketId;
+    };
 
 export interface DeliveryCallbackInput {
   readonly provider: string;
@@ -568,7 +633,16 @@ export interface NotificationInput {
   readonly subject: string;
   readonly outboundMessageId: string;
   readonly maxAttempts?: number;
+  /**
+   * Optional opaque reply-routing token the host renders into this
+   * notification's reply address: 22 to 128 URL-safe base64 characters from
+   * a cryptographically random source (at least 128 bits). Support Desk
+   * indexes it so an inbound reply can be matched by key lookup.
+   */
+  readonly replyRoutingToken?: string;
 }
+
+const replyRoutingTokenPattern = /^[A-Za-z0-9_-]{22,128}$/;
 
 export interface CreateCustomerTicketCommand {
   readonly commandId: string;
@@ -1021,6 +1095,21 @@ function snapshotNotification(input: unknown): NotificationInput {
     "notification.maxAttempts",
     true,
   );
+  const replyRoutingToken = ownDataProperty(
+    input,
+    "replyRoutingToken",
+    "notification.replyRoutingToken",
+    true,
+  );
+  if (
+    replyRoutingToken !== undefined &&
+    (typeof replyRoutingToken !== "string" ||
+      !replyRoutingTokenPattern.test(replyRoutingToken))
+  ) {
+    throw new TypeError(
+      "notification.replyRoutingToken must be 22 to 128 URL-safe base64 characters",
+    );
+  }
 
   requireIdentifier(id, "notification.id");
   requireIdentifier(recipientRef, "notification.recipientRef");
@@ -1067,6 +1156,9 @@ function snapshotNotification(input: unknown): NotificationInput {
     ...(maxAttempts === undefined
       ? {}
       : { maxAttempts: maxAttempts as number }),
+    ...(replyRoutingToken === undefined
+      ? {}
+      : { replyRoutingToken: replyRoutingToken as string }),
   });
 }
 
@@ -1092,19 +1184,22 @@ const requesterEmailLocalPart = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$/;
 const requesterEmailDomain =
   /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
 
-function normalizeRequesterEmail(value: unknown): string | undefined {
+function normalizeRequesterEmail(
+  value: unknown,
+  field = "requesterEmail",
+): string | undefined {
   if (value === undefined) {
     return undefined;
   }
   if (typeof value !== "string") {
-    throw new TypeError("requesterEmail must be a string");
+    throw new TypeError(`${field} must be a string`);
   }
   if (
     value.length > requesterEmailMaximumCharacters ||
     /[\u0000-\u001F\u007F<>&"\\]/.test(value)
   ) {
     throw new TypeError(
-      `requesterEmail must be a plain email address of at most ${requesterEmailMaximumCharacters} characters`,
+      `${field} must be a plain email address of at most ${requesterEmailMaximumCharacters} characters`,
     );
   }
   const normalized = value.trim();
@@ -1125,7 +1220,7 @@ function normalizeRequesterEmail(value: unknown): string | undefined {
     !requesterEmailDomain.test(domain)
   ) {
     throw new TypeError(
-      `requesterEmail must be a plain email address of at most ${requesterEmailMaximumCharacters} characters`,
+      `${field} must be a plain email address of at most ${requesterEmailMaximumCharacters} characters`,
     );
   }
   return `${local}@${domain.toLowerCase()}`;
@@ -1269,6 +1364,9 @@ function deliveryContent(
         variables: input.variables,
         subject: input.subject,
         outboundMessageId: input.outboundMessageId,
+        ...(input.replyRoutingToken === undefined
+          ? {}
+          : { replyRoutingToken: input.replyRoutingToken }),
       };
 }
 
@@ -1386,23 +1484,22 @@ async function authoritativeView(
  */
 function parseAllowedCategories(
   input: unknown,
+  name = "application options.allowedCategories",
 ): ReadonlySet<string> | undefined {
   if (input === undefined) {
     return undefined;
   }
   if (!Array.isArray(input)) {
-    throw new TypeError(
-      "application options.allowedCategories must be an array",
-    );
+    throw new TypeError(`${name} must be an array`);
   }
   if (input.length > maxAllowedCategories) {
     throw new TypeError(
-      `application options.allowedCategories may contain at most ${maxAllowedCategories} values`,
+      `${name} may contain at most ${maxAllowedCategories} values`,
     );
   }
   const values = new Set<string>();
   for (let index = 0; index < input.length; index += 1) {
-    const field = `application options.allowedCategories[${index}]`;
+    const field = `${name}[${index}]`;
     const value = ownDataProperty(input, index, field);
     if (typeof value !== "string") {
       throw new TypeError(`${field} must be a string`);
@@ -1413,9 +1510,7 @@ function parseAllowedCategories(
       );
     }
     if (values.has(value)) {
-      throw new TypeError(
-        "application options.allowedCategories must not contain duplicates",
-      );
+      throw new TypeError(`${name} must not contain duplicates`);
     }
     values.add(value);
   }
@@ -2413,6 +2508,97 @@ export async function sweepInactiveQueueProjections(
   };
 }
 
+const supportDeskLimitMaximums: Readonly<
+  Record<keyof SupportDeskLimits, number>
+> = Object.freeze({
+  maxSubjectCharacters: 1_000,
+  maxMessageCharacters: 20_000,
+  maxTicketsPerPrincipal: 1_000,
+  maxMessagesPerTicket: 100,
+  maxRecordsPerTicket: 2_000,
+});
+
+/** Merge validated host overrides onto the defaults and enforce maxima. */
+function resolveSupportDeskLimits(
+  rawLimits: unknown,
+  field: string,
+): SupportDeskLimits {
+  const limitOverrides: {
+    -readonly [Field in keyof SupportDeskLimits]?: number;
+  } = {};
+  if (rawLimits !== undefined) {
+    const limitSource = boundaryObject(rawLimits, field);
+    for (const name of [
+      "maxSubjectCharacters",
+      "maxMessageCharacters",
+      "maxTicketsPerPrincipal",
+      "maxMessagesPerTicket",
+      "maxRecordsPerTicket",
+    ] as const) {
+      const value = ownDataProperty(
+        limitSource,
+        name,
+        `${field}.${name}`,
+        true,
+      );
+      if (value !== undefined) {
+        if (typeof value !== "number") {
+          throw new TypeError(`${field}.${name} must be a number`);
+        }
+        limitOverrides[name] = value;
+      }
+    }
+  }
+  const limits = { ...defaultSupportDeskLimits, ...limitOverrides };
+  for (const name of Object.keys(limits) as (keyof SupportDeskLimits)[]) {
+    const value = limits[name];
+    if (
+      !Number.isSafeInteger(value) ||
+      value <= 0 ||
+      value > supportDeskLimitMaximums[name]
+    ) {
+      throw new TypeError(
+        `${name} must be a positive safe integer no greater than ${supportDeskLimitMaximums[name]}`,
+      );
+    }
+  }
+  return Object.freeze(limits);
+}
+
+/**
+ * Reserve the next instance-scoped ticket number outside any ticket
+ * transaction. A later failure leaves a gap; a duplicate is impossible.
+ */
+async function reserveNextTicketNumber(
+  numbers: CollectionStore<TicketNumberRecord>,
+  maxConflictAttempts: number,
+): Promise<number> {
+  const result = await numbers.update(
+    { partition: ticketNumberPartition, id: ticketNumberRecordId },
+    (current) => {
+      const lastIssued = current?.lastIssued ?? 0;
+      if (!Number.isSafeInteger(lastIssued) || lastIssued < 0) {
+        throw new SupportDeskConflictError("Ticket number counter is corrupt");
+      }
+      if (lastIssued >= Number.MAX_SAFE_INTEGER) {
+        throw new SupportDeskConflictError(
+          "Ticket number sequence is exhausted",
+        );
+      }
+      return {
+        action: "write",
+        value: { lastIssued: lastIssued + 1 },
+      };
+    },
+    { maxAttempts: maxConflictAttempts },
+  );
+  const issued = result.value?.lastIssued;
+  if (issued === undefined || !Number.isSafeInteger(issued) || issued <= 0) {
+    throw new SupportDeskConflictError("Ticket number was not reserved");
+  }
+  return issued;
+}
+
 export function createSupportDeskApplication(options: {
   readonly store: Store;
   readonly clock: Clock;
@@ -2482,34 +2668,6 @@ export function createSupportDeskApplication(options: {
       true,
     ),
   );
-  const limitOverrides: {
-    -readonly [Field in keyof SupportDeskLimits]?: number;
-  } = {};
-  if (rawLimits !== undefined) {
-    const limitSource = boundaryObject(rawLimits, "application options.limits");
-    for (const field of [
-      "maxSubjectCharacters",
-      "maxMessageCharacters",
-      "maxTicketsPerPrincipal",
-      "maxMessagesPerTicket",
-      "maxRecordsPerTicket",
-    ] as const) {
-      const value = ownDataProperty(
-        limitSource,
-        field,
-        `application options.limits.${field}`,
-        true,
-      );
-      if (value !== undefined) {
-        if (typeof value !== "number") {
-          throw new TypeError(
-            `application options.limits.${field} must be a number`,
-          );
-        }
-        limitOverrides[field] = value;
-      }
-    }
-  }
   if (
     rawMaxConflictAttempts !== undefined &&
     typeof rawMaxConflictAttempts !== "number"
@@ -2522,7 +2680,10 @@ export function createSupportDeskApplication(options: {
   const index = store.collection(customerTicketIndex);
   const numbers = store.collection(ticketNumbers);
   const projections = store.collection(queueIndex);
-  const limits = { ...defaultSupportDeskLimits, ...limitOverrides };
+  const limits = resolveSupportDeskLimits(
+    rawLimits,
+    "application options.limits",
+  );
   const maxConflictAttempts = rawMaxConflictAttempts ?? 4;
   if (
     !Number.isSafeInteger(maxConflictAttempts) ||
@@ -2598,25 +2759,6 @@ export function createSupportDeskApplication(options: {
       );
     }
   }
-  const limitMaximums: Readonly<Record<keyof SupportDeskLimits, number>> = {
-    maxSubjectCharacters: 1_000,
-    maxMessageCharacters: 20_000,
-    maxTicketsPerPrincipal: 1_000,
-    maxMessagesPerTicket: 100,
-    maxRecordsPerTicket: 2_000,
-  };
-  for (const field of Object.keys(limits) as (keyof SupportDeskLimits)[]) {
-    const value = limits[field];
-    if (
-      !Number.isSafeInteger(value) ||
-      value <= 0 ||
-      value > limitMaximums[field]
-    ) {
-      throw new TypeError(
-        `${field} must be a positive safe integer no greater than ${limitMaximums[field]}`,
-      );
-    }
-  }
 
   let projectionHealth: QueueProjectionHealth = Object.freeze({
     consecutiveFailures: 0,
@@ -2669,11 +2811,31 @@ export function createSupportDeskApplication(options: {
     }
   }
 
+  /**
+   * Best-effort post-commit threading index writes. Never fails a committed
+   * command; `repairThreadIndexPage` converges anything missed. Does not
+   * sample the host clock.
+   */
+  async function safeIndexThreading(
+    ticketId: TicketId,
+    threading: ThreadingHint | undefined,
+  ): Promise<void> {
+    if (
+      threading === undefined ||
+      (threading.messageId === undefined && threading.ticketNumber !== true)
+    ) {
+      return;
+    }
+    await indexThreadingAfterCommit(store, ticketId, threading, logger);
+  }
+
   async function customerViewAfterChange(
     principalId: PrincipalId,
     ticketId: TicketId,
+    threading?: ThreadingHint,
   ): Promise<CustomerTicketView> {
     await safeProjectQueue(ticketId);
+    await safeIndexThreading(ticketId, threading);
     return authoritativeView(
       records,
       principalId,
@@ -2684,8 +2846,10 @@ export function createSupportDeskApplication(options: {
 
   async function staffViewAfterChange(
     ticketId: TicketId,
+    threading?: ThreadingHint,
   ): Promise<StaffTicketView> {
     await safeProjectQueue(ticketId);
+    await safeIndexThreading(ticketId, threading);
     return staffAuthoritativeView(
       records,
       ticketId,
@@ -2836,32 +3000,7 @@ export function createSupportDeskApplication(options: {
   }
 
   async function reserveTicketNumber(): Promise<number> {
-    const result = await numbers.update(
-      { partition: ticketNumberPartition, id: ticketNumberRecordId },
-      (current) => {
-        const lastIssued = current?.lastIssued ?? 0;
-        if (!Number.isSafeInteger(lastIssued) || lastIssued < 0) {
-          throw new SupportDeskConflictError(
-            "Ticket number counter is corrupt",
-          );
-        }
-        if (lastIssued >= Number.MAX_SAFE_INTEGER) {
-          throw new SupportDeskConflictError(
-            "Ticket number sequence is exhausted",
-          );
-        }
-        return {
-          action: "write",
-          value: { lastIssued: lastIssued + 1 },
-        };
-      },
-      { maxAttempts: maxConflictAttempts },
-    );
-    const issued = result.value?.lastIssued;
-    if (issued === undefined || !Number.isSafeInteger(issued) || issued <= 0) {
-      throw new SupportDeskConflictError("Ticket number was not reserved");
-    }
-    return issued;
+    return reserveNextTicketNumber(numbers, maxConflictAttempts);
   }
 
   return {
@@ -2889,6 +3028,12 @@ export function createSupportDeskApplication(options: {
         notification: stableNotification(command.notification),
       };
       const fingerprint = await requestFingerprint(fingerprintPayload);
+      const createThreading: ThreadingHint = {
+        ticketNumber: true,
+        ...(command.notification === undefined
+          ? {}
+          : { messageId: command.messageId }),
+      };
       // Replay an already committed create before host allowlist checks so a
       // later config change cannot break idempotent retries of the same command.
       // Replay never reserves another instance ticket number.
@@ -2947,7 +3092,11 @@ export function createSupportDeskApplication(options: {
             fence.generation,
           );
         }
-        return customerViewAfterChange(access.principalId, command.ticketId);
+        return customerViewAfterChange(
+          access.principalId,
+          command.ticketId,
+          createThreading,
+        );
       }
       if (command.category !== undefined) {
         if (
@@ -3158,7 +3307,11 @@ export function createSupportDeskApplication(options: {
         reservation.reservationToken,
         reservation.reservationGeneration,
       );
-      return customerViewAfterChange(access.principalId, command.ticketId);
+      return customerViewAfterChange(
+        access.principalId,
+        command.ticketId,
+        createThreading,
+      );
     },
 
     async replyToCustomerTicket(access, input) {
@@ -3190,7 +3343,11 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return customerViewAfterChange(access.principalId, command.ticketId);
+          return customerViewAfterChange(
+            access.principalId,
+            command.ticketId,
+            notificationThreading(command),
+          );
         }
 
         const versioned = await records.getVersioned(
@@ -3312,7 +3469,11 @@ export function createSupportDeskApplication(options: {
           ...(notificationJob === undefined ? [] : [notificationJob]),
         ]);
         if (outcome.committed) {
-          return customerViewAfterChange(access.principalId, command.ticketId);
+          return customerViewAfterChange(
+            access.principalId,
+            command.ticketId,
+            notificationThreading(command),
+          );
         }
         const nowDuplicate = await records.get(
           commandKey(command.ticketId, command.commandId),
@@ -3325,7 +3486,11 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return customerViewAfterChange(access.principalId, command.ticketId);
+          return customerViewAfterChange(
+            access.principalId,
+            command.ticketId,
+            notificationThreading(command),
+          );
         }
       }
       throw new SupportDeskConflictError();
@@ -3534,7 +3699,10 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffViewAfterChange(command.ticketId);
+          return staffViewAfterChange(
+            command.ticketId,
+            notificationThreading(command),
+          );
         }
 
         const versioned = await records.getVersioned(
@@ -3646,7 +3814,10 @@ export function createSupportDeskApplication(options: {
           ...(notificationJob === undefined ? [] : [notificationJob]),
         ]);
         if (outcome.committed) {
-          return staffViewAfterChange(command.ticketId);
+          return staffViewAfterChange(
+            command.ticketId,
+            notificationThreading(command),
+          );
         }
         const nowDuplicate = await records.get(
           commandKey(command.ticketId, command.commandId),
@@ -3659,7 +3830,10 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffViewAfterChange(command.ticketId);
+          return staffViewAfterChange(
+            command.ticketId,
+            notificationThreading(command),
+          );
         }
       }
       throw new SupportDeskConflictError();
@@ -3858,7 +4032,10 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffViewAfterChange(command.ticketId);
+          return staffViewAfterChange(
+            command.ticketId,
+            notificationThreading(command),
+          );
         }
 
         const versioned = await records.getVersioned(
@@ -4016,7 +4193,10 @@ export function createSupportDeskApplication(options: {
           ...(notificationJob === undefined ? [] : [notificationJob]),
         ]);
         if (outcome.committed) {
-          return staffViewAfterChange(command.ticketId);
+          return staffViewAfterChange(
+            command.ticketId,
+            notificationThreading(command),
+          );
         }
         const nowDuplicate = await records.get(
           commandKey(command.ticketId, command.commandId),
@@ -4029,7 +4209,10 @@ export function createSupportDeskApplication(options: {
             fingerprint,
           )
         ) {
-          return staffViewAfterChange(command.ticketId);
+          return staffViewAfterChange(
+            command.ticketId,
+            notificationThreading(command),
+          );
         }
       }
       throw new SupportDeskConflictError();
@@ -4230,7 +4413,10 @@ export function createSupportDeskApplication(options: {
           fingerprint,
         )
       ) {
-        return staffViewAfterChange(command.ticketId);
+        return staffViewAfterChange(
+          command.ticketId,
+          notificationThreading(command),
+        );
       }
 
       const versioned = await records.getVersioned(ticketKey(command.ticketId));
@@ -4370,7 +4556,10 @@ export function createSupportDeskApplication(options: {
         ...(notificationJob === undefined ? [] : [notificationJob]),
       ]);
       if (outcome.committed) {
-        return staffViewAfterChange(command.ticketId);
+        return staffViewAfterChange(
+          command.ticketId,
+          notificationThreading(command),
+        );
       }
       const nowDuplicate = await records.get(
         commandKey(command.ticketId, command.commandId),
@@ -4383,7 +4572,10 @@ export function createSupportDeskApplication(options: {
           fingerprint,
         )
       ) {
-        return staffViewAfterChange(command.ticketId);
+        return staffViewAfterChange(
+          command.ticketId,
+          notificationThreading(command),
+        );
       }
     }
     throw new SupportDeskConflictError();
@@ -4909,4 +5101,2052 @@ export async function pruneCustomerTicketIndex(
     },
   );
   return result.value?.entries.map((entry) => entry.ticketId) ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// Inbound threading index (Buildout Task 11)
+// ---------------------------------------------------------------------------
+
+/** Which looked-up identifier a thread-index row resolves. */
+export type ThreadIndexKind = "message_id" | "reply_token" | "ticket_number";
+
+/**
+ * One key-lookup hint from an external identifier to a ticket.
+ *
+ * Partitions are `mid:<sha256>` for a `Message-ID`, `rt:<sha256>` for an
+ * opaque reply-routing token, and `number:<n>` for an instance ticket number,
+ * so every partition holds exactly one row and nothing grows without bound.
+ * A row is never authorization evidence: every lookup reloads the causal
+ * authoritative ticket or message and re-derives the row before trusting it.
+ * The reply token itself is never stored here, only its hash.
+ */
+export interface ThreadIndexRecord {
+  /** Physical partition (see above). */
+  readonly key: string;
+  readonly id: "thread";
+  readonly kind: ThreadIndexKind;
+  readonly ticketId: TicketId;
+  /** Causal message for `message_id` and `reply_token` rows. */
+  readonly messageId?: MessageId;
+  /** Who generated an indexed `Message-ID`. */
+  readonly source?: "outbound" | "inbound";
+  /** Authoritative creation time of the causal message or ticket. */
+  readonly issuedAt: IsoTimestamp;
+}
+
+const threadIndexKey = (record: ThreadIndexRecord): EntityKey => ({
+  partition: record.key,
+  id: record.id,
+});
+
+export const threadIndex = defineCollection<ThreadIndexRecord>({
+  name: "support-desk.thread-index.v1",
+  key: threadIndexKey,
+  codec: jsonCodec(threadIndexKey),
+});
+
+/**
+ * Default lifetime of `Message-ID` and reply-token threading rows. Lookups,
+ * repair, and sweeping all treat older rows as absent; ticket-number rows
+ * live as long as their ticket.
+ */
+export const defaultThreadIndexRetentionMilliseconds = 365 * 86_400_000;
+
+/** Actor recorded on Audit events accepted from verified inbound mail. */
+export const inboundEmailSystemActorId = "support-desk.inbound-email";
+
+interface ThreadingHint {
+  readonly messageId?: MessageId;
+  readonly ticketNumber?: boolean;
+}
+
+function notificationThreading(command: {
+  readonly messageId?: MessageId;
+  readonly notification?: NotificationInput;
+}): ThreadingHint | undefined {
+  return command.notification === undefined || command.messageId === undefined
+    ? undefined
+    : { messageId: command.messageId };
+}
+
+function messageKey(ticketId: TicketId, messageId: MessageId): EntityKey {
+  return { partition: ticketId, id: `message:${messageId}` };
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(text),
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function messageIdIndexKey(value: string): Promise<string> {
+  return `mid:${await sha256Hex(`message-id\u0000${value}`)}`;
+}
+
+async function replyTokenIndexKey(token: string): Promise<string> {
+  return `rt:${await sha256Hex(`reply-token\u0000${token}`)}`;
+}
+
+function ticketNumberIndexKey(ticketNumber: number): string {
+  return `number:${ticketNumber}`;
+}
+
+const inboundMessageIdPattern = /^<[^<>\s@]+@[^<>\s@]+>$/;
+const maxInboundMessageIdCharacters = 512;
+
+/**
+ * Accept a header-shaped `<local@domain>` identifier or nothing. Malformed
+ * sender-controlled identifiers are dropped rather than stored or matched.
+ */
+function normalizeInboundMessageId(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (
+    trimmed.length === 0 ||
+    trimmed.length > maxInboundMessageIdCharacters ||
+    /[\u0000-\u001F\u007F]/.test(trimmed) ||
+    !inboundMessageIdPattern.test(trimmed)
+  ) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+/** Derive every thread-index row an authoritative record implies. */
+async function threadIndexEntriesFor(
+  record: SupportRecord,
+): Promise<ThreadIndexRecord[]> {
+  if (record.kind === "ticket") {
+    const ticket = record.ticket;
+    if (
+      ticket.id !== record.partition ||
+      !Number.isSafeInteger(ticket.number) ||
+      ticket.number <= 0
+    ) {
+      return [];
+    }
+    return [
+      {
+        key: ticketNumberIndexKey(ticket.number),
+        id: "thread",
+        kind: "ticket_number",
+        ticketId: ticket.id,
+        issuedAt: ticket.createdAt,
+      },
+    ];
+  }
+  if (record.kind !== "message") {
+    return [];
+  }
+  const message = record.message;
+  if (
+    message.ticketId !== record.partition ||
+    record.id !== `message:${message.id}`
+  ) {
+    return [];
+  }
+  const entries: ThreadIndexRecord[] = [];
+  const content = record.deliveryContent;
+  if (content !== undefined) {
+    entries.push({
+      key: await messageIdIndexKey(content.outboundMessageId),
+      id: "thread",
+      kind: "message_id",
+      ticketId: message.ticketId,
+      messageId: message.id,
+      source: "outbound",
+      issuedAt: message.createdAt,
+    });
+    if (content.replyRoutingToken !== undefined) {
+      entries.push({
+        key: await replyTokenIndexKey(content.replyRoutingToken),
+        id: "thread",
+        kind: "reply_token",
+        ticketId: message.ticketId,
+        messageId: message.id,
+        issuedAt: message.createdAt,
+      });
+    }
+  }
+  if (
+    message.channel === "email" &&
+    message.authorKind === "customer" &&
+    message.externalMessageId !== undefined &&
+    message.externalMessageId !== content?.outboundMessageId &&
+    normalizeInboundMessageId(message.externalMessageId) ===
+      message.externalMessageId
+  ) {
+    entries.push({
+      key: await messageIdIndexKey(message.externalMessageId),
+      id: "thread",
+      kind: "message_id",
+      ticketId: message.ticketId,
+      messageId: message.id,
+      source: "inbound",
+      issuedAt: message.createdAt,
+    });
+  }
+  return entries;
+}
+
+/** First writer wins; a different mapping for the same key is a collision. */
+async function putThreadIndexEntry(
+  index: CollectionStore<ThreadIndexRecord>,
+  entry: ThreadIndexRecord,
+): Promise<"written" | "kept" | "collision"> {
+  const result = await index.insertIfAbsent(entry);
+  if (result.inserted) {
+    return "written";
+  }
+  const existing = result.value;
+  return existing.kind === entry.kind &&
+    existing.ticketId === entry.ticketId &&
+    existing.messageId === entry.messageId &&
+    existing.source === entry.source
+    ? "kept"
+    : "collision";
+}
+
+function safeLog(
+  logger: Logger,
+  level: "warn" | "error",
+  event: string,
+  fields: Readonly<Record<string, unknown>>,
+): void {
+  try {
+    logger.log(level, event, fields);
+  } catch {
+    // ignore logger transport failures
+  }
+}
+
+/**
+ * Best-effort post-commit threading writes for one ticket. Failures are
+ * logged and later converged by {@link repairThreadIndexPage}; they never
+ * fail the command that already committed. Does not sample the clock.
+ */
+async function indexThreadingAfterCommit(
+  store: Store,
+  ticketId: TicketId,
+  hint: ThreadingHint,
+  logger: Logger,
+): Promise<void> {
+  try {
+    const records = store.collection(supportRecords);
+    const index = store.collection(threadIndex);
+    const sources: SupportRecord[] = [];
+    if (hint.ticketNumber === true) {
+      const ticket = await records.get(ticketKey(ticketId));
+      if (ticket !== null) {
+        sources.push(ticket);
+      }
+    }
+    if (hint.messageId !== undefined) {
+      const message = await records.get(messageKey(ticketId, hint.messageId));
+      if (message !== null) {
+        sources.push(message);
+      }
+    }
+    for (const source of sources) {
+      for (const entry of await threadIndexEntriesFor(source)) {
+        if ((await putThreadIndexEntry(index, entry)) === "collision") {
+          safeLog(logger, "warn", "support-desk.thread_index.collision", {
+            ticketId,
+            kind: entry.kind,
+          });
+        }
+      }
+    }
+  } catch (error) {
+    safeLog(logger, "error", "support-desk.thread_index.write_failed", {
+      ticketId,
+      message:
+        error instanceof Error ? error.message : "thread index write failed",
+    });
+  }
+}
+
+/**
+ * Re-derive a row from its authoritative ticket or message. Returns the
+ * current ticket only when the row still describes that record and, for
+ * message rows, is inside the retention window.
+ */
+async function confirmThreadEntry(
+  records: CollectionStore<SupportRecord>,
+  entry: ThreadIndexRecord,
+  nowEpoch: number,
+  retentionMilliseconds: number,
+): Promise<Ticket | null> {
+  const ticketRecord = await records.get(ticketKey(entry.ticketId));
+  if (
+    ticketRecord?.kind !== "ticket" ||
+    ticketRecord.ticket.id !== entry.ticketId
+  ) {
+    return null;
+  }
+  let authoritative: SupportRecord = ticketRecord;
+  if (entry.kind !== "ticket_number") {
+    if (entry.messageId === undefined) {
+      return null;
+    }
+    const message = await records.get(
+      messageKey(entry.ticketId, entry.messageId),
+    );
+    if (message === null) {
+      return null;
+    }
+    authoritative = message;
+  }
+  const derived = (await threadIndexEntriesFor(authoritative)).find(
+    (candidate) => candidate.key === entry.key && candidate.kind === entry.kind,
+  );
+  if (
+    derived === undefined ||
+    derived.ticketId !== entry.ticketId ||
+    derived.messageId !== entry.messageId ||
+    derived.source !== entry.source
+  ) {
+    return null;
+  }
+  if (
+    derived.kind !== "ticket_number" &&
+    nowEpoch - canonicalTimestamp(derived.issuedAt, "thread index issuedAt") >=
+      retentionMilliseconds
+  ) {
+    return null;
+  }
+  return ticketRecord.ticket;
+}
+
+async function lookupThreadEntry(
+  records: CollectionStore<SupportRecord>,
+  index: CollectionStore<ThreadIndexRecord>,
+  kind: ThreadIndexKind,
+  key: string,
+  nowEpoch: number,
+  retentionMilliseconds: number,
+): Promise<{
+  readonly ticket: Ticket;
+  readonly entry: ThreadIndexRecord;
+} | null> {
+  const entry = await index.get({ partition: key, id: "thread" });
+  if (entry === null || entry.key !== key || entry.kind !== kind) {
+    return null;
+  }
+  const ticket = await confirmThreadEntry(
+    records,
+    entry,
+    nowEpoch,
+    retentionMilliseconds,
+  );
+  return ticket === null ? null : { ticket, entry };
+}
+
+export interface ThreadIndexWorkerOptions {
+  readonly store: Store;
+  readonly clock: Clock;
+  /**
+   * Shared lifetime for `Message-ID` and reply-token rows. Hosts pass the
+   * value configured on the inbound processor to every repair and sweep
+   * invocation (no silent per-worker default).
+   */
+  readonly threadIndexRetentionMilliseconds: number;
+  /** Opaque adapter-issued continuation; omit to begin a new cycle. */
+  readonly cursor?: string;
+  /** Physical records per page; at most {@link MAX_SCAN_PAGE_SIZE}. */
+  readonly limit?: number;
+}
+
+export interface ThreadIndexRepairPageResult {
+  /** Host-persisted only after this whole page succeeds. */
+  readonly nextCursor: string | null;
+  readonly physicalRows: number;
+  readonly indexed: number;
+  readonly collisions: number;
+}
+
+export interface ThreadIndexSweepPageResult {
+  readonly nextCursor: string | null;
+  readonly physicalRows: number;
+  readonly deleted: number;
+}
+
+function parseRetentionMilliseconds(value: unknown, field: string): number {
+  if (typeof value !== "number") {
+    throw new TypeError(`${field} must be a number`);
+  }
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new TypeError(`${field} must be a positive safe integer`);
+  }
+  return value;
+}
+
+function parseThreadIndexWorkerOptions(
+  options: unknown,
+  field: string,
+): {
+  readonly store: Store;
+  readonly clock: Clock;
+  readonly retentionMilliseconds: number;
+  readonly cursor?: string;
+  readonly limit: number;
+} {
+  const source = boundaryObject(options, field);
+  const store = ownDataProperty(source, "store", `${field}.store`) as Store;
+  const clock = ownDataProperty(source, "clock", `${field}.clock`) as Clock;
+  const retentionMilliseconds = parseRetentionMilliseconds(
+    ownDataProperty(
+      source,
+      "threadIndexRetentionMilliseconds",
+      `${field}.threadIndexRetentionMilliseconds`,
+    ),
+    `${field}.threadIndexRetentionMilliseconds`,
+  );
+  const rawCursor = ownDataProperty(source, "cursor", `${field}.cursor`, true);
+  const rawLimit = ownDataProperty(source, "limit", `${field}.limit`, true);
+  if (rawCursor !== undefined && typeof rawCursor !== "string") {
+    throw new TypeError(`${field}.cursor must be a string`);
+  }
+  if (rawLimit !== undefined && typeof rawLimit !== "number") {
+    throw new TypeError(
+      `${field}.limit must be between 1 and ${MAX_SCAN_PAGE_SIZE}`,
+    );
+  }
+  const limit = (rawLimit as number | undefined) ?? 100;
+  if (
+    !Number.isSafeInteger(limit) ||
+    limit <= 0 ||
+    limit > MAX_SCAN_PAGE_SIZE
+  ) {
+    throw new TypeError(
+      `${field}.limit must be between 1 and ${MAX_SCAN_PAGE_SIZE}`,
+    );
+  }
+  return {
+    store,
+    clock,
+    retentionMilliseconds,
+    ...(rawCursor === undefined ? {} : { cursor: rawCursor }),
+    limit,
+  };
+}
+
+/**
+ * Scan one page of authoritative `support-desk.records.v1` rows and insert
+ * every thread-index row they imply (ticket numbers, outbound `Message-ID`s,
+ * reply tokens, and inbound `Message-ID`s). Rows past retention are not
+ * recreated. Hosts persist `nextCursor` only after the whole page succeeds
+ * and repeat complete cycles.
+ */
+export async function repairThreadIndexPage(
+  options: ThreadIndexWorkerOptions,
+): Promise<ThreadIndexRepairPageResult> {
+  const { store, clock, retentionMilliseconds, cursor, limit } =
+    parseThreadIndexWorkerOptions(options, "thread index repair options");
+  const records = store.collection(supportRecords);
+  const index = store.collection(threadIndex);
+  const page = await records.scan({
+    limit,
+    ...(cursor === undefined ? {} : { cursor }),
+  });
+  const nowEpoch = canonicalTimestamp(clock.now(), "clock.now()");
+  let indexed = 0;
+  let collisions = 0;
+  for (const entry of page.records) {
+    if (
+      entry.key.partition !== entry.value.partition ||
+      entry.key.id !== entry.value.id
+    ) {
+      continue;
+    }
+    for (const candidate of await threadIndexEntriesFor(entry.value)) {
+      if (
+        candidate.kind !== "ticket_number" &&
+        nowEpoch -
+          canonicalTimestamp(candidate.issuedAt, "thread index issuedAt") >=
+          retentionMilliseconds
+      ) {
+        continue;
+      }
+      const outcome = await putThreadIndexEntry(index, candidate);
+      if (outcome === "written") {
+        indexed += 1;
+      } else if (outcome === "collision") {
+        collisions += 1;
+      }
+    }
+  }
+  return {
+    nextCursor: page.nextCursor,
+    physicalRows: page.records.length,
+    indexed,
+    collisions,
+  };
+}
+
+/**
+ * Scan one page of thread-index rows and conditionally delete every row whose
+ * authoritative target is gone, no longer derives it, or is past retention.
+ * Uses `deleteIfUnchanged` with the scanned version.
+ */
+export async function sweepThreadIndexPage(
+  options: ThreadIndexWorkerOptions,
+): Promise<ThreadIndexSweepPageResult> {
+  const { store, clock, retentionMilliseconds, cursor, limit } =
+    parseThreadIndexWorkerOptions(options, "thread index sweep options");
+  const records = store.collection(supportRecords);
+  const index = store.collection(threadIndex);
+  const page = await index.scan({
+    limit,
+    ...(cursor === undefined ? {} : { cursor }),
+  });
+  const nowEpoch = canonicalTimestamp(clock.now(), "clock.now()");
+  let deleted = 0;
+  for (const entry of page.records) {
+    if (entry.key.partition !== entry.value.key || entry.key.id !== "thread") {
+      continue;
+    }
+    if (
+      (await confirmThreadEntry(
+        records,
+        entry.value,
+        nowEpoch,
+        retentionMilliseconds,
+      )) !== null
+    ) {
+      continue;
+    }
+    if (await index.deleteIfUnchanged(entry.key, entry.version)) {
+      deleted += 1;
+    }
+  }
+  return {
+    nextCursor: page.nextCursor,
+    physicalRows: page.records.length,
+    deleted,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Inbound mail processing (Buildout Task 11)
+// ---------------------------------------------------------------------------
+
+/**
+ * Loop and bounce signals the host adapter copies from verified headers or
+ * the SMTP envelope. Support Desk only inspects them; it never stores them.
+ */
+export interface InboundLoopSignals {
+  /** RFC 3834 `Auto-Submitted`; any value other than `no` suppresses. */
+  readonly autoSubmitted?: string;
+  /** `Precedence`; `bulk`, `junk`, `list`, or `auto_reply` suppresses. */
+  readonly precedence?: string;
+  /**
+   * `X-Auto-Response-Suppress`; `All`, `OOF`, or `AutoReply` keeps the message
+   * but forbids an automatic acknowledgement to the sender.
+   */
+  readonly autoResponseSuppress?: string;
+  /** True when `X-Autoreply`, `X-Autorespond`, or a similar header exists. */
+  readonly autoReplyHeaderPresent?: boolean;
+  /** `List-Id`; keeps the message but forbids an acknowledgement. */
+  readonly listId?: string;
+  /** Top-level `Content-Type`; `multipart/report` and delivery-status suppress. */
+  readonly contentType?: string;
+  /** SMTP envelope sender (`Return-Path`); empty or `<>` is a bounce. */
+  readonly envelopeSender?: string;
+}
+
+/**
+ * Provider-neutral inbound message, produced by a host adapter only after it
+ * verified the provider webhook or delivery mechanism, bounded MIME parsing,
+ * and reduced the content to safe plain text or constrained Markdown.
+ *
+ * Every field is hostile sender-controlled data except the host-minted
+ * identifiers. Raw MIME and HTML never belong here. There is deliberately no
+ * principal, role, plan, priority, or session field: a sender address match
+ * assists routing and never authenticates.
+ */
+export interface InboundEmailInput {
+  /** Host mailbox or channel identifier (an opaque name, not an address). */
+  readonly channelId: string;
+  /** Provider's stable event or delivery identifier for deduplication. */
+  readonly providerEventId: string;
+  /** Server-minted ID used only if this event creates a new ticket. */
+  readonly ticketId: TicketId;
+  /** Server-minted ID for the message this event may create. */
+  readonly messageId: MessageId;
+  readonly correlationId: string;
+  /** Sender address chosen by the host adapter; routing input only. */
+  readonly from: string;
+  /** Untrusted display name; stored for staff context only. */
+  readonly fromName?: string;
+  /** Decoded subject; controls collapse and it is cut to the subject limit. */
+  readonly subject: string;
+  /** Normalized safe text with quoted history already bounded by the host. */
+  readonly body: string;
+  readonly format?: MessageFormat;
+  /** The inbound message's own `Message-ID`. */
+  readonly externalMessageId?: string;
+  readonly inReplyTo?: string;
+  /** `References`, oldest first; only the newest entries are consulted. */
+  readonly references?: readonly string[];
+  /** Candidate opaque token the host extracted from the reply address. */
+  readonly replyRoutingToken?: string;
+  readonly loopSignals?: InboundLoopSignals;
+}
+
+/** Host account-email lookup result. Only `one` yields `matched_email`. */
+export type InboundSenderMatch =
+  | { readonly matches: "none" }
+  | { readonly matches: "one"; readonly principalId: PrincipalId }
+  | { readonly matches: "many" };
+
+/**
+ * Host port that compares a sender address with known accounts. The answer
+ * routes a ticket; it never authenticates the sender, never grants web
+ * access, and is never used to choose an `AccessContext`.
+ */
+export interface InboundAccountMatcher {
+  matchSenderEmail(input: {
+    readonly channelId: string;
+    readonly email: string;
+  }): Promise<InboundSenderMatch>;
+}
+
+/** Inbound mail may never be automatically assigned `urgent`. */
+export type InboundRoutingPriority = Exclude<TicketPriority, "urgent">;
+
+/** Content-free routing facts. Subject and body are deliberately absent. */
+export interface InboundRoutingInput {
+  readonly channelId: string;
+  readonly association: "matched_email" | "unverified";
+  /** Present only for `matched_email`; routing context, not identity. */
+  readonly principalId?: PrincipalId;
+  readonly relatedTicketId?: TicketId;
+}
+
+export interface InboundRoutingDecision {
+  readonly priority: InboundRoutingPriority;
+  /** Optional category from the processor's configured allowlist. */
+  readonly category?: string;
+}
+
+/** Host policy for a new inbound conversation (paid/unpaid tables live here). */
+export interface InboundRoutingPolicy {
+  routeNewConversation(
+    input: InboundRoutingInput,
+  ): InboundRoutingDecision | Promise<InboundRoutingDecision>;
+}
+
+export interface InboundNotificationContext {
+  readonly outcome: "created" | "replied";
+  readonly channelId: string;
+  readonly ticketId: TicketId;
+  readonly ticketNumber: number;
+  readonly messageId: MessageId;
+  readonly association: RequesterAssociation;
+  readonly matchMethod: InboundMatchMethod;
+  readonly assignedTo?: PrincipalId;
+  /**
+   * False when the sender asked for no automatic responses or the message
+   * came through a list. Hosts must then not acknowledge the sender; a staff
+   * notification is still allowed.
+   */
+  readonly senderAcknowledgementAllowed: boolean;
+}
+
+/**
+ * Optional host port returning one notification to commit in the same ticket
+ * transaction as the inbound message (for example a staff alert). Never
+ * called for suppressed, duplicate, or rejected mail.
+ */
+export interface InboundNotificationPolicy {
+  notificationFor(
+    context: InboundNotificationContext,
+  ): NotificationInput | undefined | Promise<NotificationInput | undefined>;
+}
+
+export interface InboundEmailResult {
+  /** True when this provider event already had a receipt. */
+  readonly duplicateDelivery: boolean;
+  readonly outcome: InboundEmailOutcome;
+  readonly ticketId?: TicketId;
+  readonly messageId?: MessageId;
+  readonly matchMethod?: InboundMatchMethod;
+  /** Requester association of a newly created ticket. */
+  readonly association?: RequesterAssociation;
+  readonly relatedTicketId?: TicketId;
+  /** Coarse content-free reason for `suppressed` or `rejected`. */
+  readonly reason?: string;
+}
+
+export interface InboundMailProcessorOptions {
+  readonly store: Store;
+  readonly clock: Clock;
+  readonly logger?: Logger;
+  readonly accountMatcher: InboundAccountMatcher;
+  readonly routingPolicy: InboundRoutingPolicy;
+  readonly notificationPolicy?: InboundNotificationPolicy;
+  /** Same limits as the application; subject and body bounds apply here. */
+  readonly limits?: Partial<SupportDeskLimits>;
+  readonly maxConflictAttempts?: number;
+  /** Must equal the application's queue terminal-retention cutoff. */
+  readonly queueTerminalRetentionMilliseconds?: number;
+  /** Lifetime of `Message-ID` and reply-token rows; defaults to 365 days. */
+  readonly threadIndexRetentionMilliseconds?: number;
+  /** Frozen category allowlist for host routing decisions. */
+  readonly allowedCategories?: readonly string[];
+  /**
+   * Instance subject-marker prefix, for example `SD` for `[SD-1042]`. Without
+   * one, subject-marker fallback is disabled.
+   */
+  readonly subjectMarkerPrefix?: string;
+  /** This instance's own support addresses; mail from them is a loop. */
+  readonly supportAddresses?: readonly string[];
+}
+
+export interface InboundMailProcessor {
+  /**
+   * Deduplicate, route, and record one verified inbound message. Safe to
+   * retry with the same provider event: a retry resumes the first delivery's
+   * reserved identifiers and routing decision and returns its result.
+   */
+  processInboundEmail(input: InboundEmailInput): Promise<InboundEmailResult>;
+}
+
+interface InboundEmailSnapshot {
+  readonly channelId: string;
+  readonly providerEventId: string;
+  readonly ticketId: TicketId;
+  readonly messageId: MessageId;
+  readonly correlationId: string;
+  readonly from: string;
+  readonly fromName?: string;
+  readonly subject: string;
+  readonly body: string;
+  readonly format: MessageFormat;
+  readonly externalMessageId?: string;
+  readonly inReplyTo?: string;
+  readonly references: readonly string[];
+  readonly replyRoutingToken?: string;
+  readonly loopSignals: InboundLoopSignals;
+}
+
+const maxInboundReferences = 100;
+const maxThreadingLookups = 20;
+const maxLoopSignalCharacters = 998;
+const maxInboundDisplayNameCharacters = 200;
+const maxSupportAddresses = 32;
+const subjectMarkerPrefixPattern = /^[A-Z][A-Z0-9]{0,15}$/;
+const inboundSuppressingPrecedence = new Set([
+  "bulk",
+  "junk",
+  "list",
+  "auto_reply",
+  "auto-reply",
+]);
+
+function collapseHeaderText(value: string): string {
+  return value
+    .replace(/[\u0000-\u001F\u007F]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeInboundSubject(value: string, maximum: number): string {
+  const collapsed = collapseHeaderText(value);
+  const text = collapsed.length === 0 ? "(no subject)" : collapsed;
+  const points = [...text];
+  return points.length > maximum
+    ? points.slice(0, maximum).join("").trimEnd()
+    : text;
+}
+
+function normalizeInboundBody(value: string): string {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+}
+
+function normalizeInboundDisplayName(value: string): string | undefined {
+  const collapsed = collapseHeaderText(value);
+  if (collapsed.length === 0) {
+    return undefined;
+  }
+  return [...collapsed].slice(0, maxInboundDisplayNameCharacters).join("");
+}
+
+function snapshotLoopSignals(input: unknown): InboundLoopSignals {
+  if (input === undefined) {
+    return Object.freeze({});
+  }
+  const source = boundaryObject(input, "inbound email.loopSignals");
+  const signals: Record<string, string | boolean> = {};
+  for (const key of [
+    "autoSubmitted",
+    "precedence",
+    "autoResponseSuppress",
+    "listId",
+    "contentType",
+    "envelopeSender",
+  ] as const) {
+    const value = ownDataProperty(
+      source,
+      key,
+      `inbound email.loopSignals.${key}`,
+      true,
+    );
+    if (value === undefined) {
+      continue;
+    }
+    if (typeof value !== "string") {
+      throw new TypeError(`inbound email.loopSignals.${key} must be a string`);
+    }
+    signals[key] = value.slice(0, maxLoopSignalCharacters);
+  }
+  const autoReply = ownDataProperty(
+    source,
+    "autoReplyHeaderPresent",
+    "inbound email.loopSignals.autoReplyHeaderPresent",
+    true,
+  );
+  if (autoReply !== undefined) {
+    if (typeof autoReply !== "boolean") {
+      throw new TypeError(
+        "inbound email.loopSignals.autoReplyHeaderPresent must be a boolean",
+      );
+    }
+    signals.autoReplyHeaderPresent = autoReply;
+  }
+  return Object.freeze(signals) as InboundLoopSignals;
+}
+
+function snapshotInboundEmailInput(
+  input: unknown,
+  limits: SupportDeskLimits,
+): InboundEmailSnapshot {
+  const source = boundaryObject(input, "inbound email");
+  const field = (key: string): string => `inbound email.${key}`;
+  const readString = (key: string): string =>
+    boundaryString(ownDataProperty(source, key, field(key)), field(key));
+  const readIdentifier = (key: string): string => {
+    const value = readString(key);
+    requireIdentifier(value, field(key));
+    return value;
+  };
+  const readOptional = (key: string): unknown =>
+    ownDataProperty(source, key, field(key), true);
+
+  const channelId = readIdentifier("channelId");
+  const providerEventId = readIdentifier("providerEventId");
+  const ticketId = readIdentifier("ticketId");
+  const messageId = readIdentifier("messageId");
+  const correlationId = readIdentifier("correlationId");
+  const from = normalizeRequesterEmail(
+    readString("from"),
+    field("from"),
+  ) as string;
+  const rawName = readOptional("fromName");
+  const fromName =
+    rawName === undefined
+      ? undefined
+      : normalizeInboundDisplayName(boundaryString(rawName, field("fromName")));
+  const subject = normalizeInboundSubject(
+    readString("subject"),
+    limits.maxSubjectCharacters,
+  );
+  const body = normalizeInboundBody(readString("body"));
+  enforceLimit(body, "body", limits.maxMessageCharacters);
+  const rawFormat = readOptional("format");
+  if (
+    rawFormat !== undefined &&
+    rawFormat !== "plain_text" &&
+    rawFormat !== "markdown"
+  ) {
+    throw new TypeError(`${field("format")} must be plain_text or markdown`);
+  }
+  const format: MessageFormat = rawFormat ?? "plain_text";
+  const externalMessageId = normalizeInboundMessageId(
+    readOptional("externalMessageId"),
+  );
+  const inReplyTo = normalizeInboundMessageId(readOptional("inReplyTo"));
+  const rawReferences = readOptional("references");
+  const references: string[] = [];
+  if (rawReferences !== undefined) {
+    if (!Array.isArray(rawReferences)) {
+      throw new TypeError(`${field("references")} must be an array`);
+    }
+    const start = Math.max(0, rawReferences.length - maxInboundReferences);
+    for (let position = start; position < rawReferences.length; position += 1) {
+      const normalized = normalizeInboundMessageId(
+        ownDataProperty(
+          rawReferences,
+          position,
+          `${field("references")}[${position}]`,
+        ),
+      );
+      if (normalized !== undefined && !references.includes(normalized)) {
+        references.push(normalized);
+      }
+    }
+  }
+  const rawToken = readOptional("replyRoutingToken");
+  if (rawToken !== undefined && typeof rawToken !== "string") {
+    throw new TypeError(`${field("replyRoutingToken")} must be a string`);
+  }
+  const token = rawToken?.trim();
+  const replyRoutingToken =
+    token !== undefined && replyRoutingTokenPattern.test(token)
+      ? token
+      : undefined;
+  const loopSignals = snapshotLoopSignals(readOptional("loopSignals"));
+  return Object.freeze({
+    channelId,
+    providerEventId,
+    ticketId,
+    messageId,
+    correlationId,
+    from,
+    ...(fromName === undefined ? {} : { fromName }),
+    subject,
+    body,
+    format,
+    ...(externalMessageId === undefined ? {} : { externalMessageId }),
+    ...(inReplyTo === undefined ? {} : { inReplyTo }),
+    references: Object.freeze(references),
+    ...(replyRoutingToken === undefined ? {} : { replyRoutingToken }),
+    loopSignals,
+  });
+}
+
+/** Content fingerprint for one provider event; excludes host-minted IDs. */
+function inboundFingerprintPayload(input: InboundEmailSnapshot): unknown {
+  return {
+    type: "inbound_email",
+    channelId: input.channelId,
+    providerEventId: input.providerEventId,
+    from: input.from,
+    fromName: input.fromName ?? null,
+    subject: input.subject,
+    body: input.body,
+    format: input.format,
+    externalMessageId: input.externalMessageId ?? null,
+    inReplyTo: input.inReplyTo ?? null,
+    references: input.references,
+    replyRoutingToken: input.replyRoutingToken ?? null,
+    loopSignals: input.loopSignals,
+  };
+}
+
+function inboundSuppressionReason(
+  input: InboundEmailSnapshot,
+  supportAddresses: ReadonlySet<string>,
+): InboundSuppressionReason | undefined {
+  const signals = input.loopSignals;
+  const autoSubmitted = signals.autoSubmitted
+    ?.split(";")[0]
+    ?.trim()
+    .toLowerCase();
+  if (
+    autoSubmitted !== undefined &&
+    autoSubmitted.length > 0 &&
+    autoSubmitted !== "no"
+  ) {
+    return "auto_submitted";
+  }
+  const precedence = signals.precedence?.trim().toLowerCase();
+  if (
+    precedence !== undefined &&
+    inboundSuppressingPrecedence.has(precedence)
+  ) {
+    return "precedence";
+  }
+  if (signals.autoReplyHeaderPresent === true) {
+    return "auto_reply_header";
+  }
+  if (signals.envelopeSender !== undefined) {
+    const envelope = signals.envelopeSender.trim();
+    if (envelope.length === 0 || envelope === "<>") {
+      return "bounce";
+    }
+  }
+  const localPart = input.from.slice(0, input.from.indexOf("@")).toLowerCase();
+  if (localPart === "mailer-daemon") {
+    return "bounce";
+  }
+  const contentType = signals.contentType?.trim().toLowerCase();
+  if (
+    contentType !== undefined &&
+    (contentType.startsWith("multipart/report") ||
+      contentType.startsWith("message/delivery-status") ||
+      contentType.startsWith("message/disposition-notification"))
+  ) {
+    return "delivery_report";
+  }
+  if (supportAddresses.has(input.from.toLowerCase())) {
+    return "support_address_loop";
+  }
+  return undefined;
+}
+
+function inboundSenderAcknowledgementAllowed(
+  input: InboundEmailSnapshot,
+): boolean {
+  const suppress = (input.loopSignals.autoResponseSuppress ?? "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase());
+  if (
+    suppress.some(
+      (value) => value === "all" || value === "oof" || value === "autoreply",
+    )
+  ) {
+    return false;
+  }
+  return (input.loopSignals.listId ?? "").trim().length === 0;
+}
+
+function subjectMarkerNumbers(subject: string, prefix: string): number[] {
+  const pattern = new RegExp(`\\[${prefix}-([1-9][0-9]{0,15})\\]`, "g");
+  const found: number[] = [];
+  for (const match of subject.matchAll(pattern)) {
+    const value = Number(match[1]);
+    if (Number.isSafeInteger(value) && !found.includes(value)) {
+      found.push(value);
+    }
+  }
+  return found;
+}
+
+function threadingHeaderCandidates(input: InboundEmailSnapshot): string[] {
+  const ordered = [
+    ...(input.inReplyTo === undefined ? [] : [input.inReplyTo]),
+    ...[...input.references].reverse(),
+  ];
+  const unique: string[] = [];
+  for (const candidate of ordered) {
+    if (candidate !== input.externalMessageId && !unique.includes(candidate)) {
+      unique.push(candidate);
+    }
+    if (unique.length >= maxThreadingLookups) {
+      break;
+    }
+  }
+  return unique;
+}
+
+function sameAddress(left: string, right: string): boolean {
+  return left.toLowerCase() === right.toLowerCase();
+}
+
+/**
+ * A thread match joins only when the sender equals the ticket's recorded
+ * requester address. Without a recorded address, only an opaque routing
+ * token (delivered solely to the notification recipient) can join; a
+ * `Message-ID` or subject marker alone is never enough.
+ */
+function threadJoinIsSafe(
+  ticket: Ticket,
+  method: Exclude<InboundMatchMethod, "none">,
+  from: string,
+): boolean {
+  const email = ticket.requester.email;
+  if (email !== undefined) {
+    return sameAddress(email, from);
+  }
+  return method === "routing_token";
+}
+
+function snapshotSenderMatch(value: unknown): InboundSenderMatch {
+  const source = boundaryObject(value, "account matcher result");
+  const matches = ownDataProperty(
+    source,
+    "matches",
+    "account matcher result.matches",
+  );
+  if (matches === "none" || matches === "many") {
+    return Object.freeze({ matches });
+  }
+  if (matches === "one") {
+    const principalId = boundaryString(
+      ownDataProperty(
+        source,
+        "principalId",
+        "account matcher result.principalId",
+      ),
+      "account matcher result.principalId",
+    );
+    requireIdentifier(principalId, "account matcher result.principalId");
+    return Object.freeze({ matches, principalId });
+  }
+  throw new TypeError(
+    "account matcher result.matches must be none, one, or many",
+  );
+}
+
+function snapshotRoutingDecision(
+  value: unknown,
+  allowedCategories: ReadonlySet<string> | undefined,
+): InboundRoutingDecision {
+  const source = boundaryObject(value, "inbound routing decision");
+  const priority = ownDataProperty(
+    source,
+    "priority",
+    "inbound routing decision.priority",
+  );
+  if (priority !== "low" && priority !== "normal" && priority !== "high") {
+    throw new TypeError(
+      "inbound routing decision.priority must be low, normal, or high; inbound mail is never automatically urgent",
+    );
+  }
+  const category = snapshotCategory(
+    ownDataProperty(
+      source,
+      "category",
+      "inbound routing decision.category",
+      true,
+    ),
+    "inbound routing decision.category",
+  );
+  if (
+    category !== undefined &&
+    (allowedCategories === undefined || !allowedCategories.has(category))
+  ) {
+    throw new TypeError(
+      "inbound routing decision.category is not configured for this Support Desk instance",
+    );
+  }
+  return Object.freeze({
+    priority,
+    ...(category === undefined ? {} : { category }),
+  });
+}
+
+function inboundAuditAction(input: {
+  readonly commandId: string;
+  readonly correlationId: string;
+  readonly ticketId: TicketId;
+  readonly revision: number;
+  readonly occurredAt: IsoTimestamp;
+  readonly action:
+    | typeof supportTicketAuditActions.created
+    | typeof supportTicketAuditActions.customerReplied;
+  readonly matchMethod: InboundMatchMethod;
+  readonly association?: RequesterAssociation;
+}): ReturnType<typeof supportAudit.action> {
+  return supportAudit.action({
+    id: input.commandId,
+    occurredAt: input.occurredAt,
+    actor: { kind: "system", systemId: inboundEmailSystemActorId },
+    action: input.action,
+    subject: input.ticketId,
+    sequence: input.revision,
+    details: {
+      commandId: input.commandId,
+      correlationId: input.correlationId,
+      channel: "email",
+      matchMethod: input.matchMethod,
+      ...(input.association === undefined
+        ? {}
+        : { association: input.association }),
+    },
+  });
+}
+
+function inboundMessage(
+  input: InboundEmailSnapshot,
+  ticketId: TicketId,
+  messageId: MessageId,
+  now: IsoTimestamp,
+): TicketMessage {
+  // No authorPrincipalId: a sender address never authenticates authorship.
+  return {
+    id: messageId,
+    ticketId,
+    authorKind: "customer",
+    channel: "email",
+    visibility: "customer",
+    format: input.format,
+    body: input.body,
+    createdAt: now,
+    ...(input.externalMessageId === undefined
+      ? {}
+      : { externalMessageId: input.externalMessageId }),
+    ...(input.inReplyTo === undefined
+      ? {}
+      : { inReplyToExternalMessageId: input.inReplyTo }),
+  };
+}
+
+function inboundResult(
+  receipt: InboundReceipt,
+  duplicateDelivery: boolean,
+): InboundEmailResult {
+  const route = receipt.route;
+  return Object.freeze({
+    duplicateDelivery,
+    outcome: receipt.outcome ?? "rejected",
+    ...(receipt.ticketId === undefined ? {} : { ticketId: receipt.ticketId }),
+    ...(receipt.messageId === undefined
+      ? {}
+      : { messageId: receipt.messageId }),
+    ...(route?.kind === "reply" || route?.kind === "new_conversation"
+      ? { matchMethod: route.matchMethod }
+      : {}),
+    ...(route?.kind === "new_conversation"
+      ? {
+          association: route.association,
+          ...(route.relatedTicketId === undefined
+            ? {}
+            : { relatedTicketId: route.relatedTicketId }),
+        }
+      : {}),
+    ...(receipt.diagnostic === undefined ? {} : { reason: receipt.diagnostic }),
+  });
+}
+
+function parseSupportAddresses(input: unknown): ReadonlySet<string> {
+  const field = "inbound mail processor options.supportAddresses";
+  if (input === undefined) {
+    return new Set();
+  }
+  if (!Array.isArray(input)) {
+    throw new TypeError(`${field} must be an array`);
+  }
+  if (input.length > maxSupportAddresses) {
+    throw new TypeError(
+      `${field} may contain at most ${maxSupportAddresses} values`,
+    );
+  }
+  const addresses = new Set<string>();
+  for (let position = 0; position < input.length; position += 1) {
+    const entry = `${field}[${position}]`;
+    const value = normalizeRequesterEmail(
+      boundaryString(ownDataProperty(input, position, entry), entry),
+      entry,
+    ) as string;
+    addresses.add(value.toLowerCase());
+  }
+  return addresses;
+}
+
+type NewConversationRoute = Extract<
+  InboundReceiptRoute,
+  { readonly kind: "new_conversation" }
+>;
+type ReplyRoute = Extract<InboundReceiptRoute, { readonly kind: "reply" }>;
+
+interface InboundWork {
+  readonly key: EntityKey;
+  readonly input: InboundEmailSnapshot;
+  readonly messageId: MessageId;
+  readonly correlationId: string;
+  readonly commandId: string;
+  readonly fingerprint: string;
+  readonly duplicateDelivery: boolean;
+}
+
+/**
+ * Create the inbound mail processor a host's mail worker calls after it has
+ * verified provider authenticity and normalized bounded MIME content.
+ *
+ * Processing order: reserve the provider-event receipt with `insertIfAbsent`
+ * before any ticket work; suppress bounce and auto-reply loops; persist one
+ * routing decision on the receipt (routing token, then `In-Reply-To` /
+ * `References`, then subject marker, each confirmed against authoritative
+ * records); then create or reply in one ticket-partition transaction with
+ * its Audit event, command receipt, and optional notification; finally mark
+ * the receipt terminal and refresh the queue and threading projections.
+ */
+export function createInboundMailProcessor(
+  options: InboundMailProcessorOptions,
+): InboundMailProcessor {
+  const field = "inbound mail processor options";
+  const source = boundaryObject(options, field);
+  const read = (key: string, optional = false): unknown =>
+    ownDataProperty(source, key, `${field}.${key}`, optional);
+  const store = read("store") as Store;
+  const clock = read("clock") as Clock;
+  const rawLogger = read("logger", true);
+  const logger = rawLogger === undefined ? noopLogger : (rawLogger as Logger);
+  const accountMatcher = read("accountMatcher") as
+    InboundAccountMatcher | undefined;
+  const routingPolicy = read("routingPolicy") as
+    InboundRoutingPolicy | undefined;
+  const notificationPolicy = read("notificationPolicy", true) as
+    InboundNotificationPolicy | undefined;
+  if (
+    accountMatcher === undefined ||
+    accountMatcher === null ||
+    typeof accountMatcher.matchSenderEmail !== "function"
+  ) {
+    throw new TypeError(
+      `${field}.accountMatcher must provide matchSenderEmail()`,
+    );
+  }
+  if (
+    routingPolicy === undefined ||
+    routingPolicy === null ||
+    typeof routingPolicy.routeNewConversation !== "function"
+  ) {
+    throw new TypeError(
+      `${field}.routingPolicy must provide routeNewConversation()`,
+    );
+  }
+  if (
+    notificationPolicy !== undefined &&
+    (notificationPolicy === null ||
+      typeof notificationPolicy.notificationFor !== "function")
+  ) {
+    throw new TypeError(
+      `${field}.notificationPolicy must provide notificationFor()`,
+    );
+  }
+  const limits = resolveSupportDeskLimits(
+    read("limits", true),
+    `${field}.limits`,
+  );
+  const rawAttempts = read("maxConflictAttempts", true);
+  if (rawAttempts !== undefined && typeof rawAttempts !== "number") {
+    throw new TypeError("maxConflictAttempts must be between 1 and 20");
+  }
+  const maxConflictAttempts = (rawAttempts as number | undefined) ?? 4;
+  if (
+    !Number.isSafeInteger(maxConflictAttempts) ||
+    maxConflictAttempts <= 0 ||
+    maxConflictAttempts > 20
+  ) {
+    throw new TypeError("maxConflictAttempts must be between 1 and 20");
+  }
+  const rawTerminalRetention = read("queueTerminalRetentionMilliseconds", true);
+  if (
+    rawTerminalRetention !== undefined &&
+    typeof rawTerminalRetention !== "number"
+  ) {
+    throw new TypeError(
+      "queueTerminalRetentionMilliseconds must be a non-negative safe integer",
+    );
+  }
+  const terminalRetentionMilliseconds =
+    (rawTerminalRetention as number | undefined) ??
+    defaultQueueTerminalRetentionMilliseconds;
+  if (
+    !Number.isSafeInteger(terminalRetentionMilliseconds) ||
+    terminalRetentionMilliseconds < 0
+  ) {
+    throw new TypeError(
+      "queueTerminalRetentionMilliseconds must be a non-negative safe integer",
+    );
+  }
+  const rawThreadRetention = read("threadIndexRetentionMilliseconds", true);
+  const threadIndexRetentionMilliseconds =
+    rawThreadRetention === undefined
+      ? defaultThreadIndexRetentionMilliseconds
+      : parseRetentionMilliseconds(
+          rawThreadRetention,
+          `${field}.threadIndexRetentionMilliseconds`,
+        );
+  const allowedCategories = parseAllowedCategories(
+    read("allowedCategories", true),
+    `${field}.allowedCategories`,
+  );
+  const rawPrefix = read("subjectMarkerPrefix", true);
+  if (
+    rawPrefix !== undefined &&
+    (typeof rawPrefix !== "string" ||
+      !subjectMarkerPrefixPattern.test(rawPrefix))
+  ) {
+    throw new TypeError(
+      `${field}.subjectMarkerPrefix must match ${subjectMarkerPrefixPattern.source}`,
+    );
+  }
+  const subjectMarkerPrefix = rawPrefix as string | undefined;
+  const supportAddresses = parseSupportAddresses(
+    read("supportAddresses", true),
+  );
+
+  const records = store.collection(supportRecords);
+  const receipts = store.collection(inboundReceipts);
+  const numbers = store.collection(ticketNumbers);
+  const index = store.collection(threadIndex);
+
+  async function finishReceipt(
+    work: InboundWork,
+    terminal: {
+      readonly status: "processed" | "rejected";
+      readonly outcome: InboundEmailOutcome;
+      readonly ticketId?: TicketId;
+      readonly messageId?: MessageId;
+      readonly diagnostic?: string;
+    },
+  ): Promise<InboundEmailResult> {
+    const processedAt = clock.now();
+    canonicalTimestamp(processedAt, "clock.now()");
+    const result = await receipts.update(
+      work.key,
+      (current) => {
+        if (current === null) {
+          throw new SupportDeskConflictError(
+            "Inbound receipt disappeared before it was finalized",
+          );
+        }
+        if (current.status !== "processing") {
+          return { action: "keep" };
+        }
+        return {
+          action: "write",
+          value: {
+            ...current,
+            status: terminal.status,
+            outcome: terminal.outcome,
+            processedAt,
+            ...(terminal.ticketId === undefined
+              ? {}
+              : { ticketId: terminal.ticketId }),
+            ...(terminal.messageId === undefined
+              ? {}
+              : { messageId: terminal.messageId }),
+            ...(terminal.diagnostic === undefined
+              ? {}
+              : { diagnostic: terminal.diagnostic }),
+          },
+        };
+      },
+      { maxAttempts: maxConflictAttempts },
+    );
+    if (result.value === null) {
+      throw new SupportDeskConflictError(
+        "Inbound receipt disappeared before it was finalized",
+      );
+    }
+    return inboundResult(result.value, work.duplicateDelivery);
+  }
+
+  async function afterInboundCommit(
+    ticketId: TicketId,
+    messageId: MessageId,
+    ticketNumber: boolean,
+  ): Promise<void> {
+    try {
+      await projectTicketToQueue(ticketId, {
+        store,
+        clock,
+        terminalRetentionMilliseconds,
+        maxConflictAttempts,
+      });
+    } catch (error) {
+      safeLog(logger, "error", "support-desk.queue.projection_failed", {
+        ticketId,
+        message:
+          error instanceof Error ? error.message : "queue projection failed",
+      });
+    }
+    await indexThreadingAfterCommit(
+      store,
+      ticketId,
+      { messageId, ticketNumber },
+      logger,
+    );
+  }
+
+  async function inboundNotification(
+    context: InboundNotificationContext,
+  ): Promise<NotificationInput | undefined> {
+    if (notificationPolicy === undefined) {
+      return undefined;
+    }
+    const proposed = await notificationPolicy.notificationFor(
+      Object.freeze({ ...context }),
+    );
+    if (proposed === undefined) {
+      return undefined;
+    }
+    return bindNotificationTicketNumber(
+      snapshotNotification(proposed),
+      context.ticketNumber,
+    );
+  }
+
+  async function proposeRoute(
+    input: InboundEmailSnapshot,
+    reservedTicketId: TicketId,
+  ): Promise<InboundReceiptRoute> {
+    const reason = inboundSuppressionReason(input, supportAddresses);
+    if (reason !== undefined) {
+      return { kind: "suppressed", reason };
+    }
+    const nowEpoch = canonicalTimestamp(clock.now(), "clock.now()");
+    const lookup = (kind: ThreadIndexKind, key: string) =>
+      lookupThreadEntry(
+        records,
+        index,
+        kind,
+        key,
+        nowEpoch,
+        threadIndexRetentionMilliseconds,
+      );
+
+    // The same Message-ID delivered under another provider event is the
+    // same message, provided it came from the same requester address.
+    if (input.externalMessageId !== undefined) {
+      const own = await lookup(
+        "message_id",
+        await messageIdIndexKey(input.externalMessageId),
+      );
+      if (
+        own !== null &&
+        own.entry.source === "inbound" &&
+        own.entry.messageId !== undefined &&
+        (own.ticket.requester.email === undefined ||
+          sameAddress(own.ticket.requester.email, input.from))
+      ) {
+        return {
+          kind: "duplicate_message",
+          ticketId: own.ticket.id,
+          messageId: own.entry.messageId,
+        };
+      }
+    }
+
+    let candidate:
+      | {
+          readonly ticket: Ticket;
+          readonly method: Exclude<InboundMatchMethod, "none">;
+        }
+      | undefined;
+    let ambiguous = false;
+    if (input.replyRoutingToken !== undefined) {
+      const hit = await lookup(
+        "reply_token",
+        await replyTokenIndexKey(input.replyRoutingToken),
+      );
+      if (hit !== null) {
+        candidate = { ticket: hit.ticket, method: "routing_token" };
+      }
+    }
+    if (candidate === undefined) {
+      const found: Ticket[] = [];
+      for (const header of threadingHeaderCandidates(input)) {
+        const hit = await lookup("message_id", await messageIdIndexKey(header));
+        if (
+          hit !== null &&
+          !found.some((ticket) => ticket.id === hit.ticket.id)
+        ) {
+          found.push(hit.ticket);
+        }
+      }
+      const first = found[0];
+      if (first !== undefined) {
+        candidate = { ticket: first, method: "message_id" };
+        ambiguous = found.length > 1;
+      }
+    }
+    if (candidate === undefined && subjectMarkerPrefix !== undefined) {
+      const markers = subjectMarkerNumbers(input.subject, subjectMarkerPrefix);
+      const only = markers.length === 1 ? markers[0] : undefined;
+      if (only !== undefined) {
+        const hit = await lookup("ticket_number", ticketNumberIndexKey(only));
+        if (hit !== null) {
+          candidate = { ticket: hit.ticket, method: "subject_marker" };
+        }
+      }
+    }
+    if (
+      candidate !== undefined &&
+      !ambiguous &&
+      candidate.ticket.id !== reservedTicketId &&
+      threadJoinIsSafe(candidate.ticket, candidate.method, input.from)
+    ) {
+      return {
+        kind: "reply",
+        ticketId: candidate.ticket.id,
+        matchMethod: candidate.method,
+      };
+    }
+
+    const match = snapshotSenderMatch(
+      await accountMatcher!.matchSenderEmail(
+        Object.freeze({ channelId: input.channelId, email: input.from }),
+      ),
+    );
+    const association =
+      match.matches === "one" ? "matched_email" : "unverified";
+    const relatedTicketId =
+      candidate !== undefined && candidate.ticket.id !== reservedTicketId
+        ? candidate.ticket.id
+        : undefined;
+    const decision = snapshotRoutingDecision(
+      await routingPolicy!.routeNewConversation(
+        Object.freeze({
+          channelId: input.channelId,
+          association,
+          ...(match.matches === "one"
+            ? { principalId: match.principalId }
+            : {}),
+          ...(relatedTicketId === undefined ? {} : { relatedTicketId }),
+        }),
+      ),
+      allowedCategories,
+    );
+    return {
+      kind: "new_conversation",
+      ticketId: reservedTicketId,
+      matchMethod: candidate?.method ?? "none",
+      association,
+      ...(match.matches === "one" ? { principalId: match.principalId } : {}),
+      priority: decision.priority,
+      ...(decision.category === undefined
+        ? {}
+        : { category: decision.category }),
+      ...(relatedTicketId === undefined ? {} : { relatedTicketId }),
+    };
+  }
+
+  async function decideRoute(
+    key: EntityKey,
+    stored: InboundReceipt,
+    input: InboundEmailSnapshot,
+    reservedTicketId: TicketId,
+  ): Promise<InboundReceipt> {
+    if (stored.route !== undefined) {
+      return stored;
+    }
+    const proposed = await proposeRoute(input, reservedTicketId);
+    const result = await receipts.update(
+      key,
+      (current) => {
+        if (current === null) {
+          throw new SupportDeskConflictError(
+            "Inbound receipt disappeared before routing",
+          );
+        }
+        if (current.status !== "processing" || current.route !== undefined) {
+          return { action: "keep" };
+        }
+        return { action: "write", value: { ...current, route: proposed } };
+      },
+      { maxAttempts: maxConflictAttempts },
+    );
+    if (
+      result.value === null ||
+      (result.value.status === "processing" && result.value.route === undefined)
+    ) {
+      throw new SupportDeskConflictError(
+        "Inbound routing decision was not stored",
+      );
+    }
+    return result.value;
+  }
+
+  async function createConversation(
+    work: InboundWork,
+    route: NewConversationRoute,
+  ): Promise<InboundEmailResult> {
+    const { input, messageId, commandId, fingerprint } = work;
+    const ticketId = route.ticketId;
+    const existing = await records.get(commandKey(ticketId, commandId));
+    if (existing !== null) {
+      if (
+        !duplicateMatches(
+          existing,
+          "inbound_email_create",
+          messageId,
+          fingerprint,
+        )
+      ) {
+        throw new SupportDeskConflictError();
+      }
+    } else {
+      // ticket, quota, message, audit, command, and an optional delivery job.
+      enforcePartitionRecordLimit(0, limits.maxRecordsPerTicket, 6);
+      // Reserved outside the ticket transaction; a failed create leaves a gap.
+      const ticketNumber = await reserveNextTicketNumber(
+        numbers,
+        maxConflictAttempts,
+      );
+      const now = clock.now();
+      const displayName =
+        input.fromName === undefined ? {} : { displayName: input.fromName };
+      const ticket = createTicket({
+        id: ticketId,
+        number: ticketNumber,
+        subject: input.subject,
+        channel: "email",
+        priority: route.priority,
+        ...(route.category === undefined ? {} : { category: route.category }),
+        requester:
+          route.association === "matched_email"
+            ? {
+                association: "matched_email",
+                principalId: route.principalId as PrincipalId,
+                email: input.from,
+                ...displayName,
+              }
+            : { association: "unverified", email: input.from, ...displayName },
+        createdAt: now,
+        ...(route.relatedTicketId === undefined
+          ? {}
+          : { relatedTicketId: route.relatedTicketId }),
+      });
+      const notification = await inboundNotification({
+        outcome: "created",
+        channelId: input.channelId,
+        ticketId,
+        ticketNumber,
+        messageId,
+        association: route.association,
+        matchMethod: route.matchMethod,
+        senderAcknowledgementAllowed:
+          inboundSenderAcknowledgementAllowed(input),
+      });
+      const notificationContent = deliveryContent(notification);
+      const actions: Parameters<typeof records.transact>[1] = [
+        {
+          action: "insert",
+          value: { kind: "ticket", partition: ticketId, id: "ticket", ticket },
+        },
+        {
+          action: "insert",
+          value: {
+            kind: "ticket_quota",
+            partition: ticketId,
+            id: "quota",
+            messageCount: 1,
+          },
+        },
+        {
+          action: "insert",
+          value: {
+            kind: "message",
+            partition: ticketId,
+            id: `message:${messageId}`,
+            ordinal: ticket.revision,
+            message: inboundMessage(input, ticketId, messageId, now),
+            ...(notificationContent === undefined
+              ? {}
+              : { deliveryContent: notificationContent }),
+          },
+        },
+        inboundAuditAction({
+          commandId,
+          correlationId: work.correlationId,
+          ticketId,
+          revision: ticket.revision,
+          occurredAt: now,
+          action: supportTicketAuditActions.created,
+          matchMethod: route.matchMethod,
+          association: route.association,
+        }),
+        {
+          action: "insert",
+          value: {
+            kind: "command",
+            partition: ticketId,
+            id: `command:${commandId}`,
+            commandId,
+            commandType: "inbound_email_create",
+            messageId,
+            requestFingerprint: fingerprint,
+            completedAt: now,
+          },
+        },
+        ...(notification === undefined
+          ? []
+          : [deliveryJobAction(ticketId, messageId, now, notification)]),
+      ];
+      enforcePartitionRecordLimit(
+        0,
+        limits.maxRecordsPerTicket,
+        actions.length,
+      );
+      const outcome = await records.transact(ticketId, actions);
+      if (!outcome.committed) {
+        const raced = await records.get(commandKey(ticketId, commandId));
+        if (
+          !duplicateMatches(
+            raced,
+            "inbound_email_create",
+            messageId,
+            fingerprint,
+          )
+        ) {
+          throw new SupportDeskConflictError();
+        }
+      }
+    }
+    const result = await finishReceipt(work, {
+      status: "processed",
+      outcome: "created",
+      ticketId,
+      messageId,
+    });
+    await afterInboundCommit(ticketId, messageId, true);
+    return result;
+  }
+
+  async function appendReply(
+    work: InboundWork,
+    route: ReplyRoute,
+  ): Promise<InboundEmailResult> {
+    const { input, messageId, commandId, fingerprint } = work;
+    const ticketId = route.ticketId;
+    const completed = async (): Promise<InboundEmailResult> => {
+      const result = await finishReceipt(work, {
+        status: "processed",
+        outcome: "replied",
+        ticketId,
+        messageId,
+      });
+      await afterInboundCommit(ticketId, messageId, false);
+      return result;
+    };
+    const rejected = (diagnostic: string): Promise<InboundEmailResult> =>
+      finishReceipt(work, {
+        status: "rejected",
+        outcome: "rejected",
+        diagnostic,
+      });
+
+    for (let attempt = 1; attempt <= maxConflictAttempts; attempt += 1) {
+      const duplicate = await records.get(commandKey(ticketId, commandId));
+      if (duplicate !== null) {
+        if (
+          !duplicateMatches(
+            duplicate,
+            "inbound_email_reply",
+            messageId,
+            fingerprint,
+          )
+        ) {
+          throw new SupportDeskConflictError();
+        }
+        return completed();
+      }
+      const versioned = await records.getVersioned(ticketKey(ticketId));
+      if (versioned?.value.kind !== "ticket") {
+        return rejected("ticket_unavailable");
+      }
+      const ticket = versioned.value.ticket;
+      const partitionRows = await records.list(ticketId);
+      if (input.externalMessageId !== undefined) {
+        const prior = partitionRows.find(
+          (row): row is MessageRecord =>
+            row.kind === "message" &&
+            row.message.channel === "email" &&
+            row.message.authorKind === "customer" &&
+            row.message.externalMessageId === input.externalMessageId,
+        );
+        if (prior !== undefined) {
+          return finishReceipt(work, {
+            status: "processed",
+            outcome: "duplicate_message",
+            ticketId,
+            messageId: prior.message.id,
+          });
+        }
+      }
+      const quota = await records.getVersioned(ticketQuotaKey(ticketId));
+      if (quota?.value.kind !== "ticket_quota") {
+        throw new SupportDeskConflictError(
+          "Ticket partition quota metadata is missing",
+        );
+      }
+      if (quota.value.messageCount >= limits.maxMessagesPerTicket) {
+        return rejected("ticket_messages_limit");
+      }
+      const notification = await inboundNotification({
+        outcome: "replied",
+        channelId: input.channelId,
+        ticketId,
+        ticketNumber: ticket.number,
+        messageId,
+        association: ticket.requester.association,
+        matchMethod: route.matchMethod,
+        ...(ticket.assignedTo === undefined
+          ? {}
+          : { assignedTo: ticket.assignedTo }),
+        senderAcknowledgementAllowed:
+          inboundSenderAcknowledgementAllowed(input),
+      });
+      if (
+        partitionRows.length + (notification === undefined ? 3 : 4) >
+        limits.maxRecordsPerTicket
+      ) {
+        return rejected("ticket_partition_limit");
+      }
+      const now = clampTicketTime(clock.now(), ticket.updatedAt);
+      // Customer-reply semantics: any status, including resolved or closed,
+      // moves to waiting_on_support. No actor: email is not authentication.
+      const updated = applyTicketEvent(ticket, {
+        type: "customer_replied",
+        occurredAt: now,
+      });
+      const notificationContent = deliveryContent(notification);
+      const outcome = await records.transact(ticketId, [
+        {
+          action: "putIfUnchanged",
+          version: versioned.version,
+          value: { ...versioned.value, ticket: updated },
+        },
+        {
+          action: "putIfUnchanged",
+          version: quota.version,
+          value: {
+            ...quota.value,
+            messageCount: quota.value.messageCount + 1,
+          },
+        },
+        {
+          action: "insert",
+          value: {
+            kind: "message",
+            partition: ticketId,
+            id: `message:${messageId}`,
+            ordinal: updated.revision,
+            message: inboundMessage(input, ticketId, messageId, now),
+            ...(notificationContent === undefined
+              ? {}
+              : { deliveryContent: notificationContent }),
+          },
+        },
+        inboundAuditAction({
+          commandId,
+          correlationId: work.correlationId,
+          ticketId,
+          revision: updated.revision,
+          occurredAt: now,
+          action: supportTicketAuditActions.customerReplied,
+          matchMethod: route.matchMethod,
+        }),
+        {
+          action: "insert",
+          value: {
+            kind: "command",
+            partition: ticketId,
+            id: `command:${commandId}`,
+            commandId,
+            commandType: "inbound_email_reply",
+            messageId,
+            requestFingerprint: fingerprint,
+            completedAt: now,
+          },
+        },
+        ...(notification === undefined
+          ? []
+          : [deliveryJobAction(ticketId, messageId, now, notification)]),
+      ]);
+      if (outcome.committed) {
+        return completed();
+      }
+    }
+    const last = await records.get(commandKey(ticketId, commandId));
+    if (duplicateMatches(last, "inbound_email_reply", messageId, fingerprint)) {
+      return completed();
+    }
+    throw new SupportDeskConflictError();
+  }
+
+  return Object.freeze({
+    async processInboundEmail(
+      rawInput: InboundEmailInput,
+    ): Promise<InboundEmailResult> {
+      const input = snapshotInboundEmailInput(rawInput, limits);
+      const fingerprint = await requestFingerprint(
+        inboundFingerprintPayload(input),
+      );
+      const location = await inboundReceiptLocation(
+        input.channelId,
+        input.providerEventId,
+      );
+      const key: EntityKey = {
+        partition: location.bucket,
+        id: receiptSlotId(location.slot, "inbound receipt slot"),
+      };
+      const receivedAt = clock.now();
+      canonicalTimestamp(receivedAt, "clock.now()");
+      const inserted = await receipts.insertIfAbsent({
+        bucket: location.bucket,
+        slot: location.slot,
+        channelId: input.channelId,
+        providerEventId: input.providerEventId,
+        ...(input.externalMessageId === undefined
+          ? {}
+          : { externalMessageId: input.externalMessageId }),
+        payloadFingerprint: fingerprint,
+        status: "processing",
+        receivedAt,
+        reservedTicketId: input.ticketId,
+        reservedMessageId: input.messageId,
+        correlationId: input.correlationId,
+      });
+      const stored = inserted.value;
+      if (
+        stored.channelId !== input.channelId ||
+        stored.providerEventId !== input.providerEventId
+      ) {
+        throw new SupportDeskConflictError(
+          "An inbound receipt hash slot collided with a different provider event",
+        );
+      }
+      if (stored.payloadFingerprint !== fingerprint) {
+        throw new SupportDeskConflictError(
+          "An inbound provider event ID was reused for different content",
+        );
+      }
+      const duplicateDelivery = !inserted.inserted;
+      if (stored.status !== "processing") {
+        return inboundResult(stored, duplicateDelivery);
+      }
+      const reservedTicketId = stored.reservedTicketId;
+      const reservedMessageId = stored.reservedMessageId;
+      const correlationId = stored.correlationId;
+      if (
+        reservedTicketId === undefined ||
+        reservedMessageId === undefined ||
+        correlationId === undefined
+      ) {
+        throw new SupportDeskConflictError(
+          "Inbound receipt is missing its reserved identifiers",
+        );
+      }
+      const decided = await decideRoute(key, stored, input, reservedTicketId);
+      if (decided.status !== "processing") {
+        return inboundResult(decided, duplicateDelivery);
+      }
+      const route = decided.route as InboundReceiptRoute;
+      const work: InboundWork = {
+        key,
+        input,
+        messageId: reservedMessageId,
+        correlationId,
+        // Stable per provider event and independent of retry identifiers.
+        commandId: `inbound:${location.bucket.slice(-30)}${location.slot}`,
+        fingerprint,
+        duplicateDelivery,
+      };
+      switch (route.kind) {
+        case "suppressed":
+          return finishReceipt(work, {
+            status: "rejected",
+            outcome: "suppressed",
+            diagnostic: route.reason,
+          });
+        case "duplicate_message":
+          return finishReceipt(work, {
+            status: "processed",
+            outcome: "duplicate_message",
+            ticketId: route.ticketId,
+            messageId: route.messageId,
+          });
+        case "new_conversation":
+          return createConversation(work, route);
+        case "reply":
+          return appendReply(work, route);
+      }
+    },
+  });
 }

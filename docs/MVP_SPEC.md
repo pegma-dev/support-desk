@@ -284,6 +284,14 @@ Mail sent directly to the support address creates a ticket. The mail adapter:
 
 Multiple account matches must be treated as unverified rather than guessed.
 
+Steps 1 and 3 belong to the host adapter. Support Desk performs steps 2 and
+4 through 9 in `createInboundMailProcessor`: it reserves the receipt,
+re-normalizes control characters, enforces the subject and body limits, calls
+the host account matcher and routing policy, and commits the ticket, first
+message, Audit event, and optional staff notification in one ticket-partition
+transaction. The routing policy never sees the subject or body and cannot
+assign `urgent`.
+
 ### Reply to an existing ticket
 
 Thread matching uses, in order:
@@ -301,8 +309,35 @@ The message headers follow the threading fields defined by
 A subject ticket number is useful to people but is not authorization and is
 insufficient by itself to expose or modify an account.
 
+A match is safe to join only when the sender address equals the ticket's
+recorded requester address. When the ticket has no recorded address, only a
+valid routing token may join it. Routing tokens and `Message-ID` rows expire
+with the configured threading retention.
+
 If matching is ambiguous or unsafe, the adapter creates a new unverified ticket
-and links the possible relationship for staff review.
+and links the possible relationship for staff review. The link is the
+staff-only `relatedTicketId` field: never authorization, never merge
+evidence, and never part of a customer view.
+
+A confirmed reply is a customer reply: it moves any ticket, including a
+resolved or closed one, to `waiting_on_support`.
+
+### Loops, bounces, and auto-replies
+
+Inbound processing records a suppressed receipt and creates no ticket or
+message when any of these signals is present:
+
+- `Auto-Submitted` with any value other than `no`
+  ([RFC 3834](https://www.rfc-editor.org/rfc/rfc3834));
+- `Precedence: bulk`, `junk`, `list`, or `auto_reply`;
+- an `X-Autoreply`/`X-Autorespond`-style header (reported by the host);
+- a null SMTP envelope sender or a `mailer-daemon` sender;
+- a `multipart/report`, delivery-status, or disposition-notification body;
+- a sender equal to one of the instance's own support addresses.
+
+`X-Auto-Response-Suppress` (`All`, `OOF`, `AutoReply`) and `List-Id` keep the
+message but tell the host not to acknowledge the sender. Suppressed mail never
+triggers a notification, so a loop cannot grow the conversation.
 
 ### Deduplication
 
@@ -321,7 +356,11 @@ the existing receipt, which names the ticket and message the first delivery
 produced. Terminal receipts are retained against trusted processing time for
 the deduplication horizon and reclaimed with a version-conditional sweep.
 
-Provider retries must not create duplicate tickets or messages.
+Provider retries must not create duplicate tickets or messages. A retry
+resumes the first delivery's reserved ticket and message identifiers and its
+persisted routing decision, even after a crash. The same `Message-ID`
+delivered under a different provider event from the same requester collapses
+into the already recorded message.
 
 ## Message content
 

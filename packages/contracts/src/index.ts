@@ -61,6 +61,13 @@ export interface Ticket {
   readonly customerUpdatedAt: IsoTimestamp;
   readonly resolvedAt?: IsoTimestamp;
   readonly closedAt?: IsoTimestamp;
+  /**
+   * Staff-review hint only. Set when inbound email named an existing ticket
+   * (routing token, threading header, or subject marker) that could not be
+   * joined safely, so a new unverified ticket was created instead. Never
+   * authorization, ownership, or merge evidence, and never customer-visible.
+   */
+  readonly relatedTicketId?: TicketId;
 }
 
 export type MessageAuthorKind = "customer" | "staff" | "system";
@@ -97,6 +104,8 @@ export interface CreateTicketInput {
   readonly category?: string;
   readonly requester: TicketRequester;
   readonly createdAt: IsoTimestamp;
+  /** Optional staff-review hint; see {@link Ticket.relatedTicketId}. */
+  readonly relatedTicketId?: TicketId;
 }
 
 interface TicketEventBase {

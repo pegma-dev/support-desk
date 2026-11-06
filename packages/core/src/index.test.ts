@@ -65,6 +65,37 @@ describe("createTicket", () => {
     expect(created.updatedAt).toBe(created.createdAt);
   });
 
+  it("preserves a staff-review related ticket hint through transitions", () => {
+    const created = createTicket({
+      id: "ticket-2",
+      number: 1002,
+      subject: "Re: Cannot access my subscription",
+      channel: "email",
+      priority: "low",
+      requester: { association: "unverified", email: "other@example.org" },
+      createdAt: "2026-07-24T13:00:00.000Z",
+      relatedTicketId: "ticket-1",
+    });
+    expect(created.relatedTicketId).toBe("ticket-1");
+    const replied = applyTicketEvent(created, {
+      type: "customer_replied",
+      occurredAt: "2026-07-24T13:05:00.000Z",
+    });
+    expect(replied.relatedTicketId).toBe("ticket-1");
+    expect(() =>
+      createTicket({
+        id: "ticket-3",
+        number: 1003,
+        subject: "Self link",
+        channel: "email",
+        requester: { association: "unverified", email: "other@example.org" },
+        createdAt: "2026-07-24T13:00:00.000Z",
+        relatedTicketId: "ticket-3",
+      }),
+    ).toThrow(/different ticket/);
+    expect(ticket().relatedTicketId).toBeUndefined();
+  });
+
   it("requires association evidence appropriate to the requester", () => {
     expect(() =>
       createTicket({

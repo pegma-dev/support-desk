@@ -11,7 +11,10 @@ registry on 2026-07-29 and released as the signed `v0.1.0` tag. The `0.1.1`
 set is prepared, aligning `@pegma/audit` at `0.2.0`, `@pegma/authorization-core`
 at `0.2.0`, and `@pegma/mail` at `0.1.1` so the dependency tree resolves a
 single `@pegma/storage-core@0.4.0`. Host deployments (Buildout Tasks 7–8) are
-unblocked.
+unblocked. The Support Desk slice of Buildout Task 11 (inbound mail
+processing, the reserved receipt lifecycle, and threading indexes) is
+implemented in source and awaits a future synchronized release; provider
+adapters remain host work.
 
 **Initial reference applications:** retiregolden.org for paid customer support
 on Azure, and pegma.dev for authenticated product feedback on Cloudflare. The
@@ -96,6 +99,12 @@ outbound-mail integration:
   cursors independently after each complete page. Physical keys, conditional
   claims, submission generations, and provider idempotency keys remain
   authoritative.
+- `createInboundMailProcessor` (Buildout Task 11) accepts verified,
+  provider-neutral inbound mail, reserves the provider-event receipt before
+  ticket work, suppresses bounce and auto-reply loops, and routes by opaque
+  reply token, `In-Reply-To`/`References`, then subject marker through the
+  key-lookup `support-desk.thread-index.v1`. Account-email matching and
+  routing priority are host ports; an email match never authenticates.
 
 The staff queue projection and host-neutral release candidate are implemented
 in source (Buildout Tasks 5–6): public integration tests, the memory-backed
@@ -318,15 +327,20 @@ provider outage, and retries do not duplicate customer messages.
 
 **Goal:** Turn direct and reply email into safe queue messages.
 
-- Select an inbound mail provider for the reference deployment.
-- Verify provider events and constrain payload size.
-- Normalize MIME into canonical message content.
-- Implement opaque reply routing and standards-based threading headers.
-- Add subject marker fallback without treating ticket numbers as secrets.
-- Deduplicate provider retries and external message IDs.
-- Add account-email matching as a host port.
-- Route unmatched and ambiguous senders to the low-priority unverified queue.
-- Detect bounces, delivery failures, and auto-reply loops.
+- [ ] Select an inbound mail provider for the reference deployment (host).
+- [ ] Verify provider events and constrain payload size (host adapter).
+- [ ] Normalize MIME into canonical message content (host adapter; Support
+      Desk re-normalizes controls and enforces subject/body limits).
+- [x] Implement opaque reply routing and standards-based threading headers.
+- [x] Add subject marker fallback without treating ticket numbers as secrets.
+- [x] Deduplicate provider retries and external message IDs.
+- [x] Add account-email matching as a host port.
+- [x] Route unmatched and ambiguous senders to the low-priority unverified
+      queue (priority comes from the host routing policy).
+- [x] Detect bounces, delivery failures, and auto-reply loops.
+
+Progress: the Support Desk package slice is implemented (see Buildout Task
+11). The unchecked items are per-host adapter work.
 
 **Exit criterion:** Replies join the correct ticket, direct unknown mail creates
 one unverified ticket, duplicate deliveries are harmless, and email matching
@@ -559,8 +573,18 @@ Execute [`BUILDOUT.md`](BUILDOUT.md) in order:
 8. integrate pegma.dev feedback;
 9. build the two isolated staff surfaces;
 10. operate each host's outbound provider;
-11. implement inbound mail;
+11. implement inbound mail (Support Desk slice implemented; host adapters
+    remain);
 12. complete the first production-ready release.
+
+After the launch definition, the post-MVP queue in
+[`BUILDOUT.md`](BUILDOUT.md#post-mvp-queue) sequences the remaining
+full-featured support-desk work: lifecycle extras (tags beyond the category
+allowlist, response-target hooks, collision hints), attachments through a
+host blob port, staff-only audited canned responses and macros, customer
+self-service contract polish, rate-limit and abuse composition notes, and
+optional staff-only AI triage and drafts behind explicit human approval.
+Each remains one pull request and stays inside the boundaries above.
 
 One numbered Buildout task is one pull request. Do not parallelize adjacent
 tasks that change the same public contract or durable record union.

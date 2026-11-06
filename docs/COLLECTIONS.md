@@ -6,15 +6,15 @@ implement a backend.
 This file names both implemented and approved planned layouts so an
 implementation agent does not invent another access path:
 
-| Collection                                   | State                                                     |
-| -------------------------------------------- | --------------------------------------------------------- |
-| `support-desk.records.v1`                    | Implemented                                               |
-| `support-desk.customer-ticket-index.v1`      | Implemented                                               |
-| `support-desk.inbound-receipts.v1`           | Declared and tested; processing arrives with inbound mail |
-| `support-desk.delivery-callback-receipts.v1` | Implemented                                               |
-| `support-desk.ticket-numbers.v1`             | Implemented                                               |
-| `support-desk.queue-index.v1`                | Implemented                                               |
-| Inbound threading indexes                    | Not declared until Buildout Task 11                       |
+| Collection                                   | State                          |
+| -------------------------------------------- | ------------------------------ |
+| `support-desk.records.v1`                    | Implemented                    |
+| `support-desk.customer-ticket-index.v1`      | Implemented                    |
+| `support-desk.inbound-receipts.v1`           | Implemented (Buildout Task 11) |
+| `support-desk.delivery-callback-receipts.v1` | Implemented                    |
+| `support-desk.ticket-numbers.v1`             | Implemented                    |
+| `support-desk.queue-index.v1`                | Implemented                    |
+| `support-desk.thread-index.v1`               | Implemented (Buildout Task 11) |
 
 The approved target is not permission to create all planned collections at
 once. A collection is added only in its named task with its codec, limits,
@@ -33,7 +33,8 @@ ID. One partition contains:
   an immutable Support-owned outbound-content snapshot when applicable;
 - `audit|<event-id>`: `@pegma/audit@0.1.0` accepted-change events keyed by
   `auditRecordId(event.id)` (command ID is the event ID);
-- `command:<command-id>`: idempotency receipts with request fingerprints;
+- `command:<command-id>`: idempotency receipts with request fingerprints
+  (inbound mail uses `inbound:<receipt location>` command IDs);
 - `delivery:<notification-id>`: durable outbound jobs.
 
 This layout is load-bearing. It lets a customer state change, its canonical
@@ -118,9 +119,9 @@ transaction as the ticket. A concurrent prune likewise only advances the
 fence generation. Stale creates and prunes can therefore never overtake newer
 fences, so pruning cannot hide a committed ticket or free in-flight capacity.
 
-`support-desk.inbound-receipts.v1` reserves the Phase 7 provider-event
-deduplication contract; this does not claim inbound mail processing is
-implemented. Its declared layout already hashes channel and provider event ID
+`support-desk.inbound-receipts.v1` is the provider-event deduplication
+contract for inbound mail (lifecycle below). Its layout hashes channel and
+provider event ID
 with SHA-256 and uses the same 120-bit bucket plus 8-bit slot pattern as
 delivery callbacks. A partition therefore has exactly 256 possible keys
 instead of growing with every message received by a channel. Receipts carry
@@ -149,7 +150,7 @@ delayed event cannot mutate a newer submission. Generic mail state uses trusted
 processing time; provider `occurredAt` remains evidence and cannot schedule a
 retry or accelerate deletion.
 
-## Ticket numbers
+## Ticket number reservation
 
 Buildout Task 3 declares `support-desk.ticket-numbers.v1` with one
 `{ lastIssued }` counter record at constant partition `instance` and ID
@@ -164,6 +165,79 @@ already committed ticket and never reserves a replacement.
 Numbers are instance-scoped display values. RetireGolden and pegma.dev may both
 have ticket `1042`; their separate stores and subject markers distinguish them.
 A number is never a lookup capability or authorization fact.
+
+## Inbound receipts and the threading index
+
+Buildout Task 11 implements inbound processing on top of the reserved
+receipt layout and declares one more collection.
+
+### Inbound receipt lifecycle
+
+`createInboundMailProcessor(...).processInboundEmail` writes the
+`support-desk.inbound-receipts.v1` receipt with `insertIfAbsent` at the
+channel/event slot **before** any ticket work. The first delivery stores the
+content fingerprint (normalized sender, subject, body, threading headers,
+token, and loop signals, excluding host-minted IDs), `receivedAt`, and the
+host-minted `reservedTicketId`, `reservedMessageId`, and `correlationId`.
+
+- A retry of the same channel/event reaches the same slot. A different
+  fingerprint or a digest collision fails closed with
+  `SupportDeskConflictError` and does no ticket work.
+- A `processing` retry adopts the first delivery's reserved identifiers, not
+  its own, so a crash at any point resumes the same ticket and message IDs.
+- The routing decision (`route`: suppressed, duplicate message, reply to a
+  ticket, or new conversation with association, priority, optional category,
+  and optional related ticket) is written once with an `update` decider and
+  never re-decided. Host ports are therefore not re-asked after a crash.
+- The ticket command ID is derived from the receipt location
+  (`inbound:<120-bit bucket hash><slot>`), so the ticket-partition command
+  receipt deduplicates concurrent or resumed processors.
+- The receipt becomes `processed` (`created`, `replied`, or
+  `duplicate_message`, with resulting `ticketId` and `messageId`) or
+  `rejected` (`suppressed` with a loop/bounce reason, or a state-dependent
+  refusal such as `ticket_messages_limit`) with trusted `processedAt`. A
+  retry returns that terminal result.
+
+`sweepInboundReceipts` is unchanged: it deletes only terminal receipts past
+the 30-day horizon and never deletes `processing` receipts.
+
+### Threading index
+
+`support-desk.thread-index.v1` makes inbound matching a key lookup. Every
+partition holds exactly one row with ID `thread`:
+
+| Partition      | Kind            | Written for                                                                                                             |
+| -------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `mid:<sha256>` | `message_id`    | an outbound notification `Message-ID` (`source: outbound`) or an inbound message's own `Message-ID` (`source: inbound`) |
+| `rt:<sha256>`  | `reply_token`   | an outbound notification's opaque `replyRoutingToken`                                                                   |
+| `number:<n>`   | `ticket_number` | every ticket, for subject-marker fallback                                                                               |
+
+A row stores the kind, ticket ID, causal message ID, `Message-ID` source,
+and the authoritative creation time of the causal message or ticket. It
+stores no message content, no email address, and never the reply token,
+only its SHA-256 key.
+
+The index cannot share the ticket transaction. After a committed command
+that recorded a notification (or created a ticket, or accepted inbound
+mail), the application inserts the implied rows with `insertIfAbsent`; a
+failure is logged and never fails the command. First writer wins; a
+different mapping for the same key is logged as a collision and kept.
+`repairThreadIndexPage` is a repeating cursor-aware worker over
+authoritative `support-desk.records.v1` rows that re-derives and inserts
+missing rows. `sweepThreadIndexPage` scans the index and conditionally
+deletes (`deleteIfUnchanged`) rows whose ticket or message is gone or no
+longer derives them, or that are past retention.
+
+Lookups never trust a row: each one reloads the ticket and causal message
+by key and re-derives the row before using it. `Message-ID` and reply-token
+rows older than the shared `threadIndexRetentionMilliseconds` (default 365
+days) are treated as absent by lookups, are not recreated by repair, and are
+removed by the sweep. Ticket-number rows live as long as their ticket.
+Hosts pass the same retention value to the processor and both workers.
+
+Tickets created before this layout existed have no rows until a complete
+repair cycle runs; until then their replies fall back to later matching
+steps or create a linked unverified ticket.
 
 ## Staff queue projection
 
