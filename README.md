@@ -14,9 +14,10 @@ Implemented in source today: the customer-facing and staff application
 services, the repairable staff queue projection, declared collections,
 Authorization Core permission boundaries, transactional audit and mail
 projections, provider-neutral outbound workers and callbacks, safe versioned
-templates, and a host-neutral composition example. Durable host deployments,
-customer UI, staff UI, inbound mailbox, and production hardening remain later
-buildout tasks.
+templates, provider-neutral inbound mail processing with key-lookup threading
+indexes and loop controls, and a host-neutral composition example. Durable host
+deployments, customer UI, staff UI, inbound provider adapters, and production
+hardening remain later buildout tasks.
 
 ## What it will do
 
@@ -96,8 +97,9 @@ The organization profile is at
 
 Packages publish under the `@pegma` scope at exact `0.1.0` once the release
 procedure in [docs/RELEASING.md](docs/RELEASING.md) completes. There is
-deliberately no storage package and no access package. Inbound email and the
-knowledge pipeline remain later work; see the
+deliberately no storage package and no access package. Inbound mail processing
+is implemented (Buildout Task 11); host adapters, production hardening, and the
+knowledge pipeline remain later work. See the
 [project plan](docs/PROJECT_PLAN.md) and
 [declared-collection reference](docs/COLLECTIONS.md).
 

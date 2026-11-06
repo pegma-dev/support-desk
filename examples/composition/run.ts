@@ -4,14 +4,19 @@
  *   pnpm run example
  *
  * Exits after proving customer create/list/read/reply, staff detail/queue/
- * mutations, internal-note isolation, and one mail-send page.
+ * mutations, internal-note isolation, one mail-send page, and verified
+ * inbound mail (new unverified ticket, retry dedupe, threaded follow-up, and
+ * auto-reply suppression).
  */
 import {
   createExampleComposition,
   runCompleteExampleFlow,
+  runInboundExampleFlow,
 } from "./composition.ts";
 
-const result = await runCompleteExampleFlow(createExampleComposition());
+const composition = createExampleComposition();
+const result = await runCompleteExampleFlow(composition);
+const inbound = await runInboundExampleFlow(composition);
 
 process.stdout.write(
   [
@@ -22,6 +27,10 @@ process.stdout.write(
     `noteCount=${String(result.noteCount)}`,
     `customerMessages=${String(result.customerMessageBodies.length)}`,
     `mailSent=${String(result.mailSent)}`,
+    `inboundCreated=${inbound.created.outcome}/${String(inbound.created.association)}`,
+    `inboundRetryDuplicate=${String(inbound.retry.duplicateDelivery)}`,
+    `inboundFollowUp=${inbound.followUp.outcome}/${String(inbound.followUp.matchMethod)}`,
+    `inboundAutoReply=${inbound.autoReply.outcome}/${String(inbound.autoReply.reason)}`,
     "",
   ].join("\n"),
 );

@@ -27,7 +27,7 @@ Also require exact peer ecosystem pins used by the application package:
 - `@pegma/audit@0.1.0`
 - `@pegma/mail@0.1.0`
 
-For the five direct host loops, pin the advertised durable coordinator:
+For the seven direct host loops, pin the advertised durable coordinator:
 
 - `@pegma/scheduler@0.1.0` (and `@pegma/scheduler-cloudflare@0.1.0` when the
   host uses Cloudflare Cron Triggers)
@@ -80,34 +80,116 @@ diagnostics to a browser.
 `TicketWorkflowError` from lifecycle transitions is a refused state change; hosts
 typically map it to `409` after the caller was already authorized.
 
+## Inbound mail
+
+Support Desk owns provider-neutral processing after the host has verified a
+provider event. The host mail worker owns everything before that:
+
+1. **Verify authenticity.** Check the provider webhook signature or the
+   delivery mechanism's credentials with the provider SDK or HTTP client in
+   the host. Unverified requests never reach Support Desk.
+2. **Bound and normalize MIME.** Enforce message, part, header, and
+   attachment size limits; decode the subject; reduce the body to safe plain
+   text (or constrained Markdown) with quoted history trimmed below the
+   configured body limit. Raw MIME and HTML are never passed in. Attachments
+   are dropped until their own post-MVP task.
+3. **Extract metadata.** Pass the sender address, optional display name, the
+   message's own `Message-ID`, `In-Reply-To`, `References`, any candidate
+   reply-routing token from the recipient address or provider metadata, and
+   the loop signals (`Auto-Submitted`, `Precedence`,
+   `X-Auto-Response-Suppress`, `X-Autoreply`-style headers, `List-Id`,
+   top-level `Content-Type`, and the SMTP envelope sender).
+4. **Mint identifiers.** Supply server-minted `ticketId`, `messageId`, and
+   `correlationId` for every attempt. A retry may mint new ones; Support Desk
+   reuses the first delivery's reserved identifiers.
+5. **Apply durable limits.** Throttle by sender, domain, and channel with
+   `@pegma/rate-limit` before calling Support Desk.
+
+```ts
+import { createInboundMailProcessor } from "@pegma/support-desk-application";
+
+const inbound = createInboundMailProcessor({
+  store,
+  clock,
+  accountMatcher, // { matchSenderEmail({ channelId, email }) } -> none | one | many
+  routingPolicy, // { routeNewConversation({ association, ... }) } -> priority/category
+  notificationPolicy, // optional staff alert committed with the message
+  subjectMarkerPrefix: "SD", // enables [SD-1042] fallback
+  supportAddresses: ["support@example.com"], // mail from these is a loop
+  queueTerminalRetentionMilliseconds: 30 * 86_400_000,
+  threadIndexRetentionMilliseconds: 365 * 86_400_000,
+});
+
+const result = await inbound.processInboundEmail(normalizedProviderEvent);
+```
+
+The account matcher answers whether a sender address matches zero, one, or
+several accounts. Only a unique match yields a `matched_email` ticket, and
+that ticket is still invisible to the account's web session: an email match
+never authenticates, never selects an `AccessContext`, and never enters the
+verified-session path. The routing policy receives only the association, an
+optional matched principal, and an optional related ticket (never the subject
+or body) and may return `low`, `normal`, or `high` plus an allowlisted
+category. Inbound mail is never automatically `urgent`.
+
+To make replies thread by key lookup, give outbound notifications a
+cryptographically random `replyRoutingToken` (22 to 128 URL-safe characters)
+and render it into the reply address, for example `support+<token>@example.com`.
+Support Desk indexes its SHA-256 key and the notification `Message-ID` when
+the command commits. Hosts must not acknowledge the sender when
+`senderAcknowledgementAllowed` is false, and should not auto-acknowledge
+unverified senders at all, to avoid backscatter.
+
+Map inbound outcomes for the provider, not for a browser:
+
+| Outcome                                                                               | Provider response                                                                                     |
+| ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `created`, `replied`, `duplicate_message`, `suppressed`, `rejected`                   | success (acknowledge; retries return the same result)                                                 |
+| `TypeError` or `SupportDeskLimitError` from input validation                          | acknowledge and dead-letter for review; do not retry the same payload                                 |
+| `SupportDeskConflictError` (event-ID/content reuse or receipt/command slot collision) | acknowledge and alert; never reprocess as new mail                                                    |
+| `SupportDeskConflictError` (concurrent ticket updates exhausted retries)              | non-success so the provider retries the same event; the receipt stays `processing` and resumes safely |
+| Store unavailable or unexpected failure                                               | non-success so the provider retries                                                                   |
+
+Inspect the conflict message: contention reports `Concurrent ticket updates
+exhausted retries` and explicitly permits retrying the same event. Content
+reuse and slot collisions retain their distinct diagnostics. Do not treat every
+`SupportDeskConflictError` as poisoned content; other unexpected conflicts
+also need a non-success response so the provider retries.
+
 ## Host-owned schedulers
 
 The host owns wakeups (Cron Trigger, Timer, queue, or operator action). Wire
-the five direct loops through `@pegma/scheduler` at the composition root:
+the seven direct loops through `@pegma/scheduler` at the composition root:
 register static task ids once, map each domain page’s `nextCursor` to
 `nextCheckpoint`, and let the scheduler own leases and durable checkpoints.
 Never share a checkpoint across loops or Support Desk instances. Crash before
 fenced completion may repeat a page; claims and conditional writes make that
 safe. The example composition under `examples/composition` uses
-`createScheduler` + `runManual` for these five tasks.
+`createScheduler` + `runManual` for these seven tasks.
 
 Receipt and principal sweeps stay **outside** the static scheduler registry:
 the host selects buckets/principals per invocation and must not invent dynamic
 task ids per bucket.
 
-| Loop                            | Entry point                                                                                     | Coordination                           | Notes                                                                               |
-| ------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------- |
-| Mail send                       | `supportMail.worker(...).runSendPage`                                                           | scheduler task `mail.send`             | Claims pending jobs and calls the host provider                                     |
-| Mail reconciliation             | `supportMail.worker(...).runReconciliationPage`                                                 | scheduler task `mail.reconcile`        | Resolves ambiguous acceptance                                                       |
-| Mail terminal sweep             | `supportMail.sweep(records, { terminalBefore, cursor, limit })`                                 | scheduler task `mail.terminal-sweep`   | Deletes acknowledged terminal jobs older than the cutoff                            |
-| Customer-index prune            | `pruneCustomerTicketIndex(store, principalId, { reservedBefore })`                              | host-selected; not a scheduler task id | Drops stale reservations; confirmed ownership is rechecked                          |
-| Inbound receipt sweep           | `sweepInboundReceipts(store, clock, { bucket, processedBefore })`                               | host-selected per bucket               | Inbound processing is still a later buildout task; the collection and sweeper exist |
-| Delivery-callback receipt sweep | `sweepDeliveryCallbackReceipts(store, clock, { bucket, processedBefore })`                      | host-selected per bucket               | Retains the 30-day dedupe horizon                                                   |
-| Queue reconciliation / repair   | `repairQueueProjectionPage({ store, clock, terminalRetentionMilliseconds, cursor, limit })`     | scheduler task `queue.repair`          | Scans authoritative tickets and rewrites projection rows                            |
-| Queue inactive-row sweep        | `sweepInactiveQueueProjections({ store, clock, terminalRetentionMilliseconds, cursor, limit })` | scheduler task `queue.inactive-sweep`  | Conditionally deletes inactive projection rows only after reloading the ticket      |
+| Loop                            | Entry point                                                                                     | Coordination                           | Notes                                                                                |
+| ------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------ |
+| Mail send                       | `supportMail.worker(...).runSendPage`                                                           | scheduler task `mail.send`             | Claims pending jobs and calls the host provider                                      |
+| Mail reconciliation             | `supportMail.worker(...).runReconciliationPage`                                                 | scheduler task `mail.reconcile`        | Resolves ambiguous acceptance                                                        |
+| Mail terminal sweep             | `supportMail.sweep(records, { terminalBefore, cursor, limit })`                                 | scheduler task `mail.terminal-sweep`   | Deletes acknowledged terminal jobs older than the cutoff                             |
+| Customer-index prune            | `pruneCustomerTicketIndex(store, principalId, { reservedBefore })`                              | host-selected; not a scheduler task id | Drops stale reservations; confirmed ownership is rechecked                           |
+| Inbound receipt sweep           | `sweepInboundReceipts(store, clock, { bucket, processedBefore })`                               | host-selected per bucket               | Terminal receipts only; never deletes `processing` receipts                          |
+| Delivery-callback receipt sweep | `sweepDeliveryCallbackReceipts(store, clock, { bucket, processedBefore })`                      | host-selected per bucket               | Retains the 30-day dedupe horizon                                                    |
+| Queue reconciliation / repair   | `repairQueueProjectionPage({ store, clock, terminalRetentionMilliseconds, cursor, limit })`     | scheduler task `queue.repair`          | Scans authoritative tickets and rewrites projection rows                             |
+| Queue inactive-row sweep        | `sweepInactiveQueueProjections({ store, clock, terminalRetentionMilliseconds, cursor, limit })` | scheduler task `queue.inactive-sweep`  | Conditionally deletes inactive projection rows only after reloading the ticket       |
+| Thread-index repair             | `repairThreadIndexPage({ store, clock, threadIndexRetentionMilliseconds, cursor, limit })`      | scheduler task `thread-index.repair`   | Re-derives `Message-ID`, reply-token, and ticket-number rows from authoritative rows |
+| Thread-index sweep              | `sweepThreadIndexPage({ store, clock, threadIndexRetentionMilliseconds, cursor, limit })`       | scheduler task `thread-index.sweep`    | Conditionally deletes rows whose target is gone or past retention                    |
 
 Projection, repair, and inactive sweep must share the same
-`terminalRetentionMilliseconds` value configured on the application.
+`terminalRetentionMilliseconds` value configured on the application (and on
+the inbound processor's `queueTerminalRetentionMilliseconds`). Thread-index
+repair and sweep must share the inbound processor's
+`threadIndexRetentionMilliseconds`. Run at least one complete thread-index
+repair cycle after upgrading so tickets created earlier gain index rows.
 
 Online staff queue reads (`listStaffQueue`) start at a null cursor and use only
 request-local cursors. They never resume another request's scan and never
@@ -119,6 +201,8 @@ authorize access from the projection alone.
 - Authorization Core policy that grants Support Desk permission names;
 - durable `@pegma/rate-limit` policies on create and reply;
 - mail provider credentials, callback verification, and sender domains;
+- inbound webhook verification, MIME bounds and normalization, reply-address
+  token rendering, the account matcher, and the inbound routing policy;
 - template packs and public ticket URLs;
 - health metrics without message content;
 - retention, export, redaction, and operator access procedures.

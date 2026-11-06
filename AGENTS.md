@@ -150,7 +150,9 @@ scheduler documentation, and the release pack lane for exact `0.1.0`. Phase 2's
 durable abuse limits and host-owned cursor persistence remain composition work.
 Phase 6's provider-neutral outbound-mail source is implemented against exact
 `@pegma/mail@0.1.0`, with Support-owned projection, templates, threading
-metadata, and callback receipts.
+metadata, and callback receipts. The Support Desk slice of Buildout Task 11
+(inbound mail processing, receipt lifecycle, and the threading index) is
+implemented in source; inbound provider adapters remain host work.
 
 Packages are versioned at exact `0.1.0` and ready for the first public publish
 described in `docs/RELEASING.md`. Customer services return safe DTOs; staff

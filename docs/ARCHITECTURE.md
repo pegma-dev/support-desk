@@ -229,6 +229,12 @@ content, extracts threading metadata, and returns provider-neutral input.
 Ticket matching and account association happen in application services under
 explicit policy.
 
+`createInboundMailProcessor` is that application service. Its host ports are
+an account matcher (zero, one, or many matches) and a content-free routing
+policy; an optional notification policy commits a staff alert in the same
+ticket transaction. It never receives a principal, role, plan, priority, or
+session from the adapter.
+
 Support Desk's inbound receipts are not replaced with `@pegma/webhooks`.
 Webhooks deliberately provides sequential deduplication while allowing
 overlapping deliveries to process concurrently; inbound mail needs a
@@ -363,7 +369,9 @@ Deduplication and processing record:
 - provider event ID;
 - external `Message-ID`;
 - bounded payload fingerprint;
-- processing status;
+- first-delivery reserved ticket, message, and correlation identifiers;
+- one persisted routing decision;
+- processing status and outcome;
 - trusted receipt and terminal-processing times;
 - resulting ticket and message IDs;
 - safe diagnostic details.
@@ -491,8 +499,11 @@ a send claim cannot convert that lease into a blind resend.
 
 ## Email threading
 
-Each outbound email records its generated `Message-ID`. Replies are matched
-using:
+Each outbound email records its generated `Message-ID` and, optionally, an
+opaque reply-routing token. Both, every ticket number, and each inbound
+message's own `Message-ID` are written after commit to the key-lookup
+`support-desk.thread-index.v1` collection (the token only as a SHA-256 key)
+and repaired by a cursor-aware worker. Replies are matched using:
 
 - opaque reply routing token or trusted provider metadata;
 - `In-Reply-To` and `References`;
@@ -503,7 +514,12 @@ threads while keeping provider-specific payloads outside core records.
 
 Ticket numbers are safe to display but are not secret. Routing tokens must be
 random, scoped, revocable or expiring where practical, and useless for reading
-ticket content without further authorization.
+ticket content without further authorization. Index rows are hints: each
+lookup reloads the authoritative ticket and causal message before use, rows
+expire with the configured threading retention, and a match joins only when
+the sender equals the recorded requester address (or, without one, only by
+token). Anything else becomes a new unverified ticket with a staff-only
+`relatedTicketId`.
 
 ## Authorization sequence
 

@@ -499,6 +499,10 @@ reconciliation, retry-generation, and poison-job recovery before activation.
 
 ### Task 11 — inbound mail
 
+**Status (Task 11):** The Support Desk package slice is implemented in
+source. Provider selection and the per-host adapter remain host work (listed
+below). Package versions are not bumped by this task.
+
 Implement this in Support Desk only after both authenticated web paths and
 staff queues are operating. The task must include authenticated provider input,
 bounded MIME normalization, opaque reply routing, threading indexes, the
@@ -506,12 +510,91 @@ reserved inbound receipt lifecycle, account-email matching as a host port,
 unknown/ambiguous routing, bounce and auto-reply controls, and hostile-content
 tests. Provider SDK and HTTP verification remain host adapters.
 
+**What shipped in Support Desk:**
+
+- `createInboundMailProcessor` and its provider-neutral `InboundEmailInput`
+  (verified, normalized, hostile-by-default content with no principal,
+  role, plan, priority, or session field);
+- host ports: `InboundAccountMatcher` (zero, one, or many matches; only a
+  unique match yields `matched_email`), `InboundRoutingPolicy` (content-free
+  input; `low`/`normal`/`high` plus an allowlisted category, never automatic
+  `urgent`), and an optional `InboundNotificationPolicy` whose notification
+  commits in the inbound ticket transaction;
+- the reserved receipt lifecycle on `support-desk.inbound-receipts.v1`:
+  `insertIfAbsent` before ticket work, first-delivery reserved identifiers,
+  one persisted routing decision, a receipt-derived ticket command ID, and a
+  terminal result that every retry returns;
+- `support-desk.thread-index.v1` with outbound and inbound `Message-ID`,
+  hashed reply-token, and ticket-number rows; post-commit writes from every
+  notification-bearing command; `repairThreadIndexPage` and
+  `sweepThreadIndexPage` workers;
+- optional `replyRoutingToken` on `NotificationInput` and `DeliveryContent`;
+- matching order routing token → `In-Reply-To`/`References` → subject marker
+  (`subjectMarkerPrefix`), each confirmed against authoritative records; a
+  match joins only when the sender equals the recorded requester address
+  (or, with no recorded address, only by routing token);
+- ambiguous or unsafe matches create a new unverified ticket with the
+  staff-only `Ticket.relatedTicketId` hint;
+- loop suppression for `Auto-Submitted`, `Precedence`, `X-Autoreply`-style
+  headers, null envelope senders, `mailer-daemon`, delivery and disposition
+  reports, and the instance's own support addresses; `X-Auto-Response-Suppress`
+  and `List-Id` keep the message but forbid sender acknowledgements;
+- replies use the existing `customer_replied` transition, so resolved and
+  closed tickets reopen as `waiting_on_support`; Audit records a
+  `system` actor because email is not authentication;
+- unit, public-entry, example-composition, and Azurite tests.
+
+**Remaining host adapter work (separate host pull requests):**
+
+- select a provider and verify its webhook or delivery credentials;
+- bound MIME, convert HTML to text, trim quoted history, and drop
+  attachments before calling Support Desk;
+- render `replyRoutingToken` into the reply address and extract it from
+  inbound recipients;
+- implement the account matcher over the host account store and the routing
+  table (for example paid/unpaid or default priorities) as host policy;
+- apply durable sender, domain, and channel limits with `@pegma/rate-limit`;
+- schedule `thread-index.repair`, `thread-index.sweep`, and inbound receipt
+  sweeps with independent cursors, and run one repair cycle after upgrading;
+- dead-letter validation failures for operator review, and add metrics for
+  suppressed, duplicate, and unverified mail without message content.
+
+**Known limits, documented rather than hidden:**
+
+- the provider-event receipt is the per-event guarantee; the same
+  `Message-ID` arriving under two different events at the same instant may
+  append twice, although later duplicates collapse through the index and the
+  ticket partition;
+- a related ticket is a staff-review hint only; there is no merge workflow;
+- how long resolved and closed tickets stay reopenable by email is still an
+  open question, so every confirmed reply reopens;
+- sender-domain authentication (SPF, DKIM, DMARC) is evaluated by the host
+  adapter and is not an input to Support Desk matching.
+
 ### Task 12 — first production-ready release
 
 Complete retention, export, redaction, deletion, recovery, operational
 dashboards, threat modeling, focused security review, upgrade notes, and
 conformance documentation. Production readiness is an evidence gate, not just
 a version number.
+
+## Post-MVP queue
+
+These tasks are queued after Task 11 and follow the same rules: one task per
+pull request, additive to `0.x` contracts, docs in the same change, and no
+persistence, access model, provider SDK, or private limiter here. Task 12 is
+the evidence gate for the launch and comes first; the rest are sequenced by
+dependency, not promised dates.
+
+| Order | Task                                   | Scope                                                                                                                                                                                                                                     | Stop if                                                                                  |
+| ----- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 1     | Task 12 — production evidence gate     | Retention, export, redaction, deletion, recovery, dashboards, threat model (including reply-token and inbound abuse), focused security review, upgrade notes.                                                                             | Evidence cannot be produced against both hosts' durable stores.                          |
+| 2     | Task 13 — lifecycle extras             | Staff-managed tags from a host allowlist beyond the launch category; response-target hooks that record first-response and resolution timestamps against host-supplied targets; revision-based "changed since you loaded" collision hints. | A target needs a business-hours calendar or presence service inside Support Desk.        |
+| 3     | Task 14 — attachments                  | Attachment metadata on messages, stored through a host-supplied blob port (for example a Pegma storage-blobs package once an exact version is published); size and type allowlists, scan status, authorized download, retention.          | Blob storage would have to be implemented here, or downloads would bypass authorization. |
+| 4     | Task 15 — canned responses and macros  | Staff-only, versioned response templates and macros that expand into an explicit staff reply or note; every use is an audited staff command.                                                                                              | A macro would act without a staff command or change permissions.                         |
+| 5     | Task 16 — customer self-service polish | Customer DTO and command polish for portals (pagination of own tickets, closing one's own ticket, clearer status copy hooks) without exposing staff fields.                                                                               | A change needs staff-only fields in a customer DTO.                                      |
+| 6     | Task 17 — abuse composition notes      | Documented and tested composition of `@pegma/rate-limit` for web create/reply and inbound sender/domain/channel throttles, plus abuse-review metrics.                                                                                     | A limiter would have to live inside Support Desk.                                        |
+| 7     | Task 18 — AI triage and drafts         | Optional host hooks for staff-only summaries and reply drafts with an explicit human approval step, model/prompt version audit, and no customer-visible generation.                                                                       | A hook could send, act on an account, or raise permissions without a human approval.     |
 
 ## Definition of launch complete
 

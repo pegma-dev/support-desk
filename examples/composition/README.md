@@ -2,8 +2,8 @@
 
 This example wires Support Desk the way a host should: public package entry
 points only, a memory `Store`, synthetic `AccessContext` values, a fixed
-`Clock`, a fake mail provider, and `@pegma/scheduler@0.1.0` for the five
-direct host loops. It does not use Express, Hono, Auth0, Cloudflare, Azure,
+`Clock`, a fake mail provider, fake inbound account-matcher and routing ports,
+and `@pegma/scheduler@0.1.0` for the seven direct host loops. It does not use Express, Hono, Auth0, Cloudflare, Azure,
 or a real mail SDK.
 
 ## What it proves
@@ -12,9 +12,14 @@ or a real mail SDK.
   `@pegma/support-desk-application`;
 - staff detail, queue, note, assign, priority, and reply;
 - internal notes stay out of the customer view and customer-visible mail body;
+- verified inbound mail: an unknown sender creates a low-priority unverified
+  ticket, a provider retry is deduplicated, a threaded follow-up joins the
+  ticket, an auto-reply is suppressed, and a unique account match is routed as
+  `matched_email` without web access;
 - mail send and queue repair as static `createScheduler` tasks
-  (`mail.send`, `queue.repair`, plus reconcile / terminal-sweep /
-  inactive-sweep) with durable checkpoints instead of process-local cursors;
+  (`mail.send`, `queue.repair`, `thread-index.repair`, plus reconcile /
+  terminal-sweep / inactive-sweep / `thread-index.sweep`) with durable
+  checkpoints instead of process-local cursors;
 - receipt and principal sweeps remain host-selected helpers outside the task
   registry.
 
@@ -37,7 +42,7 @@ Map application outcomes to HTTP using
 exception messages, storage keys, email addresses, permission sets, or provider
 diagnostics to a browser.
 
-Schedule the five direct loops with `@pegma/scheduler` (host owns Cron/Timer
+Schedule the seven direct loops with `@pegma/scheduler` (host owns Cron/Timer
 wakeups; this example drives `runManual`). Map each domain page’s
 `nextCursor` to `nextCheckpoint`. Keep receipt/principal sweeps as separate
 host-selected drivers.

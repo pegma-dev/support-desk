@@ -5,6 +5,7 @@ import {
   EXAMPLE_CUSTOMER,
   EXAMPLE_STAFF,
   runCompleteExampleFlow,
+  runInboundExampleFlow,
 } from "../examples/composition/composition.js";
 import {
   SupportDeskAuthorizationError,
@@ -39,6 +40,52 @@ describe("host-neutral public composition", () => {
     const serialized = JSON.stringify(composition.sent);
     expect(serialized).not.toContain("Internal:");
     expect(serialized).not.toContain("check export entitlement");
+  });
+
+  it("runs verified inbound mail through the public processor", async () => {
+    const composition = createExampleComposition();
+    await runCompleteExampleFlow(composition);
+    const inbound = await runInboundExampleFlow(composition);
+
+    expect(inbound.created).toMatchObject({
+      outcome: "created",
+      association: "unverified",
+      ticketId: "ticket-inbound-001",
+    });
+    expect(inbound.retry).toEqual({
+      ...inbound.created,
+      duplicateDelivery: true,
+    });
+    expect(inbound.followUp).toMatchObject({
+      outcome: "replied",
+      matchMethod: "message_id",
+      ticketId: "ticket-inbound-001",
+    });
+    expect(inbound.autoReply).toMatchObject({
+      outcome: "suppressed",
+      reason: "auto_submitted",
+    });
+    expect(inbound.matched.association).toBe("matched_email");
+    expect(inbound.unverifiedQueueSize).toBe(1);
+
+    const staffView = await composition.application.readStaffTicket(
+      EXAMPLE_STAFF,
+      "ticket-inbound-001",
+    );
+    expect(staffView.ticket.priority).toBe("low");
+    expect(staffView.ticket.status).toBe("waiting_on_support");
+
+    // The matched account still owns only its authenticated web ticket.
+    const memberTickets = await composition.application.listCustomerTickets({
+      ...EXAMPLE_CUSTOMER,
+      principalId: "member-example-001",
+    });
+    expect(memberTickets).toEqual([]);
+
+    const repairState = await composition.scheduler.getState(
+      "thread-index.repair",
+    );
+    expect(repairState?.checkpoint).toBeUndefined();
   });
 
   it("maps missing permission and foreign ticket access to public error classes", async () => {
