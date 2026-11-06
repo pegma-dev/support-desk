@@ -32,8 +32,10 @@ publication state. Refresh it deliberately with
 when a task changes its baseline. `pnpm run knowledge-ai:baseline origin/main`
 selects a fetched source ref; omitting the ref selects `HEAD`. Manifests are
 read from that immutable commit, including when the working tree is dirty.
-CI uses the frozen data; it must not depend
-on a live npm or catalog response.
+The snapshot is reviewed handoff evidence, not a CI version selector. CI does
+not run the refresh command or query npm/catalog metadata for these tests.
+Snapshot accuracy is reviewed when refreshing it; the harness does not
+authenticate historical registry metadata or detect later registry changes.
 
 The source snapshot is
 [`5278440`](https://github.com/pegma-dev/support-desk/tree/527844007c6dd8083a6747879414d5b9159d46c2),

@@ -181,6 +181,15 @@ describe("knowledge/AI acceptance corpus integrity (not service acceptance)", ()
 });
 
 describe("observation evaluator discrimination", () => {
+  it("rejects an outcome that disagrees with the authored oracle", () => {
+    expect(
+      evaluateObservation(fixtureCase("collection-audiences"), {
+        ...safeObservation(),
+        outcome: "escalated",
+      }),
+    ).toContain("outcome");
+  });
+
   it("accepts a manually authored safe observation", () => {
     expect(
       evaluateObservation(

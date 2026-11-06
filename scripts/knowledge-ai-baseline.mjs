@@ -3,7 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 // Explicit, read-only network refresh for a reviewed P-00 snapshot.
-// CI consumes the checked-in snapshot and never queries npm.
+// Snapshot generation is deliberate handoff work, never a CI command.
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 if (process.argv.length > 3) {
   throw new Error("Usage: node scripts/knowledge-ai-baseline.mjs [source-ref]");
