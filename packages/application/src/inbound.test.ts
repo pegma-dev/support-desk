@@ -208,6 +208,69 @@ async function receiptFor(store: Store, input: InboundEmailInput) {
     .get({ partition: location.bucket, id: `slot:${location.slot}` });
 }
 
+type PriorInboundFingerprintShape =
+  "case_preserving_sender" | "pre_sender_result";
+
+async function priorInboundFingerprint(
+  input: InboundEmailInput,
+  shape: PriorInboundFingerprintShape,
+): Promise<string> {
+  const payload = {
+    type: "inbound_email",
+    channelId: input.channelId,
+    providerEventId: input.providerEventId,
+    from: input.from,
+    ...(shape === "case_preserving_sender" &&
+    input.senderAuthentication !== undefined
+      ? { senderAuthentication: input.senderAuthentication }
+      : {}),
+    fromName: input.fromName ?? null,
+    subject: input.subject,
+    body: input.body,
+    format: input.format ?? "plain_text",
+    externalMessageId: input.externalMessageId ?? null,
+    inReplyTo: input.inReplyTo ?? null,
+    references: input.references ?? [],
+    replyRoutingToken: input.replyRoutingToken ?? null,
+    loopSignals: input.loopSignals ?? {},
+  };
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(payload)),
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function usePriorInboundFingerprint(
+  store: Store,
+  input: InboundEmailInput,
+  shape: PriorInboundFingerprintShape,
+): Promise<string> {
+  const fingerprint = await priorInboundFingerprint(input, shape);
+  const location = await inboundReceiptLocation(
+    input.channelId,
+    input.providerEventId,
+  );
+  await store
+    .collection(inboundReceipts)
+    .update(
+      { partition: location.bucket, id: `slot:${location.slot}` },
+      (current) => {
+        if (current === null) {
+          throw new Error("inbound receipt missing");
+        }
+        const { replayFingerprint: _replayFingerprint, ...prior } = current;
+        return {
+          action: "write",
+          value: { ...prior, payloadFingerprint: fingerprint },
+        };
+      },
+    );
+  return fingerprint;
+}
+
 /** Authenticated web ticket whose confirmation mail carries a reply token. */
 async function webTicket(
   f: ReturnType<typeof fixture>,
@@ -723,6 +786,224 @@ describe("inbound mail: deduplication and idempotency", () => {
     expect(
       (await f.application.readStaffTicket(staff, "web-ticket")).messages,
     ).toHaveLength(2);
+  });
+
+  it.each([
+    ["case-preserving sender", "case_preserving_sender"],
+    ["pre-sender-result", "pre_sender_result"],
+  ] as const)(
+    "replays a terminal receipt from the %s format",
+    async (_name, shape) => {
+      const f = fixture();
+      const input = inbound({
+        from: "Customer@example.org",
+        senderAuthentication: {
+          method: "dmarc",
+          result: "pass",
+          email: "CUSTOMER@example.org",
+          dkimAligned: true,
+          spfAligned: false,
+        },
+      });
+      const first = await f.processor.processInboundEmail(input);
+      const priorFingerprint = await usePriorInboundFingerprint(
+        f.store,
+        input,
+        shape,
+      );
+
+      await expect(
+        f.processor.processInboundEmail({
+          ...input,
+          body: "Changed before replay binding.",
+        }),
+      ).rejects.toThrow(
+        "An inbound provider event ID was reused for different content",
+      );
+      await expect(
+        f.processor.processInboundEmail({
+          ...input,
+          ticketId: "prior-terminal-ticket",
+          messageId: "prior-terminal-message",
+          correlationId: "prior-terminal-correlation",
+        }),
+      ).resolves.toEqual({ ...first, duplicateDelivery: true });
+      const boundReceipt = await receiptFor(f.store, input);
+      expect(boundReceipt).toMatchObject({
+        payloadFingerprint: priorFingerprint,
+        replayFingerprint: expect.any(String),
+      });
+      expect(boundReceipt?.replayFingerprint).not.toBe(priorFingerprint);
+      await expect(
+        f.processor.processInboundEmail({
+          ...input,
+          body: "Changed after replay binding.",
+        }),
+      ).rejects.toThrow(
+        "An inbound provider event ID was reused for different content",
+      );
+      await expect(
+        f.processor.processInboundEmail({
+          ...input,
+          senderAuthentication: {
+            ...input.senderAuthentication!,
+            result: "fail",
+          },
+        }),
+      ).rejects.toThrow(
+        "An inbound provider event ID was reused for different content",
+      );
+    },
+  );
+
+  it("resumes a prior nonterminal receipt during concurrent replay", async () => {
+    const backing = createMemoryStore();
+    const stoppedStore: Store = {
+      collection(definition) {
+        const collection = backing.collection(definition);
+        if (definition.name !== supportRecords.name) {
+          return collection;
+        }
+        return {
+          ...collection,
+          async transact() {
+            throw new Error("injected stop before ticket commit");
+          },
+        };
+      },
+    };
+    const stopped = fixture({ store: stoppedStore });
+    const input = inbound({
+      from: "Customer@example.org",
+      senderAuthentication: authenticatedSender("CUSTOMER@example.org"),
+    });
+    await expect(stopped.processor.processInboundEmail(input)).rejects.toThrow(
+      "injected stop before ticket commit",
+    );
+    const priorFingerprint = await usePriorInboundFingerprint(
+      backing,
+      input,
+      "pre_sender_result",
+    );
+    const resumed = fixture({ store: backing });
+
+    const results = await Promise.all([
+      resumed.processor.processInboundEmail(input),
+      resumed.processor.processInboundEmail({
+        ...input,
+        ticketId: "prior-concurrent-ticket",
+        messageId: "prior-concurrent-message",
+        correlationId: "prior-concurrent-correlation",
+      }),
+    ]);
+    expect(results).toEqual([
+      expect.objectContaining({
+        duplicateDelivery: true,
+        outcome: "created",
+        ticketId: input.ticketId,
+      }),
+      expect.objectContaining({
+        duplicateDelivery: true,
+        outcome: "created",
+        ticketId: input.ticketId,
+      }),
+    ]);
+    const location = await inboundReceiptLocation(
+      input.channelId,
+      input.providerEventId,
+    );
+    const commandId = `inbound:${location.bucket.slice(-30)}${location.slot}`;
+    expect(
+      await backing.collection(supportRecords).get({
+        partition: input.ticketId,
+        id: `command:${commandId}`,
+      }),
+    ).toMatchObject({
+      kind: "command",
+      requestFingerprint: priorFingerprint,
+    });
+    expect(await ticketCount(backing)).toBe(1);
+    await expect(
+      resumed.processor.processInboundEmail({
+        ...input,
+        subject: "Changed after concurrent replay.",
+      }),
+    ).rejects.toThrow(
+      "An inbound provider event ID was reused for different content",
+    );
+  });
+
+  it("finalizes a prior command after replay binding", async () => {
+    const backing = createMemoryStore();
+    let failFinalize = true;
+    const store: Store = {
+      collection(definition) {
+        const collection = backing.collection(definition);
+        if (definition.name !== inboundReceipts.name) {
+          return collection;
+        }
+        return {
+          ...collection,
+          async update(key, decide, options) {
+            const current = await collection.get(key);
+            const route = (current as { readonly route?: unknown } | null)
+              ?.route;
+            if (failFinalize && route !== undefined) {
+              failFinalize = false;
+              throw new Error("injected stop after ticket commit");
+            }
+            return collection.update(key, decide, options);
+          },
+        };
+      },
+    };
+    const f = fixture({ store });
+    const input = inbound({
+      from: "Customer@example.org",
+      senderAuthentication: authenticatedSender("CUSTOMER@example.org"),
+    });
+    await expect(f.processor.processInboundEmail(input)).rejects.toThrow(
+      "injected stop after ticket commit",
+    );
+    const priorFingerprint = await usePriorInboundFingerprint(
+      backing,
+      input,
+      "pre_sender_result",
+    );
+    const location = await inboundReceiptLocation(
+      input.channelId,
+      input.providerEventId,
+    );
+    const commandId = `inbound:${location.bucket.slice(-30)}${location.slot}`;
+    await backing
+      .collection(supportRecords)
+      .update(
+        { partition: input.ticketId, id: `command:${commandId}` },
+        (current) => {
+          if (current?.kind !== "command") {
+            throw new Error("inbound command missing");
+          }
+          return {
+            action: "write",
+            value: { ...current, requestFingerprint: priorFingerprint },
+          };
+        },
+      );
+
+    await expect(f.processor.processInboundEmail(input)).resolves.toMatchObject(
+      {
+        duplicateDelivery: true,
+        outcome: "created",
+        ticketId: input.ticketId,
+        messageId: input.messageId,
+      },
+    );
+    expect(await ticketCount(backing)).toBe(1);
+    expect(
+      (await backing.collection(supportRecords).list(input.ticketId)).filter(
+        (record) => record.kind === "message",
+      ),
+    ).toHaveLength(1);
   });
 
   it("keeps sender-result replay bound to the first provider event", async () => {

@@ -323,6 +323,8 @@ export interface InboundReceipt {
   readonly providerEventId: string;
   readonly externalMessageId?: string;
   readonly payloadFingerprint: string;
+  /** Canonical replay hash; absent on receipts written by earlier versions. */
+  readonly replayFingerprint?: string;
   /** `rerouting` is a resumable claim used only to normalize an older route. */
   readonly status: "processing" | "rerouting" | "processed" | "rejected";
   /** Trusted host time at which processing first reserved this receipt. */
@@ -6848,20 +6850,30 @@ function snapshotInboundEmailInput(
   });
 }
 
+type InboundFingerprintFormat =
+  "current" | "case_preserving_sender" | "pre_sender_result";
+
 /** Content fingerprint for one provider event; excludes host-minted IDs. */
-function inboundFingerprintPayload(input: InboundEmailSnapshot): unknown {
+function inboundFingerprintPayload(
+  input: InboundEmailSnapshot,
+  format: InboundFingerprintFormat = "current",
+): unknown {
+  const canonicalSender = format === "current";
+  const includeSenderResult = format !== "pre_sender_result";
   return {
     type: "inbound_email",
     channelId: input.channelId,
     providerEventId: input.providerEventId,
-    from: input.from.toLowerCase(),
-    ...(input.senderAuthentication === undefined
+    from: canonicalSender ? input.from.toLowerCase() : input.from,
+    ...(!includeSenderResult || input.senderAuthentication === undefined
       ? {}
       : {
-          senderAuthentication: {
-            ...input.senderAuthentication,
-            email: input.senderAuthentication.email.toLowerCase(),
-          },
+          senderAuthentication: canonicalSender
+            ? {
+                ...input.senderAuthentication,
+                email: input.senderAuthentication.email.toLowerCase(),
+              }
+            : input.senderAuthentication,
         }),
     fromName: input.fromName ?? null,
     subject: input.subject,
@@ -7323,6 +7335,78 @@ export function createInboundMailProcessor(
   const receipts = store.collection(inboundReceipts);
   const numbers = store.collection(ticketNumbers);
   const index = store.collection(threadIndex);
+
+  async function bindInboundReplayFingerprint(
+    key: EntityKey,
+    stored: InboundReceipt,
+    input: InboundEmailSnapshot,
+    replayFingerprint: string,
+  ): Promise<InboundReceipt> {
+    if (stored.replayFingerprint !== undefined) {
+      if (stored.replayFingerprint !== replayFingerprint) {
+        throw new SupportDeskConflictError(
+          "An inbound provider event ID was reused for different content",
+        );
+      }
+      return stored;
+    }
+
+    const compatibleFingerprints = new Set([replayFingerprint]);
+    if (!compatibleFingerprints.has(stored.payloadFingerprint)) {
+      const priorFingerprints = await Promise.all([
+        requestFingerprint(
+          inboundFingerprintPayload(input, "case_preserving_sender"),
+        ),
+        requestFingerprint(
+          inboundFingerprintPayload(input, "pre_sender_result"),
+        ),
+      ]);
+      for (const prior of priorFingerprints) {
+        compatibleFingerprints.add(prior);
+      }
+    }
+    if (!compatibleFingerprints.has(stored.payloadFingerprint)) {
+      throw new SupportDeskConflictError(
+        "An inbound provider event ID was reused for different content",
+      );
+    }
+
+    const bound = await receipts.update(
+      key,
+      (current) => {
+        if (current === null) {
+          throw new SupportDeskConflictError(
+            "Inbound receipt disappeared before replay binding",
+          );
+        }
+        if (current.replayFingerprint !== undefined) {
+          return { action: "keep" };
+        }
+        if (!compatibleFingerprints.has(current.payloadFingerprint)) {
+          return { action: "keep" };
+        }
+        return {
+          action: "write",
+          value: { ...current, replayFingerprint },
+        };
+      },
+      { maxAttempts: maxConflictAttempts },
+    );
+    if (bound.value === null) {
+      throw new SupportDeskConflictError(
+        "Inbound receipt disappeared before replay binding",
+      );
+    }
+    if (
+      bound.value.replayFingerprint !== replayFingerprint ||
+      !compatibleFingerprints.has(bound.value.payloadFingerprint)
+    ) {
+      throw new SupportDeskConflictError(
+        "An inbound provider event ID was reused for different content",
+      );
+    }
+    return bound.value;
+  }
 
   async function finishReceipt(
     work: InboundWork,
@@ -8343,7 +8427,7 @@ export function createInboundMailProcessor(
       rawInput: InboundEmailInput,
     ): Promise<InboundEmailResult> {
       const input = snapshotInboundEmailInput(rawInput, limits);
-      const fingerprint = await requestFingerprint(
+      const replayFingerprint = await requestFingerprint(
         inboundFingerprintPayload(input),
       );
       const location = await inboundReceiptLocation(
@@ -8365,14 +8449,15 @@ export function createInboundMailProcessor(
         ...(input.externalMessageId === undefined
           ? {}
           : { externalMessageId: input.externalMessageId }),
-        payloadFingerprint: fingerprint,
+        payloadFingerprint: replayFingerprint,
+        replayFingerprint,
         status: "processing",
         receivedAt,
         reservedTicketId: input.ticketId,
         reservedMessageId: input.messageId,
         correlationId: input.correlationId,
       });
-      const stored = inserted.value;
+      let stored = inserted.value;
       if (
         stored.channelId !== input.channelId ||
         stored.providerEventId !== input.providerEventId
@@ -8381,11 +8466,13 @@ export function createInboundMailProcessor(
           "An inbound receipt hash slot collided with a different provider event",
         );
       }
-      if (stored.payloadFingerprint !== fingerprint) {
-        throw new SupportDeskConflictError(
-          "An inbound provider event ID was reused for different content",
-        );
-      }
+      stored = await bindInboundReplayFingerprint(
+        key,
+        stored,
+        input,
+        replayFingerprint,
+      );
+      const fingerprint = stored.payloadFingerprint;
       const duplicateDelivery = !inserted.inserted;
       if (stored.status !== "processing" && stored.status !== "rerouting") {
         return inboundResult(stored, duplicateDelivery);

@@ -57,7 +57,10 @@ route first claims a resumable `rerouting` receipt. Reply normalization reserves
 one permanent fence in the named ticket partition; the fence counts toward
 `maxRecordsPerTicket` and is refused when the partition has no remaining record
 capacity. Related-conversation normalization uses a temporary command-key fence
-that the normalized create consumes.
+that the normalized create consumes. Receipts without the canonical replay
+field recognize only the exact earlier payload shapes and atomically bind the
+current replay fingerprint; their immutable payload fingerprint continues to
+identify ticket work already committed before receipt finalization.
 
 ## 0.1.1 — dependency alignment
 

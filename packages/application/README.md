@@ -194,7 +194,10 @@ bounce and auto-reply loops, persists one routing decision on the receipt,
 and then creates or replies in one ticket-partition transaction with an Audit
 event (`system` actor `support-desk.inbound-email`), a command receipt, and an
 optional notification. Retries and concurrent duplicates return the first
-delivery's result and identifiers. Matching order is reply token,
+delivery's result and identifiers. Earlier receipts without a canonical replay
+fingerprint recognize only their exact prior payload shapes, bind the current
+fingerprint before continuing, and retain their original ticket-command
+fingerprint. Matching order is reply token,
 `In-Reply-To`/`References`, then subject marker, all through
 `support-desk.thread-index.v1` key lookups confirmed against authoritative
 records. A repeated inbound message's own `Message-ID` is checked for duplicate

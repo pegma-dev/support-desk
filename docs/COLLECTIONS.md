@@ -189,15 +189,21 @@ receipt layout and declares one more collection.
 
 `createInboundMailProcessor(...).processInboundEmail` writes the
 `support-desk.inbound-receipts.v1` receipt with `insertIfAbsent` at the
-channel/event slot **before** any ticket work. The first delivery stores the
-content fingerprint (normalized sender, optional host-evaluated sender result,
+channel/event slot **before** any ticket work. The first delivery stores an
+immutable payload fingerprint used by ticket-command replay and a canonical
+replay fingerprint (normalized sender, optional host-evaluated sender result,
 subject, body, threading headers, token, and loop signals, excluding
 host-minted IDs), `receivedAt`, and the host-minted `reservedTicketId`,
 `reservedMessageId`, and `correlationId`.
 
 - A retry of the same channel/event reaches the same slot. A different
-  fingerprint or a digest collision fails closed with
+  canonical replay fingerprint or a digest collision fails closed with
   `SupportDeskConflictError` and does no ticket work.
+- A receipt written before the canonical replay field recognizes only the
+  exact earlier payload shapes, then atomically binds the canonical replay
+  fingerprint before continuing. Its immutable payload fingerprint remains
+  the ticket-command fingerprint so work committed before receipt finalization
+  still resumes through the same command record.
 - A `processing` or `rerouting` retry adopts the first delivery's reserved
   identifiers, not its own, so a crash at any point resumes the same ticket and
   message IDs.
