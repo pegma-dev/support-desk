@@ -101,6 +101,180 @@ async function fixture(
 }
 
 describe("attachments public services", () => {
+  it("keeps filename and byte replay identity stable after host limits change", async () => {
+    const f = await fixture({ maxBytes: 16, maxFilenameCharacters: 120 });
+    const command = {
+      ...f.create,
+      attachments: [{ ...f.input, filename: "a".repeat(200) }],
+    };
+    const result = await f.app.createCustomerTicket(customer, command);
+    expect(result.messages[0]!.attachments![0]!.filename).toHaveLength(120);
+    const reconfigured = createSupportDeskApplication({
+      store: f.store,
+      clock: f.clock,
+      attachments: {
+        blobs: f.blobs,
+        maxBytes: 1,
+        maxMessageBytes: 1,
+        maxFilenameCharacters: 40,
+      },
+    });
+    expect(await reconfigured.createCustomerTicket(customer, command)).toEqual(
+      result,
+    );
+    expect(f.blobs.put).toHaveBeenCalledTimes(1);
+    await expect(
+      reconfigured.replyToCustomerTicket(customer, {
+        ...command,
+        commandId: "new",
+        messageId: "new",
+      }),
+    ).rejects.toThrow();
+    expect(f.blobs.put).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves reads and allows deletion when the reservation budget is lowered", async () => {
+    const f = await fixture();
+    const created = await f.app.createCustomerTicket(customer, f.create);
+    const app = createSupportDeskApplication({
+      store: f.store,
+      clock: f.clock,
+      limits: { maxRecordsPerTicket: 10 },
+      attachments: { blobs: f.blobs },
+    });
+    await expect(
+      app.readCustomerTicket(customer, base.ticketId),
+    ).resolves.toEqual(created);
+    await expect(
+      app.readStaffTicket(staff, base.ticketId),
+    ).resolves.toBeDefined();
+    await app.deleteAttachment(
+      staff,
+      f.state(created.messages[0]!.attachments![0]!.id, "d".repeat(200)),
+    );
+    expect(f.data.size).toBe(0);
+    expect(
+      await f.store.collection(supportRecords).list(base.ticketId),
+    ).toHaveLength(10);
+  });
+
+  it("converges overlapping deletion commands and audits the actual completion", async () => {
+    const f = await fixture();
+    const created = await f.app.createCustomerTicket(customer, f.create);
+    const id = created.messages[0]!.attachments![0]!.id;
+    f.blobs.delete.mockImplementationOnce(async (key) => {
+      await f.app.deleteAttachment(staff, f.state(id, "second"));
+      f.data.delete(key);
+    });
+    await f.app.deleteAttachment(staff, f.state(id, "first"));
+    await f.app.deleteAttachment(staff, f.state(id, "first"));
+    expect(f.data.size).toBe(0);
+    const history = await f.app.readTicketAuditHistory(staff, base.ticketId);
+    expect(history.map((event) => event.action)).toEqual([
+      "support.ticket.created",
+      "support.ticket.attachment_deleting",
+      "support.ticket.attachment_deleted",
+    ]);
+    expect(history.at(-1)!.id).toBe("second");
+  });
+
+  it("continues an expiry page after a failed attachment and reports its identity", async () => {
+    const f = await fixture();
+    const created = await f.app.createCustomerTicket(customer, {
+      ...f.create,
+      attachments: [f.input, { ...f.input, filename: "second.txt" }],
+    });
+    f.advance();
+    f.blobs.delete.mockRejectedValueOnce(new Error("unavailable"));
+    const first = await sweepExpiredAttachments({
+      store: f.store,
+      clock: f.clock,
+      application: f.app,
+      access: staff,
+      limit: 100,
+    });
+    expect(first.deleted).toBe(1);
+    expect(first.failures).toEqual([
+      {
+        ticketId: base.ticketId,
+        messageId: base.messageId,
+        attachmentId: created.messages[0]!.attachments![0]!.id,
+      },
+    ]);
+    expect(first.physicalRows).toBe(6);
+    const next = await sweepExpiredAttachments({
+      store: f.store,
+      clock: f.clock,
+      application: f.app,
+      access: staff,
+      limit: 100,
+    });
+    expect(next.deleted).toBe(1);
+    expect(next.failures).toEqual([]);
+    expect(f.data.size).toBe(0);
+  });
+
+  it("rejects invalid orphan inventory before entering maintenance or touching blobs", async () => {
+    const f = await fixture();
+    const enteredMaintenance = vi.fn();
+    const withUploadsPaused = async <T>(work: () => Promise<T>) => {
+      enteredMaintenance();
+      return work();
+    };
+    for (const candidate of [
+      {
+        key: `support-attachments/${crypto.randomUUID()}`,
+        ticketId: "a\u0000b",
+        messageId: "message",
+      },
+      {
+        key: `support-attachments/${crypto.randomUUID()}`,
+        ticketId: "ticket",
+        messageId: "m".repeat(201),
+      },
+    ])
+      await expect(
+        cleanupUnreferencedAttachmentBlobs({
+          store: f.store,
+          blobs: f.blobs,
+          candidates: [candidate],
+          withUploadsPaused,
+        }),
+      ).rejects.toThrow(TypeError);
+    expect(enteredMaintenance).not.toHaveBeenCalled();
+    expect(f.blobs.delete).not.toHaveBeenCalled();
+  });
+
+  it("encodes extended filename parameters and diagnoses a missing blob port after authorization", async () => {
+    const f = await fixture();
+    const created = await f.app.createCustomerTicket(customer, {
+      ...f.create,
+      attachments: [{ ...f.input, filename: "report(1)*'.txt" }],
+    });
+    const state = f.state(created.messages[0]!.attachments![0]!.id);
+    await f.app.recordAttachmentScanResult(staff, {
+      ...state,
+      verdict: "clean",
+      sha256: f.input.sha256,
+    });
+    expect(
+      (await f.app.downloadAttachment(customer, state)).contentDisposition,
+    ).toContain("report%281%29%2A%27.txt");
+    const missingPort = createSupportDeskApplication({
+      store: f.store,
+      clock: f.clock,
+    });
+    await expect(
+      missingPort.downloadAttachment(customer, state),
+    ).rejects.toThrow("Host blob port required");
+    await expect(
+      missingPort.downloadAttachment(
+        { ...customer, principalId: "other" },
+        state,
+      ),
+    ).rejects.toThrow("Ticket not found");
+  });
+
   it("never deletes a colliding immutable key owned by another write", async () => {
     const f = await fixture();
     f.blobs.put.mockResolvedValueOnce("exists");

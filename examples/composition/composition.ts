@@ -35,6 +35,7 @@ import { createMemoryStore, type Store } from "@pegma/storage-core";
 import {
   createInboundMailProcessor,
   createSupportDeskApplication,
+  cleanupUnreferencedAttachmentBlobs,
   defaultQueueTerminalRetentionMilliseconds,
   defaultThreadIndexRetentionMilliseconds,
   pruneCustomerTicketIndex,
@@ -62,25 +63,32 @@ import { defineTemplate, renderTemplate } from "@pegma/support-desk-templates";
 /** Synthetic host blob adapter and asynchronous scanner callback; no real scanner. */
 export async function runAttachmentExampleFlow() {
   const data = new Map<string, Uint8Array>();
+  // Synthetic inventory retains put-time context until maintenance confirms
+  // references. A production host gets this from private blob metadata/inventory.
+  const inventory = new Map<string, { ticketId: string; messageId: string }>();
+  const store = createMemoryStore();
+  const blobs: import("@pegma/support-desk-application").AttachmentBlobPort = {
+    async put(key, bytes, context) {
+      if (data.has(key)) return "exists";
+      inventory.set(key, { ...context });
+      data.set(key, new Uint8Array(bytes));
+    },
+    async get(key, maximumBytes) {
+      const bytes = data.get(key);
+      if (!bytes) throw new Error("Missing blob");
+      if (bytes.length > maximumBytes)
+        throw new Error("Blob exceeds bounded read");
+      return new Uint8Array(bytes);
+    },
+    async delete(key) {
+      data.delete(key);
+    },
+  };
   const application = createSupportDeskApplication({
-    store: createMemoryStore(),
+    store,
     clock: fixedClock("2026-11-01T10:00:00.000Z"),
     attachments: {
-      blobs: {
-        async put(key, bytes) {
-          if (data.has(key)) return "exists";
-          data.set(key, new Uint8Array(bytes));
-        },
-        async get(key, maximumBytes) {
-          const bytes = data.get(key);
-          if (!bytes || bytes.length > maximumBytes)
-            throw new Error("Missing/oversized blob");
-          return new Uint8Array(bytes);
-        },
-        async delete(key) {
-          data.delete(key);
-        },
-      },
+      blobs,
     },
   });
   const bytes = new TextEncoder().encode("Synthetic diagnostic text");
@@ -120,6 +128,14 @@ export async function runAttachmentExampleFlow() {
   await application.deleteAttachment(EXAMPLE_STAFF, {
     ...state,
     commandId: "redact",
+  });
+  await cleanupUnreferencedAttachmentBlobs({
+    store,
+    blobs,
+    candidates: [...inventory].map(([key, context]) => ({ key, ...context })),
+    // This standalone flow has awaited every write; no other writers exist.
+    // Production must stop admission and drain every process before work().
+    withUploadsPaused: (work) => work(),
   });
   if (data.size || download.bytes.length !== bytes.length)
     throw new Error("Attachment example failed");

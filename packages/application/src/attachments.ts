@@ -149,7 +149,6 @@ export function attachmentConfiguration(
 
 export async function attachmentDescriptors(
   inputs: readonly AttachmentInput[],
-  _config: ReturnType<typeof attachmentConfiguration>,
 ) {
   if (!inputs.length) return [];
   return Promise.all(
