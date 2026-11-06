@@ -22,6 +22,12 @@ deployments, customer UI, staff UI, inbound provider adapters, and production
 hardening remain later buildout tasks. Task 12 stays pending on host durable-store
 evidence; Task 13 changes are additive and package versions remain `0.1.1`.
 
+Buildout Task 14 [attachment APIs](docs/ATTACHMENTS.md) are also implemented
+in source at `0.1.1`: a host blob port, transactional message metadata,
+digest-bound scan callbacks, authorized downloads, deletion and bounded sweeps.
+Hosts supply private isolated storage, scanners and retention operations.
+Inbound email continues dropping attachments.
+
 ## What it will do
 
 Support Desk is intended to provide:

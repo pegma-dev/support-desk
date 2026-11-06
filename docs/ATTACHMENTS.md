@@ -16,6 +16,14 @@ preserves existing command fingerprints. Changed descriptors conflict; exact
 committed retries do not upload again, even after scan or deletion. Replay
 reflects current attachment safety state, never resurrecting deleted bytes.
 
+Fingerprint names use a fixed 255-character normalization, independent of host
+display limits. Stored names use the configured display limit. This deliberate
+separation keeps exact retries stable after a host changes filename or byte
+limits. Hosts must not reconstruct command fingerprints from stored DTOs.
+Snapshotting enforces fixed 10 MiB/file and 20 MiB/command allocation caps;
+current host byte/type/count policies are enforced for new commits after replay
+detection. Lowering an upload limit does not invalidate an older receipt.
+
 Metadata is embedded in `TicketMessage.attachments`; these are the authoritative
 attachment records and references. There is no separate cross-partition catalog.
 The message, ticket, quota, Audit event, command receipt and optional mail outbox
@@ -98,16 +106,33 @@ the attachment stays unavailable until the callback transaction commits.
    identity, digest, replay and audit facts. The blob is removed before the final
    tombstone. Concurrent downloads already delivered cannot be recalled.
 
+   A redundant deletion fence or tombstone is a no-op: it adds no Audit or
+   receipt for a state that did not change. A resumed command that actually
+   completes deletion is recorded in the final tombstone Audit and receipt.
+   Concurrent commands converge on the tombstone without a false conflict.
+
 `sweepExpiredAttachments` scans one physical page (default 20, maximum 100) and
 uses an authorized host worker identity to resume deleting or expire attachments.
-Hosts schedule recurring full cursor cycles, persist progress after success and
-retry failed pages. Expiry gates downloads immediately even before sweep. Reserve
+Hosts schedule recurring full cursor cycles and persist progress after success.
+Individual deletion failures are returned in a bounded `failures` list containing
+only ticket/message/attachment IDs; they do not prevent other attachments or
+later pages from progressing. Alert on persistent failures and revisit them on
+the next full cycle. Scan failures still reject the page and leave its cursor
+unchanged. Expiry gates downloads immediately even before sweep. Reserve
 partition capacity for scan/deletion Audit and receipts (six additional records
 per attachment for one verdict and one deletion). The application includes these
 reserved slots when admitting other commands, so ordinary mutations cannot spend
 cleanup capacity. Configure consistent limits on the application and inbound
-processor. Delete attachments before
-purging ticket records, and finish orphan reconciliation before dropping inventory.
+processor. Attachment-count and partition-record limits are independent upper
+bounds, not a promise that either can be reached under every combination. A
+100-attachment configuration needs a larger record budget if all scans remain
+pending together. Reads count physical records only; safety transitions check
+physical capacity for their two new records, so lowering a budget below the
+virtual reservation does not itself strand cleanup. Never lower it below the
+actual physical rows plus the remaining cleanup writes; restore sufficient
+capacity before cleanup if an external writer or config change violates that
+physical bound. Delete attachments before purging ticket records, and finish
+orphan reconciliation before dropping inventory.
 
 ## DTOs, mail and inbound
 

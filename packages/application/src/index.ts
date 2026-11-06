@@ -86,6 +86,7 @@ export async function sweepExpiredAttachments(options: {
   cursor?: string;
   limit?: number;
 }) {
+  requireStaffMutationAccess(options.access, supportPermissions.manage);
   const limit = options.limit ?? 20;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
     throw new TypeError("Invalid attachment sweep limit");
@@ -94,6 +95,11 @@ export async function sweepExpiredAttachments(options: {
     ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
   });
   let deleted = 0;
+  const failures: {
+    ticketId: string;
+    messageId: string;
+    attachmentId: string;
+  }[] = [];
   for (const row of page.records) {
     if (row.value.kind !== "message") continue;
     for (const attachment of row.value.message.attachments ?? []) {
@@ -103,20 +109,28 @@ export async function sweepExpiredAttachments(options: {
           attachment.expiresAt > options.clock.now())
       )
         continue;
-      await options.application.deleteAttachment(options.access, {
+      const target = {
         ticketId: row.key.partition,
         messageId: row.value.message.id,
         attachmentId: attachment.id,
-        commandId: `expire-${attachment.id}`,
-        correlationId: `expire-${attachment.id}`,
-      });
-      deleted++;
+      };
+      try {
+        await options.application.deleteAttachment(options.access, {
+          ...target,
+          commandId: `expire-${attachment.id}`,
+          correlationId: `expire-${attachment.id}`,
+        });
+        deleted++;
+      } catch {
+        failures.push(target);
+      }
     }
   }
   return {
     nextCursor: page.nextCursor,
     physicalRows: page.records.length,
     deleted,
+    failures,
   };
 }
 
@@ -134,9 +148,24 @@ export async function cleanupUnreferencedAttachmentBlobs(options: {
 }) {
   if (options.candidates.length > 100)
     throw new TypeError("At most 100 orphan candidates");
+  const candidates = options.candidates.map((candidate) => {
+    const source = boundaryObject(candidate, "orphan candidate");
+    const read = (field: string) =>
+      boundaryString(ownDataProperty(source, field, field), field);
+    const value = {
+      key: read("key"),
+      ticketId: read("ticketId"),
+      messageId: read("messageId"),
+    };
+    requireIdentifier(value.ticketId, "ticketId");
+    requireIdentifier(value.messageId, "messageId");
+    if (!/^support-attachments\/[a-f0-9-]{36}$/.test(value.key))
+      throw new TypeError("Invalid attachment key");
+    return Object.freeze(value);
+  });
   return options.withUploadsPaused(async () => {
     let deleted = 0;
-    for (const candidate of options.candidates) {
+    for (const candidate of candidates) {
       if (!/^support-attachments\/[a-f0-9-]{36}$/.test(candidate.key))
         throw new TypeError("Invalid attachment key");
       const row = await options.store.collection(supportRecords).get({
@@ -1973,10 +2002,7 @@ async function authoritativeView(
   ) {
     throw new SupportDeskNotFoundError();
   }
-  enforcePartitionRecordLimit(
-    partitionSizeWithAttachmentReserve(all),
-    maxRecordsPerTicket,
-  );
+  enforcePartitionRecordLimit(all.length, maxRecordsPerTicket);
   return {
     ticket: toCustomerTicketSummary(ticketRecord.ticket),
     messages: customerMessages(all),
@@ -2110,10 +2136,7 @@ async function staffAuthoritativeView(
   maxRecordsPerTicket: number,
 ): Promise<StaffTicketView> {
   const all = await records.list(ticketId);
-  enforcePartitionRecordLimit(
-    partitionSizeWithAttachmentReserve(all),
-    maxRecordsPerTicket,
-  );
+  enforcePartitionRecordLimit(all.length, maxRecordsPerTicket);
   const ticketRecord = all.find(
     (record): record is TicketRecord => record.kind === "ticket",
   );
@@ -3531,10 +3554,7 @@ export function createSupportDeskApplication(options: {
       );
     }
     const rows = await records.list(ticketId);
-    enforcePartitionRecordLimit(
-      partitionSizeWithAttachmentReserve(rows),
-      limits.maxRecordsPerTicket,
-    );
+    enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket);
     return {
       ticket: receipt.resultTicket,
       messages: staffMessages(
@@ -3910,13 +3930,11 @@ export function createSupportDeskApplication(options: {
         throw new SupportDeskConflictError("Scan result is already final");
       if (status === "deleting" && attachment.scanStatus === "deleted") return;
       if (status === "deleting" && attachment.scanStatus === "deleting") return;
+      if (status === "deleted" && attachment.scanStatus === "deleted") return;
       if (status === "deleted" && attachment.scanStatus !== "deleting")
         throw new SupportDeskConflictError("Deletion must be fenced first");
       const rows = await records.list(input.ticketId);
-      enforcePartitionRecordLimit(
-        partitionSizeWithAttachmentReserve(rows),
-        limits.maxRecordsPerTicket,
-      );
+      enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket, 2);
       const now = clampTicketTime(clock.now(), ticket.value.ticket.updatedAt);
       const updated = {
         ...ticket.value.ticket,
@@ -4021,10 +4039,11 @@ export function createSupportDeskApplication(options: {
       if (
         !attachment ||
         attachment.scanStatus !== "clean" ||
-        attachment.expiresAt <= clock.now() ||
-        !attachmentConfig.blobs
+        attachment.expiresAt <= clock.now()
       )
         throw new SupportDeskNotFoundError();
+      if (!attachmentConfig.blobs)
+        throw new TypeError("Host blob port required");
       const bytes = await attachmentConfig.blobs.get(
         attachment.blobKey,
         attachment.size,
@@ -4045,7 +4064,7 @@ export function createSupportDeskApplication(options: {
       return {
         bytes,
         contentType: attachment.contentType,
-        contentDisposition: `attachment; filename="attachment"; filename*=UTF-8''${encodeURIComponent(attachment.filename).replaceAll("'", "%27")}`,
+        contentDisposition: `attachment; filename="attachment"; filename*=UTF-8''${encodeURIComponent(attachment.filename).replace(/['()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)}`,
         cacheControl: "private, no-store",
         xContentTypeOptions: "nosniff",
       };
@@ -4072,7 +4091,10 @@ export function createSupportDeskApplication(options: {
         throw new TypeError("Host blob port required");
       await changeAttachmentState(
         access,
-        { ...input, commandId: `${input.commandId}:fence` },
+        {
+          ...input,
+          commandId: `attachment-fence-${await requestFingerprint({ commandId: input.commandId })}`,
+        },
         "deleting",
       );
       const message = await records.get({
@@ -4102,10 +4124,7 @@ export function createSupportDeskApplication(options: {
       enforceLimit(command.subject, "subject", limits.maxSubjectCharacters);
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
       const attachmentInputs = command.attachments ?? [];
-      const descriptors = await attachmentDescriptors(
-        attachmentInputs,
-        attachmentConfig,
-      );
+      const descriptors = await attachmentDescriptors(attachmentInputs);
       const attachmentFingerprint = descriptors.length
         ? { attachments: descriptors }
         : {};
@@ -4434,10 +4453,7 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(command.correlationId, "correlationId");
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
       const attachmentInputs = command.attachments ?? [];
-      const descriptors = await attachmentDescriptors(
-        attachmentInputs,
-        attachmentConfig,
-      );
+      const descriptors = await attachmentDescriptors(attachmentInputs);
       const attachmentFingerprint = descriptors.length
         ? { attachments: descriptors }
         : {};
@@ -4840,10 +4856,7 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(command.correlationId, "correlationId");
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
       const attachmentInputs = command.attachments ?? [];
-      const descriptors = await attachmentDescriptors(
-        attachmentInputs,
-        attachmentConfig,
-      );
+      const descriptors = await attachmentDescriptors(attachmentInputs);
       const attachmentFingerprint = descriptors.length
         ? { attachments: descriptors }
         : {};
@@ -5040,10 +5053,7 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(command.correlationId, "correlationId");
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
       const attachmentInputs = command.attachments ?? [];
-      const descriptors = await attachmentDescriptors(
-        attachmentInputs,
-        attachmentConfig,
-      );
+      const descriptors = await attachmentDescriptors(attachmentInputs);
       const attachmentFingerprint = descriptors.length
         ? { attachments: descriptors }
         : {};
