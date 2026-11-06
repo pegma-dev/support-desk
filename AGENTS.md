@@ -186,6 +186,10 @@ handoff; give an implementation agent one task from it, never the whole
 roadmap. For the approved standalone KB and AI enhancement, use one task from
 `docs/KNOWLEDGE_AI_PLAN.md`; it supersedes the earlier knowledge package and
 staff-only Task 18 outline without marking those capabilities implemented.
+P-00's baseline and test infrastructure are in `docs/KNOWLEDGE_AI_P00.md` and
+`test/knowledge-ai`; its open prerequisites block their named activation gates,
+not unrelated pure source work. The corpus must be exercised through actual
+adapters in later tasks; its harness tests are not feature acceptance.
 Then read `docs/ARCHITECTURE.md` for boundaries and persistence,
 `docs/MVP_SPEC.md` for product behavior, and `docs/COLLECTIONS.md` before any
 durable layout change.

@@ -2,7 +2,10 @@
 
 ## Status and reading order
 
-Approved product decisions: 2026-11-06. Implementation has not started.
+Approved product decisions: 2026-11-06. P-00's baseline and synthetic test
+infrastructure are implemented; KB and AI feature implementation remains pending.
+Use the [P-00 handoff](KNOWLEDGE_AI_P00.md) for the frozen package baseline,
+acceptance corpus, capacity assumptions, and owned activation prerequisites.
 This plan covers a standalone Pegma knowledge base, an optional Support Desk
 AI agent and engineering workflow, and working integrations on both launch
 hosts. RetireGolden is the primary use case; pegma.dev is the simpler early

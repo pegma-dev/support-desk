@@ -18,6 +18,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "pnpm run build && vitest run",
+    "knowledge-ai:baseline": "node scripts/knowledge-ai-baseline.mjs",
     "release:check": "node scripts/release-packages.mjs check",
     "release:pack": "node scripts/release-packages.mjs pack",
     "release:publish": "node scripts/release-packages.mjs publish",

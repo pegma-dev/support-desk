@@ -42,6 +42,9 @@ The approved [knowledge-base and AI support implementation plan](docs/KNOWLEDGE_
 defines the next enhancement: a standalone API/MCP-authored KB and an optional
 ticket-backed support agent, with working integrations on both launch hosts.
 It records the agreed scope and task sequence; these features are planned.
+The [P-00 handoff](docs/KNOWLEDGE_AI_P00.md) supplies the package baseline,
+synthetic evaluation fixtures, capacity checks, and prerequisites for implementation.
+Passing that harness does not establish a working KB, bot, or host deployment.
 
 ## How the pieces fit
 
