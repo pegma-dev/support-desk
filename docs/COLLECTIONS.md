@@ -36,7 +36,8 @@ ID. One partition contains:
 - `audit|<event-id>`: `@pegma/audit@0.1.0` accepted-change events keyed by
   `auditRecordId(event.id)` (command ID is the event ID);
 - `command:<command-id>`: idempotency receipts with request fingerprints
-  (inbound mail uses `inbound:<receipt location>` command IDs);
+  (inbound mail uses `inbound:<receipt location>` command IDs); an older
+  nonqualifying reply route may reserve this key with a bounded reroute fence;
 - `delivery:<notification-id>`: durable outbound jobs.
 
 This layout is load-bearing. It lets a customer state change, its canonical
@@ -189,19 +190,39 @@ receipt layout and declares one more collection.
 `createInboundMailProcessor(...).processInboundEmail` writes the
 `support-desk.inbound-receipts.v1` receipt with `insertIfAbsent` at the
 channel/event slot **before** any ticket work. The first delivery stores the
-content fingerprint (normalized sender, subject, body, threading headers,
-token, and loop signals, excluding host-minted IDs), `receivedAt`, and the
-host-minted `reservedTicketId`, `reservedMessageId`, and `correlationId`.
+content fingerprint (normalized sender, optional host-evaluated sender result,
+subject, body, threading headers, token, and loop signals, excluding
+host-minted IDs), `receivedAt`, and the host-minted `reservedTicketId`,
+`reservedMessageId`, and `correlationId`.
 
 - A retry of the same channel/event reaches the same slot. A different
   fingerprint or a digest collision fails closed with
   `SupportDeskConflictError` and does no ticket work.
-- A `processing` retry adopts the first delivery's reserved identifiers, not
-  its own, so a crash at any point resumes the same ticket and message IDs.
+- A `processing` or `rerouting` retry adopts the first delivery's reserved
+  identifiers, not its own, so a crash at any point resumes the same ticket and
+  message IDs.
 - The routing decision (`route`: suppressed, duplicate message, reply to a
   ticket, or new conversation with association, priority, optional category,
   and optional related ticket) is written once with an `update` decider and
-  never re-decided. Host ports are therefore not re-asked after a crash.
+  never re-decided during ordinary replay. Processing routes recorded before
+  sender authentication was enforced are normalized before ticket work; an
+  already committed command wins, while a nonqualifying route becomes an
+  unverified related conversation. The processor first claims the receipt with
+  the resumable `rerouting` status, which prevents an older worker from
+  finalizing the prior route while normalization is in progress.
+- Before replacing an older reply route, the processor reserves its original
+  `command:<command-id>` key with an `inbound_reply_reroute_fence` in the target
+  ticket partition. The fence plus unchanged ticket and quota versions commit
+  together, so a concurrent row-adding command cannot overtake its capacity
+  check. This permanent tombstone counts toward `maxRecordsPerTicket`;
+  insertion enforces the configured bound and fails closed when no record
+  capacity remains.
+- Before replacing an older matched related-conversation route, the processor
+  reserves the new ticket's command key with an
+  `inbound_create_reroute_fence`. The normalized create transaction
+  conditionally replaces that temporary fence with its command record, so an
+  older create cannot commit in parallel and the final partition size is
+  unchanged.
 - The ticket command ID is derived from the receipt location
   (`inbound:<120-bit bucket hash><slot>`), so the ticket-partition command
   receipt deduplicates concurrent or resumed processors.

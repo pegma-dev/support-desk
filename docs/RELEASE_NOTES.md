@@ -35,14 +35,26 @@ the next synchronized release.
   lifecycle; the new `support-desk.thread-index.v1` collection with
   `repairThreadIndexPage` and `sweepThreadIndexPage`; optional
   `replyRoutingToken` on `NotificationInput` and `DeliveryContent`; optional
-  receipt fields for reserved identifiers, routing, and outcome.
-- `@pegma/support-desk-contracts`: optional staff-only `Ticket.relatedTicketId`
-  and `CreateTicketInput.relatedTicketId`.
+  receipt fields for reserved identifiers, routing, and outcome. Existing
+  email-backed ticket joins also require the snapshotted host sender result to
+  pass for the same normalized address.
+- `@pegma/support-desk-contracts`: `InboundSenderAuthentication`, optional
+  staff-only `Ticket.relatedTicketId`, and
+  `CreateTicketInput.relatedTicketId`.
 - `@pegma/support-desk-core`: `createTicket` validates and preserves
   `relatedTicketId`.
 
 Upgrade note: after deploying, run one complete `repairThreadIndexPage` cycle
-so tickets and notifications recorded earlier gain threading rows.
+so tickets and notifications recorded earlier gain threading rows. Hosts must
+populate `senderAuthentication` before email-backed tickets can accept replies;
+email-less tickets retain their high-entropy routing-token flow. Processing
+receipts carrying an older reply route are rechecked before ticket work, while
+an already committed command retains its replay result. A nonqualifying older
+route first claims a resumable `rerouting` receipt. Reply normalization reserves
+one permanent fence in the named ticket partition; the fence counts toward
+`maxRecordsPerTicket` and is refused when the partition has no remaining record
+capacity. Related-conversation normalization uses a temporary command-key fence
+that the normalized create consumes.
 
 ## 0.1.1 — dependency alignment
 

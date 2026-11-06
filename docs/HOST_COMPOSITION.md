@@ -172,21 +172,28 @@ provider event. The host mail worker owns everything before that:
 1. **Verify authenticity.** Check the provider webhook signature or the
    delivery mechanism's credentials with the provider SDK or HTTP client in
    the host. Unverified requests never reach Support Desk.
-2. **Bound and normalize MIME.** Enforce message, part, header, and
+2. **Evaluate the sender.** Produce `InboundSenderAuthentication` only from
+   trusted post-verification provider evidence and bind its normalized `email`
+   to the same address passed as `from`. A DMARC `pass` requires aligned DKIM
+   or aligned SPF; `host_identity` requires an equivalent host-authenticated
+   identity. Never trust raw, unparsed `Authentication-Results`, a provider
+   webhook signature by itself, or SPF without alignment. Use `fail` or omit
+   the result when the host cannot establish these semantics.
+3. **Bound and normalize MIME.** Enforce message, part, header, and
    attachment size limits; decode the subject; reduce the body to safe plain
    text (or constrained Markdown) with quoted history trimmed below the
    configured body limit. Raw MIME and HTML are never passed in. Attachments
    are dropped until their own post-MVP task.
-3. **Extract metadata.** Pass the sender address, optional display name, the
+4. **Extract metadata.** Pass the sender address, optional display name, the
    message's own `Message-ID`, `In-Reply-To`, `References`, any candidate
    reply-routing token from the recipient address or provider metadata, and
    the loop signals (`Auto-Submitted`, `Precedence`,
    `X-Auto-Response-Suppress`, `X-Autoreply`-style headers, `List-Id`,
    top-level `Content-Type`, and the SMTP envelope sender).
-4. **Mint identifiers.** Supply server-minted `ticketId`, `messageId`, and
+5. **Mint identifiers.** Supply server-minted `ticketId`, `messageId`, and
    `correlationId` for every attempt. A retry may mint new ones; Support Desk
    reuses the first delivery's reserved identifiers.
-5. **Apply durable limits.** Throttle by sender, domain, and channel with
+6. **Apply durable limits.** Throttle by sender, domain, and channel with
    `@pegma/rate-limit` before calling Support Desk.
 
 ```ts
@@ -206,6 +213,15 @@ const inbound = createInboundMailProcessor({
 
 const result = await inbound.processInboundEmail(normalizedProviderEvent);
 ```
+
+For tickets with `requester.email`, routing tokens, threading headers, and
+subject markers join only when the case-insensitive normalized `from` address
+equals that email and `senderAuthentication` passes for the same normalized
+address. Missing, failed, unaligned, or differently bound results create a new
+unverified ticket with a staff-only relationship hint; they never change or
+reopen the named ticket. For tickets without a requester email, only the
+high-entropy routing token remains a bearer write path. Threading headers and
+subject markers alone do not join those tickets.
 
 The account matcher answers whether a sender address matches zero, one, or
 several accounts. Only a unique match yields a `matched_email` ticket, and
@@ -286,7 +302,8 @@ authorize access from the projection alone.
 - durable `@pegma/rate-limit` policies on create and reply;
 - mail provider credentials, callback verification, and sender domains;
 - inbound webhook verification, MIME bounds and normalization, reply-address
-  token rendering, the account matcher, and the inbound routing policy;
+  token rendering, sender evaluation, the account matcher, and the inbound
+  routing policy;
 - template packs and public ticket URLs;
 - health metrics without message content;
 - retention, export, redaction, and operator access procedures.

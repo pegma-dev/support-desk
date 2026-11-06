@@ -437,6 +437,13 @@ for (const [name, fixture] of [
         channelId: "mail",
         providerEventId: "event1",
         from: "sender@example.test",
+        senderAuthentication: {
+          method: "dmarc",
+          result: "pass",
+          email: "sender@example.test",
+          dkimAligned: true,
+          spfAligned: false,
+        } as const,
         subject: "Question",
         body: "Hello",
         externalMessageId: "<first@example.test>",

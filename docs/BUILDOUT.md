@@ -533,10 +533,14 @@ tests. Provider SDK and HTTP verification remain host adapters.
   notification-bearing command; `repairThreadIndexPage` and
   `sweepThreadIndexPage` workers;
 - optional `replyRoutingToken` on `NotificationInput` and `DeliveryContent`;
+- host-evaluated `InboundSenderAuthentication` on `InboundEmailInput`, bound
+  to the normalized `from` address and snapshotted with the rest of the input;
 - matching order routing token → `In-Reply-To`/`References` → subject marker
   (`subjectMarkerPrefix`), each confirmed against authoritative records; a
-  match joins only when the sender equals the recorded requester address
-  (or, with no recorded address, only by routing token);
+  match for a recorded requester address joins only when the normalized sender
+  matches and the host result passes through aligned DKIM, aligned SPF, or an
+  equivalent host-authenticated identity (with no recorded address, only the
+  high-entropy routing token may join);
 - ambiguous or unsafe matches create a new unverified ticket with the
   staff-only `Ticket.relatedTicketId` hint;
 - loop suppression for `Auto-Submitted`, `Precedence`, `X-Autoreply`-style
@@ -551,6 +555,8 @@ tests. Provider SDK and HTTP verification remain host adapters.
 **Remaining host adapter work (separate host pull requests):**
 
 - select a provider and verify its webhook or delivery credentials;
+- evaluate sender authentication from trusted provider evidence and bind the
+  result to the same normalized address passed as `from`;
 - bound MIME, convert HTML to text, trim quoted history, and drop
   attachments before calling Support Desk;
 - render `replyRoutingToken` into the reply address and extract it from
@@ -572,8 +578,8 @@ tests. Provider SDK and HTTP verification remain host adapters.
 - a related ticket is a staff-review hint only; there is no merge workflow;
 - how long resolved and closed tickets stay reopenable by email is still an
   open question, so every confirmed reply reopens;
-- sender-domain authentication (SPF, DKIM, DMARC) is evaluated by the host
-  adapter and is not an input to Support Desk matching.
+- raw, unparsed `Authentication-Results`, a provider webhook signature alone,
+  and unaligned SPF do not satisfy the sender result contract.
 
 ### Task 12 — first production-ready release
 

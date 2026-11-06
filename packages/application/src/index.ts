@@ -13,6 +13,7 @@ import {
   type StoredRecord,
 } from "@pegma/storage-core";
 import type {
+  InboundSenderAuthentication,
   MessageFormat,
   MessageId,
   RequesterAssociation,
@@ -24,6 +25,8 @@ import type {
   TicketStatus,
 } from "@pegma/support-desk-contracts";
 import { applyTicketEvent, createTicket } from "@pegma/support-desk-core";
+
+export type { InboundSenderAuthentication };
 
 export const supportPermissions = Object.freeze({
   create: "support.ticket.create",
@@ -237,6 +240,26 @@ interface CommandRecord {
   readonly resultTicket?: Ticket;
 }
 
+interface InboundReplyRerouteFenceRecord {
+  readonly kind: "inbound_reply_reroute_fence";
+  readonly partition: TicketId;
+  readonly id: string;
+  readonly commandId: string;
+  readonly messageId: MessageId;
+  readonly requestFingerprint: string;
+  readonly recordedAt: IsoTimestamp;
+}
+
+interface InboundCreateRerouteFenceRecord {
+  readonly kind: "inbound_create_reroute_fence";
+  readonly partition: TicketId;
+  readonly id: string;
+  readonly commandId: string;
+  readonly messageId: MessageId;
+  readonly requestFingerprint: string;
+  readonly recordedAt: IsoTimestamp;
+}
+
 interface TicketQuotaRecord {
   readonly kind: "ticket_quota";
   readonly partition: TicketId;
@@ -260,6 +283,8 @@ export type SupportRecord =
   | MessageRecord
   | AuditMemberRecord
   | CommandRecord
+  | InboundReplyRerouteFenceRecord
+  | InboundCreateRerouteFenceRecord
   | DeliveryJob;
 
 /** Closed MVP registry of durable accepted-change audit action names. */
@@ -298,7 +323,8 @@ export interface InboundReceipt {
   readonly providerEventId: string;
   readonly externalMessageId?: string;
   readonly payloadFingerprint: string;
-  readonly status: "processing" | "processed" | "rejected";
+  /** `rerouting` is a resumable claim used only to normalize an older route. */
+  readonly status: "processing" | "rerouting" | "processed" | "rejected";
   /** Trusted host time at which processing first reserved this receipt. */
   readonly receivedAt: IsoTimestamp;
   /** Trusted host time at which processing reached a terminal status. */
@@ -316,7 +342,10 @@ export interface InboundReceipt {
   /** Host-minted message ID reserved by the first delivery. */
   readonly reservedMessageId?: MessageId;
   readonly correlationId?: string;
-  /** First routing decision; never re-decided once written. */
+  /**
+   * First routing decision. Ordinary replays retain it; processing receipts
+   * written by older versions may be normalized before ticket work resumes.
+   */
   readonly route?: InboundReceiptRoute;
   readonly outcome?: InboundEmailOutcome;
 }
@@ -363,6 +392,42 @@ export type InboundReceiptRoute =
       readonly category?: string;
       readonly relatedTicketId?: TicketId;
     };
+
+function sameInboundReceiptRoute(
+  left: InboundReceiptRoute | undefined,
+  right: InboundReceiptRoute,
+): boolean {
+  if (left?.kind !== right.kind) {
+    return false;
+  }
+  switch (right.kind) {
+    case "suppressed":
+      return left.kind === "suppressed" && left.reason === right.reason;
+    case "duplicate_message":
+      return (
+        left.kind === "duplicate_message" &&
+        left.ticketId === right.ticketId &&
+        left.messageId === right.messageId
+      );
+    case "reply":
+      return (
+        left.kind === "reply" &&
+        left.ticketId === right.ticketId &&
+        left.matchMethod === right.matchMethod
+      );
+    case "new_conversation":
+      return (
+        left.kind === "new_conversation" &&
+        left.ticketId === right.ticketId &&
+        left.matchMethod === right.matchMethod &&
+        left.association === right.association &&
+        left.principalId === right.principalId &&
+        left.priority === right.priority &&
+        left.category === right.category &&
+        left.relatedTicketId === right.relatedTicketId
+      );
+  }
+}
 
 export interface DeliveryCallbackInput {
   readonly provider: string;
@@ -1063,9 +1128,13 @@ function ownDataProperty(
   key: PropertyKey,
   field: string,
   optional = false,
+  rejectInherited = false,
 ): unknown {
   const descriptor = Object.getOwnPropertyDescriptor(source, key);
   if (descriptor === undefined) {
+    if (rejectInherited && Reflect.has(source, key)) {
+      throw new TypeError(`${field} must be an own data property`);
+    }
     if (optional) {
       return undefined;
     }
@@ -1758,6 +1827,34 @@ function duplicateMatches(
   return (
     existing?.kind === "command" &&
     existing.commandType === commandType &&
+    existing.messageId === messageId &&
+    existing.requestFingerprint === requestFingerprint
+  );
+}
+
+function inboundReplyRerouteFenceMatches(
+  existing: SupportRecord | null,
+  commandId: string,
+  messageId: MessageId,
+  requestFingerprint: string,
+): existing is InboundReplyRerouteFenceRecord {
+  return (
+    existing?.kind === "inbound_reply_reroute_fence" &&
+    existing.commandId === commandId &&
+    existing.messageId === messageId &&
+    existing.requestFingerprint === requestFingerprint
+  );
+}
+
+function inboundCreateRerouteFenceMatches(
+  existing: SupportRecord | null,
+  commandId: string,
+  messageId: MessageId,
+  requestFingerprint: string,
+): existing is InboundCreateRerouteFenceRecord {
+  return (
+    existing?.kind === "inbound_create_reroute_fence" &&
+    existing.commandId === commandId &&
     existing.messageId === messageId &&
     existing.requestFingerprint === requestFingerprint
   );
@@ -5572,7 +5669,8 @@ export async function sweepInboundReceipts(
   const candidates = (await receipts.listVersioned(bucket))
     .filter(
       (versioned) =>
-        versioned.value.status !== "processing" &&
+        (versioned.value.status === "processed" ||
+          versioned.value.status === "rejected") &&
         versioned.value.processedAt !== undefined &&
         versioned.value.processedAt <= processedBefore &&
         versioned.value.processedAt < horizonBefore,
@@ -6316,10 +6414,12 @@ export interface InboundLoopSignals {
  * verified the provider webhook or delivery mechanism, bounded MIME parsing,
  * and reduced the content to safe plain text or constrained Markdown.
  *
- * Every field is hostile sender-controlled data except the host-minted
- * identifiers. Raw MIME and HTML never belong here. There is deliberately no
- * principal, role, plan, priority, or session field: a sender address match
- * assists routing and never authenticates.
+ * Sender and content fields are hostile sender-controlled data. Identifiers
+ * are host-minted, and `senderAuthentication` is a host-evaluated result from
+ * trusted post-verification evidence. Raw MIME and HTML never belong here.
+ * There is deliberately no principal, role, plan, priority, or session field:
+ * sender authentication permits an email reply join but never establishes web
+ * identity or access.
  */
 export interface InboundEmailInput {
   /** Host mailbox or channel identifier (an opaque name, not an address). */
@@ -6333,6 +6433,8 @@ export interface InboundEmailInput {
   readonly correlationId: string;
   /** Sender address chosen by the host adapter; routing input only. */
   readonly from: string;
+  /** Host-evaluated sender result bound to the normalized `from` address. */
+  readonly senderAuthentication?: InboundSenderAuthentication;
   /** Untrusted display name; stored for staff context only. */
   readonly fromName?: string;
   /** Decoded subject; controls collapse and it is cut to the subject limit. */
@@ -6477,6 +6579,7 @@ interface InboundEmailSnapshot {
   readonly messageId: MessageId;
   readonly correlationId: string;
   readonly from: string;
+  readonly senderAuthentication?: InboundSenderAuthentication;
   readonly fromName?: string;
   readonly subject: string;
   readonly body: string;
@@ -6577,6 +6680,57 @@ function snapshotLoopSignals(input: unknown): InboundLoopSignals {
   return Object.freeze(signals) as InboundLoopSignals;
 }
 
+function snapshotInboundSenderAuthentication(
+  input: unknown,
+): InboundSenderAuthentication | undefined {
+  if (input === undefined) {
+    return undefined;
+  }
+  const field = "inbound email.senderAuthentication";
+  const source = boundaryObject(input, field);
+  const method = ownDataProperty(source, "method", `${field}.method`);
+  if (method !== "dmarc" && method !== "host_identity") {
+    throw new TypeError(`${field}.method must be dmarc or host_identity`);
+  }
+  const result = ownDataProperty(source, "result", `${field}.result`);
+  if (result !== "pass" && result !== "fail") {
+    throw new TypeError(`${field}.result must be pass or fail`);
+  }
+  const email = normalizeRequesterEmail(
+    boundaryString(
+      ownDataProperty(source, "email", `${field}.email`),
+      `${field}.email`,
+    ),
+    `${field}.email`,
+  ) as string;
+  if (method === "host_identity") {
+    return Object.freeze({ method, result, email });
+  }
+  const dkimAligned = ownDataProperty(
+    source,
+    "dkimAligned",
+    `${field}.dkimAligned`,
+  );
+  if (typeof dkimAligned !== "boolean") {
+    throw new TypeError(`${field}.dkimAligned must be a boolean`);
+  }
+  const spfAligned = ownDataProperty(
+    source,
+    "spfAligned",
+    `${field}.spfAligned`,
+  );
+  if (typeof spfAligned !== "boolean") {
+    throw new TypeError(`${field}.spfAligned must be a boolean`);
+  }
+  return Object.freeze({
+    method,
+    result,
+    email,
+    dkimAligned,
+    spfAligned,
+  });
+}
+
 function snapshotInboundEmailInput(
   input: unknown,
   limits: SupportDeskLimits,
@@ -6602,6 +6756,16 @@ function snapshotInboundEmailInput(
     readString("from"),
     field("from"),
   ) as string;
+  const rawSenderAuthentication = ownDataProperty(
+    source,
+    "senderAuthentication",
+    field("senderAuthentication"),
+    true,
+    true,
+  );
+  const senderAuthentication = snapshotInboundSenderAuthentication(
+    rawSenderAuthentication,
+  );
   const rawName = readOptional("fromName");
   const fromName =
     rawName === undefined
@@ -6663,6 +6827,7 @@ function snapshotInboundEmailInput(
     messageId,
     correlationId,
     from,
+    ...(senderAuthentication === undefined ? {} : { senderAuthentication }),
     ...(fromName === undefined ? {} : { fromName }),
     subject,
     body,
@@ -6682,6 +6847,9 @@ function inboundFingerprintPayload(input: InboundEmailSnapshot): unknown {
     channelId: input.channelId,
     providerEventId: input.providerEventId,
     from: input.from,
+    ...(input.senderAuthentication === undefined
+      ? {}
+      : { senderAuthentication: input.senderAuthentication }),
     fromName: input.fromName ?? null,
     subject: input.subject,
     body: input.body,
@@ -6795,21 +6963,35 @@ function sameAddress(left: string, right: string): boolean {
 }
 
 /**
- * A thread match joins only when the sender equals the ticket's recorded
- * requester address. Without a recorded address, only an opaque routing
- * token (delivered solely to the notification recipient) can join; a
- * `Message-ID` or subject marker alone is never enough.
+ * A thread match with a recorded requester address requires both exact
+ * case-insensitive address equality and a passing host-evaluated sender result
+ * bound to that normalized address. Without a recorded address, only an
+ * opaque routing token can join; a `Message-ID` or subject marker alone is
+ * never enough.
  */
 function threadJoinIsSafe(
   ticket: Ticket,
   method: Exclude<InboundMatchMethod, "none">,
-  from: string,
+  input: InboundEmailSnapshot,
 ): boolean {
   const email = ticket.requester.email;
-  if (email !== undefined) {
-    return sameAddress(email, from);
+  if (email === undefined) {
+    return method === "routing_token";
   }
-  return method === "routing_token";
+  const authentication = input.senderAuthentication;
+  if (
+    authentication === undefined ||
+    authentication.result !== "pass" ||
+    !sameAddress(email, input.from) ||
+    !sameAddress(authentication.email, input.from)
+  ) {
+    return false;
+  }
+  return (
+    authentication.method === "host_identity" ||
+    authentication.dkimAligned ||
+    authentication.spfAligned
+  );
 }
 
 function snapshotSenderMatch(value: unknown): InboundSenderMatch {
@@ -6994,6 +7176,7 @@ type ReplyRoute = Extract<InboundReceiptRoute, { readonly kind: "reply" }>;
 interface InboundWork {
   readonly key: EntityKey;
   readonly input: InboundEmailSnapshot;
+  readonly route: InboundReceiptRoute;
   readonly messageId: MessageId;
   readonly correlationId: string;
   readonly commandId: string;
@@ -7148,8 +7331,13 @@ export function createInboundMailProcessor(
             "Inbound receipt disappeared before it was finalized",
           );
         }
-        if (current.status !== "processing") {
+        if (current.status !== "processing" && current.status !== "rerouting") {
           return { action: "keep" };
+        }
+        if (!sameInboundReceiptRoute(current.route, work.route)) {
+          throw new SupportDeskConflictError(
+            "Inbound route changed before the receipt was finalized",
+          );
         }
         return {
           action: "write",
@@ -7225,6 +7413,246 @@ export function createInboundMailProcessor(
     );
   }
 
+  async function proposeNewConversation(
+    input: InboundEmailSnapshot,
+    reservedTicketId: TicketId,
+    matchMethod: InboundMatchMethod,
+    relatedTicketId?: TicketId,
+    forceUnverified = false,
+  ): Promise<NewConversationRoute> {
+    const match =
+      relatedTicketId === undefined && !forceUnverified
+        ? snapshotSenderMatch(
+            await accountMatcher!.matchSenderEmail(
+              Object.freeze({ channelId: input.channelId, email: input.from }),
+            ),
+          )
+        : ({ matches: "none" } as const);
+    const association =
+      match.matches === "one" ? "matched_email" : "unverified";
+    const decision = snapshotRoutingDecision(
+      await routingPolicy!.routeNewConversation(
+        Object.freeze({
+          channelId: input.channelId,
+          association,
+          ...(match.matches === "one"
+            ? { principalId: match.principalId }
+            : {}),
+          ...(relatedTicketId === undefined ? {} : { relatedTicketId }),
+        }),
+      ),
+      allowedCategories,
+    );
+    return {
+      kind: "new_conversation",
+      ticketId: reservedTicketId,
+      matchMethod,
+      association,
+      ...(match.matches === "one" ? { principalId: match.principalId } : {}),
+      priority: decision.priority,
+      ...(decision.category === undefined
+        ? {}
+        : { category: decision.category }),
+      ...(relatedTicketId === undefined ? {} : { relatedTicketId }),
+    };
+  }
+
+  async function claimRouteForRerouting(
+    key: EntityKey,
+    expected: InboundReceiptRoute,
+  ): Promise<InboundReceipt> {
+    const claimed = await receipts.update(
+      key,
+      (current) => {
+        if (current === null) {
+          throw new SupportDeskConflictError(
+            "Inbound receipt disappeared before routing",
+          );
+        }
+        if (
+          current.status !== "processing" ||
+          !sameInboundReceiptRoute(current.route, expected)
+        ) {
+          return { action: "keep" };
+        }
+        return {
+          action: "write",
+          value: { ...current, status: "rerouting" },
+        };
+      },
+      { maxAttempts: maxConflictAttempts },
+    );
+    if (claimed.value === null) {
+      throw new SupportDeskConflictError(
+        "Inbound receipt disappeared before routing",
+      );
+    }
+    return claimed.value;
+  }
+
+  async function replaceReroutingRoute(
+    key: EntityKey,
+    expected: InboundReceiptRoute,
+    proposed: InboundReceiptRoute,
+  ): Promise<InboundReceipt> {
+    const replaced = await receipts.update(
+      key,
+      (current) => {
+        if (current === null) {
+          throw new SupportDeskConflictError(
+            "Inbound receipt disappeared before routing",
+          );
+        }
+        if (
+          current.status !== "rerouting" ||
+          !sameInboundReceiptRoute(current.route, expected)
+        ) {
+          return { action: "keep" };
+        }
+        return { action: "write", value: { ...current, route: proposed } };
+      },
+      { maxAttempts: maxConflictAttempts },
+    );
+    if (replaced.value === null) {
+      throw new SupportDeskConflictError(
+        "Inbound receipt disappeared before routing",
+      );
+    }
+    return replaced.value;
+  }
+
+  async function reserveReplyRerouteFence(input: {
+    readonly ticketId: TicketId;
+    readonly commandId: string;
+    readonly messageId: MessageId;
+    readonly fingerprint: string;
+    readonly recordedAt: IsoTimestamp;
+  }): Promise<boolean> {
+    const location = commandKey(input.ticketId, input.commandId);
+    for (let attempt = 1; attempt <= maxConflictAttempts; attempt += 1) {
+      const existing = await records.get(location);
+      if (
+        inboundReplyRerouteFenceMatches(
+          existing,
+          input.commandId,
+          input.messageId,
+          input.fingerprint,
+        )
+      ) {
+        return true;
+      }
+      if (existing !== null) {
+        return false;
+      }
+      const ticket = await records.getVersioned(ticketKey(input.ticketId));
+      if (ticket?.value.kind !== "ticket") {
+        return false;
+      }
+      const quota = await records.getVersioned(ticketQuotaKey(input.ticketId));
+      if (quota?.value.kind !== "ticket_quota") {
+        throw new SupportDeskConflictError(
+          "Ticket partition quota metadata is missing",
+        );
+      }
+      const partitionRows = await records.list(input.ticketId);
+      enforcePartitionRecordLimit(
+        partitionRows.length,
+        limits.maxRecordsPerTicket,
+        1,
+      );
+      const outcome = await records.transact(input.ticketId, [
+        {
+          action: "putIfUnchanged",
+          version: ticket.version,
+          value: ticket.value,
+        },
+        {
+          action: "putIfUnchanged",
+          version: quota.version,
+          value: quota.value,
+        },
+        {
+          action: "insert",
+          value: {
+            kind: "inbound_reply_reroute_fence",
+            partition: input.ticketId,
+            id: location.id,
+            commandId: input.commandId,
+            messageId: input.messageId,
+            requestFingerprint: input.fingerprint,
+            recordedAt: input.recordedAt,
+          },
+        },
+      ]);
+      if (outcome.committed) {
+        return true;
+      }
+    }
+    const existing = await records.get(location);
+    if (
+      inboundReplyRerouteFenceMatches(
+        existing,
+        input.commandId,
+        input.messageId,
+        input.fingerprint,
+      )
+    ) {
+      return true;
+    }
+    if (existing !== null) {
+      return false;
+    }
+    throw new SupportDeskConflictError(
+      "Concurrent ticket updates exhausted retries; the provider may retry the same event. The inbound receipt remains processing and is safe to resume.",
+    );
+  }
+
+  async function reserveCreateRerouteFence(input: {
+    readonly ticketId: TicketId;
+    readonly commandId: string;
+    readonly messageId: MessageId;
+    readonly fingerprint: string;
+    readonly recordedAt: IsoTimestamp;
+  }): Promise<boolean> {
+    const location = commandKey(input.ticketId, input.commandId);
+    const existing = await records.get(location);
+    if (
+      inboundCreateRerouteFenceMatches(
+        existing,
+        input.commandId,
+        input.messageId,
+        input.fingerprint,
+      )
+    ) {
+      return true;
+    }
+    if (
+      existing !== null ||
+      (await records.get(ticketKey(input.ticketId))) !== null
+    ) {
+      return false;
+    }
+    enforcePartitionRecordLimit(0, limits.maxRecordsPerTicket, 1);
+    const inserted = await records.insertIfAbsent({
+      kind: "inbound_create_reroute_fence",
+      partition: input.ticketId,
+      id: location.id,
+      commandId: input.commandId,
+      messageId: input.messageId,
+      requestFingerprint: input.fingerprint,
+      recordedAt: input.recordedAt,
+    });
+    return (
+      inserted.inserted ||
+      inboundCreateRerouteFenceMatches(
+        inserted.value,
+        input.commandId,
+        input.messageId,
+        input.fingerprint,
+      )
+    );
+  }
+
   async function proposeRoute(
     input: InboundEmailSnapshot,
     reservedTicketId: TicketId,
@@ -7244,8 +7672,9 @@ export function createInboundMailProcessor(
         threadIndexRetentionMilliseconds,
       );
 
-    // The same Message-ID delivered under another provider event is the
-    // same message, provided it came from the same requester address.
+    // The same Message-ID delivered under another provider event is the same
+    // message only when the sender satisfies the existing-ticket join rule.
+    let repeatedMessageTicket: Ticket | undefined;
     if (input.externalMessageId !== undefined) {
       const own = await lookup(
         "message_id",
@@ -7254,15 +7683,16 @@ export function createInboundMailProcessor(
       if (
         own !== null &&
         own.entry.source === "inbound" &&
-        own.entry.messageId !== undefined &&
-        own.ticket.requester.email !== undefined &&
-        sameAddress(own.ticket.requester.email, input.from)
+        own.entry.messageId !== undefined
       ) {
-        return {
-          kind: "duplicate_message",
-          ticketId: own.ticket.id,
-          messageId: own.entry.messageId,
-        };
+        if (threadJoinIsSafe(own.ticket, "message_id", input)) {
+          return {
+            kind: "duplicate_message",
+            ticketId: own.ticket.id,
+            messageId: own.entry.messageId,
+          };
+        }
+        repeatedMessageTicket = own.ticket;
       }
     }
 
@@ -7301,19 +7731,25 @@ export function createInboundMailProcessor(
     }
     if (candidate === undefined && subjectMarkerPrefix !== undefined) {
       const markers = subjectMarkerNumbers(input.subject, subjectMarkerPrefix);
-      const only = markers.length === 1 ? markers[0] : undefined;
-      if (only !== undefined) {
-        const hit = await lookup("ticket_number", ticketNumberIndexKey(only));
-        if (hit !== null) {
+      ambiguous = markers.length > 1;
+      for (const marker of markers) {
+        const hit = await lookup("ticket_number", ticketNumberIndexKey(marker));
+        if (hit !== null && candidate === undefined) {
           candidate = { ticket: hit.ticket, method: "subject_marker" };
         }
       }
+    }
+    if (candidate === undefined && repeatedMessageTicket !== undefined) {
+      candidate = {
+        ticket: repeatedMessageTicket,
+        method: "message_id",
+      };
     }
     if (
       candidate !== undefined &&
       !ambiguous &&
       candidate.ticket.id !== reservedTicketId &&
-      threadJoinIsSafe(candidate.ticket, candidate.method, input.from)
+      threadJoinIsSafe(candidate.ticket, candidate.method, input)
     ) {
       return {
         kind: "reply",
@@ -7322,42 +7758,17 @@ export function createInboundMailProcessor(
       };
     }
 
-    const match = snapshotSenderMatch(
-      await accountMatcher!.matchSenderEmail(
-        Object.freeze({ channelId: input.channelId, email: input.from }),
-      ),
-    );
-    const association =
-      match.matches === "one" ? "matched_email" : "unverified";
     const relatedTicketId =
       candidate !== undefined && candidate.ticket.id !== reservedTicketId
         ? candidate.ticket.id
         : undefined;
-    const decision = snapshotRoutingDecision(
-      await routingPolicy!.routeNewConversation(
-        Object.freeze({
-          channelId: input.channelId,
-          association,
-          ...(match.matches === "one"
-            ? { principalId: match.principalId }
-            : {}),
-          ...(relatedTicketId === undefined ? {} : { relatedTicketId }),
-        }),
-      ),
-      allowedCategories,
+    return proposeNewConversation(
+      input,
+      reservedTicketId,
+      candidate?.method ?? "none",
+      relatedTicketId,
+      ambiguous,
     );
-    return {
-      kind: "new_conversation",
-      ticketId: reservedTicketId,
-      matchMethod: candidate?.method ?? "none",
-      association,
-      ...(match.matches === "one" ? { principalId: match.principalId } : {}),
-      priority: decision.priority,
-      ...(decision.category === undefined
-        ? {}
-        : { category: decision.category }),
-      ...(relatedTicketId === undefined ? {} : { relatedTicketId }),
-    };
   }
 
   async function decideRoute(
@@ -7365,9 +7776,159 @@ export function createInboundMailProcessor(
     stored: InboundReceipt,
     input: InboundEmailSnapshot,
     reservedTicketId: TicketId,
+    commandId: string,
+    messageId: MessageId,
+    fingerprint: string,
   ): Promise<InboundReceipt> {
-    if (stored.route !== undefined) {
+    if (stored.status !== "processing" && stored.status !== "rerouting") {
       return stored;
+    }
+    if (stored.route !== undefined) {
+      const route = stored.route;
+      if (route.kind === "suppressed") {
+        return stored;
+      }
+      if (route.kind === "duplicate_message") {
+        const target = await records.get(ticketKey(route.ticketId));
+        if (
+          target?.kind === "ticket" &&
+          threadJoinIsSafe(target.ticket, "message_id", input)
+        ) {
+          return stored;
+        }
+        if (stored.status === "processing") {
+          return decideRoute(
+            key,
+            await claimRouteForRerouting(key, route),
+            input,
+            reservedTicketId,
+            commandId,
+            messageId,
+            fingerprint,
+          );
+        }
+        return replaceReroutingRoute(
+          key,
+          route,
+          await proposeNewConversation(
+            input,
+            reservedTicketId,
+            "message_id",
+            route.ticketId,
+            true,
+          ),
+        );
+      }
+      if (route.kind === "new_conversation") {
+        if (
+          route.relatedTicketId === undefined ||
+          (route.association === "unverified" &&
+            route.principalId === undefined)
+        ) {
+          return stored;
+        }
+        const existing = await records.get(
+          commandKey(route.ticketId, commandId),
+        );
+        const alreadyFenced = inboundCreateRerouteFenceMatches(
+          existing,
+          commandId,
+          messageId,
+          fingerprint,
+        );
+        // A committed create remains authoritative for receipt replay.
+        if (existing !== null && !alreadyFenced) {
+          return stored;
+        }
+        if (stored.status === "processing") {
+          return decideRoute(
+            key,
+            await claimRouteForRerouting(key, route),
+            input,
+            reservedTicketId,
+            commandId,
+            messageId,
+            fingerprint,
+          );
+        }
+        if (
+          !alreadyFenced &&
+          !(await reserveCreateRerouteFence({
+            ticketId: route.ticketId,
+            commandId,
+            messageId,
+            fingerprint,
+            recordedAt: stored.receivedAt,
+          }))
+        ) {
+          return stored;
+        }
+        return replaceReroutingRoute(
+          key,
+          route,
+          await proposeNewConversation(
+            input,
+            reservedTicketId,
+            route.matchMethod,
+            route.relatedTicketId,
+            true,
+          ),
+        );
+      }
+
+      const commandLocation = commandKey(route.ticketId, commandId);
+      const existing = await records.get(commandLocation);
+      const alreadyFenced = inboundReplyRerouteFenceMatches(
+        existing,
+        commandId,
+        messageId,
+        fingerprint,
+      );
+      if (existing !== null && !alreadyFenced) {
+        return stored;
+      }
+      const target = await records.get(ticketKey(route.ticketId));
+      if (
+        !alreadyFenced &&
+        (target?.kind !== "ticket" ||
+          threadJoinIsSafe(target.ticket, route.matchMethod, input))
+      ) {
+        return stored;
+      }
+      if (stored.status === "processing") {
+        return decideRoute(
+          key,
+          await claimRouteForRerouting(key, route),
+          input,
+          reservedTicketId,
+          commandId,
+          messageId,
+          fingerprint,
+        );
+      }
+      if (!alreadyFenced) {
+        const fenced = await reserveReplyRerouteFence({
+          ticketId: route.ticketId,
+          commandId,
+          messageId,
+          fingerprint,
+          recordedAt: stored.receivedAt,
+        });
+        if (!fenced) {
+          return stored;
+        }
+      }
+      return replaceReroutingRoute(
+        key,
+        route,
+        await proposeNewConversation(
+          input,
+          reservedTicketId,
+          route.matchMethod,
+          route.ticketId,
+          true,
+        ),
+      );
     }
     const proposed = await proposeRoute(input, reservedTicketId);
     const result = await receipts.update(
@@ -7387,7 +7948,9 @@ export function createInboundMailProcessor(
     );
     if (
       result.value === null ||
-      (result.value.status === "processing" && result.value.route === undefined)
+      ((result.value.status === "processing" ||
+        result.value.status === "rerouting") &&
+        result.value.route === undefined)
     ) {
       throw new SupportDeskConflictError(
         "Inbound routing decision was not stored",
@@ -7402,8 +7965,20 @@ export function createInboundMailProcessor(
   ): Promise<InboundEmailResult> {
     const { input, messageId, commandId, fingerprint } = work;
     const ticketId = route.ticketId;
-    const existing = await records.get(commandKey(ticketId, commandId));
-    if (existing !== null) {
+    const commandLocation = commandKey(ticketId, commandId);
+    const existingVersioned = await records.getVersioned(commandLocation);
+    const existing = existingVersioned?.value ?? null;
+    const createFence =
+      existingVersioned !== null &&
+      inboundCreateRerouteFenceMatches(
+        existingVersioned.value,
+        commandId,
+        messageId,
+        fingerprint,
+      )
+        ? existingVersioned
+        : null;
+    if (existing !== null && createFence === null) {
       if (
         !duplicateMatches(
           existing,
@@ -7468,6 +8043,16 @@ export function createInboundMailProcessor(
           inboundSenderAcknowledgementAllowed(input),
       });
       const notificationContent = deliveryContent(notification);
+      const commandRecord: CommandRecord = {
+        kind: "command",
+        partition: ticketId,
+        id: commandLocation.id,
+        commandId,
+        commandType: "inbound_email_create",
+        messageId,
+        requestFingerprint: fingerprint,
+        completedAt: now,
+      };
       const actions: Parameters<typeof records.transact>[1] = [
         {
           action: "insert",
@@ -7505,19 +8090,15 @@ export function createInboundMailProcessor(
           matchMethod: route.matchMethod,
           association: route.association,
         }),
-        {
-          action: "insert",
-          value: {
-            kind: "command",
-            partition: ticketId,
-            id: `command:${commandId}`,
-            commandId,
-            commandType: "inbound_email_create",
-            messageId,
-            requestFingerprint: fingerprint,
-            completedAt: now,
-          },
-        },
+        ...(createFence === null
+          ? [{ action: "insert" as const, value: commandRecord }]
+          : [
+              {
+                action: "putIfUnchanged" as const,
+                version: createFence.version,
+                value: commandRecord,
+              },
+            ]),
         ...(notification === undefined
           ? []
           : [deliveryJobAction(ticketId, messageId, now, notification)]),
@@ -7538,7 +8119,15 @@ export function createInboundMailProcessor(
             fingerprint,
           )
         ) {
-          if (raced !== null) {
+          if (
+            raced !== null &&
+            !inboundCreateRerouteFenceMatches(
+              raced,
+              commandId,
+              messageId,
+              fingerprint,
+            )
+          ) {
             throw new SupportDeskConflictError(
               "An inbound ticket command ID was reused for different content",
             );
@@ -7783,7 +8372,7 @@ export function createInboundMailProcessor(
         );
       }
       const duplicateDelivery = !inserted.inserted;
-      if (stored.status !== "processing") {
+      if (stored.status !== "processing" && stored.status !== "rerouting") {
         return inboundResult(stored, duplicateDelivery);
       }
       const reservedTicketId = stored.reservedTicketId;
@@ -7798,18 +8387,28 @@ export function createInboundMailProcessor(
           "Inbound receipt is missing its reserved identifiers",
         );
       }
-      const decided = await decideRoute(key, stored, input, reservedTicketId);
-      if (decided.status !== "processing") {
+      // Stable per provider event and independent of retry identifiers.
+      const commandId = `inbound:${location.bucket.slice(-30)}${location.slot}`;
+      const decided = await decideRoute(
+        key,
+        stored,
+        input,
+        reservedTicketId,
+        commandId,
+        reservedMessageId,
+        fingerprint,
+      );
+      if (decided.status !== "processing" && decided.status !== "rerouting") {
         return inboundResult(decided, duplicateDelivery);
       }
       const route = decided.route as InboundReceiptRoute;
       const work: InboundWork = {
         key,
         input,
+        route,
         messageId: reservedMessageId,
         correlationId,
-        // Stable per provider event and independent of retry identifiers.
-        commandId: `inbound:${location.bucket.slice(-30)}${location.slot}`,
+        commandId,
         fingerprint,
         duplicateDelivery,
       };

@@ -173,9 +173,20 @@ conversation backward.
 notificationPolicy?, subjectMarkerPrefix?, supportAddresses?, ... })` returns
 `processInboundEmail(input)`. The host calls it only after verifying the
 provider event and normalizing bounded MIME into `InboundEmailInput` (safe
-text, sender address, threading headers, candidate reply token, and loop
-signals). There is no permission check: the caller is a trusted worker, and
-the input has no principal, role, plan, priority, or session field.
+text, sender address, host-evaluated `senderAuthentication`, threading headers,
+candidate reply token, and loop signals). There is no permission check: the
+caller is a trusted worker, and the input has no principal, role, plan,
+priority, or session field.
+
+For a ticket with `requester.email`, every reply locator requires the
+case-insensitive normalized `from` address to equal that email and a passing
+sender result bound to the same `from`. DMARC requires aligned DKIM or aligned
+SPF; `host_identity` represents an equivalent host-authenticated identity.
+Missing, failed, unaligned, or differently bound results create a new
+unverified related ticket and leave the named ticket unchanged. A ticket
+without a requester email retains the opaque routing-token flow; headers and
+subject markers alone remain insufficient. Sender authentication never selects
+a principal or grants web access.
 
 Processing reserves the `support-desk.inbound-receipts.v1` receipt with
 `insertIfAbsent` before ticket work (256 hash slots per partition), suppresses

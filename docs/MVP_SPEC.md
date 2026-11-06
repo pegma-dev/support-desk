@@ -298,19 +298,20 @@ sender configuration in their isolated instances.
 Mail sent directly to the support address creates a ticket. The mail adapter:
 
 1. verifies the provider webhook or delivery mechanism;
-2. deduplicates the provider event;
-3. parses bounded MIME content;
-4. normalizes a safe plain-text representation;
-5. identifies the sender address;
-6. asks the host account matcher for zero, one, or multiple matches;
-7. creates a matched-email or unverified requester;
-8. applies host routing and priority policy;
-9. persists the ticket and message atomically or through an idempotent workflow.
+2. evaluates sender authentication and binds it to the normalized sender;
+3. deduplicates the provider event;
+4. parses bounded MIME content;
+5. normalizes a safe plain-text representation;
+6. identifies the sender address;
+7. asks the host account matcher for zero, one, or multiple matches;
+8. creates a matched-email or unverified requester;
+9. applies host routing and priority policy;
+10. persists the ticket and message atomically or through an idempotent workflow.
 
 Multiple account matches must be treated as unverified rather than guessed.
 
-Steps 1 and 3 belong to the host adapter. Support Desk performs steps 2 and
-4 through 9 in `createInboundMailProcessor`: it reserves the receipt,
+Steps 1, 2, and 4 belong to the host adapter. Support Desk performs steps 3 and
+5 through 10 in `createInboundMailProcessor`: it reserves the receipt,
 re-normalizes control characters, enforces the subject and body limits, calls
 the host account matcher and routing policy, and commits the ticket, first
 message, Audit event, and optional staff notification in one ticket-partition
@@ -334,15 +335,21 @@ The message headers follow the threading fields defined by
 A subject ticket number is useful to people but is not authorization and is
 insufficient by itself to expose or modify an account.
 
-A match is safe to join only when the sender address equals the ticket's
-recorded requester address. When the ticket has no recorded address, only a
-valid routing token may join it. Routing tokens and `Message-ID` rows expire
-with the configured threading retention.
+A match for a ticket with a recorded requester address is safe to join only
+when the case-insensitive normalized sender equals that address and the host
+provides a passing sender result bound to the same normalized sender. DMARC
+passes require aligned DKIM or aligned SPF; an equivalent host-authenticated
+identity may also qualify. Raw, unparsed `Authentication-Results`, a provider
+webhook signature alone, and unaligned SPF do not qualify. When the ticket has
+no recorded address, only a valid high-entropy routing token may join it.
+Routing tokens and `Message-ID` rows expire with the configured threading
+retention.
 
-If matching is ambiguous or unsafe, the adapter creates a new unverified ticket
-and links the possible relationship for staff review. The link is the
-staff-only `relatedTicketId` field: never authorization, never merge
-evidence, and never part of a customer view.
+If matching is ambiguous, or the sender result is missing, failed, unaligned,
+or bound to another address, the processor creates a new unverified ticket and
+links the possible relationship for staff review. The named ticket remains
+unchanged. The link is the staff-only `relatedTicketId` field: never
+authorization, never merge evidence, and never part of a customer view.
 
 A confirmed reply is a customer reply: it moves any ticket, including a
 resolved or closed one, to `waiting_on_support`.

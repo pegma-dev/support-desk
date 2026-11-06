@@ -17,6 +17,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { TABLE_PORT } from "../test/azurite.js";
+import type { InboundSenderAuthentication } from "../packages/contracts/src/index.js";
 
 const ACCOUNT = "devstoreaccount1";
 const KEY =
@@ -60,6 +61,16 @@ const staff: AccessContext = {
 const TOKEN = "rt_publicentry0123456789abcdef";
 const DAY = 86_400_000;
 
+function authenticatedSender(email: string): InboundSenderAuthentication {
+  return {
+    method: "dmarc",
+    result: "pass",
+    email,
+    dkimAligned: true,
+    spfAligned: false,
+  };
+}
+
 function clockAt(start: string) {
   let current = start;
   return {
@@ -74,13 +85,15 @@ function mail(
   providerEventId: string,
   overrides: Partial<InboundEmailInput> = {},
 ): InboundEmailInput {
+  const from = overrides.from ?? "visitor@example.org";
   return {
     channelId: "support-mailbox",
     providerEventId,
     ticketId: `ticket-${providerEventId}`,
     messageId: `message-${providerEventId}`,
     correlationId: `correlation-${providerEventId}`,
-    from: "visitor@example.org",
+    from,
+    senderAuthentication: authenticatedSender(from),
     subject: "Question about invoices",
     body: "Where can I download last month's invoice?",
     ...overrides,
@@ -181,6 +194,29 @@ async function exerciseInboundMail(store: Store): Promise<void> {
     ),
   ).toMatchObject({ outcome: "replied", matchMethod: "message_id" });
 
+  const beforeMissingResult = await application.readCustomerTicket(
+    customer,
+    "web-ticket",
+  );
+  const withSenderResult = mail("event-missing-sender-result", {
+    from: "customer@example.org",
+    subject: "Re: [SD-1] Export fails",
+  });
+  const {
+    senderAuthentication: _senderAuthentication,
+    ...withoutSenderResult
+  } = withSenderResult;
+  expect(
+    await processor.processInboundEmail(withoutSenderResult),
+  ).toMatchObject({
+    outcome: "created",
+    association: "unverified",
+    relatedTicketId: "web-ticket",
+  });
+  expect(await application.readCustomerTicket(customer, "web-ticket")).toEqual(
+    beforeMissingResult,
+  );
+
   // An auto-reply never loops back into the conversation.
   expect(
     await processor.processInboundEmail(
@@ -203,6 +239,7 @@ async function exerciseInboundMail(store: Store): Promise<void> {
   });
   expect(queue.items.map((item) => item.requesterAssociation).sort()).toEqual([
     "matched_email",
+    "unverified",
     "unverified",
   ]);
 
