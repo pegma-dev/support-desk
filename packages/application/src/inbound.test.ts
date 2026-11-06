@@ -520,9 +520,94 @@ describe("inbound mail: deduplication and idempotency", () => {
         ...first,
         body: "A different message entirely.",
       }),
-    ).rejects.toBeInstanceOf(SupportDeskConflictError);
+    ).rejects.toThrow(
+      "An inbound provider event ID was reused for different content",
+    );
     expect(await ticketCount(f.store)).toBe(1);
   });
+
+  it("stores canonical receipt timestamps and rejects noncanonical clocks before insertion", async () => {
+    const f = fixture();
+    const first = inbound();
+    await f.processor.processInboundEmail(first);
+    expect(await receiptFor(f.store, first)).toMatchObject({
+      receivedAt: T0,
+      processedAt: T0,
+    });
+
+    f.clock.set("2026-09-01T12:00:00+00:00");
+    const invalid = inbound();
+    await expect(f.processor.processInboundEmail(invalid)).rejects.toThrow(
+      "clock.now() must be a canonical ISO timestamp",
+    );
+    expect(await receiptFor(f.store, invalid)).toBeNull();
+  });
+
+  for (const operation of ["create", "reply"] as const) {
+    it(`resumes ${operation} after ticket contention without dropping or duplicating mail`, async () => {
+      const backing = createMemoryStore();
+      let rejectTransactions = false;
+      let rejectedAttempts = 0;
+      const store: Store = {
+        collection(definition) {
+          const collection = backing.collection(definition);
+          if (definition.name !== supportRecords.name) {
+            return collection;
+          }
+          return {
+            ...collection,
+            async transact(partition, actions) {
+              if (rejectTransactions) {
+                rejectedAttempts += 1;
+                return {
+                  committed: false,
+                  reason: operation === "create" ? "exists" : "changed",
+                };
+              }
+              return collection.transact(partition, actions);
+            },
+          };
+        },
+      };
+      const f = fixture({ store, processor: { maxConflictAttempts: 2 } });
+      if (operation === "reply") {
+        await webTicket(f);
+      }
+      const input = inbound({
+        from: "customer@example.org",
+        ...(operation === "reply" ? { replyRoutingToken: TOKEN } : {}),
+      });
+      rejectTransactions = true;
+      await expect(
+        f.processor.processInboundEmail(input),
+      ).rejects.toMatchObject({
+        name: "SupportDeskConflictError",
+        message:
+          "Concurrent ticket updates exhausted retries; the provider may retry the same event. The inbound receipt remains processing and is safe to resume.",
+      });
+      expect(rejectedAttempts).toBe(operation === "reply" ? 2 : 1);
+      expect(await receiptFor(backing, input)).toMatchObject({
+        status: "processing",
+      });
+
+      rejectTransactions = false;
+      const ticketId = operation === "reply" ? "web-ticket" : input.ticketId;
+      const result = await f.processor.processInboundEmail(input);
+      expect(result).toMatchObject({
+        outcome: operation === "reply" ? "replied" : "created",
+        duplicateDelivery: true,
+        ticketId,
+        messageId: input.messageId,
+      });
+      expect(await f.processor.processInboundEmail(input)).toEqual(result);
+      expect(await receiptFor(backing, input)).toMatchObject({
+        status: "processed",
+      });
+      const view = await f.application.readStaffTicket(staff, ticketId);
+      expect(view.messages).toHaveLength(operation === "reply" ? 2 : 1);
+      expect(await ticketCount(backing)).toBe(1);
+    });
+  }
 
   it("resumes the reserved identifiers after a crash before the ticket commit", async () => {
     const backing = createMemoryStore();
@@ -660,6 +745,39 @@ describe("inbound mail: deduplication and idempotency", () => {
       messageId: first.messageId,
     });
     expect(await ticketCount(f.store)).toBe(1);
+  });
+
+  it("does not collapse a reused Message-ID into a ticket without a requester email", async () => {
+    const f = fixture();
+    await webTicket(f, { requesterEmail: null });
+    const externalMessageId = "<anonymous@mail.example.org>";
+    const first = inbound({
+      from: "first@example.org",
+      replyRoutingToken: TOKEN,
+      externalMessageId,
+    });
+    expect(await f.processor.processInboundEmail(first)).toMatchObject({
+      outcome: "replied",
+      ticketId: "web-ticket",
+    });
+    expect(
+      (await storedTicket(f.store, "web-ticket")).requester.email,
+    ).toBeUndefined();
+
+    const reused = inbound({
+      from: "different@example.net",
+      externalMessageId,
+      inReplyTo: "<created.web-ticket@support.example.test>",
+    });
+    expect(await f.processor.processInboundEmail(reused)).toMatchObject({
+      outcome: "created",
+      ticketId: reused.ticketId,
+      association: "unverified",
+      relatedTicketId: "web-ticket",
+    });
+    const original = await f.application.readStaffTicket(staff, "web-ticket");
+    expect(original.messages).toHaveLength(2);
+    expect(await ticketCount(f.store)).toBe(2);
   });
 
   it("keeps receipt sweeping away from processing receipts", async () => {
@@ -867,12 +985,59 @@ describe("inbound mail: replies and threading", () => {
     expect(original.messages.map((message) => message.body)).not.toContain(
       "Let me into this ticket.",
     );
-    // The link is staff-only: the customer DTO never exposes it.
+  });
+
+  it("keeps relatedTicketId in staff views and out of customer DTOs", async () => {
+    const f = fixture();
+    await webTicket(f);
+    const input = inbound({ subject: "Re: [SD-1] Export fails" });
+    await f.processor.processInboundEmail(input);
+    const staffView = await f.application.readStaffTicket(
+      staff,
+      input.ticketId,
+    );
+    expect(staffView.ticket).toMatchObject({
+      requester: { association: "unverified" },
+      relatedTicketId: "web-ticket",
+    });
+    await expect(
+      f.application.readCustomerTicket(customer, input.ticketId),
+    ).rejects.toBeInstanceOf(SupportDeskNotFoundError);
+
+    // Test-only ownership fixture exercises the customer whitelist on the
+    // same record carrying the hint. Inbound mail never authenticates anyone.
+    await f.store
+      .collection(supportRecords)
+      .update({ partition: input.ticketId, id: "ticket" }, (current) => {
+        if (current?.kind !== "ticket") {
+          throw new Error("inbound ticket missing");
+        }
+        return {
+          action: "write",
+          value: {
+            ...current,
+            ticket: {
+              ...current.ticket,
+              requester: {
+                ...current.ticket.requester,
+                association: "authenticated",
+                principalId: customer.principalId,
+              },
+            },
+          },
+        };
+      });
+    const customerView = await f.application.readCustomerTicket(
+      customer,
+      input.ticketId,
+    );
+    expect(customerView.ticket.id).toBe(input.ticketId);
+    expect(customerView.ticket).not.toHaveProperty("relatedTicketId");
+    expect(JSON.stringify(customerView)).not.toContain("relatedTicketId");
     expect(
-      JSON.stringify(
-        await f.application.readCustomerTicket(customer, "web-ticket"),
-      ),
-    ).not.toContain("relatedTicketId");
+      (await f.application.readStaffTicket(staff, input.ticketId)).ticket
+        .relatedTicketId,
+    ).toBe("web-ticket");
   });
 
   it("ignores subject markers that are malformed, ambiguous, or unconfigured", async () => {

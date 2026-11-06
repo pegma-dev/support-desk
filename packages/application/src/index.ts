@@ -6601,8 +6601,8 @@ export function createInboundMailProcessor(
         own !== null &&
         own.entry.source === "inbound" &&
         own.entry.messageId !== undefined &&
-        (own.ticket.requester.email === undefined ||
-          sameAddress(own.ticket.requester.email, input.from))
+        own.ticket.requester.email !== undefined &&
+        sameAddress(own.ticket.requester.email, input.from)
       ) {
         return {
           kind: "duplicate_message",
@@ -6758,7 +6758,9 @@ export function createInboundMailProcessor(
           fingerprint,
         )
       ) {
-        throw new SupportDeskConflictError();
+        throw new SupportDeskConflictError(
+          "An inbound ticket command ID was reused for different content",
+        );
       }
     } else {
       // ticket, quota, message, audit, command, and an optional delivery job.
@@ -6874,7 +6876,14 @@ export function createInboundMailProcessor(
             fingerprint,
           )
         ) {
-          throw new SupportDeskConflictError();
+          if (raced !== null) {
+            throw new SupportDeskConflictError(
+              "An inbound ticket command ID was reused for different content",
+            );
+          }
+          throw new SupportDeskConflictError(
+            "Concurrent ticket updates exhausted retries; the provider may retry the same event. The inbound receipt remains processing and is safe to resume.",
+          );
         }
       }
     }
@@ -6922,7 +6931,9 @@ export function createInboundMailProcessor(
             fingerprint,
           )
         ) {
-          throw new SupportDeskConflictError();
+          throw new SupportDeskConflictError(
+            "An inbound ticket command ID was reused for different content",
+          );
         }
         return completed();
       }
@@ -7047,7 +7058,14 @@ export function createInboundMailProcessor(
     if (duplicateMatches(last, "inbound_email_reply", messageId, fingerprint)) {
       return completed();
     }
-    throw new SupportDeskConflictError();
+    if (last !== null) {
+      throw new SupportDeskConflictError(
+        "An inbound ticket command ID was reused for different content",
+      );
+    }
+    throw new SupportDeskConflictError(
+      "Concurrent ticket updates exhausted retries; the provider may retry the same event. The inbound receipt remains processing and is safe to resume.",
+    );
   }
 
   return Object.freeze({
@@ -7066,8 +7084,9 @@ export function createInboundMailProcessor(
         partition: location.bucket,
         id: receiptSlotId(location.slot, "inbound receipt slot"),
       };
-      const receivedAt = clock.now();
-      canonicalTimestamp(receivedAt, "clock.now()");
+      const receivedAt = new Date(
+        canonicalTimestamp(clock.now(), "clock.now()"),
+      ).toISOString();
       const inserted = await receipts.insertIfAbsent({
         bucket: location.bucket,
         slot: location.slot,

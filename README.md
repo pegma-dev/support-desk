@@ -97,8 +97,9 @@ The organization profile is at
 
 Packages publish under the `@pegma` scope at exact `0.1.0` once the release
 procedure in [docs/RELEASING.md](docs/RELEASING.md) completes. There is
-deliberately no storage package and no access package. Inbound email and the
-knowledge pipeline remain later work; see the
+deliberately no storage package and no access package. Inbound mail processing
+is implemented (Buildout Task 11); host adapters, production hardening, and the
+knowledge pipeline remain later work. See the
 [project plan](docs/PROJECT_PLAN.md) and
 [declared-collection reference](docs/COLLECTIONS.md).
 

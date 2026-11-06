@@ -142,12 +142,19 @@ unverified senders at all, to avoid backscatter.
 
 Map inbound outcomes for the provider, not for a browser:
 
-| Outcome                                                             | Provider response                                                     |
-| ------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `created`, `replied`, `duplicate_message`, `suppressed`, `rejected` | success (acknowledge; retries return the same result)                 |
-| `TypeError` or `SupportDeskLimitError` from input validation        | acknowledge and dead-letter for review; do not retry the same payload |
-| `SupportDeskConflictError` (event ID reused with other content)     | acknowledge and alert; never reprocess as new mail                    |
-| Store unavailable or unexpected failure                             | non-success so the provider retries                                   |
+| Outcome                                                                               | Provider response                                                                                     |
+| ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `created`, `replied`, `duplicate_message`, `suppressed`, `rejected`                   | success (acknowledge; retries return the same result)                                                 |
+| `TypeError` or `SupportDeskLimitError` from input validation                          | acknowledge and dead-letter for review; do not retry the same payload                                 |
+| `SupportDeskConflictError` (event-ID/content reuse or receipt/command slot collision) | acknowledge and alert; never reprocess as new mail                                                    |
+| `SupportDeskConflictError` (concurrent ticket updates exhausted retries)              | non-success so the provider retries the same event; the receipt stays `processing` and resumes safely |
+| Store unavailable or unexpected failure                                               | non-success so the provider retries                                                                   |
+
+Inspect the conflict message: contention reports `Concurrent ticket updates
+exhausted retries` and explicitly permits retrying the same event. Content
+reuse and slot collisions retain their distinct diagnostics. Do not treat every
+`SupportDeskConflictError` as poisoned content; other unexpected conflicts
+also need a non-success response so the provider retries.
 
 ## Host-owned schedulers
 
