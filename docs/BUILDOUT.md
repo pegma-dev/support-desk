@@ -166,6 +166,10 @@ The audit action registry is closed for the MVP:
 - `support.ticket.closed`
 - `support.ticket.reopened`
 
+Task 13 deliberately extends it post-MVP with exactly one action,
+`support.ticket.tags_changed`, written in the same ticket transaction as the
+staff `setTags` command. Any further action needs its own task.
+
 Use the command ID as the Audit event ID, the ticket ID as subject, and the
 resulting ticket revision as sequence. Do not generate a second random ID for
 the same accepted command.
