@@ -835,3 +835,7 @@ shortcut for the two launch instances.
 16. Authorization precedes resource loading or mutation where practical.
 17. The two launch hosts share package code and no operational state.
 18. AI cannot increase a caller's permissions.
+
+## Task 14 attachment boundary
+
+Support Desk owns bounded attachment metadata embedded in message rows, safe DTOs, scan-state transitions and authorized downloads. Hosts own immutable private blob storage, inventory, scanners, isolated origin, transport headers, durable scheduling and writer fencing for orphan cleanup. No cloud SDK, bucket, persistence adapter or authorization model is introduced. Ticket transactions atomically commit message metadata with ticket/Audit/outbox/receipt; blob IO is external and uses explicit failure reconciliation and deletion fences. See [ATTACHMENTS.md](./ATTACHMENTS.md).

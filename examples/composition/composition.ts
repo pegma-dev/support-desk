@@ -59,6 +59,73 @@ import {
 } from "@pegma/support-desk-application";
 import { defineTemplate, renderTemplate } from "@pegma/support-desk-templates";
 
+/** Synthetic host blob adapter and asynchronous scanner callback; no real scanner. */
+export async function runAttachmentExampleFlow() {
+  const data = new Map<string, Uint8Array>();
+  const application = createSupportDeskApplication({
+    store: createMemoryStore(),
+    clock: fixedClock("2026-11-01T10:00:00.000Z"),
+    attachments: {
+      blobs: {
+        async put(key, bytes) {
+          if (data.has(key)) return "exists";
+          data.set(key, new Uint8Array(bytes));
+        },
+        async get(key, maximumBytes) {
+          const bytes = data.get(key);
+          if (!bytes || bytes.length > maximumBytes)
+            throw new Error("Missing/oversized blob");
+          return new Uint8Array(bytes);
+        },
+        async delete(key) {
+          data.delete(key);
+        },
+      },
+    },
+  });
+  const bytes = new TextEncoder().encode("Synthetic diagnostic text");
+  const sha256 = Array.from(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
+  const result = await application.createCustomerTicket(EXAMPLE_CUSTOMER, {
+    ticketId: "attachment-example",
+    messageId: "initial",
+    commandId: "create",
+    correlationId: "example",
+    subject: "Diagnostic",
+    body: "See attached text",
+    attachments: [
+      { filename: "diagnostic.txt", contentType: "text/plain", bytes, sha256 },
+    ],
+  });
+  const state = {
+    ticketId: result.ticket.id,
+    messageId: "initial",
+    attachmentId: result.messages[0]!.attachments![0]!.id,
+    commandId: "scan",
+    correlationId: "example",
+  };
+  // Production: accept this verdict only from the trusted host malware scanner,
+  // after it has scanned these exact immutable bytes and bound the digest.
+  await application.recordAttachmentScanResult(EXAMPLE_STAFF, {
+    ...state,
+    sha256,
+    verdict: "clean",
+  });
+  const download = await application.downloadAttachment(
+    EXAMPLE_CUSTOMER,
+    state,
+  );
+  await application.deleteAttachment(EXAMPLE_STAFF, {
+    ...state,
+    commandId: "redact",
+  });
+  if (data.size || download.bytes.length !== bytes.length)
+    throw new Error("Attachment example failed");
+  return { disposition: download.contentDisposition, deleted: data.size === 0 };
+}
+
 /** Synthetic customer principal with the three customer permissions. */
 export const EXAMPLE_CUSTOMER: AccessContext = Object.freeze({
   principalId: "customer-example-001",

@@ -1,3 +1,21 @@
+import {
+  attachmentConfiguration,
+  attachmentDescriptors,
+  snapshotAttachmentInputs,
+  newAttachment,
+  attachmentDigest,
+  type AttachmentInput,
+  type AttachmentOptions,
+  type AttachmentDownload,
+  type SafeAttachment,
+} from "./attachments.js";
+export type {
+  AttachmentInput,
+  AttachmentOptions,
+  AttachmentBlobPort,
+  AttachmentDownload,
+  SafeAttachment,
+} from "./attachments.js";
 import { auditRecordId, defineAudit, type AuditEvent } from "@pegma/audit";
 import { hasPermission, type AccessContext } from "@pegma/authorization-core";
 import { defineMail, maxMailAttempts, type MailJob } from "@pegma/mail";
@@ -15,6 +33,7 @@ import {
   type UpdateDecision,
 } from "@pegma/storage-core";
 import type {
+  MessageAttachment,
   InboundSenderAuthentication,
   MessageFormat,
   MessageId,
@@ -32,6 +51,7 @@ import {
   applyTicketEvent,
   createTicket,
   effectiveTicketHandling,
+  normalizeAttachmentFilename,
 } from "@pegma/support-desk-core";
 import type {
   AssistantTurnApplication,
@@ -132,6 +152,115 @@ export type * from "./assistant-turn-types.js";
 export type { AssistantTurnRecord } from "./assistant-turn-records.js";
 
 export type { InboundSenderAuthentication };
+
+/** Reserve Audit/receipt slots so attachment cleanup can still finish at capacity. */
+function partitionSizeWithAttachmentReserve(
+  rows: readonly SupportRecord[],
+): number {
+  return rows.reduce(
+    (size, row) =>
+      size +
+      (row.kind === "message"
+        ? (row.message.attachments ?? []).reduce(
+            (reserved, item) =>
+              reserved +
+              (item.scanStatus === "pending_scan"
+                ? 6
+                : item.scanStatus === "clean" ||
+                    item.scanStatus === "quarantined"
+                  ? 4
+                  : item.scanStatus === "deleting"
+                    ? 2
+                    : 0),
+            0,
+          )
+        : 0),
+    rows.length,
+  );
+}
+
+/** One bounded physical page per call; host persists the returned cursor. */
+export async function sweepExpiredAttachments(options: {
+  store: Store;
+  clock: Clock;
+  application: SupportDeskApplication;
+  access: AccessContext;
+  cursor?: string;
+  limit?: number;
+}) {
+  const limit = options.limit ?? 20;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+    throw new TypeError("Invalid attachment sweep limit");
+  const page = await options.store.collection(supportRecords).scan({
+    limit,
+    ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
+  });
+  let deleted = 0;
+  for (const row of page.records) {
+    if (row.value.kind !== "message") continue;
+    for (const attachment of row.value.message.attachments ?? []) {
+      if (
+        attachment.scanStatus === "deleted" ||
+        (attachment.scanStatus !== "deleting" &&
+          attachment.expiresAt > options.clock.now())
+      )
+        continue;
+      await options.application.deleteAttachment(options.access, {
+        ticketId: row.key.partition,
+        messageId: row.value.message.id,
+        attachmentId: attachment.id,
+        commandId: `expire-${attachment.id}`,
+        correlationId: `expire-${attachment.id}`,
+      });
+      deleted++;
+    }
+  }
+  return {
+    nextCursor: page.nextCursor,
+    physicalRows: page.records.length,
+    deleted,
+  };
+}
+
+/**
+ * Host inventory supplies at most 100 candidates with the put-time context.
+ * The host MUST stop and drain ALL attachment writers across every process,
+ * including uncertain transaction outcomes, throughout withUploadsPaused.
+ * This explicit maintenance fence prevents deleting an in-flight commit's blob.
+ */
+export async function cleanupUnreferencedAttachmentBlobs(options: {
+  store: Store;
+  blobs: import("./attachments.js").AttachmentBlobPort;
+  candidates: readonly { key: string; ticketId: string; messageId: string }[];
+  withUploadsPaused<T>(work: () => Promise<T>): Promise<T>;
+}) {
+  if (options.candidates.length > 100)
+    throw new TypeError("At most 100 orphan candidates");
+  return options.withUploadsPaused(async () => {
+    let deleted = 0;
+    for (const candidate of options.candidates) {
+      if (!/^support-attachments\/[a-f0-9-]{36}$/.test(candidate.key))
+        throw new TypeError("Invalid attachment key");
+      const row = await options.store.collection(supportRecords).get({
+        partition: candidate.ticketId,
+        id: `message:${candidate.messageId}`,
+      });
+      if (
+        row?.kind === "message" &&
+        row.message.attachments?.some(
+          (item) =>
+            item.blobKey === candidate.key && item.scanStatus !== "deleted",
+        )
+      )
+        continue;
+      await options.blobs.delete(candidate.key);
+      deleted++;
+    }
+    return { deleted };
+  });
+}
+
+
 export type * from "./engineering-types.js";
 export type * from "./engineering-followup-types.js";
 export type {
@@ -407,7 +536,8 @@ type SupportCommandType =
   | "assistant_escalate"
   | "request_person"
   | "take_over"
-  | "confirm_customer_success";
+  | "confirm_customer_success"
+  | "attachment_state";
 
 interface CommandRecord {
   readonly kind: "command";
@@ -553,6 +683,9 @@ export const supportTicketAuditActions = Object.freeze({
   resolved: "support.ticket.resolved",
   closed: "support.ticket.closed",
   reopened: "support.ticket.reopened",
+  attachmentScan: "support.ticket.attachment_scan",
+  attachmentDeleting: "support.ticket.attachment_deleting",
+  attachmentDeleted: "support.ticket.attachment_deleted",
   assistantReplied: "support.ticket.assistant_replied",
   humanRequested: "support.ticket.human_requested",
   humanEscalated: "support.ticket.human_escalated",
@@ -1175,6 +1308,7 @@ export interface CreateCustomerTicketCommand {
   readonly requesterEmail?: string;
   readonly notification?: NotificationInput;
   readonly initialHandling?: "assistant";
+  readonly attachments?: readonly AttachmentInput[];
 }
 
 export type CustomerTicketAdmissionMode = "human" | "assistant";
@@ -1231,6 +1365,7 @@ export interface ReplyToCustomerTicketCommand {
   readonly messageId: MessageId;
   readonly body: string;
   readonly notification?: NotificationInput;
+  readonly attachments?: readonly AttachmentInput[];
 }
 
 const maxNotificationVariables = 32;
@@ -1260,6 +1395,7 @@ export interface CustomerTicketSummary {
  * threading metadata that belong on the authoritative message record.
  */
 export interface CustomerMessage {
+  readonly attachments?: readonly SafeAttachment[];
   readonly id: TicketMessage["id"];
   readonly ticketId: TicketMessage["ticketId"];
   readonly authorKind: TicketMessage["authorKind"];
@@ -1327,6 +1463,32 @@ export interface ConfirmCustomerSuccessCommand extends RequestPersonCommand {
   readonly lastSeenVisibleMessageId: MessageId;
 }
 
+export interface AttachmentStateCommand {
+  readonly ticketId: string;
+  readonly messageId: string;
+  readonly attachmentId: string;
+  readonly commandId: string;
+  readonly correlationId: string;
+}
+
+function snapshotAttachmentStateCommand(
+  input: AttachmentStateCommand,
+): AttachmentStateCommand {
+  const source = boundaryObject(input, "attachment command");
+  const read = (field: string) =>
+    boundaryString(ownDataProperty(source, field, field), field);
+  const command = {
+    ticketId: read("ticketId"),
+    messageId: read("messageId"),
+    attachmentId: read("attachmentId"),
+    commandId: read("commandId"),
+    correlationId: read("correlationId"),
+  };
+  for (const [field, value] of Object.entries(command))
+    requireIdentifier(value, field);
+  return Object.freeze(command);
+}
+
 export interface StaffRevisionHint {
   /** Omit to retain automatic conflict retries; supplied values must match. */
   readonly expectedRevision?: number;
@@ -1346,6 +1508,7 @@ export interface StaffReplyCommand extends StaffRevisionHint {
   readonly messageId: MessageId;
   readonly body: string;
   readonly notification?: NotificationInput;
+  readonly attachments?: readonly AttachmentInput[];
 }
 
 export interface AddNoteCommand extends StaffRevisionHint {
@@ -1354,6 +1517,7 @@ export interface AddNoteCommand extends StaffRevisionHint {
   readonly ticketId: TicketId;
   readonly messageId: MessageId;
   readonly body: string;
+  readonly attachments?: readonly AttachmentInput[];
 }
 
 export interface AssignTicketCommand extends StaffRevisionHint {
@@ -1474,6 +1638,23 @@ export interface SupportDeskApplication
     EngineeringApplication,
     EngineeringFollowupApplication,
     EngineeringPolicyApplication {
+  downloadAttachment(
+    access: AccessContext,
+    input: { ticketId: string; messageId: string; attachmentId: string },
+  ): Promise<AttachmentDownload>;
+  recordAttachmentScanResult(
+    access: AccessContext,
+    input: AttachmentStateCommand & {
+      sha256: string;
+      verdict: "clean" | "quarantined";
+    },
+  ): Promise<void>;
+  deleteAttachment(
+    access: AccessContext,
+    input: AttachmentStateCommand,
+  ): Promise<void>;
+
+
   readHandoffWork(
     access: AccessContext,
     ticketId: TicketId,
@@ -2120,6 +2301,9 @@ function snapshotCreateCustomerTicketCommand(
       ? undefined
       : snapshotNotification(raw.notification);
   return Object.freeze({
+    attachments: snapshotAttachmentInputs(
+      ownDataProperty(source, "attachments", "attachments", true),
+    ),
     commandId: boundaryString(raw.commandId, "create command.commandId"),
     correlationId: boundaryString(
       raw.correlationId,
@@ -2265,6 +2449,9 @@ function snapshotReplyToCustomerTicketCommand(
       ? undefined
       : snapshotNotification(raw.notification);
   return Object.freeze({
+    attachments: snapshotAttachmentInputs(
+      ownDataProperty(source, "attachments", "attachments", true),
+    ),
     commandId: boundaryString(raw.commandId, "reply command.commandId"),
     correlationId: boundaryString(
       raw.correlationId,
@@ -2349,7 +2536,26 @@ function toCustomerMessage(message: TicketMessage): CustomerMessage {
     format: message.format,
     body: message.body,
     createdAt: message.createdAt,
+    ...(message.attachments === undefined
+      ? {}
+      : {
+          attachments: message.attachments.map((item) => ({
+            id: item.id,
+            filename: item.filename,
+            contentType: item.contentType,
+            size: item.size,
+            expiresAt: item.expiresAt,
+            scanStatus: item.scanStatus,
+          })),
+        }),
   });
+}
+
+/** Assistant ports remain body-only even when browser views include safe attachments. */
+function assistantConversationMessages(records: readonly SupportRecord[]): readonly CustomerMessage[] {
+  return customerMessages(records).map(({ attachments: _attachments, ...message }) =>
+    Object.freeze(message),
+  );
 }
 
 function customerMessages(
@@ -2416,7 +2622,10 @@ async function authoritativeView(
   ) {
     throw new SupportDeskNotFoundError();
   }
-  enforcePartitionRecordLimit(all.length, maxRecordsPerTicket);
+  enforcePartitionRecordLimit(
+    partitionSizeWithAttachmentReserve(all),
+    maxRecordsPerTicket,
+  );
   return {
     ticket: toCustomerTicketSummary(ticketRecord.ticket),
     messages: customerMessages(all),
@@ -2718,7 +2927,7 @@ function enforceManagedAdmission(
     ticket.firstStaffRespondedAt === undefined &&
     !firstHumanReply;
   enforcePartitionRecordLimit(
-    rows.length,
+    partitionSizeWithAttachmentReserve(rows),
     limits.maxRecordsPerTicket -
       (reserved ? humanReserveRows(rows) : 0) -
       derivationReserveRows(rows, consumesWithdrawalReserve),
@@ -2765,7 +2974,7 @@ function enforceHandlingControlAdmission(
     quota?.assistantManaged === true &&
     ticket.firstStaffRespondedAt === undefined;
   enforcePartitionRecordLimit(
-    rows.length,
+    partitionSizeWithAttachmentReserve(rows),
     limits.maxRecordsPerTicket -
       (reserved ? firstHumanReplyReserveRows : 0) -
       derivationReserveRows(rows, consumesWithdrawalReserve),
@@ -2883,7 +3092,10 @@ async function staffAuthoritativeView(
   maxRecordsPerTicket: number,
 ): Promise<StaffTicketView> {
   const all = await records.list(ticketId);
-  enforcePartitionRecordLimit(all.length, maxRecordsPerTicket);
+  enforcePartitionRecordLimit(
+    partitionSizeWithAttachmentReserve(all),
+    maxRecordsPerTicket,
+  );
   const ticketRecord = all.find(
     (record): record is TicketRecord => record.kind === "ticket",
   );
@@ -2952,6 +3164,9 @@ function snapshotStaffReplyCommand(
       ? undefined
       : snapshotNotification(raw.notification);
   return Object.freeze({
+    attachments: snapshotAttachmentInputs(
+      ownDataProperty(source, "attachments", "attachments", true),
+    ),
     ...snapshotRevisionHint(source),
     commandId: boundaryString(raw.commandId, "staff reply command.commandId"),
     correlationId: boundaryString(
@@ -2987,6 +3202,9 @@ function snapshotAddNoteCommand(input: AddNoteCommand): AddNoteCommand {
     body: ownDataProperty(source, "body", "add note command.body"),
   };
   return Object.freeze({
+    attachments: snapshotAttachmentInputs(
+      ownDataProperty(source, "attachments", "attachments", true),
+    ),
     ...snapshotRevisionHint(source),
     commandId: boundaryString(raw.commandId, "add note command.commandId"),
     correlationId: boundaryString(
@@ -4041,6 +4259,7 @@ export function createSupportDeskApplication(options: {
   /** Default 8, hard maximum 32. Empty tags always clear the ticket. */
   readonly maxTagsPerTicket?: number;
   readonly responseTargetPolicy?: ResponseTargetPolicy;
+  readonly attachments?: AttachmentOptions;
   readonly assistantHandlingEnabled?: boolean;
   /** Optional durable scheduling; absent retains the SD-01 manual assistant seam. */
   readonly assistantTurns?: AssistantTurnOptions;
@@ -4182,6 +4401,14 @@ export function createSupportDeskApplication(options: {
       "application options.maxConflictAttempts must be a number",
     );
   }
+  const attachmentConfig = attachmentConfiguration(
+    ownDataProperty(
+      source,
+      "attachments",
+      "application options.attachments",
+      true,
+    ) as AttachmentOptions | undefined,
+  );
   const records = store.collection(supportRecords);
   const index = store.collection(customerTicketIndex);
   const numbers = store.collection(ticketNumbers);
@@ -4406,7 +4633,10 @@ export function createSupportDeskApplication(options: {
       );
     }
     const rows = await records.list(ticketId);
-    enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket);
+    enforcePartitionRecordLimit(
+      partitionSizeWithAttachmentReserve(rows),
+      limits.maxRecordsPerTicket,
+    );
     return {
       ticket: receipt.resultTicket,
       messages: staffMessages(
@@ -4633,6 +4863,227 @@ export function createSupportDeskApplication(options: {
     return reserveNextTicketNumber(numbers, maxConflictAttempts);
   }
 
+  async function transactWithAttachments(
+    ticketId: string,
+    actions: Parameters<typeof records.transact>[1],
+    inputs: readonly AttachmentInput[],
+    descriptors: Awaited<ReturnType<typeof attachmentDescriptors>>,
+    beforeCommit?: () => Promise<() => true>,
+  ) {
+    if (!inputs.length) {
+      const assertCurrent = await beforeCommit?.();
+      if (assertCurrent !== undefined) assertCurrent();
+      return records.transact(ticketId, actions);
+    }
+    if (!attachmentConfig.blobs)
+      throw new TypeError("Attachments require a host blob port");
+    if (
+      inputs.length > attachmentConfig.perMessage ||
+      inputs.reduce((n, item) => n + item.bytes.byteLength, 0) >
+        attachmentConfig.messageBytes
+    )
+      throw new TypeError("Attachment message limit exceeded");
+    if (
+      descriptors.some(
+        (item) =>
+          item.size > attachmentConfig.bytes ||
+          !attachmentConfig.allowed.has(item.contentType),
+      )
+    )
+      throw new TypeError("Attachment size or MIME type refused");
+    const rows = await records.list(ticketId);
+    enforcePartitionRecordLimit(
+      partitionSizeWithAttachmentReserve(rows),
+      limits.maxRecordsPerTicket,
+      inputs.length * 6 +
+        actions.filter((action) => action.action === "insert").length,
+    );
+    const count = rows.reduce(
+      (n, row) =>
+        n +
+        (row.kind === "message" ? (row.message.attachments?.length ?? 0) : 0),
+      0,
+    );
+    if (count + inputs.length > attachmentConfig.perTicket)
+      throw new TypeError("Ticket attachment limit exceeded");
+    const attachments = descriptors.map((item) =>
+      newAttachment(
+        {
+          ...item,
+          filename: normalizeAttachmentFilename(
+            item.filename,
+            attachmentConfig.filename,
+          ),
+        },
+        clock.now(),
+        attachmentConfig.retention,
+      ),
+    );
+    const blobs = attachmentConfig.blobs!;
+    const attemptedKeys: string[] = [];
+    const cleanup = async () => {
+      await Promise.allSettled(attemptedKeys.map((key) => blobs.delete(key)));
+    };
+    try {
+      const message = actions.find(
+        (action) =>
+          action.action === "insert" && action.value.kind === "message",
+      );
+      if (
+        !message ||
+        message.action !== "insert" ||
+        message.value.kind !== "message"
+      )
+        throw new TypeError("Attachment transaction requires a message");
+      for (let index = 0; index < inputs.length; index++) {
+        const key = attachments[index]!.blobKey;
+        attemptedKeys.push(key);
+        const result = await blobs.put(key, inputs[index]!.bytes, {
+          ticketId,
+          messageId: message.value.message.id,
+        });
+        if (result === "exists") {
+          attemptedKeys.pop();
+          throw new SupportDeskConflictError(
+            "Attachment blob key collision; retry command",
+          );
+        }
+      }
+      const assertCurrent = await beforeCommit?.();
+      if (assertCurrent !== undefined) assertCurrent();
+    } catch (error) {
+      await cleanup();
+      throw error;
+    }
+    const prepared = actions.map((action) => {
+      if (action.action === "insert" && action.value.kind === "message")
+        return {
+          ...action,
+          value: {
+            ...action.value,
+            message: { ...action.value.message, attachments },
+          },
+        };
+      return action;
+    });
+    // A thrown transaction has an unknown outcome. Preserve its blobs for
+    // reconciliation; deleting them could damage a successfully committed row.
+    const result = await records.transact(ticketId, prepared);
+    if (!result.committed) await cleanup();
+    return result;
+  }
+
+  async function changeAttachmentState(
+    access: AccessContext,
+    input: AttachmentStateCommand,
+    status: MessageAttachment["scanStatus"],
+    digest?: string,
+  ) {
+    requireStaffMutationAccess(access, supportPermissions.manage);
+    for (const [field, value] of Object.entries(input))
+      requireIdentifier(value, field);
+    const fingerprint = await requestFingerprint({
+      ...input,
+      status,
+      digest: digest ?? null,
+    });
+    for (let attempt = 0; attempt < maxConflictAttempts; attempt++) {
+      const duplicate = await records.get(
+        commandKey(input.ticketId, input.commandId),
+      );
+      if (
+        duplicateMatches(duplicate, "attachment_state", undefined, fingerprint)
+      )
+        return;
+      if (duplicate)
+        throw new SupportDeskConflictError(
+          "Command ID reused with different input",
+        );
+      const ticket = await records.getVersioned(ticketKey(input.ticketId));
+      const message = await records.getVersioned({
+        partition: input.ticketId,
+        id: `message:${input.messageId}`,
+      });
+      if (ticket?.value.kind !== "ticket" || message?.value.kind !== "message")
+        throw new SupportDeskNotFoundError();
+      const attachment = message.value.message.attachments?.find(
+        (item) => item.id === input.attachmentId,
+      );
+      if (!attachment) throw new SupportDeskNotFoundError();
+      if (digest !== undefined && digest !== attachment.sha256)
+        throw new SupportDeskConflictError("Scan digest mismatch");
+      if (
+        (status === "clean" || status === "quarantined") &&
+        attachment.scanStatus !== "pending_scan"
+      )
+        throw new SupportDeskConflictError("Scan result is already final");
+      if (status === "deleting" && attachment.scanStatus === "deleted") return;
+      if (status === "deleting" && attachment.scanStatus === "deleting") return;
+      if (status === "deleted" && attachment.scanStatus !== "deleting")
+        throw new SupportDeskConflictError("Deletion must be fenced first");
+      const rows = await records.list(input.ticketId);
+      enforcePartitionRecordLimit(
+        partitionSizeWithAttachmentReserve(rows),
+        limits.maxRecordsPerTicket,
+      );
+      const now = clampTicketTime(clock.now(), ticket.value.ticket.updatedAt);
+      const updated = {
+        ...ticket.value.ticket,
+        revision: ticket.value.ticket.revision + 1,
+        updatedAt: now,
+      };
+      const result = await records.transact(input.ticketId, [
+        {
+          action: "putIfUnchanged",
+          version: ticket.version,
+          value: { ...ticket.value, ticket: updated },
+        },
+        {
+          action: "putIfUnchanged",
+          version: message.version,
+          value: {
+            ...message.value,
+            message: {
+              ...message.value.message,
+              attachments: message.value.message.attachments!.map((item) =>
+                item.id === attachment.id
+                  ? { ...item, scanStatus: status }
+                  : item,
+              ),
+            },
+          },
+        },
+        ticketAuditAction({
+          ...input,
+          actorId: access.principalId,
+          revision: updated.revision,
+          occurredAt: now,
+          action:
+            status === "deleting"
+              ? supportTicketAuditActions.attachmentDeleting
+              : status === "deleted"
+                ? supportTicketAuditActions.attachmentDeleted
+                : supportTicketAuditActions.attachmentScan,
+          details: { attachmentId: attachment.id, status },
+        }),
+        {
+          action: "insert",
+          value: {
+            kind: "command",
+            partition: input.ticketId,
+            id: `command:${input.commandId}`,
+            commandId: input.commandId,
+            commandType: "attachment_state",
+            requestFingerprint: fingerprint,
+            completedAt: now,
+          },
+        },
+      ]);
+      if (result.committed) return;
+    }
+    throw new SupportDeskConflictError();
+  }
+
   const resolutionLearning = createResolutionLearningServices({
     records,
     clock,
@@ -4697,7 +5148,7 @@ export function createSupportDeskApplication(options: {
         );
       else
         enforcePartitionRecordLimit(
-          rows.length,
+          partitionSizeWithAttachmentReserve(rows),
           limits.maxRecordsPerTicket - derivationReserveRows(rows, consumption),
           additional,
         );
@@ -5254,7 +5705,7 @@ export function createSupportDeskApplication(options: {
       if (operation === "assistant_reply" && !assistantHandlingEnabled)
         throw new SupportDeskConflictError("Assistant handling is disabled");
       const rows = await records.list(command.ticketId);
-      enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket);
+      enforcePartitionRecordLimit(partitionSizeWithAttachmentReserve(rows), limits.maxRecordsPerTicket);
       const latest = latestVisibleRecord(rows);
       if (operation === "assistant_reply" || operation === "assistant_escalate")
         requireAssistantTurn(ticket, rows, command as AssistantTurnFence);
@@ -5570,7 +6021,7 @@ export function createSupportDeskApplication(options: {
     conversation(ticket, rows) {
       return {
         ticket: toCustomerTicketSummary(ticket),
-        messages: customerMessages(rows),
+        messages: assistantConversationMessages(rows),
         revision: ticket.revision,
         handling: { ...effectiveTicketHandling(ticket) },
         ...(latestVisibleRecord(rows) === undefined
@@ -5582,6 +6033,121 @@ export function createSupportDeskApplication(options: {
   });
 
   return {
+    async downloadAttachment(access, input) {
+      requireIdentifier(access.principalId, "principalId");
+      const staff = hasPermission(access, supportPermissions.queueRead);
+      if (!staff) requirePermission(access, supportPermissions.readOwn);
+      const source = boundaryObject(input, "attachment download");
+      input = Object.freeze({
+        ticketId: boundaryString(
+          ownDataProperty(source, "ticketId", "ticketId"),
+          "ticketId",
+        ),
+        messageId: boundaryString(
+          ownDataProperty(source, "messageId", "messageId"),
+          "messageId",
+        ),
+        attachmentId: boundaryString(
+          ownDataProperty(source, "attachmentId", "attachmentId"),
+          "attachmentId",
+        ),
+      });
+      for (const [field, value] of Object.entries(input))
+        requireIdentifier(value, field);
+      const ticket = await records.get(ticketKey(input.ticketId));
+      if (
+        ticket?.kind !== "ticket" ||
+        (!staff &&
+          (ticket.ticket.requester.association !== "authenticated" ||
+            ticket.ticket.requester.principalId !== access.principalId))
+      )
+        throw new SupportDeskNotFoundError();
+      const key = {
+        partition: input.ticketId,
+        id: `message:${input.messageId}`,
+      };
+      const row = await records.getVersioned(key);
+      if (
+        row?.value.kind !== "message" ||
+        (!staff && row.value.message.visibility !== "customer")
+      )
+        throw new SupportDeskNotFoundError();
+      const attachment = row.value.message.attachments?.find(
+        (item) => item.id === input.attachmentId,
+      );
+      if (
+        !attachment ||
+        attachment.scanStatus !== "clean" ||
+        attachment.expiresAt <= clock.now() ||
+        !attachmentConfig.blobs
+      )
+        throw new SupportDeskNotFoundError();
+      const bytes = await attachmentConfig.blobs.get(
+        attachment.blobKey,
+        attachment.size,
+      );
+      if (
+        bytes.byteLength !== attachment.size ||
+        (await attachmentDigest(bytes)) !== attachment.sha256
+      )
+        throw new SupportDeskConflictError("Stored attachment digest mismatch");
+      const current = await records.getVersioned(key);
+      if (
+        current?.version !== row.version ||
+        attachment.expiresAt <= clock.now()
+      )
+        throw new SupportDeskConflictError(
+          "Attachment changed during download",
+        );
+      return {
+        bytes,
+        contentType: attachment.contentType,
+        contentDisposition: `attachment; filename="attachment"; filename*=UTF-8''${encodeURIComponent(attachment.filename).replaceAll("'", "%27")}`,
+        cacheControl: "private, no-store",
+        xContentTypeOptions: "nosniff",
+      };
+    },
+
+    async recordAttachmentScanResult(access, input) {
+      requireStaffMutationAccess(access, supportPermissions.manage);
+      const source = boundaryObject(input, "attachment scan");
+      const verdict = ownDataProperty(source, "verdict", "verdict");
+      const sha256 = boundaryString(
+        ownDataProperty(source, "sha256", "sha256"),
+        "sha256",
+      );
+      if (verdict !== "clean" && verdict !== "quarantined")
+        throw new TypeError("Invalid scan verdict");
+      const command = snapshotAttachmentStateCommand(input);
+      return changeAttachmentState(access, command, verdict, sha256);
+    },
+
+    async deleteAttachment(access, input) {
+      requireStaffMutationAccess(access, supportPermissions.manage);
+      input = snapshotAttachmentStateCommand(input);
+      if (!attachmentConfig.blobs)
+        throw new TypeError("Host blob port required");
+      await changeAttachmentState(
+        access,
+        { ...input, commandId: `${input.commandId}:fence` },
+        "deleting",
+      );
+      const message = await records.get({
+        partition: input.ticketId,
+        id: `message:${input.messageId}`,
+      });
+      const attachment =
+        message?.kind === "message"
+          ? message.message.attachments?.find(
+              (item) => item.id === input.attachmentId,
+            )
+          : undefined;
+      if (!attachment) throw new SupportDeskNotFoundError();
+      if (attachment.scanStatus === "deleted") return;
+      await attachmentConfig.blobs.delete(attachment.blobKey);
+      await changeAttachmentState(access, input, "deleted");
+    },
+
     ...resolutionLearning.application,
     ...engineeringEvidence.application,
     ...engineeringWorkers,
@@ -5600,7 +6166,7 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(access.principalId, "principalId");
       requireIdentifier(ticketId, "ticketId");
       const rows = await records.list(ticketId);
-      enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket);
+      enforcePartitionRecordLimit(partitionSizeWithAttachmentReserve(rows), limits.maxRecordsPerTicket);
       if (!rows.some((row) => row.kind === "ticket"))
         throw new SupportDeskNotFoundError();
       return rows
@@ -5629,7 +6195,7 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(access.principalId, "principalId");
       requireIdentifier(ticketId, "ticketId");
       const rows = await records.list(ticketId);
-      enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket);
+      enforcePartitionRecordLimit(partitionSizeWithAttachmentReserve(rows), limits.maxRecordsPerTicket);
       const ticket = rows.find(
         (row): row is TicketRecord => row.kind === "ticket",
       )?.ticket;
@@ -5645,7 +6211,7 @@ export function createSupportDeskApplication(options: {
       const latest = latestVisibleRecord(rows);
       return {
         ticket: toCustomerTicketSummary(ticket),
-        messages: customerMessages(rows),
+        messages: assistantConversationMessages(rows),
         revision: ticket.revision,
         handling: { ...effectiveTicketHandling(ticket) },
         ...(latest?.message.authorKind === "customer"
@@ -5778,7 +6344,7 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(access.principalId, "principalId");
       requireIdentifier(ticketId, "ticketId");
       const rows = await records.list(ticketId);
-      enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket);
+      enforcePartitionRecordLimit(partitionSizeWithAttachmentReserve(rows), limits.maxRecordsPerTicket);
       if (!rows.some((row) => row.kind === "ticket"))
         throw new SupportDeskNotFoundError();
       return rows
@@ -5858,12 +6424,15 @@ export function createSupportDeskApplication(options: {
         inputLimits.maxSubjectCharacters,
       );
       enforceLimit(command.body, "body", inputLimits.maxMessageCharacters);
+      const attachmentInputs = command.attachments ?? [];
+      const descriptors = await attachmentDescriptors(attachmentInputs, attachmentConfig);
       const fingerprintPayload = {
         type: "create_customer_ticket" as const,
         ticketId: command.ticketId,
         messageId: command.messageId,
         subject: command.subject,
         body: command.body,
+        ...(descriptors.length === 0 ? {} : { attachments: descriptors }),
         // Omit absent category so pre-category receipts still match retries.
         ...(command.category === undefined
           ? {}
@@ -5913,6 +6482,7 @@ export function createSupportDeskApplication(options: {
       if (
         admitted === undefined &&
         !createIsReplay &&
+        descriptors.length === 0 &&
         command.initialHandling === undefined &&
         existingCreate?.kind === "command" &&
         existingCreate.commandType === "create_customer_ticket" &&
@@ -5976,8 +6546,12 @@ export function createSupportDeskApplication(options: {
         authorizeAdmitted();
         return { view, initialMode };
       }
-      if (admitted !== undefined && existingCreate !== null)
-        throw new SupportDeskConflictError("Admitted create command changed");
+      if (existingCreate !== null)
+        throw new SupportDeskConflictError(
+          admitted === undefined
+            ? "Command ID reused with different input"
+            : "Admitted create command changed",
+        );
       if (initialHandling === "assistant" && !assistantHandlingEnabled)
         throw new SupportDeskConflictError("Assistant handling is disabled");
       if (command.category !== undefined) {
@@ -6250,20 +6824,33 @@ export function createSupportDeskApplication(options: {
         limits.maxRecordsPerTicket,
         actions.length,
       );
-      if (admitted !== undefined && verifyBeforeCommit !== undefined) {
-        authorizeAdmitted();
-        const assertCurrent = await waitForAdmission(() =>
-          verifyBeforeCommit(initialMode),
+      if (attachmentInputs.length > 0) {
+        const initialRows = actions.flatMap((action) =>
+          action.action === "insert" ? [action.value] : [],
         );
-        authorizeAdmitted();
-        if (assistantAccess !== undefined)
-          authorizeAdmitted(assistantAccess, true);
-        if (typeof assertCurrent !== "function" || assertCurrent() !== true)
-          throw new SupportDeskConflictError(
-            "Admitted create authority changed",
-          );
+        enforceManagedAdmission(
+          ticket, initialRows, limits, attachmentInputs.length * 6,
+        );
       }
-      const outcome = await records.transact(command.ticketId, actions);
+      const beforeAttachmentCommit = async (): Promise<() => true> => {
+        authorizeAdmitted();
+        const assertCurrent =
+          admitted !== undefined && verifyBeforeCommit !== undefined
+            ? await waitForAdmission(() => verifyBeforeCommit(initialMode))
+            : undefined;
+        return (): true => {
+          authorizeAdmitted();
+          if (assistantAccess !== undefined)
+            authorizeAdmitted(assistantAccess, true);
+          if (admitted !== undefined &&
+            (typeof assertCurrent !== "function" || assertCurrent() !== true))
+            throw new SupportDeskConflictError("Admitted create authority changed");
+          return true;
+        };
+      };
+      const outcome = await transactWithAttachments(
+        command.ticketId, actions, attachmentInputs, descriptors, beforeAttachmentCommit,
+      );
       if (!outcome.committed) {
         const existing = await records.get(
           commandKey(command.ticketId, command.commandId),
@@ -6309,11 +6896,20 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(command.commandId, "commandId");
       requireIdentifier(command.correlationId, "correlationId");
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
+      const attachmentInputs = command.attachments ?? [];
+      const descriptors = await attachmentDescriptors(
+        attachmentInputs,
+        attachmentConfig,
+      );
+      const attachmentFingerprint = descriptors.length
+        ? { attachments: descriptors }
+        : {};
       const fingerprint = await requestFingerprint({
         type: "reply_customer_ticket",
         ticketId: command.ticketId,
         messageId: command.messageId,
         body: command.body,
+        ...attachmentFingerprint,
         notification: stableNotification(command.notification),
       });
 
@@ -6336,6 +6932,10 @@ export function createSupportDeskApplication(options: {
           );
         }
 
+        if (duplicate !== null)
+          throw new SupportDeskConflictError(
+            "Command ID reused with different input",
+          );
         const versioned = await records.getVersioned(
           ticketKey(command.ticketId),
         );
@@ -6407,15 +7007,15 @@ export function createSupportDeskApplication(options: {
           true,
         );
         enforcePartitionRecordLimit(
-          partitionRows.length,
+          partitionSizeWithAttachmentReserve(partitionRows),
           limits.maxRecordsPerTicket,
-          addedReplyRows + learningMutation.additionalRows,
+          addedReplyRows + learningMutation.additionalRows + attachmentInputs.length * 6,
         );
         enforceManagedAdmission(
           versioned.value.ticket,
           projectFollowupRows(partitionRows, learningMutation.nextWorkRows),
           limits,
-          addedReplyRows + learningMutation.additionalRows,
+          addedReplyRows + learningMutation.additionalRows + attachmentInputs.length * 6,
           true,
         );
         const message: TicketMessage = {
@@ -6456,7 +7056,7 @@ export function createSupportDeskApplication(options: {
                 now,
                 command.notification,
               );
-        const outcome = await records.transact(command.ticketId, [
+        const outcome = await transactWithAttachments(command.ticketId, [
           ...learningMutation.actions,
           {
             action: "putIfUnchanged",
@@ -6505,7 +7105,7 @@ export function createSupportDeskApplication(options: {
           ...(assistantIngress === undefined
             ? []
             : [{ action: "insert" as const, value: assistantIngress }]),
-        ]);
+        ], attachmentInputs, descriptors);
         if (outcome.committed) {
           return customerViewAfterChange(
             access.principalId,
@@ -6754,12 +7354,21 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(command.commandId, "commandId");
       requireIdentifier(command.correlationId, "correlationId");
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
+      const attachmentInputs = command.attachments ?? [];
+      const descriptors = await attachmentDescriptors(
+        attachmentInputs,
+        attachmentConfig,
+      );
+      const attachmentFingerprint = descriptors.length
+        ? { attachments: descriptors }
+        : {};
       const fingerprint = await requestFingerprint({
         ...snapshotRevisionHint(command),
         type: "staff_reply",
         ticketId: command.ticketId,
         messageId: command.messageId,
         body: command.body,
+        ...attachmentFingerprint,
         notification: stableNotification(command.notification),
       });
 
@@ -6833,17 +7442,17 @@ export function createSupportDeskApplication(options: {
           true,
         );
         enforcePartitionRecordLimit(
-          partitionRows.length,
+          partitionSizeWithAttachmentReserve(partitionRows),
           limits.maxRecordsPerTicket,
           (command.notification === undefined ? 3 : 4) +
-            learningMutation.additionalRows,
+            learningMutation.additionalRows + attachmentInputs.length * 6,
         );
         enforceManagedAdmission(
           versioned.value.ticket,
           projectFollowupRows(partitionRows, learningMutation.nextWorkRows),
           limits,
           (command.notification === undefined ? 3 : 4) +
-            learningMutation.additionalRows,
+            learningMutation.additionalRows + attachmentInputs.length * 6,
           true,
           true,
         );
@@ -6868,7 +7477,7 @@ export function createSupportDeskApplication(options: {
                 now,
                 command.notification,
               );
-        const outcome = await records.transact(command.ticketId, [
+        const outcome = await transactWithAttachments(command.ticketId, [
           ...learningMutation.actions,
           {
             action: "putIfUnchanged",
@@ -6915,7 +7524,7 @@ export function createSupportDeskApplication(options: {
             },
           },
           ...(notificationJob === undefined ? [] : [notificationJob]),
-        ]);
+        ], attachmentInputs, descriptors);
         if (outcome.committed) {
           return staffCommandResult(
             command.ticketId,
@@ -6953,12 +7562,21 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(command.commandId, "commandId");
       requireIdentifier(command.correlationId, "correlationId");
       enforceLimit(command.body, "body", limits.maxMessageCharacters);
+      const attachmentInputs = command.attachments ?? [];
+      const descriptors = await attachmentDescriptors(
+        attachmentInputs,
+        attachmentConfig,
+      );
+      const attachmentFingerprint = descriptors.length
+        ? { attachments: descriptors }
+        : {};
       const fingerprint = await requestFingerprint({
         ...snapshotRevisionHint(command),
         type: "add_note",
         ticketId: command.ticketId,
         messageId: command.messageId,
         body: command.body,
+        ...attachmentFingerprint,
       });
 
       for (let attempt = 1; attempt <= maxConflictAttempts; attempt += 1) {
@@ -6996,7 +7614,7 @@ export function createSupportDeskApplication(options: {
           );
         const partitionRows = await records.list(command.ticketId);
         enforcePartitionRecordLimit(
-          partitionRows.length,
+          partitionSizeWithAttachmentReserve(partitionRows),
           limits.maxRecordsPerTicket,
           3,
         );
@@ -7004,7 +7622,7 @@ export function createSupportDeskApplication(options: {
           versioned.value.ticket,
           partitionRows,
           limits,
-          3,
+          3 + attachmentInputs.length * 6,
           true,
         );
         const quota = await records.getVersioned(
@@ -7053,54 +7671,59 @@ export function createSupportDeskApplication(options: {
           body: command.body,
           createdAt: now,
         };
-        const outcome = await records.transact(command.ticketId, [
-          {
-            action: "putIfUnchanged",
-            version: versioned.version,
-            value: { ...versioned.value, ticket: updated },
-          },
-          {
-            action: "putIfUnchanged",
-            version: quota.version,
-            value: {
-              ...quota.value,
-              messageCount: quota.value.messageCount + 1,
+        const outcome = await transactWithAttachments(
+          command.ticketId,
+          [
+            {
+              action: "putIfUnchanged",
+              version: versioned.version,
+              value: { ...versioned.value, ticket: updated },
             },
-          },
-          {
-            action: "insert",
-            value: {
-              kind: "message",
-              partition: command.ticketId,
-              id: `message:${command.messageId}`,
-              ordinal: updated.revision,
-              message,
+            {
+              action: "putIfUnchanged",
+              version: quota.version,
+              value: {
+                ...quota.value,
+                messageCount: quota.value.messageCount + 1,
+              },
             },
-          },
-          ticketAuditAction({
-            commandId: command.commandId,
-            correlationId: command.correlationId,
-            ticketId: command.ticketId,
-            revision: updated.revision,
-            actorId: access.principalId,
-            occurredAt: now,
-            action: supportTicketAuditActions.noteAdded,
-          }),
-          {
-            action: "insert",
-            value: {
-              kind: "command",
-              partition: command.ticketId,
-              id: `command:${command.commandId}`,
+            {
+              action: "insert",
+              value: {
+                kind: "message",
+                partition: command.ticketId,
+                id: `message:${command.messageId}`,
+                ordinal: updated.revision,
+                message,
+              },
+            },
+            ticketAuditAction({
               commandId: command.commandId,
-              commandType: "add_note",
-              messageId: command.messageId,
-              requestFingerprint: fingerprint,
-              completedAt: now,
-              resultTicket: updated,
+              correlationId: command.correlationId,
+              ticketId: command.ticketId,
+              revision: updated.revision,
+              actorId: access.principalId,
+              occurredAt: now,
+              action: supportTicketAuditActions.noteAdded,
+            }),
+            {
+              action: "insert",
+              value: {
+                kind: "command",
+                partition: command.ticketId,
+                id: `command:${command.commandId}`,
+                commandId: command.commandId,
+                commandType: "add_note",
+                messageId: command.messageId,
+                requestFingerprint: fingerprint,
+                completedAt: now,
+                resultTicket: updated,
+              },
             },
-          },
-        ]);
+          ],
+          attachmentInputs,
+          descriptors,
+        );
         if (outcome.committed) {
           return staffCommandResult(command.ticketId, command.commandId);
         }
@@ -7192,7 +7815,7 @@ export function createSupportDeskApplication(options: {
           );
         const partitionRows = await records.list(command.ticketId);
         enforcePartitionRecordLimit(
-          partitionRows.length,
+          partitionSizeWithAttachmentReserve(partitionRows),
           limits.maxRecordsPerTicket,
           addedRecords,
         );
@@ -7406,7 +8029,7 @@ export function createSupportDeskApplication(options: {
           return staffCommandResult(command.ticketId, command.commandId);
         const partitionRows = await records.list(command.ticketId);
         enforcePartitionRecordLimit(
-          partitionRows.length,
+          partitionSizeWithAttachmentReserve(partitionRows),
           limits.maxRecordsPerTicket,
           2,
         );
@@ -7543,7 +8166,7 @@ export function createSupportDeskApplication(options: {
         if (command.tags.some((tag) => !allowedTags.has(tag)))
           throw new TypeError("tags must be on the host allowlist");
         const rows = await records.list(command.ticketId);
-        enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket, 2);
+        enforcePartitionRecordLimit(partitionSizeWithAttachmentReserve(rows), limits.maxRecordsPerTicket, 2);
         enforceManagedAdmission(versioned.value.ticket, rows, limits, 2);
         const now = clampTicketTime(
           clock.now(),
@@ -7623,7 +8246,7 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(ticketId, "ticketId");
       const partitionRows = await records.list(ticketId);
       enforcePartitionRecordLimit(
-        partitionRows.length,
+        partitionSizeWithAttachmentReserve(partitionRows),
         limits.maxRecordsPerTicket,
       );
       const ticket = partitionRows.find(
@@ -7753,7 +8376,7 @@ export function createSupportDeskApplication(options: {
         command.messageId !== undefined,
       );
       enforcePartitionRecordLimit(
-        partitionRows.length,
+        partitionSizeWithAttachmentReserve(partitionRows),
         limits.maxRecordsPerTicket,
         addedRecords + learningMutation.additionalRows,
       );
@@ -10216,7 +10839,7 @@ export function createInboundMailProcessor(
       }
       const partitionRows = await records.list(input.ticketId);
       enforcePartitionRecordLimit(
-        partitionRows.length,
+        partitionSizeWithAttachmentReserve(partitionRows),
         limits.maxRecordsPerTicket,
         1,
       );

@@ -55,3 +55,11 @@ host-selected drivers.
 > This example is not production infrastructure. Replace the Store, access
 > resolution, clock, provider, templates, and host wakeup path before accepting
 > real traffic.
+
+# Attachment composition
+
+`runAttachmentExampleFlow` wires a synthetic host blob adapter, creates an
+attachment, records a digest-bound scanner verdict, downloads through ownership
+checks and deletes it. `pnpm run example` runs this flow. Production hosts supply
+private immutable storage, a real scanner, retention workers and orphan cleanup
+fencing described in [ATTACHMENTS.md](../../docs/ATTACHMENTS.md).

@@ -38,6 +38,34 @@ export class TicketWorkflowError extends Error {
   }
 }
 
+/** Display text only; never use the result as a path or blob key. */
+export function normalizeAttachmentFilename(
+  value: string,
+  maximum = 120,
+): string {
+  if (
+    typeof value !== "string" ||
+    value.length > 4096 ||
+    !Number.isSafeInteger(maximum) ||
+    maximum < 1 ||
+    maximum > 255
+  )
+    throw new TypeError("Invalid attachment filename bounds");
+  return (
+    value
+      .replace(/[\ud800-\udfff]/gu, "_")
+      .normalize("NFKC")
+      .replace(
+        /[\u0000-\u001f\u007f-\u009f/\\";:\u202a-\u202e\u2066-\u2069]/g,
+        "_",
+      )
+      .replace(/^\.+/, "")
+      .trim()
+      .slice(0, maximum)
+      .replace(/[\ud800-\udfff]/gu, "_") || "attachment"
+  );
+}
+
 const TICKET_CHANNELS: readonly TicketChannel[] = ["web", "email", "api"];
 const TICKET_PRIORITIES: readonly TicketPriority[] = [
   "low",
