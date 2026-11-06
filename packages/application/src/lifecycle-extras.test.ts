@@ -3,17 +3,42 @@ import {
   type Store,
   type EntityKey,
 } from "@pegma/storage-core";
+import type { AccessContext } from "@pegma/authorization-core";
 import { describe, expect, it, vi } from "vitest";
 import {
   createSupportDeskApplication,
   SupportDeskStaleRevisionError,
+  supportPermissions,
   supportRecords,
   type ResponseTargetPolicy,
 } from "./index.js";
-import {
-  EXAMPLE_CUSTOMER as customer,
-  EXAMPLE_STAFF as staff,
-} from "../../../examples/composition/composition.js";
+
+const customer: AccessContext = Object.freeze({
+  principalId: "customer-lifecycle",
+  policyVersion: "test-1",
+  roles: [],
+  entitlements: [],
+  permissions: Object.freeze([
+    supportPermissions.create,
+    supportPermissions.readOwn,
+    supportPermissions.replyOwn,
+  ]),
+});
+
+const staff: AccessContext = Object.freeze({
+  principalId: "staff-lifecycle",
+  policyVersion: "test-1",
+  roles: [],
+  entitlements: [],
+  permissions: Object.freeze([
+    supportPermissions.queueRead,
+    supportPermissions.replyAny,
+    supportPermissions.note,
+    supportPermissions.assign,
+    supportPermissions.manage,
+    supportPermissions.auditRead,
+  ]),
+});
 
 const now = "2026-11-01T10:00:00.000Z";
 const base = { ticketId: "ticket", correlationId: "correlation" };

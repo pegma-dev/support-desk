@@ -1335,7 +1335,7 @@ function snapshotTags(input: unknown): readonly string[] {
   }
   const tags = new Set<string>();
   for (let index = 0; index < input.length; index += 1) {
-    tags.add(normalizedTag(ownDataProperty(input, index, "tag")));
+    tags.add(normalizedTag(ownDataProperty(input, index, `tags[${index}]`)));
   }
   return Object.freeze([...tags].sort());
 }
@@ -2537,6 +2537,8 @@ function snapshotStaffQueueQuery(input: unknown): StaffQueueQuery {
     throw new TypeError("dueSoonMilliseconds must be between 0 and 30 days");
   if (targetState === "due_soon" && dueSoonMilliseconds === undefined)
     throw new TypeError("due_soon requires dueSoonMilliseconds");
+  if (targetState !== "due_soon" && dueSoonMilliseconds !== undefined)
+    throw new TypeError("dueSoonMilliseconds requires targetState due_soon");
 
   if (assignedTo !== undefined) {
     if (typeof assignedTo !== "string") {
@@ -4100,10 +4102,19 @@ export function createSupportDeskApplication(options: {
         staffQueueItemMatches(item, query, targetNow),
       );
       const sort = query.sort ?? "updated_newest";
+      // Parse each pending due date once per read, not once per comparison.
+      const dueEpochs = new Map<StaffQueueItem, number>();
+      if (sort === "due_soonest" || sort === "due_latest") {
+        for (const item of filtered) {
+          const due = pendingTargetDue(item, query.target);
+          if (due !== undefined)
+            dueEpochs.set(item, canonicalTimestamp(due, "ticket target"));
+        }
+      }
       filtered.sort((left, right) => {
         if (sort === "due_soonest" || sort === "due_latest") {
-          const leftDue = pendingTargetDue(left, query.target);
-          const rightDue = pendingTargetDue(right, query.target);
+          const leftDue = dueEpochs.get(left);
+          const rightDue = dueEpochs.get(right);
           // Completed and missing targets sort last in both directions.
           if (leftDue === undefined && rightDue !== undefined) return 1;
           if (rightDue === undefined && leftDue !== undefined) return -1;
@@ -4111,10 +4122,8 @@ export function createSupportDeskApplication(options: {
             leftDue === undefined || rightDue === undefined
               ? 0
               : sort === "due_soonest"
-                ? canonicalTimestamp(leftDue, "ticket target") -
-                  canonicalTimestamp(rightDue, "ticket target")
-                : canonicalTimestamp(rightDue, "ticket target") -
-                  canonicalTimestamp(leftDue, "ticket target");
+                ? leftDue - rightDue
+                : rightDue - leftDue;
           return difference || left.ticketId.localeCompare(right.ticketId);
         }
         const byTime =

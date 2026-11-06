@@ -599,7 +599,7 @@ dependency, not promised dates.
 | 6     | Task 17 — abuse composition notes      | Documented and tested composition of `@pegma/rate-limit` for web create/reply and inbound sender/domain/channel throttles, plus abuse-review metrics.                                                                                     | A limiter would have to live inside Support Desk.                                        |
 | 7     | Task 18 — AI triage and drafts         | Optional host hooks for staff-only summaries and reply drafts with an explicit human approval step, model/prompt version audit, and no customer-visible generation.                                                                       | A hook could send, act on an account, or raise permissions without a human approval.     |
 
-### Task 13 - lifecycle extras
+### Task 13 — lifecycle extras
 
 **Status (Task 13):** Implemented in source, additive to exact `0.1.1` with no
 version bump or publication. This pure package task proceeds independently of

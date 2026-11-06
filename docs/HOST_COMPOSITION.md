@@ -137,7 +137,8 @@ Queue fields are staff-only and come from authoritative confirmation. Query
 `tag` matches one normalized tag. `target` selects `first_response` or
 `resolution` (default); `targetState: "overdue"` means an unmet target strictly
 before the host clock, while `"due_soon"` means from now through the inclusive
-`dueSoonMilliseconds` horizon (required, 0 to 30 days). First-response targets
+`dueSoonMilliseconds` horizon (required, 0 to 30 days, and rejected with any
+other `targetState`). First-response targets
 are unmet until `firstStaffRespondedAt`; resolution targets are unmet until
 `resolvedAt`. Terminal tickets remain excluded from the active queue. Sorts
 `due_soonest` and `due_latest` use the selected unmet target with missing or

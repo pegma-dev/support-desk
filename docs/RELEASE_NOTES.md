@@ -1,6 +1,6 @@
 # Release notes
 
-## Unreleased - lifecycle extras (Buildout Task 13)
+## Unreleased — lifecycle extras (Buildout Task 13)
 
 Additive package work against `0.1.1`; no versions, tags, or publication change.
 Task 12 remains pending on both hosts' durable-store production evidence.

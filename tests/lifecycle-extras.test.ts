@@ -117,6 +117,8 @@ for (const [name, fixture] of [
         { targetState: "due_soon" as const },
         { dueSoonMilliseconds: -1 },
         { dueSoonMilliseconds: 31 * 86_400_000 },
+        { dueSoonMilliseconds: 60_000 },
+        { targetState: "overdue" as const, dueSoonMilliseconds: 60_000 },
       ])
         await expect(app.listStaffQueue(staff, query)).rejects.toThrow(
           TypeError,

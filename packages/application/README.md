@@ -22,6 +22,7 @@ Staff services use the same application factory and ticket partition:
 | `resolveTicket`          | `support.queue.read` + `support.ticket.manage`    | → `resolved` (closed tickets must reopen first)                     |
 | `closeTicket`            | `support.queue.read` + `support.ticket.manage`    | → `closed` (resolved only)                                          |
 | `reopenTicket`           | `support.queue.read` + `support.ticket.manage`    | resolved/closed → `waiting_on_support`                              |
+| `setTags`                | `support.queue.read` + `support.ticket.manage`    | Replace staff tags; status, customer time, and mail unchanged       |
 | `readTicketAuditHistory` | `support.audit.read`                              | Ordered Audit history for one ticket                                |
 
 ### Optional lifecycle extras
@@ -46,7 +47,7 @@ it again. Calendars, business hours, and presence remain host responsibilities.
 
 Queue queries select `target: "first_response" | "resolution"` (resolution
 by default), `targetState: "overdue" | "due_soon"`, and the latter's required
-`dueSoonMilliseconds` (0 to 30 days). Sort by `due_soonest` or `due_latest`,
+`dueSoonMilliseconds` (0 to 30 days, rejected otherwise). Sort by `due_soonest` or `due_latest`,
 with completed/missing targets last and ticket ID tie-breaking. All values
 come from authoritative confirmation within existing scan budgets. Tags,
 targets, and milestones stay out of customer DTOs and automatic customer mail.
