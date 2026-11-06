@@ -387,3 +387,7 @@ accepted. Confirmed delivery becomes terminal, while an unresolvable status or
 reconciliation adapter failure becomes the explicit retainable
 `terminal_unknown` state rather than entering the send loop. Expired
 reconciliation leases remain reconciliation-only when reclaimed.
+
+## Task 14 attachment metadata
+
+`support-desk.records.v1` message rows gain optional `message.attachments` (legacy absence means none). Each embedded record holds UUID id, sanitized filename, contentType, byte size, SHA-256, opaque blobKey, scanStatus and expiresAt. These metadata records and references commit atomically with the message, ticket, quota, command, Audit and optional outbox in the ticket partition. No blob bytes or secondary attachment collection is stored. Scan/deletion CAS transactions fence both ticket and message versions, advance revision and append Audit plus command receipt. Deleting/deleted tombstones cannot regain download eligibility. Allowlists and bounds are documented in [ATTACHMENTS.md](./ATTACHMENTS.md). Lifetime ticket counts include tombstones. Mutations reserve six physical Audit/receipt rows per pending attachment, four per finalized scan, two per deleting attachment, so capacity cannot strand cleanup.

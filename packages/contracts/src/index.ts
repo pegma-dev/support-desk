@@ -82,6 +82,22 @@ export type MessageAuthorKind = "customer" | "staff" | "system";
 export type MessageVisibility = "customer" | "internal";
 export type MessageFormat = "plain_text" | "markdown";
 
+export type AttachmentScanStatus =
+  "pending_scan" | "clean" | "quarantined" | "deleting" | "deleted";
+
+/** Immutable identity/content facts; mutable safety state lives on the message. */
+export interface MessageAttachment {
+  readonly id: string;
+  readonly filename: string;
+  readonly contentType: string;
+  readonly size: number;
+  readonly sha256: string;
+  /** Staff/server only. Never a URL or an authorization capability. */
+  readonly blobKey: string;
+  readonly scanStatus: AttachmentScanStatus;
+  readonly expiresAt: IsoTimestamp;
+}
+
 /**
  * Host-evaluated sender authentication bound to one inbound email address.
  *
@@ -112,6 +128,7 @@ export type InboundSenderAuthentication =
  * this contract. Raw MIME payloads and unsafe HTML do not belong here.
  */
 export interface TicketMessage {
+  readonly attachments?: readonly MessageAttachment[];
   readonly id: MessageId;
   readonly ticketId: TicketId;
   readonly authorKind: MessageAuthorKind;
