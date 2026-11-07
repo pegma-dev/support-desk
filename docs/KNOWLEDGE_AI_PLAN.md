@@ -3,11 +3,11 @@
 ## Status and reading order
 
 Approved product decisions: 2026-11-06; scoped-agent-access decision added
-2026-11-07. Only the six entries in the ledger below are merged source.
-AUTH-01 is in progress in the new Agent Access component; its implementation
-and gates are not yet complete. KB-04 transport source remains unimplemented;
-full KB-05 and SD-02 onward remain pending. Package publication, authenticated
-author transport, model integration, and host activation remain separately gated.
+2026-11-07. The ten entries in the ledger below are merged source, including
+AUTH-01, KB-04's transport source exit, and both producers' release preparation.
+Full KB-05 publication and SD-02 onward remain open. Package publication,
+actual two-host authenticated authoring, model integration, and host activation
+remain separately gated.
 Use the [P-00 handoff](KNOWLEDGE_AI_P00.md) for the frozen package baseline,
 acceptance corpus, capacity assumptions, and owned activation prerequisites.
 This plan covers a standalone Pegma knowledge base, an optional Support Desk
@@ -17,14 +17,18 @@ integration. Completing one host does not complete this enhancement.
 
 **Merged-source status: 2026-11-07.**
 
-| Source work                      | Merged evidence                                                                                                                                                           | Delivered source                                                                                            |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| P-00                             | [Support #33](https://github.com/pegma-dev/support-desk/pull/33) · [`fcf5a68`](https://github.com/pegma-dev/support-desk/commit/fcf5a68f83d335b9867a6975443c03d3a86e3c4f) | Frozen baseline, synthetic acceptance oracles, and capacity checks                                          |
-| KB-01                            | [KB #1](https://github.com/pegma-dev/knowledge-base/pull/1) · [`2830be7`](https://github.com/pegma-dev/knowledge-base/commit/2830be77b246683c16bbc22da2cbc260dae904be)    | Standalone contracts/core, validation, and exact approval                                                   |
-| KB-02                            | [KB #2](https://github.com/pegma-dev/knowledge-base/pull/2) · [`bc74cb1`](https://github.com/pegma-dev/knowledge-base/commit/bc74cb1eccc61416de6146702886b6cfd584e635)    | Authorized services, bounded persistence, private DTOs, and atomic Audit/receipts/work                      |
-| KB-03                            | [KB #3](https://github.com/pegma-dev/knowledge-base/pull/3) · [`8caecbe`](https://github.com/pegma-dev/knowledge-base/commit/8caecbee5968d7ee1d4a8707727381d94b288ac0)    | Bounded retrieval, authoritative confirmation, safe citations, and repair                                   |
-| SD-01                            | [Support #34](https://github.com/pegma-dev/support-desk/pull/34) · [`593006e`](https://github.com/pegma-dev/support-desk/commit/593006e5a5e64b223cc7525447b3813a20ff90dd) | Optional handling, attributed replies, deterministic human controls, and private success proof; no model    |
-| KB-05 partial source preparation | [KB #4](https://github.com/pegma-dev/knowledge-base/pull/4) · [`ed530cb`](https://github.com/pegma-dev/knowledge-base/commit/ed530cb318f222ace6f392748bb19c9d8c83d96e)    | Shared memory/Azurite/real local D1 conformance and a public synthetic composition; full KB-05 remains open |
+| Source work                      | Merged evidence                                                                                                                                                              | Delivered source                                                                                                           |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| P-00                             | [Support #33](https://github.com/pegma-dev/support-desk/pull/33) · [`fcf5a68`](https://github.com/pegma-dev/support-desk/commit/fcf5a68f83d335b9867a6975443c03d3a86e3c4f)    | Frozen baseline, synthetic acceptance oracles, and capacity checks                                                         |
+| KB-01                            | [KB #1](https://github.com/pegma-dev/knowledge-base/pull/1) · [`2830be7`](https://github.com/pegma-dev/knowledge-base/commit/2830be77b246683c16bbc22da2cbc260dae904be)       | Standalone contracts/core, validation, and exact approval                                                                  |
+| KB-02                            | [KB #2](https://github.com/pegma-dev/knowledge-base/pull/2) · [`bc74cb1`](https://github.com/pegma-dev/knowledge-base/commit/bc74cb1eccc61416de6146702886b6cfd584e635)       | Authorized services, bounded persistence, private DTOs, and atomic Audit/receipts/work                                     |
+| KB-03                            | [KB #3](https://github.com/pegma-dev/knowledge-base/pull/3) · [`8caecbe`](https://github.com/pegma-dev/knowledge-base/commit/8caecbee5968d7ee1d4a8707727381d94b288ac0)       | Bounded retrieval, authoritative confirmation, safe citations, and repair                                                  |
+| SD-01                            | [Support #34](https://github.com/pegma-dev/support-desk/pull/34) · [`593006e`](https://github.com/pegma-dev/support-desk/commit/593006e5a5e64b223cc7525447b3813a20ff90dd)    | Optional handling, attributed replies, deterministic human controls, and private success proof; no model                   |
+| KB-05 partial source preparation | [KB #4](https://github.com/pegma-dev/knowledge-base/pull/4) · [`ed530cb`](https://github.com/pegma-dev/knowledge-base/commit/ed530cb318f222ace6f392748bb19c9d8c83d96e)       | Shared memory/Azurite/real local D1 conformance and a public synthetic composition; full KB-05 remains open                |
+| AUTH-01 source                   | [Agent Access #1](https://github.com/pegma-dev/agent-access/pull/1) · [`a444e21`](https://github.com/pegma-dev/agent-access/commit/a444e2113db98455b638b2ef8aa7c2faccb16b62) | Scoped credential lifecycle, bounded durable grants, host HTTP ports, and synthetic protocol proof                         |
+| KB-04 transport source exit      | [KB #5](https://github.com/pegma-dev/knowledge-base/pull/5) · [`b61fc77`](https://github.com/pegma-dev/knowledge-base/commit/b61fc77aedd22e888ac7292c3597f93e54fcda8e)       | Five-operation optional MCP adapter, versioned HTTP contract, and authenticated actual-SDK synthetic draft/evidence parity |
+| KB-05 release preparation        | [KB #6](https://github.com/pegma-dev/knowledge-base/pull/6) · [`7f5eee6`](https://github.com/pegma-dev/knowledge-base/commit/7f5eee68be692b5489de3965f3f5ede7ef7a812d)       | Four-package artifact/release tooling and first-publication handoff; full KB-05 publication remains open                   |
+| Agent Access release preparation | [Agent Access #2](https://github.com/pegma-dev/agent-access/pull/2) · [`eddddd5`](https://github.com/pegma-dev/agent-access/commit/eddddd5e333ce16b6a4a8233b84656b3ac784947) | Packed types/API/SDK checks, artifact/release tooling, and separate first-publication handoff                              |
 
 Support Desk's [Node 22/24 CI](https://github.com/pegma-dev/support-desk/actions/runs/42347759445)
 passed 399 tests per lane; its [review check](https://github.com/pegma-dev/support-desk/actions/runs/42347759580)
@@ -32,32 +36,62 @@ was clean and [PR #34's security report](https://github.com/pegma-dev/support-de
 reported no findings. Four-package pack/import validation was a **local check**
 recorded in [PR #34](https://github.com/pegma-dev/support-desk/pull/34).
 
-KB's [Node 22/24 CI](https://github.com/pegma-dev/knowledge-base/actions/runs/42350344635)
+KB's historical [Node 22/24 CI](https://github.com/pegma-dev/knowledge-base/actions/runs/42350344635)
 passed 340 tests per lane, its synthetic example, and three-package
 clean-consumer imports. Its [review check](https://github.com/pegma-dev/knowledge-base/actions/runs/42350344641)
 was clean and [PR #4's security report](https://github.com/pegma-dev/knowledge-base/pull/4#issuecomment-6703808221)
 reported no findings. Both source PRs also record passed CodeQL checks.
-These are source and local-consumer results, not live credential,
-production-performance, deployment, or pilot evidence.
-The three KB packages remain unpublished at source `0.1.0`. Current Support
-Desk `0.1.1` source includes unreleased changes and is not the registry artifact
-at that version; new synchronized publication is required before adoption.
+
+[AUTH-01 source](https://github.com/pegma-dev/agent-access/pull/1) recorded
+123 runtime tests; [KB-04 source](https://github.com/pegma-dev/knowledge-base/pull/5)
+recorded 372 runtime tests per Node 22/24 lane and the authenticated official-SDK
+synthetic protocol proof. Those are historical source results.
+[KB #6](https://github.com/pegma-dev/knowledge-base/pull/6) passed 372 runtime
+and 128 release tests on **each** Node 22/24 lane with zero skips, plus the full
+five-package SDK proof (four KB packages and Agent Access). Its
+[OpenRouter round 3 review](https://github.com/pegma-dev/knowledge-base/pull/6#pullrequestreview-5814111477)
+was clean with zero open findings, and its
+[security report](https://github.com/pegma-dev/knowledge-base/pull/6#issuecomment-6710997171)
+reported no findings. [Agent Access #2](https://github.com/pegma-dev/agent-access/pull/2)
+passed 123 runtime and 136 release tests on **each** Node 22/24 lane with zero
+skips, including packed types/API/SDK example checks. Its
+[OpenRouter round 3 review](https://github.com/pegma-dev/agent-access/pull/2#pullrequestreview-5814178148)
+was clean in both reviewer lanes with zero open findings, and its
+[security report](https://github.com/pegma-dev/agent-access/pull/2#issuecomment-6711125916)
+reported no findings. Source, emulator, and synthetic SDK results do not prove
+actual host login/client compatibility, production performance, deployment,
+model calls, or pilots.
+
+All four KB packages and Agent Access remain unpublished at source `0.1.0`;
+all five names returned HTTP 404 from the public npm registry on 2026-11-07.
+Treat this as a historical snapshot; before activation, repeat the
+[producer's registry check](https://github.com/pegma-dev/knowledge-base/blob/main/docs/SOURCE_PREPARATION.md).
+Current Support Desk `0.1.1` source includes unreleased changes and is not the
+registry artifact at that version; new synchronized publication is required
+before adoption.
 The [post-baseline producer inventory](KNOWLEDGE_AI_P00.md#post-baseline-dependency-inventory-2026-11-07)
 records Agent Access source `0.1.0` and future host dependency gates without
 changing P-00's frozen registry snapshot or inventing a production pin.
 
-**Next gates:** Complete AUTH-01 source and synthetic protocol proof in
-[Agent Access](https://github.com/pegma-dev/agent-access), then KB-04's transport
-source exit with actual-SDK synthetic draft/evidence parity and the full KB-05
-artifact/publication gates. Agent Access also needs its separate first
-publication/trusted-publisher setup before production adoption. The credential
-ownership decision is resolved; real existing-login and requested-client proof
-on both hosts remains an activation gate tracked by P-00 and PG-01/RG-01.
-It does not block source release preparation. SD-02 waits for KB-05 publication;
-hosts consume exact published dependencies before their actual-client proofs.
+**Next gates:** Follow the public
+[KB first-publication handoff](https://github.com/pegma-dev/knowledge-base/blob/main/docs/BOOTSTRAP.md)
+and separate
+[Agent Access handoff](https://github.com/pegma-dev/agent-access/blob/main/docs/BOOTSTRAP.md).
+The maintainer's 2FA bootstrap creates each npm package name under an
+unadvertised `bootstrap` tag without OIDC provenance. A separately reviewed first advertised
+version, protected `npm-publish` environment, approved signers, immutable tag
+rules, npm trusted publishers with direct publishing enabled, and actual
+registry artifact/signature/provenance verification remain required. Merged
+release tooling performs none of those external steps. Full KB-05 publication
+therefore remains open and **hard-blocks SD-02**. PG-01/RG-01 host assembly
+requires **both published Agent Access and KB**, with exact verified registry
+dependencies. Actual existing-login/current-Admin consent and every requested
+client/mode on both hosts remain unproven activation gates tracked by P-00 and
+PG-01/RG-01. The source/SDK and release-preparation results do not close them.
 Task 12, provider/ZDR/intermediary verification,
 issue-to-deployed-build mapping, operations, dual-host acceptance, and supervised
-pilots remain open. The independent partial KB-05 work does not close those gates.
+pilots remain open. The merged source and release preparation do not close
+those gates.
 
 Read the decision record and boundaries below, then give an implementation
 agent exactly one task card. `PROJECT_PLAN.md` remains the roadmap and
@@ -110,10 +144,11 @@ educational decision-support boundaries.
 
 The MIT [knowledge-base repository](https://github.com/pegma-dev/knowledge-base)
 now contains `@pegma/knowledge-base-contracts`, `@pegma/knowledge-base-core`,
-and `@pegma/knowledge-base-application` source. They remain unpublished; the
-optional MCP adapter is still KB-04 work. Create a package only when its
-implementation begins, with its own README, LICENSE,
-build-on-pack behavior, and compiled-test exclusion.
+`@pegma/knowledge-base-application`, and optional `@pegma/knowledge-base-mcp`
+source. All four remain unpublished at `0.1.0`; KB-04's transport source exit
+and KB-05 release preparation are merged. Any future package is created only
+when its implementation begins, with its own README, LICENSE, build-on-pack
+behavior, and compiled-test exclusion.
 
 The KB owns collections, article revisions, validation requirements and
 evidence, approval/publication, retirement, and bounded retrieval. Its base
@@ -128,9 +163,10 @@ database implementation, or shared-error taxonomy here or in Spine.
 
 AUTH-01 belongs to the separate MIT
 [Agent Access repository](https://github.com/pegma-dev/agent-access). Its
-`@pegma/agent-access@0.1.0` source is in progress and unpublished. Identity and
-Sessions retain their authentication/OAuth refusals; Authorization Core's
-fixed short-lived consume-on-verify grants remain unchanged. KB is the resource
+`@pegma/agent-access@0.1.0` lifecycle source and release preparation are merged;
+the package remains unpublished. Identity and Sessions retain their
+authentication/OAuth refusals; Authorization Core's fixed short-lived
+consume-on-verify grants remain unchanged. KB is the resource
 server, and its optional MCP package owns transport over KB services.
 
 Hosts reuse their existing human login and current Admin-only linking policy.
@@ -154,9 +190,9 @@ clients, redirects, scopes, revocation, retention, and protected discovery.
 Source tests and a synthetic SDK example can precede publication using
 test-only packed artifacts. Production assembly consumes exact published
 dependencies, and actual two-host existing-login/client proof is a separate
-activation gate tracked by P-00 and PG-01/RG-01. KB-04's source exit establishes
-transport release readiness only; it cannot close that host acceptance. No
-host login composition or deployment is performed by AUTH-01 source work.
+activation gate tracked by P-00 and PG-01/RG-01. KB-04's merged source exit
+establishes transport release readiness only; it cannot close that host
+acceptance. No host login composition or deployment is performed by AUTH-01 source work.
 
 Initial client compatibility targets are Codex, Claude Code, Grok Bot, and
 T3 Code. Grok Bot means the desktop application with its hosted agent, not
@@ -602,12 +638,13 @@ is too large, preserving the dependency and exit criteria.
 | R-RG / RetireGolden host  | A-01; existing Task 12 host evidence   | Run its separately controlled supervised pilot.                                                                                                                                                              | Equivalent host sign-off, with independent customer/data/operations policy.                                                                                                                                                                                                                                      |
 
 The merged-source ledger above records completed source slices, including
-SD-01 and independent partial KB-05 preparation. The remaining critical path
-is AUTH-01 source/SDK fixture, KB-04 transport source exit, then KB-05 reviewed
-artifact publication. AUTH-01 publication also precedes host assembly. PG-01
-and RG-01 consume those published dependencies and prove actual existing-login
-and requested-client draft/evidence flows. KB-04's source exit may close only
-its source slice; retained actual two-host acceptance remains pending in P-00,
+AUTH-01, SD-01, KB-04's transport source exit, and both producers' release
+preparation. The remaining critical path is KB-05's reviewed actual artifact
+publication, including its maintainer bootstrap and separately reviewed first
+advertised trusted version. Agent Access publication also precedes host
+assembly. PG-01 and RG-01 consume those published dependencies and prove actual
+existing-login and requested-client draft/evidence flows. KB-04's merged source
+exit closes only its source slice; retained actual two-host acceptance remains pending in P-00,
 PG-01/RG-01, and A-01 until those real runs pass. Source/SDK success cannot close
 it. SD-02 can begin after KB-05 publication without claiming host activation.
 Host PRs are separate and must each satisfy their review/CI/deployment rules.

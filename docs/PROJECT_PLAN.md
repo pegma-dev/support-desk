@@ -5,21 +5,36 @@
 **Stage:** Buildout Tasks 1–6 are complete; the first `0.1.0` set was published
 on 2026-07-29 with signed tag `v0.1.0`. Later Task 11 package work, Task 13,
 and SD-01 are merged source. The standalone KB has merged KB-01/02/03 and
-independent partial KB-05 preparation. The
-[current source ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) records
+independent partial KB-05 preparation, KB-04's transport source exit, and
+KB-05 release preparation. AUTH-01 Agent Access source and its separate release
+preparation are also merged. The ten entries in the
+[current source ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) record
 the exact PRs/commits, verified gates, and remaining dependency order.
 
 Current Support Desk source remains `0.1.1` but differs from the registry's
 latest `0.1.1` artifacts. It pins Audit `0.2.0`, Authorization Core `0.4.0`,
 Mail `0.1.1`, Spine `0.1.2`, and Storage Core `0.4.0`. These source changes
 require a new synchronized SD-06 release before enhancement adoption; never
-overwrite an existing version. The three KB packages remain unpublished at
-source `0.1.0`. The remaining source path is AUTH-01 Agent Access source/SDK
-proof, KB-04 transport source exit, then KB-05 reviewed publication. Agent
-Access publication also precedes host assembly. Actual two-host login/client
-proof remains with PG-01/RG-01 before activation or pilots; it does not block
-source release preparation. SD-02 waits for KB-05 publication. No future gate
-is complete.
+overwrite an existing version. All four KB packages and Agent Access remain
+unpublished at source `0.1.0`; the five public npm names returned HTTP 404 on
+2026-11-07. Treat this as a historical snapshot; before activation, repeat the
+[producer's registry check](https://github.com/pegma-dev/knowledge-base/blob/main/docs/SOURCE_PREPARATION.md).
+Source release preparation is complete; actual publication remains
+open. Follow the public
+[KB first-publication handoff](https://github.com/pegma-dev/knowledge-base/blob/main/docs/BOOTSTRAP.md)
+and separate
+[Agent Access handoff](https://github.com/pegma-dev/agent-access/blob/main/docs/BOOTSTRAP.md).
+The maintainer's 2FA bootstrap creates each npm package name under an
+unadvertised `bootstrap` tag without OIDC provenance. The first advertised
+trusted versions need separate review, protected
+`npm-publish` environments, approved signers, immutable tag rules, npm trusted
+publishers with direct publishing enabled, and actual registry
+artifact/signature/provenance verification. Full KB-05 publication remains
+open and **hard-blocks SD-02**. PG-01/RG-01 host assembly requires **both published
+Agent Access and KB** with exact verified registry dependencies. Actual
+two-host existing-login/current-Admin consent and requested-client/mode proof
+remains unproven before activation or pilots. Source and synthetic SDK results
+do not establish deployment, model calls, host acceptance, or pilots.
 
 Task 12 remains pending on both hosts' durable-store production evidence.
 Provider/ZDR/intermediary verification, deployment applicability mapping,
@@ -426,11 +441,14 @@ phase is intentionally not one large release.
 **Goal:** Compose a standalone knowledge base for product documentation and
 reviewed support knowledge on both launch hosts.
 
-**Source status:** KB-01/02/03 and partial KB-05 preparation are merged. Next
-are AUTH-01 source/SDK proof, KB-04 transport source exit, and KB-05 publication.
-Agent Access must also be published before host assembly. Actual two-host
-login/client proof is retained under PG-01/RG-01 before activation or pilots;
-all these gates remain open. See the
+**Source status (2026-11-07):** KB-01/02/03, partial KB-05 preparation, AUTH-01
+source/SDK proof, KB-04's transport source exit, and both producers' release
+preparation are merged. Full KB-05 actual publication remains open and
+hard-blocks SD-02. All four KB packages and Agent Access remain unpublished at
+source `0.1.0`; both published producers are required before host assembly.
+Actual two-host existing-login/current-Admin consent and Codex, Claude Code,
+Grok Bot desktop/hosted-agent, and T3 Code Codex-provider proof remains unproven
+under PG-01/RG-01 before activation or pilots. See the
 [status ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
 
 Approved decisions and repository-scoped task cards are in

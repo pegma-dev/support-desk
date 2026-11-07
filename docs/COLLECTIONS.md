@@ -168,12 +168,17 @@ or guaranteed success at the 512-row hard cap.
 Fresh inbound email remains human-handled. A verified email reply joining an
 assistant web conversation routes it to human-pending; email authentication
 still grants no web principal or account access. SD-01 supplies handling and
-deterministic controls only. The pending source sequence is AUTH-01 Agent
-Access source/SDK proof, KB-04 transport source exit, then KB-05 reviewed
-publication; Agent Access publication also precedes host assembly. PG-01/RG-01
-retain actual two-host existing-login/client proof before activation or pilots.
-Synthetic SDK proof cannot close those gates. Model generation and remaining
-host activation/pilot gates stay pending under the
+deterministic controls only. AUTH-01, KB-04 transport source/SDK proof, partial
+KB-05 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
+and both producers' final release preparation are merged. All four KB packages
+and Agent Access remain unpublished at source `0.1.0`; unadvertised
+maintainer-2FA bootstrap and the separately reviewed first advertised release
+with verified registry provenance remain open. PG-01/RG-01 require both
+published producers before host assembly and retain actual two-host
+existing-login/Admin consent and requested-client proof before activation or
+pilots. Synthetic SDK proof uses no actual customer data and cannot close those
+host gates. SD-02 model generation waits for KB-05 publication; host privacy,
+operations, full-workflow, activation, and pilot gates stay pending under the
 [current implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
 
 ## Ticket numbers

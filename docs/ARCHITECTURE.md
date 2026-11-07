@@ -370,12 +370,17 @@ for row, serialized-byte, and capacity bounds before changing durable work.
 
 Source completion needs its own tests/review. Source `0.1.1` is not the registry
 artifact at that version; SD-06's future release precedes adoption of new
-Support Desk behavior. The pending source sequence is AUTH-01 Agent Access
-source/SDK proof, KB-04 transport source exit, then KB-05 reviewed publication.
-Agent Access publication also precedes host assembly. PG-01/RG-01 retain actual
-two-host existing-login/client proof before activation or pilots; synthetic SDK
-proof cannot close those gates. SD-02 generation/data controls and the remaining
-host activation/pilot gates remain pending. Follow the
+Support Desk behavior. AUTH-01, KB-04 transport source/SDK proof, partial KB-05
+source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
+and both producers' final release preparation are merged. All four KB packages
+and Agent Access remain unpublished at source `0.1.0`; unadvertised
+maintainer-2FA bootstrap and the separately reviewed first advertised release
+with verified registry provenance remain open. PG-01/RG-01 require both published
+producers before host assembly and actual two-host existing-login/Admin consent
+and requested-client proof before activation or pilots. Synthetic proof uses
+no actual customer data and cannot close those host gates. SD-02 generation/data
+controls wait for KB-05 publication; host privacy, operations, full-workflow,
+activation, and pilot gates remain pending. Follow the
 [current implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
 
 ## Persistence model

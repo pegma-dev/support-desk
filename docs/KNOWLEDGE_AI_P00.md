@@ -94,22 +94,35 @@ This dated inventory adds the approved producers after the 2026-11-06 snapshot.
 It does not refresh or modify `test/knowledge-ai/baseline.json`, whose source,
 registry observations, dependency tuples, and integrities remain historical.
 
-| Producer                                                                                             | Current source state                                                                                                           | Production dependency decision                                                                                                  |
-| ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| `@pegma/agent-access`                                                                                | Source `0.1.0`, unpublished; AUTH-01 is under review in [Agent Access PR #1](https://github.com/pegma-dev/agent-access/pull/1) | No production pin until actual reviewed publication and registry artifact-integrity verification.                               |
-| `@pegma/knowledge-base-contracts`, `@pegma/knowledge-base-core`, `@pegma/knowledge-base-application` | Source `0.1.0`, unpublished; KB-01/02/03 and partial KB-05 source are merged                                                   | KB-04 transport source exit precedes KB-05 reviewed publication. No unpublished source/tarball is a host production dependency. |
-| `@pegma/knowledge-base-mcp`                                                                          | Planned optional producer; implementation begins in KB-04                                                                      | Do not invent a package version or published set before implementation/release review.                                          |
-| Existing Support Desk package set                                                                    | Source `0.1.1` includes unreleased behavior beyond registry `0.1.1`                                                            | New synchronized reviewed publication under SD-06 precedes adoption of those Support Desk additions; do not overwrite `0.1.1`.  |
+| Producer                                                                                             | Current source state                                                                                                                                                                                                              | Production dependency decision                                                                                                                 |
+| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@pegma/agent-access`                                                                                | Source `0.1.0`, unpublished; [AUTH-01 source #1](https://github.com/pegma-dev/agent-access/pull/1) and [release preparation #2](https://github.com/pegma-dev/agent-access/pull/2) are merged                                      | No production pin until its separate maintainer bootstrap, reviewed advertised trusted release, and registry artifact/provenance verification. |
+| `@pegma/knowledge-base-contracts`, `@pegma/knowledge-base-core`, `@pegma/knowledge-base-application` | Source `0.1.0`, unpublished; KB-01/02/03, partial KB-05, [KB-04 source #5](https://github.com/pegma-dev/knowledge-base/pull/5), and [KB-05 release preparation #6](https://github.com/pegma-dev/knowledge-base/pull/6) are merged | Full KB-05 actual publication remains open and hard-blocks SD-02. No unpublished source/tarball is a host production dependency.               |
+| `@pegma/knowledge-base-mcp`                                                                          | Implemented optional producer at source `0.1.0`, unpublished; merged KB-04 transport source exit and KB-05 release preparation                                                                                                    | Released only as part of the reviewed synchronized four-package KB set; no production pin before actual registry verification.                 |
+| Existing Support Desk package set                                                                    | Source `0.1.1` includes unreleased behavior beyond registry `0.1.1`                                                                                                                                                               | New synchronized reviewed publication under SD-06 precedes adoption of those Support Desk additions; do not overwrite `0.1.1`.                 |
 
 Future PG-01/RG-01 host assembly requires **both Agent Access and KB published
 artifacts**, with exact versions selected and integrity verified after their
-actual reviewed releases. AUTH-01 source/SDK proof precedes KB-04 source exit,
-then KB-05 publication; Agent Access publication is an additional host assembly
-gate. Actual two-host login/client proof stays with PG-01/RG-01 before
-activation or pilots. This inventory supplies no future production pin and
-marks no release or host gate complete. The current producer roles are also in
+actual reviewed releases. All five names returned HTTP 404 from the public npm
+registry on 2026-11-07. Treat this as a historical snapshot; before activation,
+repeat the [producer's registry check](https://github.com/pegma-dev/knowledge-base/blob/main/docs/SOURCE_PREPARATION.md).
+AUTH-01 source/SDK proof, KB-04 source exit, and both producers'
+release preparation are merged; actual KB-05 and Agent Access publication remain
+open. Follow the public
+[KB bootstrap handoff](https://github.com/pegma-dev/knowledge-base/blob/main/docs/BOOTSTRAP.md)
+and separate
+[Agent Access handoff](https://github.com/pegma-dev/agent-access/blob/main/docs/BOOTSTRAP.md).
+The maintainer's 2FA bootstrap creates each npm package name under an
+unadvertised `bootstrap` tag without OIDC provenance.
+Each first advertised trusted version needs separate review, the protected
+`npm-publish` environment, approved signers, immutable tag rules, npm trust with
+direct publishing enabled, and actual registry artifact/signature/provenance
+verification. Source merges do not perform these external steps.
+Actual two-host existing-login/current-Admin consent and client/mode proof
+stays with PG-01/RG-01 before activation or pilots. This inventory supplies no
+future production pin and marks no release or host gate complete. The current producer roles are also in
 the [buildout dependency map](BUILDOUT.md#pegma-dependency-map) and
-[host composition guide](HOST_COMPOSITION.md#future-kb-authoring-producers).
+[host composition guide](HOST_COMPOSITION.md#kb-authoring-producers).
 
 ## Open prerequisites and activation gates
 
@@ -118,16 +131,16 @@ It blocks the specific consumer or activation named below. Record private
 configuration and evidence in each host's own handoff, using the checklist at
 the end of this document.
 
-| ID / current status                                      | Owner                                                                                         | Gate                                                                                        | Evidence needed to close                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| -------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P00-CREDENTIAL / AUTH-01 in progress; host proof missing | Agent Access owner for lifecycle source; each host identity/integration owner for composition | PG-01/RG-01 private authoring activation; retained KB-04 host acceptance before A-01/pilots | Existing-login/current-Admin consent, audience/client-bound draft/evidence scopes, expiry, revocation, and current-authority checks through every actual requested client/mode on both hosts. Explicitly prove initial agent credentials cannot publish, submit/read reviews, act as staff/Admin, manage collections/validation policy, read collections/evidence/private provenance, or link/manage grants. Agent Access/KB publication and exact verified registry dependencies precede host assembly. |
-| P00-MCP / missing protected boundary                     | Each host API/MCP owner                                                                       | PG-01/RG-01 private API/MCP activation; A-01/pilots                                         | Every actual requested client/mode proves protected discovery and supported authentication, or a supported bridge using an actual host credential, against published dependencies; wrong-audience, expired, revoked, and excessive-scope cases fail.                                                                                                                                                                                                                                                     |
-| P00-POLICY / future permission mapping                   | KB contract owner and host authorization owner                                                | Any protected KB operation                                                                  | New permission names map into existing Authorization Core policy; collection inheritance, author/reviewer/publisher separation, and customer/bot audiences pass.                                                                                                                                                                                                                                                                                                                                         |
-| P00-PUBLISH / source differs from registry               | Support Desk release owner                                                                    | Hosts consume new Support Desk behavior                                                     | Reviewed version change, exact packed artifact, normal signed-tag/trusted-publisher release, and exact public consumer pins. Existing 0.1.1 remains immutable.                                                                                                                                                                                                                                                                                                                                           |
-| P00-DEPLOYMENT / missing applicability mapping           | Each host release owner, consumed by SD-05                                                    | Fix-related follow-up preparation/activation                                                | Authenticated issue-to-fix-to-release-to-deployed-build mapping with affected product/version applicability and rollback handling. Issue closure or a release announcement alone is insufficient.                                                                                                                                                                                                                                                                                                        |
-| P00-ZDR / unverified                                     | Each host AI/provider owner                                                                   | Every real customer-content processing path                                                 | Recorded actual provider account/project, endpoint/model/features, documented exceptions, intermediary handling, and configuration-change checks. Incompatible/unverified settings disable model calls while human support remains available.                                                                                                                                                                                                                                                            |
-| P00-OPERATIONS / enhancement proof pending               | Each host support/operations owner                                                            | Task 12 closure and supervised pilot                                                        | Current durable-store lifecycle, retention/export/deletion, access review, recovery, handoff, maintenance/backlog, and rollback evidence for this workload. Source inspection and historic general launch records do not establish it.                                                                                                                                                                                                                                                                   |
-| P00-LIMITS / proposed fixture bounds                     | KB and Support Desk owners; host operations owner approves deployment settings                | Admission/worker design, then live activation                                               | Bounded physical rows/pages/actions, retained revisions/evidence, messages, tokens/time/cost, retries, and reserved completion/handoff capacity; actual host measurements support chosen production values.                                                                                                                                                                                                                                                                                              |
+| ID / current status                                        | Owner                                                                                         | Gate                                                                                        | Evidence needed to close                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P00-CREDENTIAL / AUTH-01 source merged; host proof missing | Agent Access owner for lifecycle source; each host identity/integration owner for composition | PG-01/RG-01 private authoring activation; retained KB-04 host acceptance before A-01/pilots | Existing-login/current-Admin consent, audience/client-bound draft/evidence scopes, expiry, revocation, and current-authority checks through every actual requested client/mode on both hosts. Explicitly prove initial agent credentials cannot publish, submit/read reviews, act as staff/Admin, manage collections/validation policy, read collections/evidence/private provenance, or link/manage grants. Agent Access/KB publication and exact verified registry dependencies precede host assembly. |
+| P00-MCP / host protected-boundary proof missing            | Each host API/MCP owner                                                                       | PG-01/RG-01 private API/MCP activation; A-01/pilots                                         | Every actual requested client/mode proves protected discovery and supported authentication, or a supported bridge using an actual host credential, against published dependencies; wrong-audience, expired, revoked, and excessive-scope cases fail.                                                                                                                                                                                                                                                     |
+| P00-POLICY / host permission mapping unproven              | KB contract owner and host authorization owner                                                | Any protected KB operation                                                                  | New permission names map into existing Authorization Core policy; collection inheritance, author/reviewer/publisher separation, and customer/bot audiences pass.                                                                                                                                                                                                                                                                                                                                         |
+| P00-PUBLISH / source differs from registry                 | Support Desk release owner                                                                    | Hosts consume new Support Desk behavior                                                     | Reviewed version change, exact packed artifact, normal signed-tag/trusted-publisher release, and exact public consumer pins. Existing 0.1.1 remains immutable.                                                                                                                                                                                                                                                                                                                                           |
+| P00-DEPLOYMENT / missing applicability mapping             | Each host release owner, consumed by SD-05                                                    | Fix-related follow-up preparation/activation                                                | Authenticated issue-to-fix-to-release-to-deployed-build mapping with affected product/version applicability and rollback handling. Issue closure or a release announcement alone is insufficient.                                                                                                                                                                                                                                                                                                        |
+| P00-ZDR / unverified                                       | Each host AI/provider owner                                                                   | Every real customer-content processing path                                                 | Recorded actual provider account/project, endpoint/model/features, documented exceptions, intermediary handling, and configuration-change checks. Incompatible/unverified settings disable model calls while human support remains available.                                                                                                                                                                                                                                                            |
+| P00-OPERATIONS / enhancement proof pending                 | Each host support/operations owner                                                            | Task 12 closure and supervised pilot                                                        | Current durable-store lifecycle, retention/export/deletion, access review, recovery, handoff, maintenance/backlog, and rollback evidence for this workload. Source inspection and historic general launch records do not establish it.                                                                                                                                                                                                                                                                   |
+| P00-LIMITS / proposed fixture bounds                       | KB and Support Desk owners; host operations owner approves deployment settings                | Admission/worker design, then live activation                                               | Bounded physical rows/pages/actions, retained revisions/evidence, messages, tokens/time/cost, retries, and reserved completion/handoff capacity; actual host measurements support chosen production values.                                                                                                                                                                                                                                                                                              |
 
 The public pegma.dev MCP endpoint serves unauthenticated catalog facts. It
 cannot prove private authoring authentication and must remain separate from
@@ -144,13 +157,15 @@ seconds and consume-on-verify semantics. It is not a reusable OAuth access
 token, refresh flow, or local-agent login. The approved AUTH-01 sibling below
 owns that credential lifecycle; KB remains a resource server.
 
-### Resolved credential decision; open implementation and host proof
+### Resolved credential decision; merged source and open host proof
 
 On 2026-11-07 the credential owner was selected as the separate MIT
 [Agent Access component](https://github.com/pegma-dev/agent-access), inserted as
-AUTH-01 before KB-04. Its source `@pegma/agent-access@0.1.0` is in progress and
-unpublished. This decision does not refresh the frozen package snapshot above,
-implement the lifecycle, or close P00-CREDENTIAL/P00-MCP.
+AUTH-01 before KB-04. AUTH-01 lifecycle source and synthetic protocol proof are
+merged, followed by KB-04's transport source exit and both producers' release
+preparation. `@pegma/agent-access@0.1.0` and the four KB packages remain
+unpublished. This current status does not refresh the frozen package snapshot
+above or close P00-CREDENTIAL/P00-MCP.
 
 Use existing host logins; only current Admins approve and manage their grants.
 Support the RFC 8628 device grant with a human user code, explicit polling
@@ -169,17 +184,20 @@ An authenticated agent's claim is not proof of a working test: the attester
 must verify actor, runner, exact revision/hash, target build, and execution
 receipt, failing closed on missing/unverifiable proof. Source units and a
 synthetic actual-SDK flow may use reviewed test tarballs before publication.
-AUTH-01 source/SDK fixture precedes KB-04's transport source exit: actual-SDK
-draft/evidence parity and rejected credential/attestation cases in a test-only
-synthetic composition, plus the full source/review gates. KB-05 then owns
-reviewed artifact publication; actual host proof is not a prerequisite for
-that source release. PG-01/RG-01 assemble exact published Agent Access/KB
-dependencies and prove existing-login/current-Admin consent and actual-client
-flows. Retained KB-04 host acceptance and P00-CREDENTIAL/P00-MCP remain open
+AUTH-01's source/SDK fixture and KB-04's transport source exit have passed:
+actual-SDK draft/evidence parity and rejected credential/attestation cases in
+a test-only synthetic composition, plus their source/review gates. Their
+release-preparation follow-ups also passed; exact evidence is in the
+[current status ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
+Full KB-05 still owns actual reviewed artifact publication and hard-blocks
+SD-02; Agent Access has a separate publication handoff. Actual host proof is
+not a prerequisite for those source releases. PG-01/RG-01 assemble exact
+published Agent Access/KB dependencies and prove existing-login/current-Admin
+consent and actual-client flows. Retained KB-04 host acceptance and P00-CREDENTIAL/P00-MCP remain open
 until both hosts pass every original authoring/evidence and failure scenario;
 those results are required before activation, A-01, and pilots. Source exit or
-SDK success cannot close them. These phases remain pending in the current
-ledger; this sequencing change marks none complete.
+SDK success cannot close them. Publication and retained host acceptance remain
+open even though the source slices are merged.
 
 The initial compatibility targets are Codex, Claude Code, Grok Bot, and
 T3 Code. Grok Bot means the desktop application with its hosted agent, not
@@ -351,13 +369,15 @@ host release/business gates.
 
 The snapshot, package versions, readiness table, and capacity envelope above
 remain historical P-00 handoff evidence from 2026-11-06. This reconciliation
-does not refresh or rewrite the baseline. Later merged P-00, KB-01/02/03,
-SD-01, and partial KB-05 source preparation, verified gate results, and next
-dependencies are recorded in the plan's
+does not refresh or rewrite the baseline. The ten merged-source entries,
+including P-00, KB-01/02/03, SD-01, partial KB-05, AUTH-01, KB-04, and both
+producers' release preparation, with verified gate results and remaining
+dependencies, are recorded in the plan's
 [current status ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
-The credential ownership decision is resolved by AUTH-01; its lifecycle source
-and gates are in progress. KB-04 transport source exit and KB-05 reviewed
-artifact publication precede released host assembly. AUTH-01 publication,
+AUTH-01 lifecycle source, synthetic SDK proof, KB-04 transport source exit,
+and both producers' release preparation are merged. Full KB-05 actual reviewed
+publication remains open and hard-blocks SD-02. Both KB and Agent Access must
+be published before PG-01/RG-01 host assembly. Their separate publication,
 retained KB-04 real two-host acceptance under P00-CREDENTIAL/P00-MCP and
 PG-01/RG-01, and the named host/ZDR, production-operation, deployment-mapping,
 and pilot gates remain open. Source/SDK evidence does not close host activation.
