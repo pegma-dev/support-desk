@@ -9,6 +9,18 @@ a time.
 Do not give an implementation agent the whole roadmap and ask it to "build the
 help desk." Give it exactly one task below.
 
+## Current source status
+
+Buildout Tasks 1–6, the Task 11 package slice, and Task 13 are implemented in
+source. The enhancement has also merged P-00, KB-01/02/03, SD-01, and
+independent partial KB-05 preparation; exact linked evidence is in the
+[current status ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
+KB-04 credential/protected-resource/real-client proof and full KB-05
+publication/trusted-publisher setup remain next, before SD-02 and dependent
+host work. KB source `0.1.0` remains unpublished; newer Support Desk source
+`0.1.1` changes remain unreleased and differ from registry `0.1.1`.
+Task 12, ZDR, deployment mapping, operations, acceptance, and pilots stay open.
+
 ## Rules for every task
 
 1. Start from current `origin/main` on a new `claude/*` branch.
@@ -61,13 +73,13 @@ simulate them.
 
 | Package                                               | Support Desk rule                                                                                                                                                                                              |
 | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@pegma/spine@0.1.1`                                  | Use its identity, time, logger, and event contracts. Its in-process event bus is never the durable notification path.                                                                                          |
+| `@pegma/spine@0.1.2`                                  | Use its identity, time, logger, and event contracts. Its in-process event bus is never the durable notification path.                                                                                          |
 | `@pegma/storage-core@0.4.0`                           | Support Desk declares collections and accepts a host `Store`. Azure and D1 adapters stay in Storage Core and the hosts.                                                                                        |
-| `@pegma/authorization-core@0.1.2`                     | Application services consume `AccessContext`; hosts resolve roles and entitlements. Support Desk owns permission names and resource checks.                                                                    |
-| `@pegma/audit@0.1.0`                                  | Owns the generic audit event and transaction action. Support Desk embeds it in the ticket partition; it does not keep a parallel audit shape.                                                                  |
-| `@pegma/mail@0.1.0`                                   | Owns provider-neutral outbound state, claims, retries, reconciliation, and terminal states. Support Desk owns templates and the projection into ticket records.                                                |
-| `@pegma/rate-limit@0.1.0`                             | Hosts apply its durable tier before expensive create and reply commands. Support Desk does not wrap or reimplement it.                                                                                         |
-| `@pegma/sessions@0.1.0`                               | A host may use it to resolve a browser session to a `PrincipalId`. Support Desk never reads cookies or sessions.                                                                                               |
+| `@pegma/authorization-core@0.4.0`                     | Application services consume `AccessContext`; hosts resolve roles and entitlements. Support Desk owns permission names and resource checks.                                                                    |
+| `@pegma/audit@0.2.0`                                  | Owns the generic audit event and transaction action. Support Desk embeds it in the ticket partition; it does not keep a parallel audit shape.                                                                  |
+| `@pegma/mail@0.1.1`                                   | Owns provider-neutral outbound state, claims, retries, reconciliation, and terminal states. Support Desk owns templates and the projection into ticket records.                                                |
+| `@pegma/rate-limit@0.2.0`                             | Hosts apply its durable tier before expensive create and reply commands. Support Desk does not wrap or reimplement it.                                                                                         |
+| `@pegma/sessions@0.2.0`                               | A host may use it to resolve a browser session to a `PrincipalId`. Support Desk never reads cookies or sessions.                                                                                               |
 | `@pegma/identity` and authorization identity adapters | pegma.dev host concerns. Only a trusted `PrincipalId` and resolved `AccessContext` cross into Support Desk.                                                                                                    |
 | `@pegma/webhooks`                                     | Do not substitute it for Support Desk inbound-mail or delivery-callback receipts. Its generic sequential ledger permits overlapping processing and lacks Support Desk's channel, message, and result bindings. |
 | Pegma logger adapters and health                      | Host composition concerns. Support Desk emits through Spine `Logger`; hosts expose worker and dependency health.                                                                                               |
@@ -112,6 +124,9 @@ confirmation step.
 
 ### Task 1 — align with Audit and current Authorization Core
 
+**Status (Task 1):** Complete historical foundation. Use the current dependency
+map above for new work; do not rerun the task or downgrade manifests.
+
 **Goal:** Remove the last duplicate ecosystem contract before more commands
 depend on it.
 
@@ -120,8 +135,10 @@ depend on it.
 
 **Required changes:**
 
-- pin `@pegma/authorization-core` to exact `0.1.2`;
-- add exact `@pegma/audit@0.1.0`;
+- Originally aligned `@pegma/authorization-core`; use the
+  [current dependency map](#pegma-dependency-map) for exact pins.
+- Added shared `@pegma/audit` accepted-change history; use the same current
+  dependency map for its exact pin.
 - replace the private `AuditRecord` fields with an embedded Pegma
   `AuditEvent`;
 - define the Support Desk audit projection with `defineAudit`, in
@@ -388,8 +405,9 @@ server-side query, or using the projection as permission/ownership evidence.
 **Status (Task 6):** Complete. Source shipped public composition tests, host
 composition docs, the release pack lane, and exact `0.1.0` package versions.
 The `0.1.0` set is published, trusted publishing is configured, and the
-signed `v0.1.0` tag and release exist (see `docs/RELEASING.md`). Tasks 7–8
-are unblocked.
+signed `v0.1.0` tag and release exist (see `docs/RELEASING.md`). This unblocked
+the original Tasks 7–8; it does not release later lifecycle/SD-01 source or
+waive the enhancement's new exact-release and production gates.
 
 **Goal:** Produce a package release candidate that hosts can compose without
 depending on unpublished filesystem paths.
@@ -601,6 +619,9 @@ repository-scoped task cards. Its foundational source work may proceed while
 Task 12 evidence is gathered; production pilots still require that evidence.
 Attachments, macros, and other independent queue items are not prerequisites
 for the KB. Give an implementation agent one task card, not the whole plan.
+P-00, KB-01/02/03, SD-01, and partial KB-05 source are already merged; follow
+the current ledger's remaining KB-04/full KB-05 gates rather than recreating
+those source slices or marking the full KB-05 task complete.
 
 These tasks follow Task 11 and retain the same rules: one task per
 pull request, additive to `0.x` contracts, docs in the same change, and no

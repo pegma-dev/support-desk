@@ -2,26 +2,27 @@
 
 ## Status
 
-**Stage:** The customer-facing Phase 1/2 application slice, staff detail and
-mutation services (Buildout Task 4), the staff queue repairable projection
-(Buildout Task 5), the host-neutral release candidate (Buildout Task 6), and
-the source portion of Phase 6 are implemented. Buildout Tasks 1–6 are
-complete; the exact `0.1.0` package set was published to the public npm
-registry on 2026-07-29 and released as the signed `v0.1.0` tag. The `0.1.1`
-set is prepared, aligning `@pegma/audit` at `0.2.0`, `@pegma/authorization-core`
-at `0.2.0`, and `@pegma/mail` at `0.1.1` so the dependency tree resolves a
-single `@pegma/storage-core@0.4.0`. Host deployments (Buildout Tasks 7–8) are
-unblocked. The Support Desk slice of Buildout Task 11 (inbound mail
-processing, the reserved receipt lifecycle, and threading indexes) is
-implemented in source and awaits a future synchronized release; provider
-adapters remain host work.
+**Stage:** Buildout Tasks 1–6 are complete; the first `0.1.0` set was published
+on 2026-07-29 with signed tag `v0.1.0`. Later Task 11 package work, Task 13,
+and SD-01 are merged source. The standalone KB has merged KB-01/02/03 and
+independent partial KB-05 preparation. The
+[current source ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) records
+the exact PRs/commits, verified gates, and remaining dependency order.
 
-Buildout Task 13 is implemented in source: bounded staff-only tags, host
-response-target hooks and milestones, confirmed queue target filters/sorts,
-and optional revision collision hints. Packages remain at `0.1.1` without a
-release. Task 12 stays pending until both hosts provide durable-store evidence;
-this package-only work is not a production-readiness claim. Business-hours
-calendars and presence remain outside Support Desk.
+Current Support Desk source remains `0.1.1` but differs from the registry's
+latest `0.1.1` artifacts. It pins Audit `0.2.0`, Authorization Core `0.4.0`,
+Mail `0.1.1`, Spine `0.1.2`, and Storage Core `0.4.0`. These source changes
+require a new synchronized SD-06 release before enhancement adoption; never
+overwrite an existing version. The three KB packages remain unpublished at
+source `0.1.0`. KB-04's real credential/client proof and full KB-05
+release/bootstrap/publication remain the next gates before SD-02 and dependent
+host work.
+
+Task 12 remains pending on both hosts' durable-store production evidence.
+Provider/ZDR/intermediary verification, deployment applicability mapping,
+retention/recovery operations, dual-host acceptance, and pilots also remain
+open. Source tests do not satisfy these gates. Business-hours calendars,
+presence, provider adapters, and operation remain host responsibilities.
 
 **Initial reference applications:** retiregolden.org for paid customer support
 on Azure, and pegma.dev for authenticated product feedback on Cloudflare. The
@@ -46,12 +47,12 @@ conformance cases, not to work around here.
 
 **Access:** Permissions come from
 [`@pegma/authorization-core`](https://github.com/pegma-dev/authorization-core)
-rather than a bespoke access package. The repository pins exact `0.1.2`. The
+rather than a bespoke access package. Current source pins exact `0.4.0`. The
 planned EntitleKit access adapter was removed on 2026-07-26; EntitleKit is now
 Authorization Core.
 
 **Audit:** Durable accepted-change records come from exact
-[`@pegma/audit@0.1.0`](https://github.com/pegma-dev/audit) and are embedded in
+[`@pegma/audit@0.2.0`](https://github.com/pegma-dev/audit) and are embedded in
 the ticket partition through `defineAudit`. The pre-release private audit-row
 shape has been removed.
 
@@ -64,6 +65,9 @@ implementation. It may become independently deployable later, but the MVP
 should not introduce another always-on service merely to separate repositories.
 
 ### Implementation status (2026-07-28)
+
+This is a dated historical implementation snapshot; the current status and
+dependency pins are above. Do not use its earlier package versions as new pins.
 
 The repository now proves the customer-facing Phase 1/2 application slice,
 staff detail and mutation services, and the provider-neutral Phase 6
@@ -92,13 +96,15 @@ outbound-mail integration:
   request fingerprint. Mutations use an opaque version read immediately before
   the transaction and retry conflicts without losing messages.
 - Subject and message-body size limits are configurable application seams.
-  Durable request limiting remains host composition work using published exact
-  `@pegma/rate-limit@0.1.0`; this repository does not build a private limiter.
+  Durable request limiting remains host composition work using published
+  `@pegma/rate-limit`; use the [current dependency map](BUILDOUT.md#pegma-dependency-map)
+  for its exact pin. This repository does not build a private limiter.
 - `@pegma/support-desk-templates` implements immutable versioned templates,
   explicit variable allowlists, HTML-context escaping, and synthetic preview.
   The RetireGolden-branded pack is a separate export from the generic renderer.
-- `@pegma/support-desk-application` consumes published exact `@pegma/mail`
-  `0.1.0`. Its projection keeps generic mail state in Support Desk's existing
+- `@pegma/support-desk-application` consumes published `@pegma/mail`; use the
+  [current dependency map](BUILDOUT.md#pegma-dependency-map) for its exact pin.
+  Its projection keeps generic mail state in Support Desk's existing
   `delivery:*` rows, while immutable template, subject, and `Message-ID`
   metadata stays on the causal message record in the same ticket transaction.
 - The generic worker discovers committed jobs with Storage Core's bounded
@@ -325,7 +331,7 @@ complete repair cycle, and internal notes never reach customers.
 **Goal:** Notify customers and staff without coupling to one mail provider.
 
 - Define mail-delivery and callback ports.
-- Consume published exact `@pegma/mail@0.1.0` for delivery state, workers,
+- Consume published exact `@pegma/mail@0.1.1` for delivery state, workers,
   authenticated callback application, and terminal sweeping.
 - Implement outbox-backed delivery jobs, writing the state change and its
   outbox record in one `transact` call on the ticket's partition.
@@ -417,6 +423,10 @@ phase is intentionally not one large release.
 **Goal:** Compose a standalone knowledge base for product documentation and
 reviewed support knowledge on both launch hosts.
 
+**Source status:** KB-01/02/03 and partial KB-05 preparation are merged. Real
+author credentials/client proof, publication, and both host workflows remain
+open; see the [status ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
+
 Approved decisions and repository-scoped task cards are in
 [KNOWLEDGE_AI_PLAN.md](KNOWLEDGE_AI_PLAN.md). Local agents author through
 authenticated API/MCP and submit article-appropriate staging verification.
@@ -437,6 +447,9 @@ follows under Phase 11's Support Desk tasks.
 
 **Goal:** Deliver evaluated signed-in web support on both hosts with explicit
 human handoff, reviewed learning, and safe engineering follow-up.
+
+**Source status:** SD-01 handling/handoff foundations are merged without a
+model. SD-02 onward and the phase's host/production acceptance remain pending.
 
 Follow [KNOWLEDGE_AI_PLAN.md](KNOWLEDGE_AI_PLAN.md), which replaces the earlier
 staff-only execution outline. Every chat starts as a ticket; assistant-handled
@@ -587,7 +600,10 @@ These should be resolved through the two reference implementations:
 
 ## Near-term backlog
 
-Execute [`BUILDOUT.md`](BUILDOUT.md) in order:
+The original [`BUILDOUT.md`](BUILDOUT.md) sequence is below. Tasks 1–6 and the
+Task 11 package slice are source-complete; do not restart completed cards.
+Use the [current enhancement ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order)
+for merged work and next credential/publication gates.
 
 1. align with Audit and current Authorization Core;
 2. finish the dual-host customer contract;
@@ -605,8 +621,8 @@ Execute [`BUILDOUT.md`](BUILDOUT.md) in order:
 
 After the launch definition, the post-MVP queue in
 [`BUILDOUT.md`](BUILDOUT.md#post-mvp-queue) sequences the remaining
-full-featured support-desk work: lifecycle extras (tags beyond the category
-allowlist, response-target hooks, collision hints), attachments through a
+full-featured support-desk work. Task 13 lifecycle extras are already merged
+source; remaining work includes attachments through a
 host blob port, staff-only audited canned responses and macros, customer
 self-service contract polish, rate-limit and abuse composition notes, and
 the approved standalone KB and evaluated customer-visible AI support work in

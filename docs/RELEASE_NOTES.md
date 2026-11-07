@@ -1,5 +1,50 @@
 # Release notes
 
+## Unreleased — handling and deterministic controls (SD-01)
+
+Implemented in source via
+[PR #34](https://github.com/pegma-dev/support-desk/pull/34), with no version,
+tag, or publication change. Source `0.1.1` contains unreleased behavior beyond
+registry `0.1.1`; hosts must wait for the synchronized release. Task 12's host
+production-evidence gates remain open.
+
+- Optional web-only assistant handling requires trusted host opt-in and
+  dedicated permissions. Assistant attribution and exact ticket revision,
+  handling generation, and triggering-message checks prevent stale replies;
+  assistant messages never satisfy the first staff response milestone.
+- Human queue selection confirms current authoritative handling. Owned
+  request-person, staff takeover, and escalation work without a model; handoff
+  state, compact transcript references, bounded work, Audit, and receipts
+  commit together. Staff reopen routes explicit handling to human-pending.
+- Explicit owned customer success confirmation binds the latest visible
+  message and resolves with private structured evidence in the same
+  transaction. Internal revisions, notes, and evidence stay out of customer
+  responses. Repeating an already satisfied control adds no rows.
+- Disabling assistant handling blocks fresh assistant starts and replies.
+  Previously accepted create/reply commands can still replay after current
+  permission and resource checks. Human controls and escalation remain
+  available under their own checks.
+- Handoff summaries are capped at 2,000 UTF-16 code units; attempted guides at
+  16 opaque IDs of 200 units each. Complete serialized handoff and assistant
+  message records are capped at 60,000 UTF-16 bytes before commit. Managed
+  quotas preserve 12 physical rows and one human message slot across ordinary
+  writes until the first staff response; controls retain a four-row/one-message
+  tail for that reply. Hard partition limits still apply.
+
+Upgrade: omitted legacy handling remains implicit human-pending without a
+stored migration; existing omitted-option fingerprints and quota limits are
+preserved. Explicit takeover records human-active handling. Fresh email stays
+human-handled, and verified email joining assistant chat hands off to humans.
+Run the existing queue repair cycle. See
+[host composition](HOST_COMPOSITION.md#optional-handling-and-deterministic-controls-sd-01)
+and [capacity details](COLLECTIONS.md#sd-01-handling-and-handoff-layout-checkpoint).
+
+This adds no model integration, KB dependency, or new package. The
+[implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) records
+merged standalone KB-01 through KB-03 and partial KB-05 source; KB-04's real
+scoped-credential proof, the full KB-05 release, and then SD-02 remain pending.
+Host integration and activation retain their separate gates.
+
 ## Unreleased — lifecycle extras (Buildout Task 13)
 
 Additive package work against `0.1.1`; no versions, tags, or publication change.

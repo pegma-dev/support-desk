@@ -272,3 +272,14 @@ acceptances, public discovery documents, or successful package tests do not
 silently close enhancement-specific gates. A-01 requires real workflow evidence
 from both hosts; the pilots additionally require the existing production and
 host release/business gates.
+
+## Progress after the frozen baseline
+
+The snapshot, package versions, readiness table, and capacity envelope above
+remain historical P-00 handoff evidence from 2026-11-06. This reconciliation
+does not refresh or rewrite the baseline. Later merged P-00, KB-01/02/03,
+SD-01, and partial KB-05 source preparation, verified gate results, and next
+dependencies are recorded in the plan's
+[current status ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
+KB-04 credential/client proof, full KB-05 publication, and the named host/ZDR,
+production-operation, deployment-mapping, and pilot gates remain open.
