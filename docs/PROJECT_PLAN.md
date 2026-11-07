@@ -96,13 +96,15 @@ outbound-mail integration:
   request fingerprint. Mutations use an opaque version read immediately before
   the transaction and retry conflicts without losing messages.
 - Subject and message-body size limits are configurable application seams.
-  Durable request limiting remains host composition work using published exact
-  `@pegma/rate-limit@0.1.0`; this repository does not build a private limiter.
+  Durable request limiting remains host composition work using published
+  `@pegma/rate-limit`; use the [current dependency map](BUILDOUT.md#pegma-dependency-map)
+  for its exact pin. This repository does not build a private limiter.
 - `@pegma/support-desk-templates` implements immutable versioned templates,
   explicit variable allowlists, HTML-context escaping, and synthetic preview.
   The RetireGolden-branded pack is a separate export from the generic renderer.
-- `@pegma/support-desk-application` consumes published exact `@pegma/mail`
-  `0.1.0`. Its projection keeps generic mail state in Support Desk's existing
+- `@pegma/support-desk-application` consumes published `@pegma/mail`; use the
+  [current dependency map](BUILDOUT.md#pegma-dependency-map) for its exact pin.
+  Its projection keeps generic mail state in Support Desk's existing
   `delivery:*` rows, while immutable template, subject, and `Message-ID`
   metadata stays on the causal message record in the same ticket transaction.
 - The generic worker discovers committed jobs with Storage Core's bounded

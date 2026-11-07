@@ -136,8 +136,10 @@ depend on it.
 
 **Required changes:**
 
-- pin `@pegma/authorization-core` to exact `0.1.2`;
-- add exact `@pegma/audit@0.1.0`;
+- Originally aligned `@pegma/authorization-core`; use the
+  [current dependency map](#pegma-dependency-map) for exact pins.
+- Added shared `@pegma/audit` accepted-change history; use the same current
+  dependency map for its exact pin.
 - replace the private `AuditRecord` fields with an embedded Pegma
   `AuditEvent`;
 - define the Support Desk audit projection with `defineAudit`, in
