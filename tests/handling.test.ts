@@ -432,5 +432,108 @@ for (const [name, createStore] of handlingStores) {
       ).toBe("human-pending");
       await expect(f.app.replyAsAssistant(agent, stale)).rejects.toThrow();
     });
+
+    it("rejects hidden own extra properties on strict customer handling commands", async () => {
+      const f = handlingFixture(createStore());
+      await f.create();
+      const input = Object.defineProperty(
+        f.command("hidden-own-property"),
+        "expectedRevision",
+        { value: 999, enumerable: false },
+      );
+      expect(Object.getOwnPropertyNames(input)).toContain("expectedRevision");
+      const before = await f.rows();
+      await expect(f.app.requestPerson(customer, input)).rejects.toBeInstanceOf(
+        TypeError,
+      );
+      expect(await f.rows()).toEqual(before);
+    });
+
+    it.each(["create", "reply"] as const)(
+      "replays a committed assistant %s after flag-off while requiring current authority and denying new work",
+      async (operation) => {
+        const backing = createStore();
+        const f = handlingFixture(backing);
+        const create = f.createInput();
+        await f.app.createCustomerTicket(customer, create);
+        const reply = await f.assistantInput();
+        const replyResult =
+          operation === "reply"
+            ? await f.app.replyAsAssistant(agent, reply)
+            : undefined;
+        await f.app.replyToCustomerTicket(customer, {
+          ...f.command("new-visible-before-disable"),
+          messageId: "new-visible",
+          body: "A later customer question",
+        });
+        const off = createSupportDeskApplication({
+          store: backing,
+          clock: f.clock,
+          assistantHandlingEnabled: false,
+        });
+        const before = await f.rows();
+        if (operation === "create") {
+          expect(await off.createCustomerTicket(customer, create)).toEqual(
+            await f.app.readCustomerTicket(customer, "ticket"),
+          );
+          for (const denied of [
+            supportPermissions.create,
+            supportPermissions.assistantStart,
+          ])
+            await expect(
+              off.createCustomerTicket(
+                {
+                  ...customer,
+                  permissions: customer.permissions.filter(
+                    (permission) => permission !== denied,
+                  ),
+                },
+                create,
+              ),
+            ).rejects.toMatchObject({ permission: denied });
+          await expect(
+            off.createCustomerTicket(
+              { ...customer, principalId: "customer/other" },
+              create,
+            ),
+          ).rejects.toThrow();
+          await expect(
+            off.createCustomerTicket(customer, {
+              ...create,
+              ...f.command("disabled-new-create", "disabled-ticket"),
+              messageId: "disabled-initial",
+            }),
+          ).rejects.toMatchObject({ name: "SupportDeskConflictError" });
+          expect(await f.rows("disabled-ticket")).toEqual([]);
+        } else {
+          expect(await off.replyAsAssistant(agent, reply)).toEqual(replyResult);
+          await expect(
+            off.replyAsAssistant(
+              {
+                ...agent,
+                permissions: agent.permissions.filter(
+                  (permission) =>
+                    permission !== supportPermissions.assistantReply,
+                ),
+              },
+              reply,
+            ),
+          ).rejects.toMatchObject({
+            permission: supportPermissions.assistantReply,
+          });
+          await expect(
+            off.replyAsAssistant(
+              { ...agent, principalId: "assistant/other" },
+              reply,
+            ),
+          ).rejects.toThrow();
+          const fresh = await f.assistantInput();
+          await expect(
+            off.replyAsAssistant(agent, fresh),
+          ).rejects.toMatchObject({ name: "SupportDeskConflictError" });
+        }
+        expect(await f.rows()).toEqual(before);
+      },
+    );
   });
 }

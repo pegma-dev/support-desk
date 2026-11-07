@@ -58,6 +58,8 @@ const application = createSupportDeskApplication({
 Mint command, correlation, ticket, and message IDs on the server. Controllers
 never invent ticket numbers — create reserves them from
 `support-desk.ticket-numbers.v1`.
+The host server supplies each command's `correlationId`; the application
+validates and propagates it and never generates one.
 
 ## Error categories for HTTP mapping
 
@@ -71,7 +73,7 @@ diagnostics to a browser.
 | `SupportDeskAuthorizationError` (missing permission)                                                                  | `403`                                               |
 | `SupportDeskNotFoundError` (missing or non-owned ticket)                                                              | the same content-free `404` response for both cases |
 | `SupportDeskConflictError` (command ID reused with different input, exhausted conflict retry, callback key collision) | `409`                                               |
-| `SupportDeskLimitError` with field `subject` or `body`                                                                | `413`                                               |
+| `SupportDeskLimitError` with field `subject`, `body`, `handoff_summary`, or `serialized_record`                       | `413`                                               |
 | `SupportDeskLimitError` with field `customer_tickets`, `ticket_messages`, or `ticket_partition`                       | `409`                                               |
 | Host durable request limit refused (`@pegma/rate-limit`)                                                              | `429` with bounded `Retry-After`                    |
 | `SupportDeskQueueCapacityError` (staff queue scan/materialization budget exhausted)                                   | `503`; never return a partial queue                 |
@@ -88,6 +90,11 @@ typically map it to `409` after the caller was already authorized.
 Keep revision/generation collision hints on trusted staff/assistant paths.
 Customer deterministic controls use a content-free conflict response, never
 an internal ticket revision, handling generation, or staff update hint.
+
+`handoff_summary` has maximum 2,000 UTF-16 code units. `serialized_record` has
+maximum 60,000 UTF-16 bytes of the complete JSON record, including its wrapper,
+for assistant messages and handoff work. Both are named size failures before
+commit, distinct from message/partition capacity limits.
 
 ## Optional lifecycle extras (Task 13)
 
@@ -168,7 +175,7 @@ notification variables and template bodies as well.
 
 ## Optional handling and deterministic controls (SD-01)
 
-`assistantHandlingEnabled` defaults to false. Only trusted web creation with
+`assistantHandlingEnabled` defaults to false. Only new trusted web creation with
 `initialHandling: "assistant"`, normal create permission, and
 `support.ticket.assistant.start` opts a ticket into assistant handling. Do not
 pass browser-selected authority through this field. Omission preserves human
@@ -178,7 +185,7 @@ handling commands, not a model, KB connection, or live deployment.
 | Method                             | Required permission and result boundary                                                                                                   |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `readAssistantConversation`        | `support.ticket.assistant.read`; service-only safe conversation plus current revision/handling and optional customer trigger              |
-| `replyAsAssistant`                 | `support.ticket.assistant.reply` and enabled handling; attributed plain-text message and bounded acknowledgement                          |
+| `replyAsAssistant`                 | `support.ticket.assistant.reply`; new work requires enabled handling; attributed plain-text message and bounded acknowledgement           |
 | `escalateToHuman`                  | `support.ticket.assistant.escalate`; fenced transition and bounded handoff work                                                           |
 | `requestPerson`                    | `support.ticket.request_person.own` plus authoritative ownership; current customer-safe view                                              |
 | `takeOverTicket`                   | `support.queue.read` plus `support.ticket.take_over`; staff view with exact revision/handling fences                                      |
@@ -219,13 +226,19 @@ proof on a resolved ticket with the same last-visible message adds no rows.
 Neither proof records nor internal revisions/generations enter customer
 responses. The assistant cannot invoke customer resolution as its own action.
 
-Every mutation uses stable `commandId`/semantic input and a server-generated
-`correlationId`. New handling receipts retain bounded result tickets for
+Every mutation uses stable `commandId`/semantic input and a host-server-supplied
+`correlationId`; the application does not generate it. New handling receipts retain bounded result tickets for
 replay. Assistant reply/escalation return `HandlingCommandResult` with IDs and
 revision/handling fences; takeover returns its historical staff result;
 customer controls reload the current authorized safe view. A no-op creates no
 receipt/Audit/work rows. Reuse the same ID and exact input after an unknown
 commit outcome; a changed fingerprint conflicts.
+
+The flag refuses new assistant creation/reply, not an exact already committed
+receipt replay. Replay still requires current create plus assistant-start
+permissions and ownership for customer creation, or current assistant-reply
+permission for a reply. It adds no rows, reservations, or model work. A
+retained receipt does not restore revoked authority.
 
 Handoff work contains a compact transcript reference and optional summary of
 at most 2,000 UTF-16 code units plus at most 16 opaque guide IDs of 200 units each.

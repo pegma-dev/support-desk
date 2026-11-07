@@ -308,5 +308,92 @@ for (const [name, createStore] of handlingStores) {
         ).toBe(f.clock.now());
       },
     );
+
+    it("accepts exactly 2000 UTF-16 units of escalation summary", async () => {
+      const f = handlingFixture(createStore());
+      await f.create();
+      const {
+        body: _body,
+        messageId: _messageId,
+        ...fence
+      } = await f.assistantInput();
+      const summary = "😀".repeat(1_000);
+      expect(summary.length).toBe(2_000);
+      await f.app.escalateToHuman(agent, { ...fence, summary });
+      expect((await f.app.readHandoffWork(staff, "ticket"))[0]?.summary).toBe(
+        summary,
+      );
+    });
+
+    it.each(["😀".repeat(1_001), "x".repeat(2_001)])(
+      "reports the summary field and UTF-16 maximum for an oversized escalation",
+      async (summary) => {
+        const f = handlingFixture(createStore());
+        await f.create();
+        const {
+          body: _body,
+          messageId: _messageId,
+          ...fence
+        } = await f.assistantInput();
+        const before = await f.rows();
+        await expect(
+          f.app.escalateToHuman(agent, { ...fence, summary }),
+        ).rejects.toMatchObject({
+          name: "SupportDeskLimitError",
+          field: "handoff_summary",
+          maximum: 2_000,
+        });
+        expect(await f.rows()).toEqual(before);
+      },
+    );
+
+    it.each(['"'.repeat(16_000), "😀".repeat(16_000)])(
+      "reports serialized native bytes separately from the assistant body character maximum",
+      async (body) => {
+        const f = handlingFixture(createStore());
+        await f.create();
+        const input = { ...(await f.assistantInput()), body };
+        expect([...body].length).toBeLessThanOrEqual(20_000);
+        expect(JSON.stringify({ body }).length * 2).toBeGreaterThan(60_000);
+        const before = await f.rows();
+        await expect(
+          f.app.replyAsAssistant(agent, input),
+        ).rejects.toMatchObject({
+          name: "SupportDeskLimitError",
+          field: "serialized_record",
+          maximum: 60_000,
+        });
+        expect(await f.rows()).toEqual(before);
+      },
+    );
+
+    it("reports the native handoff row bound after per-field-valid JSON escaping expands the record", async () => {
+      const f = handlingFixture(createStore());
+      await f.create();
+      const {
+        body: _body,
+        messageId: _messageId,
+        ...fence
+      } = await f.assistantInput();
+      const summary = "\u0000".repeat(2_000);
+      const attemptedGuideIds = Array.from(
+        { length: 16 },
+        (_, index) => "\ud800".repeat(199) + index.toString(16),
+      );
+      expect(summary.length).toBe(2_000);
+      expect(attemptedGuideIds.every((id) => id.length === 200)).toBe(true);
+      expect(
+        JSON.stringify({ summary, attemptedGuideIds }).length * 2,
+      ).toBeGreaterThan(60_000);
+      const before = await f.rows();
+      await expect(
+        f.app.escalateToHuman(agent, { ...fence, summary, attemptedGuideIds }),
+      ).rejects.toMatchObject({
+        name: "SupportDeskLimitError",
+        field: "serialized_record",
+        maximum: 60_000,
+      });
+      expect(await f.rows()).toEqual(before);
+    });
   });
 }

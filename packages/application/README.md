@@ -3,6 +3,8 @@
 Authorized customer ticket services and provider-neutral durable outbox
 records for Support Desk. The host supplies an `@pegma/storage-core` `Store`
 and a trusted Authorization Core access context.
+The host server supplies `correlationId` on commands; the application validates
+and propagates it and never generates it.
 
 Current source remains version `0.1.1` and includes changes beyond the
 published artifacts at that version. SD-01 adds handling/handoff foundations
@@ -37,6 +39,10 @@ The factory's `assistantHandlingEnabled` defaults to false. Explicit trusted
 web create with `initialHandling: "assistant"` requires both create and
 `support.ticket.assistant.start`. Legacy omission remains human handling with
 no rewrite. No model or KB is configured by enabling these source commands.
+Turning the flag off refuses new assistant creation/replies. Exact committed
+replays remain available after current command permissions and customer
+ownership checks, without new rows or reservations; receipts do not restore
+revoked access.
 
 | Method                             | Permission and boundary                                                                                          |
 | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -76,6 +82,11 @@ no-ops avoid churn, but finite control cycles remain subject to named capacity.
 See [host composition](../../docs/HOST_COMPOSITION.md#optional-handling-and-deterministic-controls-sd-01)
 and [collections](../../docs/COLLECTIONS.md#sd-01-handling-and-handoff-layout-checkpoint)
 for exact admission, replay, and source/release boundaries.
+
+Handoff summaries are limited to 2,000 UTF-16 code units with
+`SupportDeskLimitError` field `handoff_summary`. Complete serialized assistant
+message/handoff records, including wrappers, are limited to 60,000 UTF-16
+bytes with field `serialized_record`; refusal occurs before commit.
 
 ### Optional lifecycle extras
 

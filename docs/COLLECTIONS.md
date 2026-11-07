@@ -139,7 +139,11 @@ and last visible message ID. Its safe summary is at most 2,000 UTF-16 code
 units and attempted guide IDs are at most 16 opaque strings of 200 UTF-16 code
 units each. The
 serialized handoff record is at most 60,000 UTF-16 bytes, fitting a bounded
-native JSON property. A new handoff or success confirmation adds three rows
+native JSON property. The same complete-record bound applies to assistant
+messages, including wrappers. Summary overflow is `SupportDeskLimitError`
+field `handoff_summary` (maximum 2,000 code units); serialized overflow is field
+`serialized_record` (maximum 60,000 UTF-16 bytes). Both fail before commit.
+A new handoff or success confirmation adds three rows
 (work/evidence, Audit, receipt); takeover adds two (Audit, receipt). Assistant
 reply adds the existing message/Audit/receipt trio. There is no extra assistant
 turn row or unbounded attempt history in SD-01.

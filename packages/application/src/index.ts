@@ -137,6 +137,8 @@ export class SupportDeskLimitError extends Error {
     readonly field:
       | "subject"
       | "body"
+      | "handoff_summary"
+      | "serialized_record"
       | "customer_tickets"
       | "ticket_messages"
       | "ticket_partition",
@@ -2069,6 +2071,7 @@ function enforcePartitionRecordLimit(
 
 export const assistantHumanReserveRows = 12;
 export const assistantHumanReserveMessages = 1;
+const firstHumanReplyReserveRows = 4;
 
 /** Reserve is opt-in metadata on the existing quota, never a second counter. */
 function enforceManagedAdmission(
@@ -2131,7 +2134,7 @@ function enforceHandlingControlAdmission(
     ticket.firstStaffRespondedAt === undefined;
   enforcePartitionRecordLimit(
     rows.length,
-    limits.maxRecordsPerTicket - (reserved ? 4 : 0),
+    limits.maxRecordsPerTicket - (reserved ? firstHumanReplyReserveRows : 0),
     additionalRows,
   );
   if (reserved && quota.messageCount >= limits.maxMessagesPerTicket)
@@ -2156,7 +2159,7 @@ function handlingInput(
     ...fields,
     ...optional,
   ];
-  if (Object.keys(source).some((key) => !allowed.includes(key)))
+  if (Object.getOwnPropertyNames(source).some((key) => !allowed.includes(key)))
     throw new TypeError("Handling command contains unsupported fields");
   const result: Record<string, unknown> = {};
   for (const field of allowed) {
@@ -2236,7 +2239,7 @@ function handoffWork(input: {
   };
   // Support's existing codec stores one JSON string property, unlike KB chunks.
   if (JSON.stringify(work).length * 2 > 60_000)
-    throw new TypeError("Handoff work exceeds its native string bound");
+    throw new SupportDeskLimitError("serialized_record", 60_000);
   return work;
 }
 
@@ -3997,6 +4000,8 @@ export function createSupportDeskApplication(options: {
         throw new SupportDeskConflictError(
           "Command ID reused with different input",
         );
+      if (operation === "assistant_reply" && !assistantHandlingEnabled)
+        throw new SupportDeskConflictError("Assistant handling is disabled");
       const rows = await records.list(command.ticketId);
       enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket);
       const latest = latestVisibleRecord(rows);
@@ -4098,7 +4103,7 @@ export function createSupportDeskApplication(options: {
           },
         };
         if (JSON.stringify(assistantMessage).length * 2 > 60_000)
-          throw new SupportDeskLimitError("body", limits.maxMessageCharacters);
+          throw new SupportDeskLimitError("serialized_record", 60_000);
         actions.push(
           {
             action: "putIfUnchanged",
@@ -4275,8 +4280,6 @@ export function createSupportDeskApplication(options: {
     },
     async replyAsAssistant(access, input) {
       requirePermission(access, supportPermissions.assistantReply);
-      if (!assistantHandlingEnabled)
-        throw new SupportDeskConflictError("Assistant handling is disabled");
       const raw = handlingInput(input, [
         "expectedRevision",
         "expectedHandlingGeneration",
@@ -4318,8 +4321,12 @@ export function createSupportDeskApplication(options: {
         ].includes(raw.reason as string)
       )
         throw new TypeError("Invalid escalation reason");
-      if (raw.summary !== undefined)
-        enforceLimit(boundaryString(raw.summary, "summary"), "body", 2_000);
+      if (raw.summary !== undefined) {
+        const summary = boundaryString(raw.summary, "summary");
+        requireNonempty(summary, "handoff_summary");
+        if (summary.length > 2_000)
+          throw new SupportDeskLimitError("handoff_summary", 2_000);
+      }
       if (raw.attemptedGuideIds !== undefined) {
         if (
           !Array.isArray(raw.attemptedGuideIds) ||
@@ -4418,8 +4425,6 @@ export function createSupportDeskApplication(options: {
       const command = snapshotCreateCustomerTicketCommand(input);
       if (command.initialHandling === "assistant") {
         requirePermission(access, supportPermissions.assistantStart);
-        if (!assistantHandlingEnabled)
-          throw new SupportDeskConflictError("Assistant handling is disabled");
       }
       requireIdentifier(command.ticketId, "ticketId");
       requireIdentifier(command.messageId, "messageId");
@@ -4495,6 +4500,12 @@ export function createSupportDeskApplication(options: {
         }
       }
       if (createIsReplay) {
+        const current = await records.get(ticketKey(command.ticketId));
+        if (
+          current?.kind !== "ticket" ||
+          !owns(current.ticket, access.principalId)
+        )
+          throw new SupportDeskNotFoundError();
         // A crash after ticket commit and before index confirmation must still
         // converge the principal hint on retry.
         const fence = await records.get(ticketReservationKey(command.ticketId));
@@ -4515,6 +4526,8 @@ export function createSupportDeskApplication(options: {
           createThreading,
         );
       }
+      if (command.initialHandling === "assistant" && !assistantHandlingEnabled)
+        throw new SupportDeskConflictError("Assistant handling is disabled");
       if (command.category !== undefined) {
         if (
           allowedCategories === undefined ||

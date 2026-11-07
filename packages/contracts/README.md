@@ -20,3 +20,28 @@ Task 13 adds optional staff-only `tags`, `firstResponseDueAt`,
 resolution cycle: reopening clears it and re-resolution sets a new value.
 First staff response survives reopen. Optional fields keep legacy tickets
 readable; customer DTOs and customer mail must omit this metadata.
+
+## Optional handling (SD-01 source)
+
+`Ticket.handling?: { state, generation }` is independent of `TicketStatus`.
+States are `assistant`, `human-pending`, and `human-active`. Only omission is
+legacy human handling: core's `effectiveTicketHandling` reads it as
+human-pending/generation zero without writing a migration. An explicitly
+stored handling generation must be a positive safe integer; malformed
+objects/states/generations, including explicit zero, fail closed rather than
+being treated as legacy. TypeScript types alone do not validate untrusted JSON.
+
+`CreateTicketInput.initialHandling: "assistant"` is a trusted web-only opt-in
+starting generation one. Messages add an explicit `assistant` author kind.
+Assistant output never impersonates staff or satisfies `firstStaffRespondedAt`.
+`assistant_replied`, `human_escalated`, and `human_taken_over` carry exact
+`expectedRevision` and `expectedHandlingGeneration` fences. `human_requested`
+and `customer_success_confirmed` require actor/time inputs from the trusted
+application; the latter is resolution, not assistant authority.
+
+Contracts define vocabulary, not authorization or persistence. The application
+checks permissions/ownership and current visible-message proof, commits
+Audit/receipts/work, and keeps private handling generations and evidence out
+of customer DTOs. Core performs pure transitions and validates its handling
+inputs. SD-01 source remains unreleased despite the `0.1.1` source label; it
+adds no model or KB dependency.
