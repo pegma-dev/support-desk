@@ -47,13 +47,17 @@ via [PR #34](https://github.com/pegma-dev/support-desk/pull/34): optional web
 assistant handling, explicit attribution and completion fences, deterministic
 human controls and atomic handoff work, private customer success evidence,
 and human queue separation. It includes no model or KB integration and has not
-been published. Standalone KB-01 through KB-03 and part of KB-05 are merged in
-[Knowledge Base](https://github.com/pegma-dev/knowledge-base). The remaining
-source path is AUTH-01 Agent Access source/SDK proof, KB-04 transport source
-exit, then KB-05 publication. Agent Access publication also precedes host
-assembly; PG-01/RG-01 retain actual two-host login/client proof before
-activation or pilots. SD-02 waits for KB-05 publication. These gates remain
-pending.
+been published. Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial
+KB-05 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
+and both producers' final release preparation are merged. The four KB packages
+and `@pegma/agent-access` remain unpublished at source `0.1.0`; unadvertised
+maintainer-2FA bootstrap and the separately reviewed first advertised release
+with verified registry provenance remain open. PG-01/RG-01 require
+both published producers before host assembly and actual existing-login/Admin
+consent and requested-client proof before activation or pilots. SD-02 waits
+for KB-05 publication. Synthetic SDK/source proof uses no actual customer data
+and does not close host privacy, operations, full-workflow, or pilot gates.
+See the [producer evidence and bootstrap handoff](docs/HOST_COMPOSITION.md#kb-authoring-producers).
 Use the [implementation ledger](docs/KNOWLEDGE_AI_PLAN.md#status-and-reading-order)
 for merged-source evidence and the remaining release and activation gates.
 The [P-00 handoff](docs/KNOWLEDGE_AI_P00.md) supplies the package baseline,

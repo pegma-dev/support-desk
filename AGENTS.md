@@ -132,8 +132,11 @@ pass, and CI runs them on Node 22 and 24.
 Publishing is trusted-publisher only: no tokens exist. Releases use a protected
 signed annotated tag already on `origin/main` and a verified GitHub release,
 with the complete gate and provenance workflow in `docs/RELEASING.md`. A brand-new package
-cannot use trusted publishing for its first version and needs one manual
-`npm publish` plus a trusted-publisher configuration afterwards.
+cannot use trusted publishing for its first version and needs one maintainer
+2FA `npm publish` without OIDC provenance, plus trusted-publisher configuration
+afterwards. For new KB and Agent Access names, that unadvertised `bootstrap`
+release is separate from the reviewed first advertised release in their
+public bootstrap handoffs.
 
 Buildout Task 6 prepared the first exact `0.1.0` set; its bootstrap is complete.
 A host production dependency must wait for its required release on the public registry;
@@ -182,13 +185,18 @@ selection, and bounded atomic handoff work. It adds no model, KB dependency,
 or package and has not been published. Source `0.1.1` is not equivalent to
 registry `0.1.1`; do not overwrite it or install a source substitute. A future
 synchronized SD-06 release precedes adoption of new Support Desk behavior.
-Standalone KB-01 through KB-03 and partial KB-05 source are merged. The next
-source path is AUTH-01 Agent Access source/SDK proof, KB-04 transport source
-exit, then KB-05 publication; Agent Access publication also precedes host
-assembly. Actual two-host login/client proof remains with PG-01/RG-01 before
-activation or pilots. SD-02 waits for KB-05 publication. These gates remain
-pending. Follow the
+Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
+preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
+both producers' final release preparation are merged. All four KB packages and
+Agent Access remain unpublished at source `0.1.0`; unadvertised maintainer-2FA
+bootstrap and the separately reviewed first advertised release with verified
+registry provenance remain open. PG-01/RG-01 require both published producers before
+host assembly and actual existing-login/Admin consent and requested-client
+proof before activation or pilots. SD-02 waits for KB-05 publication. Synthetic
+SDK/source proof uses no actual customer data and does not close host privacy,
+operations, full-workflow, or pilot gates. Follow the
 [implementation ledger](docs/KNOWLEDGE_AI_PLAN.md#status-and-reading-order)
+and [producer handoff](docs/HOST_COMPOSITION.md#kb-authoring-producers)
 for merged-source evidence and remaining gates.
 
 This project was developed under the `@support-desk` scope and moved into Pegma

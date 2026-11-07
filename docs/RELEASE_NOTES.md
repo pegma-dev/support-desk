@@ -41,11 +41,17 @@ and [capacity details](COLLECTIONS.md#sd-01-handling-and-handoff-layout-checkpoi
 
 This adds no model integration, KB dependency, or new package. The
 [implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) records
-merged standalone KB-01 through KB-03 and partial KB-05 source. The next path
-is AUTH-01 Agent Access source/SDK proof, KB-04 transport source exit, then
-KB-05 publication; SD-02 waits for KB-05 publication. Agent Access publication
-also precedes host assembly. PG-01/RG-01 retain actual two-host login/client
-proof before activation or pilots. All future gates remain pending.
+merged standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
+preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
+both producers' final release preparation. All four KB packages and Agent Access
+remain unpublished at source `0.1.0`; unadvertised maintainer-2FA bootstrap and
+the separately reviewed first advertised release with verified registry
+provenance remain open. SD-02 waits for KB-05 publication. PG-01/RG-01 require
+both published producers before host assembly and actual existing-login/Admin
+consent and requested-client proof before activation or pilots. Synthetic
+SDK/source proof uses no actual customer data and does not close host privacy,
+operations, full-workflow, or pilot gates. See the
+[producer evidence and bootstrap handoff](HOST_COMPOSITION.md#kb-authoring-producers).
 
 ## Unreleased — lifecycle extras (Buildout Task 13)
 
