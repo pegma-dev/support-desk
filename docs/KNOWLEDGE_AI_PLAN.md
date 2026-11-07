@@ -2,9 +2,11 @@
 
 ## Status and reading order
 
-Approved product decisions: 2026-11-06. Only the six entries in the ledger
-below are merged source. KB-04 transport source remains unimplemented; full
-KB-05 and SD-02 onward remain pending. Package publication, authenticated
+Approved product decisions: 2026-11-06; scoped-agent-access decision added
+2026-11-07. Only the six entries in the ledger below are merged source.
+AUTH-01 is in progress in the new Agent Access component; its implementation
+and gates are not yet complete. KB-04 transport source remains unimplemented;
+full KB-05 and SD-02 onward remain pending. Package publication, authenticated
 author transport, model integration, and host activation remain separately gated.
 Use the [P-00 handoff](KNOWLEDGE_AI_P00.md) for the frozen package baseline,
 acceptance corpus, capacity assumptions, and owned activation prerequisites.
@@ -41,11 +43,16 @@ The three KB packages remain unpublished at source `0.1.0`. Current Support
 Desk `0.1.1` source includes unreleased changes and is not the registry artifact
 at that version; new synchronized publication is required before adoption.
 
-**Next gates:** Host identity/API owners must prove scoped, revocable,
-audience-bound author credentials and the protected-resource/real-client flow
-for KB-04. Complete KB-04, then the full KB-05 release, first publication,
-trusted-publisher setup, and verified released consumers before SD-02 and
-dependent host work. Task 12, provider/ZDR/intermediary verification,
+**Next gates:** Complete AUTH-01 source and synthetic protocol proof in
+[Agent Access](https://github.com/pegma-dev/agent-access), then KB-04's transport
+source exit with actual-SDK synthetic draft/evidence parity and the full KB-05
+artifact/publication gates. Agent Access also needs its separate first
+publication/trusted-publisher setup before production adoption. The credential
+ownership decision is resolved; real existing-login and requested-client proof
+on both hosts remains an activation gate tracked by P-00 and PG-01/RG-01.
+It does not block source release preparation. SD-02 waits for KB-05 publication;
+hosts consume exact published dependencies before their actual-client proofs.
+Task 12, provider/ZDR/intermediary verification,
 issue-to-deployed-build mapping, operations, dual-host acceptance, and supervised
 pilots remain open. The independent partial KB-05 work does not close those gates.
 
@@ -69,6 +76,8 @@ private systems. Do not copy them into this repository or pegma.dev.
 | Product scope        | Working KB, signed-in chat, essential staff/admin controls on both sites                       | Richer publishing and support interfaces                        |
 | KB boundary          | Standalone Pegma component for product documentation and support knowledge                     | Other hosts can compose the same component                      |
 | Authoring            | Authenticated API/MCP; KB owns content and revision history                                    | GitHub may be an agent's optional source, never a KB dependency |
+| Agent linking        | Existing host login; current Admin consents through Agent Access device-code or S256 PKCE flow | No agent Admin role; new capabilities require fresh consent     |
+| Authoring scopes     | Instance-wide draft read/write and test-evidence submission only                               | Collection-specific consent is a future extension               |
 | Guide verification   | Article-appropriate checks; local agents test instructions against staging and submit evidence | Additional validators as needed                                 |
 | Access               | Collection-level audience permissions, inherited by every article                              | Explicitly enable public collections later                      |
 | Bot knowledge        | Customer-readable collections plus collections approved for bot answers to that audience       | No access to staff-only collections through customer chat       |
@@ -107,9 +116,50 @@ The KB owns collections, article revisions, validation requirements and
 evidence, approval/publication, retirement, and bounded retrieval. Its base
 packages require neither Support Desk, GitHub, nor an LLM. The host supplies
 Storage Core, Authorization Core access contexts, Spine clock/logger, Audit,
-HTTP/session/token boundaries, scheduling, and optional blob/search adapters.
+HTTP/session boundaries, Agent Access credential validation, scheduling, and
+optional blob/search adapters.
 Role names and entitlements remain host policy. Do not add an access model,
 database implementation, or shared-error taxonomy here or in Spine.
+
+### Agent Access credential prerequisite
+
+AUTH-01 belongs to the separate MIT
+[Agent Access repository](https://github.com/pegma-dev/agent-access). Its
+`@pegma/agent-access@0.1.0` source is in progress and unpublished. Identity and
+Sessions retain their authentication/OAuth refusals; Authorization Core's
+fixed short-lived consume-on-verify grants remain unchanged. KB is the resource
+server, and its optional MCP package owns transport over KB services.
+
+Hosts reuse their existing human login and current Admin-only linking policy.
+Agent Access owns device-code authorization and authorization-code grants with
+mandatory S256 PKCE, explicit client/resource/scope binding, opaque credentials
+hashed at rest, rotating refresh families, replay revocation, and bounded grant
+storage. Current principal status, current approval authority, and current
+permissions are rechecked on use and refresh; missing/unavailable authority
+fails closed. Agent permissions intersect that authority with the consented
+scope snapshot; Admin roles, entitlements, and browser cookies are not inherited.
+Only selected scope definitions are fingerprinted: unrelated new scopes cannot
+widen or invalidate existing consent, while changed selected definitions need
+fresh consent. Owners manage grants through current Admin browser authority.
+
+Browser consent remains a host route with existing-session authentication,
+CSRF/same-origin protection, and durable limiters. Agent bearers cannot approve
+new grants. Each host independently configures and validates issuer/resource,
+clients, redirects, scopes, revocation, retention, and protected discovery.
+Source tests and a synthetic SDK example can precede publication using
+test-only packed artifacts. Production assembly consumes exact published
+dependencies, and actual two-host existing-login/client proof is a separate
+activation gate tracked by P-00 and PG-01/RG-01. KB-04's source exit establishes
+transport release readiness only; it cannot close that host acceptance. No
+host login composition or deployment is performed by AUTH-01 source work.
+
+Initial client compatibility targets are Codex, Claude Code, Grok Bot, and
+T3 Code. Grok Bot means the desktop application with its hosted agent, not
+Grok Build CLI. T3 Code targets its Codex-provider mode first; other providers
+remain unproven. Each target requires an actual per-client run against the
+supported host flow; compatibility is unproven until recorded. The official
+SDK synthetic protocol proof does not establish that these applications work.
+Record unsupported or unavailable client flows as open acceptance gaps.
 
 ### Support Desk and optional integrations
 
@@ -178,13 +228,14 @@ authoritative checks protecting against stale search entries.
 
 ### Agent-facing operations
 
-Define a versioned API contract and matching MCP tools for:
-
-- listing authorized collections and reading/searching approved articles;
-- creating/updating a draft using an expected revision;
-- reading validation requirements for an article kind;
-- submitting bounded verification evidence for an exact draft revision;
-- submitting a revision for staff review and reading its review/check status.
+Define a versioned API contract and optional matching MCP adapter initially
+exposing exactly `getDraft`, `createDraft`, `updateDraft`,
+`getValidationRequirements`, and `submitEvidence`. Writes use an expected
+revision and stable operation identity. The agent transport provides no
+collection reading/listing, evidence reading, review submission, publication,
+admin commands, or private provenance. Existing authorized retrieval and staff
+services remain separate; future agent operations need explicit scopes and
+fresh consent.
 
 Staff-only commands approve/publish, reject with reasons, retire, manage
 collections/audiences, and manage validation policy. Local authoring credentials
@@ -192,22 +243,29 @@ initially receive draft/evidence permissions, not publication authority. Use
 one application-service implementation for API, MCP, and staff UI. Validation,
 authorization, idempotency, and conflict behavior must agree across transports.
 
-Hosts authenticate agents with supported delegated/scoped credentials and map
-them to principal IDs and permissions. HTTP MCP must validate resource audience
+Hosts authenticate agents through AUTH-01 and map the restricted context to
+KB principal IDs and permissions. HTTP MCP must validate resource audience
 and issuer and support the applicable protected-resource discovery flow. A
 local stdio bridge is acceptable when it uses a host-supported credential
 flow. Neither transport may borrow GitHub credentials or turn a browser cookie
-into an undocumented machine-authentication scheme. Prove both hosts' agent
-authentication in P-00; a missing credential primitive is an explicit sibling
-or host prerequisite, not a new identity system inside KB.
+into a machine credential. AUTH-01 supplies the separate credential lifecycle;
+KB-04 tests its transport with actual-SDK synthetic composition, while
+PG-01/RG-01 must prove both hosts' existing-login and actual-client composition
+using published dependencies before authoring activation.
+Initial authoring scopes are instance-wide. Per-collection delegated grants
+remain a future seam, without changing collection audience checks.
 
 Evidence contains the article revision/hash, staging build, test kind/steps,
 result, execution time, runner identity, and bounded artifact references.
 Evidence is an attestation, not an instruction to execute arbitrary code.
 Local agents do the browser/API/example execution against authorized staging
 with synthetic data, following the same approach as product-demo verification.
-The KB verifies schema, submitting permission, binding, and freshness; a
-self-reported `passed` string alone does not satisfy publication policy.
+The KB verifies schema, submitting permission, binding, and freshness. Agent
+authentication does not prove execution: a trusted host attester must verify
+the submitting actor, runner, exact revision/hash, target build, and execution
+receipt before constructing accepted evidence. Missing or unverifiable
+attestation fails closed; a self-reported `passed` string alone does not
+satisfy publication policy.
 
 Keep staff evidence and safe publishable illustrations separate. Use a host
 blob adapter for protected screenshots when needed, with authorized upload/
@@ -481,21 +539,24 @@ the initial release.
 Each row is one repository-scoped PR. Read its listed prerequisite and the
 relevant design section above. Add failing behavioral tests first, update the
 owning contracts/layout/host docs in the same PR, and run that repository's
-required gates. Cross-repository consumers wait for published exact versions;
-never bridge phases with copied source, Git dependencies, local paths, or an
-unpublished production tarball. A task may be split further if its review scope
+required gates. Production cross-repository consumers wait for published exact
+versions; never bridge production phases with copied source, Git dependencies,
+local paths, or an unpublished tarball. A source-only synthetic test may use a
+reviewed test tarball before publication; that is not production assembly or
+real host acceptance. A task may be split further if its review scope
 is too large, preserving the dependency and exit criteria.
 
 ### Foundation and standalone KB
 
-| ID / owner          | Depends on             | Deliverable                                                                                                                                                                                                                                                                | Evidence to finish                                                                                                                                                                            |
-| ------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P-00 / Support Desk | This plan              | Refresh source/registry baseline; define synthetic dual-host fixtures, bounded workload limits, evaluation cases, approval fields, model-port requirements, and private host prerequisite checklist. Identify credential/release/ZDR gaps before consumers depend on them. | Decision-to-test mapping exists; no invented package pins; each unresolved operational input has an owner and activation gate.                                                                |
-| KB-01 / new KB repo | P-00                   | Create repo and implement contracts/core for collections, article kinds, immutable revisions, validation requirements, and exact approval. Establish CI and release documentation; no empty adapter packages.                                                              | Pure transition, stale approval, collection inheritance, and malformed-content tests; Node 22/24 gate.                                                                                        |
-| KB-02 / KB repo     | KB-01                  | Implement authorized authoring/review/publication/evidence services and declared collections using Storage Core and Audit. Document partition layout, limits, replay, and source-reference privacy.                                                                        | Public-entry memory and real-Azurite tests cover concurrency, atomic audit/jobs, private DTOs, revoked access, and idempotent evidence/review.                                                |
-| KB-03 / KB repo     | KB-02                  | Implement bounded retrieval projection, authoritative confirmation, repair/retirement, and audience-aware citation DTOs.                                                                                                                                                   | Retrieval evaluation passes on representative paraphrases; stale index/access, physical scan bounds, bot-only collections, and draft exclusion cases pass.                                    |
-| KB-04 / KB repo     | KB-03; P-00 auth proof | Implement optional MCP transport adapter and versioned HTTP/tool contract over the same services; document local-agent staging workflow and protected evidence integration.                                                                                                | A real local client creates/updates a draft and submits bound test evidence; expired/wrong-audience/revoked credentials fail; API/MCP behavior agrees.                                        |
-| KB-05 / KB repo     | KB-04                  | Release candidate, runnable synthetic host composition, D1 consumer conformance fixture, pack/import checks, and new-package bootstrap/trusted-publisher setup.                                                                                                            | Azure Tables and D1 pass the same public contracts; artifacts exclude tests and include README/LICENSE; release owner publishes approved exact artifacts before host dependency installation. |
+| ID / owner             | Depends on                           | Deliverable                                                                                                                                                                                                                                                                | Evidence to finish                                                                                                                                                                                                                                                        |
+| ---------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P-00 / Support Desk    | This plan                            | Refresh source/registry baseline; define synthetic dual-host fixtures, bounded workload limits, evaluation cases, approval fields, model-port requirements, and private host prerequisite checklist. Identify credential/release/ZDR gaps before consumers depend on them. | Decision-to-test mapping exists; no invented package pins; each unresolved operational input has an owner and activation gate.                                                                                                                                            |
+| KB-01 / new KB repo    | P-00                                 | Create repo and implement contracts/core for collections, article kinds, immutable revisions, validation requirements, and exact approval. Establish CI and release documentation; no empty adapter packages.                                                              | Pure transition, stale approval, collection inheritance, and malformed-content tests; Node 22/24 gate.                                                                                                                                                                    |
+| KB-02 / KB repo        | KB-01                                | Implement authorized authoring/review/publication/evidence services and declared collections using Storage Core and Audit. Document partition layout, limits, replay, and source-reference privacy.                                                                        | Public-entry memory and real-Azurite tests cover concurrency, atomic audit/jobs, private DTOs, revoked access, and idempotent evidence/review.                                                                                                                            |
+| KB-03 / KB repo        | KB-02                                | Implement bounded retrieval projection, authoritative confirmation, repair/retirement, and audience-aware citation DTOs.                                                                                                                                                   | Retrieval evaluation passes on representative paraphrases; stale index/access, physical scan bounds, bot-only collections, and draft exclusion cases pass.                                                                                                                |
+| AUTH-01 / Agent Access | P-00; approved agent-access decision | Implement the separate scoped OAuth device-code/S256 PKCE lifecycle using exact released foundations, current Admin consent, opaque hashed credentials, bounded refresh/replay state, discovery, and host HTTP ports.                                                      | Node 22/24 source/pack/review gates and synthetic actual-SDK proof; first publication and actual two-host login/client acceptance remain separate gates.                                                                                                                  |
+| KB-04 / KB repo        | KB-03; AUTH-01 source/SDK fixture    | Implement the five-operation optional MCP adapter and versioned HTTP contract over the same services; integrate protected host-attested evidence without exposing staff/provenance operations.                                                                             | Source exit: real SDK against a test-only synthetic composition creates/updates/reads drafts and submits bound evidence; API/MCP parity, rejected credential/evidence cases, Node 22/24 and clean review pass. Real-host acceptance remains open in P-00 and PG-01/RG-01. |
+| KB-05 / KB repo        | KB-04 source exit                    | Release candidate, runnable synthetic host composition, D1 consumer conformance fixture, pack/import checks, and new-package bootstrap/trusted-publisher setup.                                                                                                            | Azure Tables and D1 pass the same public contracts; all source/review gates pass; artifacts exclude tests and include README/LICENSE; publish approved exact artifacts before host installation. Source release readiness does not close host acceptance.                 |
 
 ### Support Desk extensions
 
@@ -510,23 +571,38 @@ is too large, preserving the dependency and exit criteria.
 
 ### Host integrations and acceptance
 
-| ID / owner                | Depends on                           | Deliverable                                                                                                                                                                                            | Evidence to finish                                                                                                                                                |
-| ------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PG-01 / pegma.dev         | KB-05 publication                    | Compose KB Store/access/services, agent authentication, API/MCP endpoints, staging evidence, essential collection/draft/review controls, and signed-in guide/search pages.                             | Local agent author-test-review-publish loop works on D1; browser and tool audience checks agree; existing roles/support remain usable.                            |
-| RG-01 / RetireGolden host | KB-05 publication                    | Equivalent KB integration in the existing Azure account/support host; record private source paths, staging configuration, and deployment requirements in that repository.                              | Same public contract scenarios pass on Azure Tables; existing account/entitlement and feature gates remain intact.                                                |
-| PG-02 / pegma.dev         | PG-01; SD-06 publication             | Compose ZDR model adapter, ticket-backed chat, human queue/takeover, learning review, repo/export controls, and release follow-up review. Adapt existing release ingestion rather than duplicating it. | Complete acceptance matrix below passes on this host with fake connectors and an approved live-provider staging smoke.                                            |
-| RG-02 / RetireGolden host | RG-01; SD-06 publication             | Equivalent essential customer/staff/admin workflows, isolated model/GitHub configuration, and confirmed release input.                                                                                 | Same acceptance matrix passes, with host-specific product/evidence cases kept private.                                                                            |
-| A-01 / Support Desk       | PG-02; RG-02                         | Publish the generic cross-host acceptance report and evaluation summary; private host artifacts remain private.                                                                                        | Both hosts attest the same released component versions and scenario outcomes; all blocking failures fixed; no production-readiness claim from source tests alone. |
-| R-PG / pegma.dev          | A-01; existing Task 12 host evidence | Run the supervised pilot using its host rollout controls.                                                                                                                                              | Staff sign off pilot observations and rollback rehearsal before widening access.                                                                                  |
-| R-RG / RetireGolden host  | A-01; existing Task 12 host evidence | Run its separately controlled supervised pilot.                                                                                                                                                        | Equivalent host sign-off, with independent customer/data/operations policy.                                                                                       |
+| ID / owner                | Depends on                             | Deliverable                                                                                                                                                                                                  | Evidence to finish                                                                                                                                                                                                                                                                                               |
+| ------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PG-01 / pegma.dev         | AUTH-01 publication; KB-05 publication | Consume exact published dependencies; compose existing-login/Admin consent, KB Store/access/services, protected API/MCP, trusted evidence attestation, essential controls, and signed-in guide/search pages. | Actual requested clients in their target modes complete draft/read/write/evidence flows on D1; current-authority/revocation/audience failures and rejected evidence pass; staff review/publication and existing roles/support remain usable. Close this host's retained KB-04/P-00 acceptance before activation. |
+| RG-01 / RetireGolden host | AUTH-01 publication; KB-05 publication | Equivalent released-dependency KB integration in the existing Azure account/support host; record private paths, staging configuration, and deployment requirements privately.                                | Same actual-client, existing-login/Admin consent, protected transport, evidence, and failure scenarios pass on Azure Tables; account/entitlement and feature gates remain intact. Close this host's retained KB-04/P-00 acceptance before activation.                                                            |
+| PG-02 / pegma.dev         | PG-01; SD-06 publication               | Compose ZDR model adapter, ticket-backed chat, human queue/takeover, learning review, repo/export controls, and release follow-up review. Adapt existing release ingestion rather than duplicating it.       | Complete acceptance matrix below passes on this host with fake connectors and an approved live-provider staging smoke.                                                                                                                                                                                           |
+| RG-02 / RetireGolden host | RG-01; SD-06 publication               | Equivalent essential customer/staff/admin workflows, isolated model/GitHub configuration, and confirmed release input.                                                                                       | Same acceptance matrix passes, with host-specific product/evidence cases kept private.                                                                                                                                                                                                                           |
+| A-01 / Support Desk       | PG-02; RG-02                           | Publish the generic cross-host acceptance report and evaluation summary; private host artifacts remain private.                                                                                              | Both hosts attest the same released component versions and scenario outcomes; all blocking failures fixed; no production-readiness claim from source tests alone.                                                                                                                                                |
+| R-PG / pegma.dev          | A-01; existing Task 12 host evidence   | Run the supervised pilot using its host rollout controls.                                                                                                                                                    | Staff sign off pilot observations and rollback rehearsal before widening access.                                                                                                                                                                                                                                 |
+| R-RG / RetireGolden host  | A-01; existing Task 12 host evidence   | Run its separately controlled supervised pilot.                                                                                                                                                              | Equivalent host sign-off, with independent customer/data/operations policy.                                                                                                                                                                                                                                      |
 
 The merged-source ledger above records completed source slices, including
 SD-01 and independent partial KB-05 preparation. The remaining critical path
-is KB-04 credential/client proof and full KB-05 publication before SD-02 and
-dependent host adoption. PG-01 can deliver the early KB win once its released
-dependencies exist; RG-01 follows the same contracts. Host PRs are separate
-and must each satisfy their own review/CI/deployment rules. No shared-package
-PR edits a host. Do not create all task branches/packages in advance.
+is AUTH-01 source/SDK fixture, KB-04 transport source exit, then KB-05 reviewed
+artifact publication. AUTH-01 publication also precedes host assembly. PG-01
+and RG-01 consume those published dependencies and prove actual existing-login
+and requested-client draft/evidence flows. KB-04's source exit may close only
+its source slice; retained actual two-host acceptance remains pending in P-00,
+PG-01/RG-01, and A-01 until those real runs pass. Source/SDK success cannot close
+it. SD-02 can begin after KB-05 publication without claiming host activation.
+Host PRs are separate and must each satisfy their review/CI/deployment rules.
+No shared-package PR edits a host. Do not create all task branches/packages in
+advance.
+
+The retained host acceptance includes every original authoring obligation:
+actual client discovery and existing-login/current-Admin consent, scoped
+draft read/create/update and host-attested exact-revision evidence, matching
+API/MCP behavior, expiry/wrong-audience/revocation/excess-scope rejection,
+current principal/permission changes, and wrong revision/build/runner or stale
+evidence rejection. Both hosts and every initial requested client/mode must
+have recorded results. Staff approval/publication, privacy, isolation, bounded
+work, and all full-workflow scenarios below remain required activation gates
+before A-01 and either pilot; a synthetic SDK run waives none of them.
 
 ## Full-workflow build acceptance
 
@@ -615,14 +691,16 @@ provider/protocol behavior rather than choose a vendor for either host:
 These links were fetched successfully on 2026-11-06. At that check, the MCP
 `latest` authorization URL resolved to the dated revision below. P-00 records
 the supported client/protocol versions and provider data-control requirements;
-KB-04 rechecks compatibility before adopting them. A reference snapshot is not
+KB-04 rechecks SDK/protocol compatibility before adopting them; PG-01/RG-01
+verify actual requested clients. A reference snapshot is not
 a promise that a future client supports that revision.
 
 - [Pegma composition catalog](https://pegma.dev/catalog.json): component
   boundaries, publication availability, and exact currently advertised pins.
 - [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization):
   resource-server discovery and token issuer/audience handling. Verify the
-  current supported version against the actual local clients in KB-04.
+  current supported version against the KB-04 source fixture and actual
+  requested clients in PG-01/RG-01.
 - [OpenAI API data controls](https://developers.openai.com/api/docs/guides/your-data):
   one provider's ZDR approval, configuration, and endpoint/feature limitations;
   verify equivalent documentation for the provider actually selected.
