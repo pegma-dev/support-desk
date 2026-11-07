@@ -168,8 +168,13 @@ or guaranteed success at the 512-row hard cap.
 Fresh inbound email remains human-handled. A verified email reply joining an
 assistant web conversation routes it to human-pending; email authentication
 still grants no web principal or account access. SD-01 supplies handling and
-deterministic controls only. Model generation, KB author credentials, KB
-publication, and host activation retain their later task gates.
+deterministic controls only. The pending source sequence is AUTH-01 Agent
+Access source/SDK proof, KB-04 transport source exit, then KB-05 reviewed
+publication; Agent Access publication also precedes host assembly. PG-01/RG-01
+retain actual two-host existing-login/client proof before activation or pilots.
+Synthetic SDK proof cannot close those gates. Model generation and remaining
+host activation/pilot gates stay pending under the
+[current implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
 
 ## Ticket numbers
 

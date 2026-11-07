@@ -14,9 +14,12 @@ latest `0.1.1` artifacts. It pins Audit `0.2.0`, Authorization Core `0.4.0`,
 Mail `0.1.1`, Spine `0.1.2`, and Storage Core `0.4.0`. These source changes
 require a new synchronized SD-06 release before enhancement adoption; never
 overwrite an existing version. The three KB packages remain unpublished at
-source `0.1.0`. KB-04's real credential/client proof and full KB-05
-release/bootstrap/publication remain the next gates before SD-02 and dependent
-host work.
+source `0.1.0`. The remaining source path is AUTH-01 Agent Access source/SDK
+proof, KB-04 transport source exit, then KB-05 reviewed publication. Agent
+Access publication also precedes host assembly. Actual two-host login/client
+proof remains with PG-01/RG-01 before activation or pilots; it does not block
+source release preparation. SD-02 waits for KB-05 publication. No future gate
+is complete.
 
 Task 12 remains pending on both hosts' durable-store production evidence.
 Provider/ZDR/intermediary verification, deployment applicability mapping,
@@ -423,9 +426,12 @@ phase is intentionally not one large release.
 **Goal:** Compose a standalone knowledge base for product documentation and
 reviewed support knowledge on both launch hosts.
 
-**Source status:** KB-01/02/03 and partial KB-05 preparation are merged. Real
-author credentials/client proof, publication, and both host workflows remain
-open; see the [status ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
+**Source status:** KB-01/02/03 and partial KB-05 preparation are merged. Next
+are AUTH-01 source/SDK proof, KB-04 transport source exit, and KB-05 publication.
+Agent Access must also be published before host assembly. Actual two-host
+login/client proof is retained under PG-01/RG-01 before activation or pilots;
+all these gates remain open. See the
+[status ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
 
 Approved decisions and repository-scoped task cards are in
 [KNOWLEDGE_AI_PLAN.md](KNOWLEDGE_AI_PLAN.md). Local agents author through

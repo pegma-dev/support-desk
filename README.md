@@ -48,8 +48,12 @@ assistant handling, explicit attribution and completion fences, deterministic
 human controls and atomic handoff work, private customer success evidence,
 and human queue separation. It includes no model or KB integration and has not
 been published. Standalone KB-01 through KB-03 and part of KB-05 are merged in
-[Knowledge Base](https://github.com/pegma-dev/knowledge-base); KB-04's real
-scoped-credential proof, the full KB-05 release, and then SD-02 remain pending.
+[Knowledge Base](https://github.com/pegma-dev/knowledge-base). The remaining
+source path is AUTH-01 Agent Access source/SDK proof, KB-04 transport source
+exit, then KB-05 publication. Agent Access publication also precedes host
+assembly; PG-01/RG-01 retain actual two-host login/client proof before
+activation or pilots. SD-02 waits for KB-05 publication. These gates remain
+pending.
 Use the [implementation ledger](docs/KNOWLEDGE_AI_PLAN.md#status-and-reading-order)
 for merged-source evidence and the remaining release and activation gates.
 The [P-00 handoff](docs/KNOWLEDGE_AI_P00.md) supplies the package baseline,

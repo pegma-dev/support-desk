@@ -13,9 +13,10 @@ See also the runnable example at
 This guide describes current source APIs. Source packages remain `0.1.1`, but
 their newer dependencies and lifecycle/SD-01 changes are not equivalent to the
 published `0.1.1` artifacts. The [P-00 baseline](KNOWLEDGE_AI_P00.md) separates
-source and registry snapshots. Hosts must wait for a new synchronized release
-under SD-06 before adopting this enhancement; never overwrite an existing
-registry version. See [release operations](RELEASING.md).
+source and registry snapshots. Hosts adopting new Support Desk behavior must
+wait for a new synchronized release under SD-06; never overwrite an existing
+registry version. The KB-only host path has its own publication gates below.
+See [release operations](RELEASING.md).
 
 Current source manifests use these exact ecosystem pins:
 
@@ -32,6 +33,25 @@ For the seven direct host loops, pin the advertised durable coordinator:
 
 Do not depend on a Git branch, copied source, local path, or unpublished
 tarball in a host production install.
+
+### Future KB authoring producers
+
+The pending source sequence is AUTH-01 Agent Access source/SDK proof, KB-04
+transport source exit, then KB-05 reviewed artifact publication. PG-01/RG-01
+must consume both published Agent Access and KB artifacts before host assembly
+and prove actual existing-login/current-Admin consent and requested-client
+draft/evidence flows before activation or pilots. SD-02 waits for KB-05
+publication; source/SDK tests do not close retained two-host acceptance.
+
+Agent Access source `@pegma/agent-access@0.1.0` is unpublished in
+[PR #1](https://github.com/pegma-dev/agent-access/pull/1). Existing KB source
+packages are likewise unpublished at `0.1.0`; the optional MCP package begins
+in KB-04. These are future host producers, not added Support Desk dependencies
+or production pins. Select exact host versions only after reviewed publication
+and registry artifact-integrity verification. No future published set/version
+is assumed. See the
+[post-baseline inventory](KNOWLEDGE_AI_P00.md#post-baseline-dependency-inventory-2026-11-07)
+and [dependency map](BUILDOUT.md#pegma-dependency-map).
 
 ## Constructing the application
 
@@ -259,9 +279,11 @@ human ticket immediately. Future/nonpositive/malformed/inactive hints are
 refused; missing or inactive hints can still leave a temporary repair gap.
 
 SD-01 includes no AI provider, knowledge retrieval, learning, or publication.
-Keep model activation disabled. KB-04's live scoped author-credential proof,
-KB-05 exact package publication, SD-02 generation/data controls, SD-06 release,
-and host acceptance/pilot gates remain separate prerequisites.
+Keep model activation disabled. AUTH-01 source/SDK proof, KB-04 transport source
+exit, and KB-05 publication precede dependent source/host work; Agent Access
+publication also precedes host assembly. SD-02 generation/data controls and
+SD-06 release remain pending. PG-01/RG-01 retain actual two-host login/client
+proof before activation, followed by the remaining acceptance/pilot gates.
 
 ## Inbound mail
 

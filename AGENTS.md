@@ -181,9 +181,13 @@ request-person, staff takeover, private success evidence, human queue
 selection, and bounded atomic handoff work. It adds no model, KB dependency,
 or package and has not been published. Source `0.1.1` is not equivalent to
 registry `0.1.1`; do not overwrite it or install a source substitute. A future
-synchronized SD-06 release precedes host adoption. Standalone KB-01 through
-KB-03 and partial KB-05 source are merged; KB-04's real scoped-credential
-proof, the full KB-05 release, and then SD-02 remain pending. Follow the
+synchronized SD-06 release precedes adoption of new Support Desk behavior.
+Standalone KB-01 through KB-03 and partial KB-05 source are merged. The next
+source path is AUTH-01 Agent Access source/SDK proof, KB-04 transport source
+exit, then KB-05 publication; Agent Access publication also precedes host
+assembly. Actual two-host login/client proof remains with PG-01/RG-01 before
+activation or pilots. SD-02 waits for KB-05 publication. These gates remain
+pending. Follow the
 [implementation ledger](docs/KNOWLEDGE_AI_PLAN.md#status-and-reading-order)
 for merged-source evidence and remaining gates.
 
