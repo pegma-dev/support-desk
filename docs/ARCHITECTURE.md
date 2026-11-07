@@ -236,6 +236,12 @@ starts from a null cursor and consumes one complete projection scan with
 request-local cursors only while all budgets hold; it never resumes another
 request's scan.
 
+A valid older active hint can discover a newer active canonical ticket; it
+need not wait for handoff's projection update. Reject malformed, nonpositive,
+future-revision, and inactive hints, and missing/terminal authority. Only
+canonical fields select the human/supervision view. Missing or inactive hints
+can still leave a temporary repair gap.
+
 Projection, repair, and inactive-row sweeping share one terminal-retention
 cutoff. An authoritative resolved/closed ticket beyond it causes queue state to
 remain absent or be deleted conditionally, not recreated as another inactive
@@ -318,6 +324,55 @@ Implement the dedicated permissions, evaluation, audit, revision/turn fencing,
 prompt-injection defenses, and disclosed ZDR processing configuration before
 activation. See the plan's task cards for the revised scope of old Task 18.
 
+### SD-01 handling foundation
+
+SD-01 extends the existing contracts/core/application packages. It adds no AI
+coordinator package, model port, KB dependency, or deployment activation.
+`Ticket.handling` is optional `{ state, generation }`, independent of status;
+`effectiveTicketHandling` interprets omission as human-pending/generation zero
+without rewriting old tickets. Explicit assistant creation is web-only.
+
+Assistant author attribution and `assistant_replied` are distinct from staff
+reply. Only public staff reply establishes `firstStaffRespondedAt`. Assistant
+completion requires exact current ticket revision, handling generation, and
+the latest visible customer trigger message. Human request/escalation/takeover
+and subsequent customer input invalidate older completions. Fresh inbound mail
+and email joining assistant chat take the human path.
+Staff reopening an explicitly handled ticket moves it to human-pending and
+advances handling generation. A web customer reply is the distinct path that
+can reopen assistant work with a fresh customer trigger; legacy omission
+remains implicit human handling.
+
+Owned request-person and staff takeover are deterministic application
+commands, independent of provider availability. Ticket transition, compact
+handoff work, generic Audit, and replay receipt share the ticket transaction.
+Handoff stores reference metadata plus a bounded summary/guide list, not raw
+transcripts, notes, or a second mail job. Repeated request-person on an active
+already-human conversation adds no rows.
+`readHandoffWork` requires queue read and exposes bounded staff work DTOs,
+separately from historical staff replay and assistant/customer views.
+
+Owned success confirmation uses the current last-visible-message ID as the
+customer proof. The application derives private revision/handling facts and
+commits bounded evidence with Audit/receipt. It does not expose internal
+revisions to customer DTOs. `confirmCustomerSuccess` is the separately
+permissioned customer action and always resolves while recording proof; it
+does not grant the assistant lifecycle authority.
+
+Human queue selection defaults legacy tickets to humans; assistant supervision
+is explicit. Every candidate is rechecked against authoritative handling.
+Opted-in `quota.assistantManaged` retains 12 physical rows and one human message
+slot across ordinary writes until the first staff response; handling controls
+retain a four-row/one-message tail for that reply. Legacy quotas keep their
+previous limits. All admission remains under the hard partition cap.
+See [declared collections](COLLECTIONS.md#sd-01-handling-and-handoff-layout-checkpoint)
+for row, serialized-byte, and capacity bounds before changing durable work.
+
+Source completion needs its own tests/review. Source `0.1.1` is not the registry
+artifact at that version; SD-06's future release precedes host adoption.
+KB-04 author authentication proof, KB-05 publication, SD-02 generation/data
+controls, and host activation remain separate gates.
+
 ## Persistence model
 
 Support Desk uses current-state records plus append-only supporting records. It
@@ -347,10 +402,13 @@ Current queue state:
 - channel;
 - creation, staff update, and customer-visible update timestamps;
 - optimistic-concurrency revision.
+- optional independent handling state/generation, with legacy omission read as
+  human-pending.
 
 The authoritative ticket is never returned directly from a customer
 application service. Customer DTOs omit requester evidence, priority, assignee,
-staff update time, revision, and operational state. `customerUpdatedAt`
+staff update time, revision, and operational state. An optional safe handling
+state does not expose its generation or private handoff/success records. `customerUpdatedAt`
 advances only for customer-visible messages and lifecycle changes; internal
 notes, assignment, and priority changes advance staff `updatedAt` only.
 

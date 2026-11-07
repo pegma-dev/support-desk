@@ -33,7 +33,7 @@ ID. One partition contains:
 - `reservation`: committed or cancelled customer-index reservation fence;
 - `message:<message-id>`: canonical customer or internal messages, including
   an immutable Support-owned outbound-content snapshot when applicable;
-- `audit|<event-id>`: `@pegma/audit@0.1.0` accepted-change events keyed by
+- `audit|<event-id>`: `@pegma/audit@0.2.0` accepted-change events keyed by
   `auditRecordId(event.id)` (command ID is the event ID);
 - `command:<command-id>`: idempotency receipts with request fingerprints
   (inbound mail uses `inbound:<receipt location>` command IDs); an older
@@ -52,7 +52,7 @@ and unique, then sort by them; caller-supplied message IDs never determine
 conversation order.
 
 Each `delivery:*` record is the Support Desk projection of an exact
-`@pegma/mail@0.1.0` `MailJob`. The nested generic job owns submission
+`@pegma/mail@0.1.1` `MailJob`. The nested generic job owns submission
 generations, claims, retries, reconciliation, acknowledgements, and terminal
 state. Its `contentRef` resolves the immutable rendering metadata on the
 causal `message:*` record. The projection preserves Support-owned physical
@@ -82,7 +82,7 @@ The generic mail sweep scans authoritatively and uses
 `deleteIfUnchanged`; dead-letter and terminal-unknown rows must be explicitly
 acknowledged before they become eligible.
 
-Accepted-change audit history uses exact `@pegma/audit@0.1.0`. Support Desk
+Accepted-change audit history uses exact `@pegma/audit@0.2.0`. Support Desk
 declares the projection with `defineAudit` against this collection and ticket
 partition, embeds each `AuditEvent` in the record union, and drops
 `defineAudit(...).action(...)` into the same `transact` as the ticket mutation.
@@ -99,6 +99,73 @@ no new collection, storage implementation, or cross-partition transaction is
 introduced. Tags have at most 32 safe identifiers (application default 8),
 and each due date is a canonical ISO timestamp. First staff response persists
 through reopen; resolution is cleared on reopen/reply and set on re-resolution.
+
+### SD-01 handling and handoff layout checkpoint
+
+This design was recorded before SD-01 added durable operations. The task extends
+`support-desk.records.v1` in the existing ticket partition; it introduces no
+collection, model integration, KB dependency, or package. The row layout below
+is synchronized with the implementation agreement and public API. Source
+tests and repository gates determine completion, not this checkpoint.
+
+`Ticket.handling` is optional and separate from lifecycle `status`. Its state
+is `assistant`, `human-pending`, or `human-active`, with a handling generation.
+An omitted legacy value reads as human-pending/generation zero without a
+stored migration. New assistant handling starts at generation one through an
+explicit, authorized web-only choice. Assistant messages have their own author kind; they never count as a
+first staff response. A new customer message, escalation, or takeover fences
+older assistant work through current ticket revision/handling/trigger checks.
+
+| Logical record family                      | Required binding and boundary                                                                                                          |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Ticket and quota                           | Current revision/handling generation, bounded message/physical-row accounting, optional `quota.assistantManaged: true` marker          |
+| Assistant message                          | Exact current revision, handling generation, and triggering customer message; explicit assistant attribution                           |
+| `handoff:<commandId>` (`handoff_work`)     | Pending causal work, resulting handling fence, compact transcript reference, bounded safe summary and attempted guide IDs              |
+| `success:<commandId>` (`customer_success`) | Authenticated owner/time and last customer-visible message proof, accepted revision/handling generation; private evidence without text |
+| Audit and command receipt                  | Accepted transition and stable semantic command identity, committed with its causal records                                            |
+
+Handoff changes, bounded work, Audit, and replay receipts commit atomically
+with the ticket. They store neither copied transcripts nor raw internal notes
+and create no automatic mail job. Request-person is a deterministic owned
+command independent of model availability. Repeating a request on an already
+human-handled active ticket adds no rows; repeating an accepted success proof
+for the same last-visible message on a resolved ticket also adds no rows.
+Human queue selection and assistant
+supervision use separate authoritative handling checks, never projection-only
+authority.
+
+The handoff transcript reference contains only ticket ID, through-revision,
+and last visible message ID. Its safe summary is at most 2,000 UTF-16 code
+units and attempted guide IDs are at most 16 opaque strings of 200 UTF-16 code
+units each. The
+serialized handoff record is at most 60,000 UTF-16 bytes, fitting a bounded
+native JSON property. A new handoff or success confirmation adds three rows
+(work/evidence, Audit, receipt); takeover adds two (Audit, receipt). Assistant
+reply adds the existing message/Audit/receipt trio. There is no extra assistant
+turn row or unbounded attempt history in SD-01.
+
+Opted-in quotas reserve 12 physical rows and one human message slot across
+non-control writes until `firstStaffRespondedAt` is established. Existing
+quotas without that marker retain their previous limits. Only explicit
+assistant creation sets `assistantManaged: true`. Assistant admission
+requires at least two message slots and room for initial records plus the
+reserve: at least 6 + 12 physical rows without delivery, or 7 + 12 with the
+initial delivery. Count every physical row before filtering; no retries or
+history may grow around the reserve. The final API distinguishes control
+admission from ordinary writes without bypassing the hard partition cap.
+The 12-row allowance covers a first handoff (3), takeover (2), confirmation
+(3), and human reply with delivery (4). Before the first staff response,
+handling controls must still leave four physical rows and one message slot;
+the first staff reply may spend that tail. Additional control cycles can
+exhaust finite capacity and return named limits. Deterministic handoff means
+provider-independent, authenticated, and race-safe, not unlimited admission
+or guaranteed success at the 512-row hard cap.
+
+Fresh inbound email remains human-handled. A verified email reply joining an
+assistant web conversation routes it to human-pending; email authentication
+still grants no web principal or account access. SD-01 supplies handling and
+deterministic controls only. Model generation, KB author credentials, KB
+publication, and host activation retain their later task gates.
 
 ## Ticket numbers
 
@@ -291,7 +358,8 @@ steps or create a linked unverified ticket.
 - status, priority, optional category, requester association, channel,
   assignee, and update time;
 - optional staff-only tags, first-response/resolution due dates,
-  `firstStaffRespondedAt`, and `resolvedAt`.
+  `firstStaffRespondedAt`, and `resolvedAt`;
+- optional handling state/generation for explicitly handled tickets.
 
 It stores no message content, requester email, routing token, or permission
 decision.
@@ -311,9 +379,11 @@ loaded authoritative ticket at the same revision. Run a complete queue repair
 cycle after upgrading. Target/tag filtering and sorting use authoritative
 fields, never the candidate row values.
 
-Staff queue reads (`listStaffQueue`) scan this projection in bounded pages,
-load every candidate ticket by authoritative key, discard stale or inactive
-candidates, then filter and sort. One request has separate hard budgets for
+Staff queue reads (`listStaffQueue`) scan this projection in bounded pages and
+load candidates by authoritative key. A valid positive older active hint can
+discover a freshly loaded active ticket; current handling/status/filter/sort
+fields come only from that ticket. Malformed, nonpositive, future-revision,
+and inactive hints are rejected, as is absent or terminal authority. One request has separate hard budgets for
 physical rows, scan pages, and confirmed active results
 (`queueScanBudgets`); every adapter-returned physical record counts before
 authoritative confirmation or application filtering, while a codec failure
@@ -323,6 +393,14 @@ request-local: every queue request starts without one and consumes one complete
 scan cycle only when it remains within all budgets. The authoritative repair
 cursor is host-persisted after complete pages. A projection row never grants
 access.
+
+SD-01 queue queries default to human handling; assistant/all are explicit
+supervision views. Returned staff items include effective handling state.
+Legacy omission remains human-pending and filtering uses the confirmed
+ticket, not the projection's optional handling snapshot.
+An older active assistant hint can therefore reveal a newly human-handled
+ticket without waiting for projection repair. Missing or inactive hints can
+still cause a temporary repair gap; no cross-partition atomicity is implied.
 
 Resolved and closed tickets receive an inactive row at their resulting
 revision. Projection, repair, and `sweepInactiveQueueProjections` share one

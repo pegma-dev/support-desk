@@ -19,6 +19,16 @@ export type TicketPriority = "low" | "normal" | "high" | "urgent";
 export type TicketStatus =
   "open" | "waiting_on_support" | "waiting_on_customer" | "resolved" | "closed";
 
+/** Handling is independent of conversation status and never grants access. */
+export type TicketHandlingState =
+  "assistant" | "human-pending" | "human-active";
+
+export interface TicketHandling {
+  readonly state: TicketHandlingState;
+  /** Explicit handling starts at one; omitted legacy handling has generation zero. */
+  readonly generation: number;
+}
+
 /**
  * Describes how a requester was associated with an account.
  *
@@ -53,6 +63,8 @@ export interface Ticket {
   readonly resolutionDueAt?: IsoTimestamp;
   /** First customer-visible staff reply; retained through every reopen. */
   readonly firstStaffRespondedAt?: IsoTimestamp;
+  /** Absent on legacy tickets, which remain implicitly human-pending. */
+  readonly handling?: TicketHandling;
   readonly channel: TicketChannel;
   readonly status: TicketStatus;
   readonly priority: TicketPriority;
@@ -78,7 +90,7 @@ export interface Ticket {
   readonly relatedTicketId?: TicketId;
 }
 
-export type MessageAuthorKind = "customer" | "staff" | "system";
+export type MessageAuthorKind = "customer" | "staff" | "assistant" | "system";
 export type MessageVisibility = "customer" | "internal";
 export type MessageFormat = "plain_text" | "markdown";
 
@@ -137,19 +149,53 @@ export interface CreateTicketInput {
   readonly createdAt: IsoTimestamp;
   /** Optional staff-review hint; see {@link Ticket.relatedTicketId}. */
   readonly relatedTicketId?: TicketId;
+  /** Trusted host opt-in for signed-in web support; omission keeps human handling. */
+  readonly initialHandling?: "assistant";
 }
 
 interface TicketEventBase {
   readonly occurredAt: IsoTimestamp;
 }
 
+/** Exact causal fence, supplied from current trusted application state. */
+interface TicketHandlingFence {
+  readonly expectedRevision: number;
+  readonly expectedHandlingGeneration: number;
+}
+
 export type TicketEvent =
   | (TicketEventBase & {
       readonly type: "customer_replied";
       readonly actorId?: PrincipalId;
+      /** Trusted transport; explicit non-web replies leave assistant handling. */
+      readonly channel?: TicketChannel;
     })
   | (TicketEventBase & {
       readonly type: "support_replied";
+      readonly actorId: PrincipalId;
+    })
+  | (TicketEventBase &
+      TicketHandlingFence & {
+        readonly type: "assistant_replied";
+        readonly actorId: PrincipalId;
+      })
+  | (TicketEventBase & {
+      readonly type: "human_requested";
+      readonly actorId: PrincipalId;
+    })
+  | (TicketEventBase &
+      TicketHandlingFence & {
+        readonly type: "human_escalated";
+        readonly actorId: PrincipalId;
+      })
+  | (TicketEventBase &
+      TicketHandlingFence & {
+        readonly type: "human_taken_over";
+        readonly actorId: PrincipalId;
+      })
+  | (TicketEventBase & {
+      /** Application verifies ownership and the last seen visible message. */
+      readonly type: "customer_success_confirmed";
       readonly actorId: PrincipalId;
     })
   | (TicketEventBase & {

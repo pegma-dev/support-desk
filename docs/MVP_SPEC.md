@@ -69,18 +69,25 @@ process delivery callbacks, and perform maintenance.
 Support Desk asks the host authorization provider for permissions. It does not
 assign business meaning to plan or role names.
 
-| Permission                 | Purpose                                    |
-| -------------------------- | ------------------------------------------ |
-| `support.ticket.create`    | Create an authenticated customer ticket    |
-| `support.ticket.read.own`  | Read a ticket after ownership is verified  |
-| `support.ticket.reply.own` | Reply to an owned ticket                   |
-| `support.queue.read`       | View authorized staff queues               |
-| `support.ticket.reply.any` | Send a customer-visible staff reply        |
-| `support.ticket.note`      | Add an internal note                       |
-| `support.ticket.assign`    | Assign or unassign a ticket                |
-| `support.ticket.manage`    | Change priority, tags, and lifecycle state |
-| `support.settings.manage`  | Manage channels and templates              |
-| `support.audit.read`       | Review support audit records               |
+| Permission                           | Purpose                                                              |
+| ------------------------------------ | -------------------------------------------------------------------- |
+| `support.ticket.create`              | Create an authenticated customer ticket                              |
+| `support.ticket.read.own`            | Read a ticket after ownership is verified                            |
+| `support.ticket.reply.own`           | Reply to an owned ticket                                             |
+| `support.queue.read`                 | View authorized staff queues                                         |
+| `support.ticket.reply.any`           | Send a customer-visible staff reply                                  |
+| `support.ticket.note`                | Add an internal note                                                 |
+| `support.ticket.assign`              | Assign or unassign a ticket                                          |
+| `support.ticket.manage`              | Change priority, tags, and lifecycle state                           |
+| `support.settings.manage`            | Manage channels and templates                                        |
+| `support.audit.read`                 | Review support audit records                                         |
+| `support.ticket.assistant.start`     | Start explicitly opted-in web handling alongside create permission   |
+| `support.ticket.assistant.read`      | Read the service-only customer-visible assistant conversation        |
+| `support.ticket.assistant.reply`     | Commit an attributed fenced assistant reply                          |
+| `support.ticket.assistant.escalate`  | Commit a fenced human escalation                                     |
+| `support.ticket.request_person.own`  | Request a person after ownership is verified                         |
+| `support.ticket.take_over`           | Take over with queue read and exact handling/revision fences         |
+| `support.ticket.confirm_success.own` | Confirm owned success and resolve with current visible-message proof |
 
 Possessing `support.ticket.read.own` does not establish ownership. The
 application must also prove that the authenticated principal matches the
@@ -122,7 +129,7 @@ chronological order. Internal notes and staff-only metadata are excluded.
 
 Customer APIs return an explicit safe summary, not the authoritative `Ticket`
 record. It includes ID, number, subject, optional category, status, channel,
-creation time, and `customerUpdatedAt`. It excludes requester email and
+creation time, `customerUpdatedAt`, and optional handling state. It excludes requester email and
 association evidence, priority, assignee, staff-facing `updatedAt`, revision,
 audit history, command state, and delivery state.
 
@@ -142,6 +149,59 @@ specified order.
 
 A customer can add a web reply to an open, waiting, resolved, or closed ticket.
 A reply to a resolved or closed ticket reopens it as `waiting_on_support`.
+
+### Optional handling and deterministic controls (SD-01)
+
+Handling is separate from ticket status: `assistant`, `human-pending`, or
+`human-active`. Missing legacy handling means human-pending, so upgrading does
+not hide existing work. Only an explicit authorized signed-in web creation
+starts assistant handling. The first customer message still creates the
+canonical ticket and message together. Fresh inbound email stays human;
+verified email joining an assistant conversation routes it to human-pending.
+SD-01 supplies these foundations without a model, KB connection, or live chat
+activation.
+
+Assistant messages are visibly attributed to an assistant and never impersonate
+staff or satisfy the first-human-response milestone. A later customer message,
+human request, escalation, or staff takeover prevents an older assistant
+completion from being committed through its ticket/handling/trigger fence.
+The assistant cannot resolve tickets or act on customer accounts.
+Staff reopening puts explicitly handled work into human-pending; a web
+customer reply can instead supply the fresh trigger for an assistant
+conversation. Legacy human handling remains the default.
+
+An authenticated owner can request a person through a deterministic command
+that does not consult a model. An active conversation already handled by humans
+is unchanged by repeated requests; a terminal conversation can reopen for a
+human. Authorized staff can take over the same thread. Handoff records a
+bounded safe reason/summary, attempted guide IDs, and compact transcript
+references with Audit and its replay receipt; it does not copy the transcript,
+internal notes, or an automatic mail job into handoff work.
+
+`confirmCustomerSuccess` is explicitly authorized by
+`support.ticket.confirm_success.own`, checks ownership and the last
+customer-visible message ID, and always resolves while recording private
+evidence. There is no optional resolve flag. The application derives the
+internal revision; browsers supply no staff revision or handling generation.
+Inactivity is not success. A closed ticket must reopen before confirmation.
+Repeated confirmation of the same visible message on an already resolved
+ticket adds no evidence rows. Private success evidence is not returned in
+customer conversation DTOs.
+
+Default staff queue selection includes legacy and human-handled work.
+`listStaffQueue` defaults to `handling: "human"`; `"assistant"` and `"all"`
+are explicit supervision selections. Assistant conversations remain readable
+to authorized staff without appearing in the default human work queue.
+Filtering always confirms authoritative handling after loading a candidate;
+an older active hint cannot impose its old handling on the current ticket.
+Missing/inactive hints can still cause a temporary repair gap; no projection
+authorizes assistant use.
+
+Assistant-managed tickets reserve bounded capacity for a human handoff and
+first staff reply. Ordinary writes may be refused before the hard ticket cap
+to preserve that reserve. See [declared collections](COLLECTIONS.md#sd-01-handling-and-handoff-layout-checkpoint)
+for physical bounds and [host composition](HOST_COMPOSITION.md) for commands,
+permissions, and source/release gates.
 
 ### Cancellation and deletion
 
@@ -180,13 +240,15 @@ which are later reclaimed conditionally under the same terminal-retention
 cutoff used by repair. Repair does not recreate reclaimed terminal rows. A
 temporary gap is allowed; permanent loss after a complete repair cycle is not.
 
-An index row is a pointer, never proof. Loading the ticket it names and
-re-checking revision, status, assignment, and scope against the ticket record
-is the authoritative step.
+An index row is a pointer, never proof. A valid positive active hint revision
+at or below the ticket's current revision can discover that ticket. Future,
+nonpositive, malformed, and inactive hints are refused. Current canonical
+status, handling, assignment, and scope govern filtering, never hint fields.
 
 Staff can:
 
 - read the full ticket and audit context;
+- inspect bounded handoff summaries, attempted guide IDs, and transcript references;
 - reply publicly;
 - add an internal note;
 - assign or unassign;
@@ -436,6 +498,9 @@ POST   /support/channels/email/events
 
 Customer and administrative routes use separate authorization middleware even
 when they share application services.
+SD-01 hosts additionally map owned request-person/success confirmation and
+staff takeover to the named application commands. Routes remain host-owned;
+service-only assistant revision/generation fences are not browser authority.
 
 ## Data and audit requirements
 
@@ -450,6 +515,9 @@ The MVP stores:
 - outbox rows for every outbound notification;
 - actor principal ID for staff actions;
 - timestamps generated or accepted by trusted server components.
+
+SD-01 also retains bounded handoff references/work and private customer
+success evidence in the ticket partition with their causal Audit/receipt.
 
 Everything above is a declared `@pegma/storage-core` collection. Accepted
 change history uses `@pegma/audit` events embedded in the Support Desk record
