@@ -124,9 +124,8 @@ confirmation step.
 
 ### Task 1 — align with Audit and current Authorization Core
 
-**Status (Task 1):** Complete historical foundation. Original pre-release pins
-and constraints below record that task's starting point; use the current
-dependency map above for new work, not a rerun that downgrades manifests.
+**Status (Task 1):** Complete historical foundation. Use the current dependency
+map above for new work; do not rerun the task or downgrade manifests.
 
 **Goal:** Remove the last duplicate ecosystem contract before more commands
 depend on it.
