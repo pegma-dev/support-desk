@@ -12,16 +12,18 @@ help desk." Give it exactly one task below.
 ## Current source status
 
 Buildout Tasks 1–6, the Task 11 package slice, and Task 13 are implemented in
-source. The enhancement has also merged P-00, KB-01/02/03, SD-01, and
-independent partial KB-05 preparation; exact linked evidence is in the
+source. The enhancement has also merged P-00, KB-01 through KB-04, AUTH-01,
+SD-01, and both producers' release preparation; exact linked evidence is in the
 [current status ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
-The next source path is AUTH-01 Agent Access source/SDK proof, KB-04 transport
-source exit, then KB-05 publication/trusted-publisher setup. Agent Access
-publication also precedes host assembly. Actual two-host login/client proof
-remains with PG-01/RG-01 before activation or pilots; SD-02 waits for KB-05
-publication. These gates remain pending. KB source `0.1.0` remains unpublished;
-newer Support Desk source
-`0.1.1` changes remain unreleased and differ from registry `0.1.1`.
+All four KB packages and Agent Access remain unpublished at source `0.1.0`.
+First-publisher bootstrap and verified registry publication remain open;
+PG-01/RG-01 require both published producers before host assembly. Actual
+two-host existing-login/Admin consent and requested-client proof remain
+required before activation or pilots; SD-02 waits for KB-05 publication.
+Synthetic SDK/source gates use no actual customer data and do not prove an
+operational host. Newer Support Desk source `0.1.1` changes remain unreleased
+and differ from registry `0.1.1`. See the
+[producer evidence and bootstrap handoff](HOST_COMPOSITION.md#kb-authoring-producers).
 Task 12, ZDR, deployment mapping, operations, acceptance, and pilots stay open.
 
 ## Rules for every task
@@ -74,23 +76,23 @@ simulate them.
 
 ## Pegma dependency map
 
-| Package                                               | Support Desk rule                                                                                                                                                                                                                         |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@pegma/spine@0.1.2`                                  | Use its identity, time, logger, and event contracts. Its in-process event bus is never the durable notification path.                                                                                                                     |
-| `@pegma/storage-core@0.4.0`                           | Support Desk declares collections and accepts a host `Store`. Azure and D1 adapters stay in Storage Core and the hosts.                                                                                                                   |
-| `@pegma/authorization-core@0.4.0`                     | Application services consume `AccessContext`; hosts resolve roles and entitlements. Support Desk owns permission names and resource checks.                                                                                               |
-| `@pegma/audit@0.2.0`                                  | Owns the generic audit event and transaction action. Support Desk embeds it in the ticket partition; it does not keep a parallel audit shape.                                                                                             |
-| `@pegma/mail@0.1.1`                                   | Owns provider-neutral outbound state, claims, retries, reconciliation, and terminal states. Support Desk owns templates and the projection into ticket records.                                                                           |
-| `@pegma/rate-limit@0.2.0`                             | Hosts apply its durable tier before expensive create and reply commands. Support Desk does not wrap or reimplement it.                                                                                                                    |
-| `@pegma/sessions@0.2.0`                               | A host may use it to resolve a browser session to a `PrincipalId`. Support Desk never reads cookies or sessions.                                                                                                                          |
-| `@pegma/identity` and authorization identity adapters | pegma.dev host concerns. Only a trusted `PrincipalId` and resolved `AccessContext` cross into Support Desk.                                                                                                                               |
-| `@pegma/agent-access` (future host producer)          | AUTH-01 owns scoped agent credentials. Source `0.1.0` is unpublished in [PR #1](https://github.com/pegma-dev/agent-access/pull/1); it supplies no production pin until reviewed publication and registry artifact-integrity verification. |
-| Knowledge Base package set (future host producer)     | Existing source packages are unpublished at `0.1.0`; the optional MCP adapter begins in KB-04. PG-01/RG-01 require both Agent Access and KB published artifacts before host assembly; no future released set or version is assumed.       |
-| `@pegma/webhooks`                                     | Do not substitute it for Support Desk inbound-mail or delivery-callback receipts. Its generic sequential ledger permits overlapping processing and lacks Support Desk's channel, message, and result bindings.                            |
-| Pegma logger adapters and health                      | Host composition concerns. Support Desk emits through Spine `Logger`; hosts expose worker and dependency health.                                                                                                                          |
+| Package                                                | Support Desk rule                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@pegma/spine@0.1.2`                                   | Use its identity, time, logger, and event contracts. Its in-process event bus is never the durable notification path.                                                                                                                                                                     |
+| `@pegma/storage-core@0.4.0`                            | Support Desk declares collections and accepts a host `Store`. Azure and D1 adapters stay in Storage Core and the hosts.                                                                                                                                                                   |
+| `@pegma/authorization-core@0.4.0`                      | Application services consume `AccessContext`; hosts resolve roles and entitlements. Support Desk owns permission names and resource checks.                                                                                                                                               |
+| `@pegma/audit@0.2.0`                                   | Owns the generic audit event and transaction action. Support Desk embeds it in the ticket partition; it does not keep a parallel audit shape.                                                                                                                                             |
+| `@pegma/mail@0.1.1`                                    | Owns provider-neutral outbound state, claims, retries, reconciliation, and terminal states. Support Desk owns templates and the projection into ticket records.                                                                                                                           |
+| `@pegma/rate-limit@0.2.0`                              | Hosts apply its durable tier before expensive create and reply commands. Support Desk does not wrap or reimplement it.                                                                                                                                                                    |
+| `@pegma/sessions@0.2.0`                                | A host may use it to resolve a browser session to a `PrincipalId`. Support Desk never reads cookies or sessions.                                                                                                                                                                          |
+| `@pegma/identity` and authorization identity adapters  | pegma.dev host concerns. Only a trusted `PrincipalId` and resolved `AccessContext` cross into Support Desk.                                                                                                                                                                               |
+| `@pegma/agent-access` (unpublished host producer)      | AUTH-01 [PR #1](https://github.com/pegma-dev/agent-access/pull/1) and release preparation [PR #2](https://github.com/pegma-dev/agent-access/pull/2) are merged. Source `0.1.0` supplies no production pin until actual reviewed publication and registry artifact-integrity verification. |
+| Knowledge Base package set (unpublished host producer) | All four source packages, including the KB-04 MCP adapter, exist at unpublished `0.1.0`; release preparation [PR #6](https://github.com/pegma-dev/knowledge-base/pull/6) is merged. PG-01/RG-01 require both Agent Access and KB published artifacts before host assembly.                |
+| `@pegma/webhooks`                                      | Do not substitute it for Support Desk inbound-mail or delivery-callback receipts. Its generic sequential ledger permits overlapping processing and lacks Support Desk's channel, message, and result bindings.                                                                            |
+| Pegma logger adapters and health                       | Host composition concerns. Support Desk emits through Spine `Logger`; hosts expose worker and dependency health.                                                                                                                                                                          |
 
 The [dated post-baseline inventory](KNOWLEDGE_AI_P00.md#post-baseline-dependency-inventory-2026-11-07)
-tracks these future producers separately from P-00's frozen registry snapshot.
+tracks these unpublished producers separately from P-00's frozen registry snapshot.
 Do not turn a source version or PR artifact into a production dependency pin.
 
 If a sibling package cannot express a required guarantee, stop and open a
@@ -628,12 +630,13 @@ repository-scoped task cards. Its foundational source work may proceed while
 Task 12 evidence is gathered; production pilots still require that evidence.
 Attachments, macros, and other independent queue items are not prerequisites
 for the KB. Give an implementation agent one task card, not the whole plan.
-P-00, KB-01/02/03, SD-01, and partial KB-05 source are already merged. Follow
-the ledger's AUTH-01 source/SDK proof, KB-04 source exit, and KB-05 publication
-path. Agent Access publication also precedes host assembly; PG-01/RG-01 retain
-actual two-host login/client acceptance before activation or pilots. Do not
-recreate completed slices or mark any pending source/publication/host gate
-complete.
+P-00, KB-01 through KB-04, AUTH-01, SD-01, and both producers' release
+preparation are already merged. Follow the ledger's first-publisher bootstrap
+and actual KB-05/Agent Access publication gates. PG-01/RG-01 require both
+published producers before host assembly and retain actual two-host
+existing-login/Admin consent and requested-client acceptance before activation
+or pilots. SD-02 waits for KB-05 publication. Do not recreate completed source
+slices or mark pending publication/host gates complete.
 
 These tasks follow Task 11 and retain the same rules: one task per
 pull request, additive to `0.x` contracts, docs in the same change, and no

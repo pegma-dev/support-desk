@@ -182,13 +182,16 @@ selection, and bounded atomic handoff work. It adds no model, KB dependency,
 or package and has not been published. Source `0.1.1` is not equivalent to
 registry `0.1.1`; do not overwrite it or install a source substitute. A future
 synchronized SD-06 release precedes adoption of new Support Desk behavior.
-Standalone KB-01 through KB-03 and partial KB-05 source are merged. The next
-source path is AUTH-01 Agent Access source/SDK proof, KB-04 transport source
-exit, then KB-05 publication; Agent Access publication also precedes host
-assembly. Actual two-host login/client proof remains with PG-01/RG-01 before
-activation or pilots. SD-02 waits for KB-05 publication. These gates remain
-pending. Follow the
+Standalone KB-01 through KB-04, AUTH-01 Agent Access, and both producers'
+release preparation are merged. All four KB packages and Agent Access remain
+unpublished at source `0.1.0`; first-publisher bootstrap and verified registry
+publication remain open. PG-01/RG-01 require both published producers before
+host assembly and actual existing-login/Admin consent and requested-client
+proof before activation or pilots. SD-02 waits for KB-05 publication. Synthetic
+SDK/source proof uses no actual customer data and does not close host privacy,
+operations, full-workflow, or pilot gates. Follow the
 [implementation ledger](docs/KNOWLEDGE_AI_PLAN.md#status-and-reading-order)
+and [producer handoff](docs/HOST_COMPOSITION.md#kb-authoring-producers)
 for merged-source evidence and remaining gates.
 
 This project was developed under the `@support-desk` scope and moved into Pegma
