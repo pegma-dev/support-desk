@@ -369,9 +369,14 @@ See [declared collections](COLLECTIONS.md#sd-01-handling-and-handoff-layout-chec
 for row, serialized-byte, and capacity bounds before changing durable work.
 
 Source completion needs its own tests/review. Source `0.1.1` is not the registry
-artifact at that version; SD-06's future release precedes host adoption.
-KB-04 author authentication proof, KB-05 publication, SD-02 generation/data
-controls, and host activation remain separate gates.
+artifact at that version; SD-06's future release precedes adoption of new
+Support Desk behavior. The pending source sequence is AUTH-01 Agent Access
+source/SDK proof, KB-04 transport source exit, then KB-05 reviewed publication.
+Agent Access publication also precedes host assembly. PG-01/RG-01 retain actual
+two-host existing-login/client proof before activation or pilots; synthetic SDK
+proof cannot close those gates. SD-02 generation/data controls and the remaining
+host activation/pilot gates remain pending. Follow the
+[current implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
 
 ## Persistence model
 
