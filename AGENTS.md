@@ -129,14 +129,14 @@ Work on a `claude/*` branch and open a pull request; `main` is protected by CI.
 The gate is `pnpm run format:check`, `pnpm run check`, `pnpm test` — all three must
 pass, and CI runs them on Node 22 and 24.
 
-Publishing is trusted-publisher only: no tokens exist. A release is
-`gh release create vX.Y.Z`, which runs the same gate and publishes every
-changed workspace package with a provenance attestation. A brand-new package
+Publishing is trusted-publisher only: no tokens exist. Releases use a protected
+signed annotated tag already on `origin/main` and a verified GitHub release,
+with the complete gate and provenance workflow in `docs/RELEASING.md`. A brand-new package
 cannot use trusted publishing for its first version and needs one manual
 `npm publish` plus a trusted-publisher configuration afterwards.
 
-The exact `0.1.0` package set is prepared by Buildout Task 6. A host production
-dependency must wait until those packages are visible on the public registry;
+Buildout Task 6 prepared the first exact `0.1.0` set; its bootstrap is complete.
+A host production dependency must wait for its required release on the public registry;
 Git branches, copied source, unpublished tarballs, and local filesystem
 dependencies are not release substitutes. Follow `docs/RELEASING.md` for the
 first publish and later OIDC releases.
@@ -153,7 +153,7 @@ memory/Azurite tests, a framework-free composition example, host error and
 scheduler documentation, and the release pack lane for exact `0.1.0`. Phase 2's
 durable abuse limits and host-owned cursor persistence remain composition work.
 Phase 6's provider-neutral outbound-mail source is implemented against exact
-`@pegma/mail@0.1.0`, with Support-owned projection, templates, threading
+`@pegma/mail@0.1.1`, with Support-owned projection, templates, threading
 metadata, and callback receipts. The Support Desk slice of Buildout Task 11
 (inbound mail processing, receipt lifecycle, and the threading index) is
 implemented in source; inbound provider adapters remain host work.
@@ -163,7 +163,7 @@ allowlisted staff tags, host-supplied response targets and durable milestones,
 confirmed queue tag/target filtering and due sorts, and optional staff revision
 collision hints. Customer DTOs and automatic customer mail omit these fields.
 Calendars and presence stay host-owned. Task 12 remains pending on both hosts'
-durable-store production evidence. This work does not publish or merge.
+durable-store production evidence. Source work does not publish a package.
 
 The first `0.1.0` package set is published. Source packages remain at exact
 `0.1.1`; follow `docs/RELEASING.md` for a future synchronized release. Customer services return safe DTOs; staff
@@ -172,6 +172,15 @@ staff queue scans a confirmed projection that is never authorization evidence.
 Authorization Core is pinned to exact `0.4.0` and accepted-change history uses
 exact `@pegma/audit@0.2.0`. Host Tasks 7–8 begin only after registry publication.
 Provider selection and operation remain host work.
+
+SD-01 is the current source task: optional handling defaults legacy tickets to
+human support, explicitly attributes assistant messages, and adds deterministic
+owned request-person, staff takeover, private success evidence, human queue
+selection, and bounded atomic handoff work. Review/tests determine completion.
+It adds no model, KB dependency, or package. Source `0.1.1` is not equivalent to
+registry `0.1.1`; do not overwrite it or install a source substitute. A future
+synchronized SD-06 release precedes host adoption. KB-04's live author credential
+proof and KB-05 publication remain separate pending integration gates.
 
 This project was developed under the `@support-desk` scope and moved into Pegma
 on 2026-07-26. The git history begins at that move, nothing was published under

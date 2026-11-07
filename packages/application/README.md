@@ -3,6 +3,14 @@
 Authorized customer ticket services and provider-neutral durable outbox
 records for Support Desk. The host supplies an `@pegma/storage-core` `Store`
 and a trusted Authorization Core access context.
+The host server supplies `correlationId` on commands; the application validates
+and propagates it and never generates it.
+
+Current source remains version `0.1.1` and includes changes beyond the
+published artifacts at that version. SD-01 adds handling/handoff foundations
+without model generation or a KB dependency; source review/tests determine
+completion. Host adoption requires the later synchronized SD-06 release and
+activation gates, not a source checkout or overwritten registry version.
 
 Customer create uses `support.ticket.create`; list and read both use the
 documented `support.ticket.read.own` permission and then confirm authoritative
@@ -24,6 +32,61 @@ Staff services use the same application factory and ticket partition:
 | `reopenTicket`           | `support.queue.read` + `support.ticket.manage`    | resolved/closed → `waiting_on_support`                              |
 | `setTags`                | `support.queue.read` + `support.ticket.manage`    | Replace staff tags; status, customer time, and mail unchanged       |
 | `readTicketAuditHistory` | `support.audit.read`                              | Ordered Audit history for one ticket                                |
+
+### Optional handling and human controls (SD-01)
+
+The factory's `assistantHandlingEnabled` defaults to false. Explicit trusted
+web create with `initialHandling: "assistant"` requires both create and
+`support.ticket.assistant.start`. Legacy omission remains human handling with
+no rewrite. No model or KB is configured by enabling these source commands.
+Turning the flag off refuses new assistant creation/replies. Exact committed
+replays remain available after current command permissions and customer
+ownership checks, without new rows or reservations; receipts do not restore
+revoked access.
+
+| Method                             | Permission and boundary                                                                                          |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `readAssistantConversation`        | `support.ticket.assistant.read`; service-only safe messages plus revision/handling/customer-trigger fences       |
+| `replyAsAssistant`                 | `support.ticket.assistant.reply`; exact revision/handling/trigger, attributed plain-text reply, no mail          |
+| `escalateToHuman`                  | `support.ticket.assistant.escalate`; exact fences plus bounded handoff work                                      |
+| `requestPerson`                    | `support.ticket.request_person.own` and ownership; deterministic human request with current customer-safe result |
+| `takeOverTicket`                   | Queue read plus `support.ticket.take_over`; exact revision/handling fences and historical staff result           |
+| `confirmCustomerSuccess`           | `support.ticket.confirm_success.own` and ownership/current visible-message proof; always resolves                |
+| `readCustomerSuccessConfirmations` | Queue read plus audit read; private text-free confirmation evidence                                              |
+
+`readHandoffWork(access, ticketId)` requires queue read and returns bounded
+staff-only work DTOs with summary/guide IDs/transcript references, separate
+from historical staff replay and customer/assistant results.
+
+Assistant reads omit internal notes and requester identity. Their extra
+revision/generation metadata is service-only. Assistant commits require the
+latest visible message to remain the triggering customer message; new input
+or human handling defeats stale work. Only a public staff reply establishes
+`firstStaffRespondedAt`. Staff reopen enters human-pending for explicit
+handling; fresh inbound mail and verified email into assistant chat use humans.
+
+Customer confirmation supplies `lastSeenVisibleMessageId`, never internal
+revision/generation or free-form evidence. It always resolves (no optional
+flag), requires reopening closed work, and stores proof privately. Already
+human active requests and repeated accepted resolved proof add no rows.
+Assistant reply/escalation return only bounded `HandlingCommandResult` fields.
+Ticket change, work/evidence, Audit, and replay receipt commit together;
+handoff stores bounded summary/guide IDs and transcript references, not copied
+transcripts, notes, or mail jobs.
+
+Default `listStaffQueue` uses `handling: "human"`; `"assistant"`/`"all"`
+are explicit supervision views. Quota `assistantManaged` reserves 12 ordinary
+rows and one human message slot until the first staff response; controls keep
+a four-row/one-message tail. Legacy quotas retain their limits. Repeated
+no-ops avoid churn, but finite control cycles remain subject to named capacity.
+See [host composition](../../docs/HOST_COMPOSITION.md#optional-handling-and-deterministic-controls-sd-01)
+and [collections](../../docs/COLLECTIONS.md#sd-01-handling-and-handoff-layout-checkpoint)
+for exact admission, replay, and source/release boundaries.
+
+Handoff summaries are limited to 2,000 UTF-16 code units with
+`SupportDeskLimitError` field `handoff_summary`. Complete serialized assistant
+message/handoff records, including wrappers, are limited to 60,000 UTF-16
+bytes with field `serialized_record`; refusal occurs before commit.
 
 ### Optional lifecycle extras
 
@@ -84,6 +147,12 @@ still terminal beyond the shared cutoff). Both workers require an explicit
 the application so projection, repair, and sweep share one cutoff. The
 projection is never ownership or permission evidence.
 
+A valid positive older active hint can discover a newer active canonical
+ticket, including a human handoff, without waiting for projection repair.
+Malformed, nonpositive, future-revision, and inactive hints are refused;
+canonical fields alone govern handling/filter/sort. Missing or inactive hints
+can still cause a temporary repair gap.
+
 Staff reads return `StaffTicketView` (full `Ticket` and all `TicketMessage`
 rows). Mutations that return that view also require `support.queue.read` so a
 narrow write permission cannot bypass the staff-detail boundary. They do not
@@ -125,7 +194,7 @@ When a create includes a notification, Support Desk sets the
 lifecycle changes. Internal notes, assignment, and priority changes advance
 only staff-facing `updatedAt` (in core workflow events).
 
-Accepted-change history is exact `@pegma/audit@0.1.0` projected into the
+Accepted-change history is exact `@pegma/audit@0.2.0` projected into the
 ticket partition with `defineAudit`. Customer create/reply and every staff
 mutation drop Audit transaction actions beside the state change; history is
 read through `readTicketAuditHistory` / Audit, not a private sorter. Domain
@@ -147,7 +216,7 @@ Outbound `Message-ID` values must be at most 254 ASCII characters with a
 dot-atom local part, a valid DNS domain, and no controls or malformed dots.
 
 Outbound state is the application projection of published exact
-`@pegma/mail@0.1.0`. Support Desk keeps its `delivery:*` physical record and
+`@pegma/mail@0.1.1`. Support Desk keeps its `delivery:*` physical record and
 stores immutable template, subject, and `Message-ID` content on the causal
 message in the same transaction. The generic package owns claims, provider
 idempotency, submission generations, retry/reconciliation transitions,

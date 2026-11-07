@@ -4,6 +4,8 @@ import type {
   Ticket,
   TicketChannel,
   TicketEvent,
+  TicketHandling,
+  TicketHandlingState,
   TicketPriority,
   TicketRequester,
 } from "@pegma/support-desk-contracts";
@@ -21,6 +23,8 @@ export type {
   TicketChannel,
   TicketEvent,
   TicketId,
+  TicketHandling,
+  TicketHandlingState,
   TicketMessage,
   TicketPriority,
   TicketRequester,
@@ -40,6 +44,11 @@ const TICKET_PRIORITIES: readonly TicketPriority[] = [
   "normal",
   "high",
   "urgent",
+];
+const TICKET_HANDLING_STATES: readonly TicketHandlingState[] = [
+  "assistant",
+  "human-pending",
+  "human-active",
 ];
 
 function requireText(value: unknown, field: string): void {
@@ -111,14 +120,95 @@ function activeTicket(ticket: Ticket): Omit<Ticket, "resolvedAt" | "closedAt"> {
   return active;
 }
 
+/** Legacy omission remains human work; this does not modify the ticket. */
+export function effectiveTicketHandling(
+  ticket: Pick<Ticket, "handling">,
+): TicketHandling {
+  const handling = ticket.handling;
+  if (handling === undefined)
+    return Object.freeze({ state: "human-pending", generation: 0 });
+  if (
+    handling === null ||
+    typeof handling !== "object" ||
+    Array.isArray(handling)
+  )
+    throw new TypeError("ticket.handling must be a handling object");
+  requireOneOf(handling.state, TICKET_HANDLING_STATES, "ticket.handling.state");
+  if (!Number.isSafeInteger(handling.generation) || handling.generation < 1)
+    throw new TypeError(
+      "ticket.handling.generation must be a positive safe integer",
+    );
+  return Object.freeze({ ...handling });
+}
+
 function freezeTicket(ticket: Ticket): Ticket {
   return Object.freeze({
     ...ticket,
+    ...(ticket.handling === undefined
+      ? {}
+      : { handling: effectiveTicketHandling(ticket) }),
     ...(ticket.tags === undefined
       ? {}
       : { tags: Object.freeze([...ticket.tags]) }),
     requester: Object.freeze({ ...ticket.requester }),
   });
+}
+
+function advanceHandling(
+  ticket: Ticket,
+  state: TicketHandlingState,
+): TicketHandling {
+  const current = effectiveTicketHandling(ticket);
+  if (current.generation === Number.MAX_SAFE_INTEGER)
+    throw new TicketWorkflowError("ticket handling generation is exhausted");
+  return { state, generation: current.generation + 1 };
+}
+
+function requireHandlingFence(
+  ticket: Ticket,
+  event: {
+    readonly expectedRevision: number;
+    readonly expectedHandlingGeneration: number;
+  },
+): TicketHandling {
+  if (
+    !Number.isSafeInteger(event.expectedRevision) ||
+    event.expectedRevision < 1
+  )
+    throw new TypeError(
+      "event.expectedRevision must be a positive safe integer",
+    );
+  if (
+    !Number.isSafeInteger(event.expectedHandlingGeneration) ||
+    event.expectedHandlingGeneration < 0
+  )
+    throw new TypeError(
+      "event.expectedHandlingGeneration must be a nonnegative safe integer",
+    );
+  const handling = effectiveTicketHandling(ticket);
+  if (
+    ticket.revision !== event.expectedRevision ||
+    handling.generation !== event.expectedHandlingGeneration
+  )
+    throw new TicketWorkflowError(
+      "ticket revision or handling generation changed",
+    );
+  return handling;
+}
+
+function requireActiveAssistant(
+  ticket: Ticket,
+  handling: TicketHandling,
+): void {
+  if (
+    handling.state !== "assistant" ||
+    ticket.channel !== "web" ||
+    ticket.status === "resolved" ||
+    ticket.status === "closed"
+  )
+    throw new TicketWorkflowError(
+      "assistant output requires an active assistant web ticket",
+    );
 }
 
 function nextRevision(
@@ -161,6 +251,14 @@ export function createTicket(input: CreateTicketInput): Ticket {
       throw new TypeError("relatedTicketId must name a different ticket");
     }
   }
+  if (input.initialHandling !== undefined) {
+    if (input.initialHandling !== "assistant")
+      throw new TypeError("initialHandling must be assistant when supplied");
+    if (input.channel !== "web")
+      throw new TicketWorkflowError(
+        "assistant handling is available only for web tickets",
+      );
+  }
   timestamp(input.createdAt, "createdAt");
   validateRequester(input.requester);
 
@@ -181,6 +279,9 @@ export function createTicket(input: CreateTicketInput): Ticket {
     createdAt: input.createdAt,
     updatedAt: input.createdAt,
     customerUpdatedAt: input.createdAt,
+    ...(input.initialHandling === undefined
+      ? {}
+      : { handling: { state: "assistant" as const, generation: 1 } }),
     ...(input.relatedTicketId === undefined
       ? {}
       : { relatedTicketId: input.relatedTicketId }),
@@ -209,12 +310,28 @@ export function applyTicketEvent(ticket: Ticket, event: TicketEvent): Ticket {
   }
 
   switch (event.type) {
-    case "customer_replied":
+    case "customer_replied": {
+      if (event.channel !== undefined)
+        requireOneOf(event.channel, TICKET_CHANNELS, "event.channel");
+      const handling = effectiveTicketHandling(ticket);
       return freezeTicket({
         ...activeTicket(ticket),
         ...nextRevision(ticket, event.occurredAt, { customerVisible: true }),
         status: "waiting_on_support",
+        ...(ticket.handling === undefined
+          ? {}
+          : {
+              handling: advanceHandling(
+                ticket,
+                handling.state === "assistant" &&
+                  event.channel !== undefined &&
+                  event.channel !== "web"
+                  ? "human-pending"
+                  : handling.state,
+              ),
+            }),
       });
+    }
 
     case "support_replied":
       return freezeTicket({
@@ -222,7 +339,70 @@ export function applyTicketEvent(ticket: Ticket, event: TicketEvent): Ticket {
         ...nextRevision(ticket, event.occurredAt, { customerVisible: true }),
         status: "waiting_on_customer",
         firstStaffRespondedAt: ticket.firstStaffRespondedAt ?? event.occurredAt,
+        ...(ticket.handling === undefined
+          ? {}
+          : { handling: advanceHandling(ticket, "human-active") }),
       });
+
+    case "assistant_replied": {
+      const handling = requireHandlingFence(ticket, event);
+      requireActiveAssistant(ticket, handling);
+      return freezeTicket({
+        ...ticket,
+        ...nextRevision(ticket, event.occurredAt, { customerVisible: true }),
+        status: "waiting_on_customer",
+        handling: advanceHandling(ticket, "assistant"),
+      });
+    }
+
+    case "human_requested": {
+      const handling = effectiveTicketHandling(ticket);
+      const revision = nextRevision(ticket, event.occurredAt, {
+        customerVisible: true,
+      });
+      if (
+        handling.state !== "assistant" &&
+        ticket.status !== "resolved" &&
+        ticket.status !== "closed"
+      )
+        return freezeTicket(ticket);
+      return freezeTicket({
+        ...activeTicket(ticket),
+        ...revision,
+        status: "waiting_on_support",
+        ...(ticket.handling === undefined
+          ? {}
+          : { handling: advanceHandling(ticket, "human-pending") }),
+      });
+    }
+
+    case "human_escalated": {
+      const handling = requireHandlingFence(ticket, event);
+      requireActiveAssistant(ticket, handling);
+      return freezeTicket({
+        ...ticket,
+        ...nextRevision(ticket, event.occurredAt, { customerVisible: true }),
+        status: "waiting_on_support",
+        handling: advanceHandling(ticket, "human-pending"),
+      });
+    }
+
+    case "human_taken_over": {
+      const handling = requireHandlingFence(ticket, event);
+      if (ticket.status === "resolved" || ticket.status === "closed")
+        throw new TicketWorkflowError(
+          "terminal ticket must be reopened before takeover",
+        );
+      const revision = nextRevision(ticket, event.occurredAt, {
+        customerVisible: true,
+      });
+      if (handling.state === "human-active") return freezeTicket(ticket);
+      return freezeTicket({
+        ...ticket,
+        ...revision,
+        handling: advanceHandling(ticket, "human-active"),
+      });
+    }
 
     case "note_added":
       return freezeTicket({
@@ -231,6 +411,7 @@ export function applyTicketEvent(ticket: Ticket, event: TicketEvent): Ticket {
       });
 
     case "resolved":
+    case "customer_success_confirmed":
       if (ticket.status === "closed") {
         throw new TicketWorkflowError(
           "closed ticket must be reopened before it can be resolved",
@@ -267,6 +448,9 @@ export function applyTicketEvent(ticket: Ticket, event: TicketEvent): Ticket {
         ...activeTicket(ticket),
         ...nextRevision(ticket, event.occurredAt, { customerVisible: true }),
         status: "waiting_on_support",
+        ...(ticket.handling === undefined
+          ? {}
+          : { handling: advanceHandling(ticket, "human-pending") }),
       });
 
     case "assigned": {

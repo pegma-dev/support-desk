@@ -23,8 +23,14 @@ import type {
   TicketMessage,
   TicketPriority,
   TicketStatus,
+  TicketHandling,
+  TicketHandlingState,
 } from "@pegma/support-desk-contracts";
-import { applyTicketEvent, createTicket } from "@pegma/support-desk-core";
+import {
+  applyTicketEvent,
+  createTicket,
+  effectiveTicketHandling,
+} from "@pegma/support-desk-core";
 
 export type { InboundSenderAuthentication };
 
@@ -38,6 +44,13 @@ export const supportPermissions = Object.freeze({
   assign: "support.ticket.assign",
   manage: "support.ticket.manage",
   auditRead: "support.audit.read",
+  assistantStart: "support.ticket.assistant.start",
+  assistantRead: "support.ticket.assistant.read",
+  assistantReply: "support.ticket.assistant.reply",
+  assistantEscalate: "support.ticket.assistant.escalate",
+  requestPerson: "support.ticket.request_person.own",
+  takeOver: "support.ticket.take_over",
+  confirmSuccess: "support.ticket.confirm_success.own",
 } as const);
 
 export interface SupportDeskLimits {
@@ -124,6 +137,8 @@ export class SupportDeskLimitError extends Error {
     readonly field:
       | "subject"
       | "body"
+      | "handoff_summary"
+      | "serialized_record"
       | "customer_tickets"
       | "ticket_messages"
       | "ticket_partition",
@@ -221,7 +236,12 @@ type SupportCommandType =
   | "close_ticket"
   | "reopen_ticket"
   | "inbound_email_create"
-  | "inbound_email_reply";
+  | "inbound_email_reply"
+  | "assistant_reply"
+  | "assistant_escalate"
+  | "request_person"
+  | "take_over"
+  | "confirm_customer_success";
 
 interface CommandRecord {
   readonly kind: "command";
@@ -265,6 +285,54 @@ interface TicketQuotaRecord {
   readonly partition: TicketId;
   readonly id: "quota";
   readonly messageCount: number;
+  /** Only explicitly opted-in web conversations reserve human completion capacity. */
+  readonly assistantManaged?: true;
+}
+
+export type AssistantEscalationReason =
+  "no_guidance" | "unsuccessful" | "capacity" | "provider_failure" | "other";
+export interface HandoffWorkRecord {
+  readonly kind: "handoff_work";
+  readonly partition: TicketId;
+  readonly id: string;
+  readonly status: "pending";
+  readonly reason:
+    AssistantEscalationReason | "customer_requested" | "email_reply";
+  readonly summary?: string;
+  readonly attemptedGuideIds: readonly string[];
+  readonly transcript: {
+    readonly ticketId: TicketId;
+    readonly throughRevision: number;
+    readonly lastVisibleMessageId: MessageId;
+  };
+  readonly handlingGeneration: number;
+  readonly createdAt: IsoTimestamp;
+}
+/** Staff-only handoff context, separate from message/replay and assistant DTOs. */
+export interface HandoffWorkDto {
+  readonly ticketId: TicketId;
+  readonly workId: string;
+  readonly status: HandoffWorkRecord["status"];
+  readonly reason: HandoffWorkRecord["reason"];
+  readonly summary?: string;
+  readonly attemptedGuideIds: readonly string[];
+  readonly transcript: HandoffWorkRecord["transcript"];
+  readonly handlingGeneration: number;
+  readonly createdAt: IsoTimestamp;
+}
+export interface CustomerSuccessConfirmation {
+  readonly commandId: string;
+  readonly ticketId: TicketId;
+  readonly confirmedBy: PrincipalId;
+  readonly confirmedAt: IsoTimestamp;
+  readonly lastSeenVisibleMessageId: MessageId;
+  readonly revision: number;
+  readonly handlingGeneration: number;
+}
+interface CustomerSuccessRecord extends CustomerSuccessConfirmation {
+  readonly kind: "customer_success";
+  readonly partition: TicketId;
+  readonly id: string;
 }
 
 interface TicketReservationRecord {
@@ -285,6 +353,8 @@ export type SupportRecord =
   | CommandRecord
   | InboundReplyRerouteFenceRecord
   | InboundCreateRerouteFenceRecord
+  | HandoffWorkRecord
+  | CustomerSuccessRecord
   | DeliveryJob;
 
 /** Closed MVP registry of durable accepted-change audit action names. */
@@ -300,6 +370,11 @@ export const supportTicketAuditActions = Object.freeze({
   resolved: "support.ticket.resolved",
   closed: "support.ticket.closed",
   reopened: "support.ticket.reopened",
+  assistantReplied: "support.ticket.assistant_replied",
+  humanRequested: "support.ticket.human_requested",
+  humanEscalated: "support.ticket.human_escalated",
+  humanTakenOver: "support.ticket.human_taken_over",
+  customerSuccessConfirmed: "support.ticket.customer_success_confirmed",
 } as const);
 
 export interface CustomerTicketIndexEntry {
@@ -696,6 +771,7 @@ export interface QueueIndexRecord {
   readonly channel: TicketChannel;
   readonly assignedTo?: PrincipalId;
   readonly updatedAt: IsoTimestamp;
+  readonly handling?: TicketHandling;
 }
 
 const queueIndexKey = (record: QueueIndexRecord): EntityKey => ({
@@ -768,6 +844,7 @@ export interface CreateCustomerTicketCommand {
   readonly category?: string;
   readonly requesterEmail?: string;
   readonly notification?: NotificationInput;
+  readonly initialHandling?: "assistant";
 }
 
 /**
@@ -809,6 +886,7 @@ export interface CustomerTicketSummary {
   readonly channel: Ticket["channel"];
   readonly createdAt: Ticket["createdAt"];
   readonly customerUpdatedAt: Ticket["customerUpdatedAt"];
+  readonly handling?: TicketHandlingState;
 }
 
 /**
@@ -839,6 +917,48 @@ export interface CustomerTicketView {
 export interface StaffTicketView {
   readonly ticket: Ticket;
   readonly messages: readonly TicketMessage[];
+}
+
+/** Service-only safe conversation; never includes staff notes or requester identity. */
+export interface AssistantConversationView extends CustomerTicketView {
+  readonly revision: number;
+  readonly handling: TicketHandling;
+  readonly triggerMessageId?: MessageId;
+}
+export interface AssistantTurnFence {
+  readonly commandId: string;
+  readonly correlationId: string;
+  readonly ticketId: TicketId;
+  readonly expectedRevision: number;
+  readonly expectedHandlingGeneration: number;
+  readonly triggerMessageId: MessageId;
+}
+export interface AssistantReplyCommand extends AssistantTurnFence {
+  readonly messageId: MessageId;
+  readonly body: string;
+}
+export interface AssistantEscalationCommand extends AssistantTurnFence {
+  readonly reason?: AssistantEscalationReason;
+  readonly summary?: string;
+  readonly attemptedGuideIds?: readonly string[];
+}
+export interface HandlingCommandResult {
+  readonly ticketId: TicketId;
+  readonly revision: number;
+  readonly handlingGeneration: number;
+  readonly messageId?: MessageId;
+}
+export interface RequestPersonCommand {
+  readonly commandId: string;
+  readonly correlationId: string;
+  readonly ticketId: TicketId;
+}
+export interface TakeOverTicketCommand extends RequestPersonCommand {
+  readonly expectedRevision: number;
+  readonly expectedHandlingGeneration: number;
+}
+export interface ConfirmCustomerSuccessCommand extends RequestPersonCommand {
+  readonly lastSeenVisibleMessageId: MessageId;
 }
 
 export interface StaffRevisionHint {
@@ -913,6 +1033,8 @@ export interface LifecycleTicketCommand extends StaffRevisionHint {
  * confirmation. Storage never filters or sorts projection rows.
  */
 export interface StaffQueueQuery {
+  /** Human work is the default; assistant/all are explicit supervision views. */
+  readonly handling?: "human" | "assistant" | "all";
   readonly tag?: string;
   /** Target filters and due sorting default to resolution. */
   readonly target?: "first_response" | "resolution";
@@ -933,6 +1055,7 @@ export interface StaffQueueQuery {
 
 /** Confirmed active ticket summary for the staff queue surface. */
 export interface StaffQueueItem {
+  readonly handling: TicketHandlingState;
   readonly ticketId: TicketId;
   readonly revision: number;
   readonly status: TicketStatus;
@@ -979,6 +1102,38 @@ export interface QueueInactiveSweepResult {
 }
 
 export interface SupportDeskApplication {
+  readHandoffWork(
+    access: AccessContext,
+    ticketId: TicketId,
+  ): Promise<readonly HandoffWorkDto[]>;
+  readAssistantConversation(
+    access: AccessContext,
+    ticketId: TicketId,
+  ): Promise<AssistantConversationView>;
+  replyAsAssistant(
+    access: AccessContext,
+    command: AssistantReplyCommand,
+  ): Promise<HandlingCommandResult>;
+  escalateToHuman(
+    access: AccessContext,
+    command: AssistantEscalationCommand,
+  ): Promise<HandlingCommandResult>;
+  requestPerson(
+    access: AccessContext,
+    command: RequestPersonCommand,
+  ): Promise<CustomerTicketView>;
+  takeOverTicket(
+    access: AccessContext,
+    command: TakeOverTicketCommand,
+  ): Promise<StaffTicketView>;
+  confirmCustomerSuccess(
+    access: AccessContext,
+    command: ConfirmCustomerSuccessCommand,
+  ): Promise<CustomerTicketView>;
+  readCustomerSuccessConfirmations(
+    access: AccessContext,
+    ticketId: TicketId,
+  ): Promise<readonly CustomerSuccessConfirmation[]>;
   createCustomerTicket(
     access: AccessContext,
     command: CreateCustomerTicketCommand,
@@ -1579,6 +1734,14 @@ function snapshotCreateCustomerTicketCommand(
     ),
   };
   const category = snapshotCategory(raw.category, "create command.category");
+  const initialHandling = ownDataProperty(
+    source,
+    "initialHandling",
+    "create command.initialHandling",
+    true,
+  );
+  if (initialHandling !== undefined && initialHandling !== "assistant")
+    throw new TypeError("initialHandling must be assistant when supplied");
   const requesterEmail = normalizeRequesterEmail(raw.requesterEmail);
   const notification =
     raw.notification === undefined
@@ -1597,6 +1760,7 @@ function snapshotCreateCustomerTicketCommand(
     ...(category === undefined ? {} : { category }),
     ...(requesterEmail === undefined ? {} : { requesterEmail }),
     ...(notification === undefined ? {} : { notification }),
+    ...(initialHandling === undefined ? {} : { initialHandling }),
   });
 }
 
@@ -1753,6 +1917,9 @@ function toCustomerTicketSummary(ticket: Ticket): CustomerTicketSummary {
     channel: ticket.channel,
     createdAt: ticket.createdAt,
     customerUpdatedAt,
+    ...(ticket.handling === undefined
+      ? {}
+      : { handling: ticket.handling.state }),
   });
 }
 
@@ -1900,6 +2067,180 @@ function enforcePartitionRecordLimit(
   if (recordCount + additional > maximum) {
     throw new SupportDeskLimitError("ticket_partition", maximum);
   }
+}
+
+export const assistantHumanReserveRows = 12;
+export const assistantHumanReserveMessages = 1;
+const firstHumanReplyReserveRows = 4;
+
+/** Reserve is opt-in metadata on the existing quota, never a second counter. */
+function enforceManagedAdmission(
+  ticket: Ticket,
+  rows: readonly SupportRecord[],
+  limits: SupportDeskLimits,
+  additionalRows: number,
+  addsMessage = false,
+  firstHumanReply = false,
+): void {
+  const quota = rows.find(
+    (row): row is TicketQuotaRecord => row.kind === "ticket_quota",
+  );
+  const reserved =
+    quota?.assistantManaged === true &&
+    ticket.firstStaffRespondedAt === undefined &&
+    !firstHumanReply;
+  enforcePartitionRecordLimit(
+    rows.length,
+    limits.maxRecordsPerTicket - (reserved ? assistantHumanReserveRows : 0),
+    additionalRows,
+  );
+  if (
+    addsMessage &&
+    quota !== undefined &&
+    quota.messageCount >=
+      limits.maxMessagesPerTicket -
+        (reserved ? assistantHumanReserveMessages : 0)
+  )
+    throw new SupportDeskLimitError(
+      "ticket_messages",
+      limits.maxMessagesPerTicket,
+    );
+}
+
+function latestVisibleRecord(
+  rows: readonly SupportRecord[],
+): MessageRecord | undefined {
+  // Reuse the ordinal validation that protects ordinary customer views.
+  customerMessages(rows);
+  return rows
+    .filter(
+      (row): row is MessageRecord =>
+        row.kind === "message" && row.message.visibility === "customer",
+    )
+    .sort((a, b) => b.ordinal - a.ordinal)[0];
+}
+
+function enforceHandlingControlAdmission(
+  ticket: Ticket,
+  rows: readonly SupportRecord[],
+  limits: SupportDeskLimits,
+  additionalRows: number,
+): void {
+  const quota = rows.find(
+    (row): row is TicketQuotaRecord => row.kind === "ticket_quota",
+  );
+  const reserved =
+    quota?.assistantManaged === true &&
+    ticket.firstStaffRespondedAt === undefined;
+  enforcePartitionRecordLimit(
+    rows.length,
+    limits.maxRecordsPerTicket - (reserved ? firstHumanReplyReserveRows : 0),
+    additionalRows,
+  );
+  if (reserved && quota.messageCount >= limits.maxMessagesPerTicket)
+    throw new SupportDeskLimitError(
+      "ticket_messages",
+      limits.maxMessagesPerTicket,
+    );
+}
+
+function handlingInput(
+  input: unknown,
+  fields: readonly string[],
+  optional: readonly string[] = [],
+): Record<string, unknown> {
+  const source = boundaryObject(input, "handling command");
+  if (Object.getOwnPropertySymbols(source).length !== 0)
+    throw new TypeError("Handling commands must contain data fields");
+  const allowed = [
+    "commandId",
+    "correlationId",
+    "ticketId",
+    ...fields,
+    ...optional,
+  ];
+  if (Object.getOwnPropertyNames(source).some((key) => !allowed.includes(key)))
+    throw new TypeError("Handling command contains unsupported fields");
+  const result: Record<string, unknown> = {};
+  for (const field of allowed) {
+    const value = ownDataProperty(
+      source,
+      field,
+      "handling command." + field,
+      optional.includes(field),
+    );
+    if (value !== undefined) result[field] = value;
+  }
+  for (const field of ["commandId", "correlationId", "ticketId"]) {
+    const value = boundaryString(result[field], field);
+    requireIdentifier(value, field);
+    result[field] = value;
+  }
+  return result;
+}
+
+function handlingFence(input: Record<string, unknown>): TakeOverTicketCommand {
+  for (const field of ["expectedRevision", "expectedHandlingGeneration"]) {
+    if (
+      typeof input[field] !== "number" ||
+      !Number.isSafeInteger(input[field]) ||
+      (input[field] as number) < (field === "expectedRevision" ? 1 : 0)
+    )
+      throw new TypeError("Handling fence must be a safe integer");
+  }
+  return input as unknown as TakeOverTicketCommand;
+}
+
+function requireAssistantTurn(
+  ticket: Ticket,
+  rows: readonly SupportRecord[],
+  command: AssistantTurnFence,
+): void {
+  const handling = effectiveTicketHandling(ticket);
+  const latest = latestVisibleRecord(rows);
+  if (
+    ticket.channel !== "web" ||
+    isTerminalTicketStatus(ticket.status) ||
+    handling.state !== "assistant" ||
+    ticket.revision !== command.expectedRevision ||
+    handling.generation !== command.expectedHandlingGeneration ||
+    latest?.message.authorKind !== "customer" ||
+    latest.message.id !== command.triggerMessageId
+  )
+    throw new SupportDeskConflictError(
+      "Assistant turn changed or is no longer available",
+    );
+}
+
+function handoffWork(input: {
+  readonly ticket: Ticket;
+  readonly commandId: string;
+  readonly occurredAt: IsoTimestamp;
+  readonly lastVisibleMessageId: MessageId;
+  readonly reason: HandoffWorkRecord["reason"];
+  readonly summary?: string;
+  readonly attemptedGuideIds?: readonly string[];
+}): HandoffWorkRecord {
+  const work: HandoffWorkRecord = {
+    kind: "handoff_work",
+    partition: input.ticket.id,
+    id: "handoff:" + input.commandId,
+    status: "pending",
+    reason: input.reason,
+    ...(input.summary === undefined ? {} : { summary: input.summary }),
+    attemptedGuideIds: input.attemptedGuideIds ?? [],
+    transcript: {
+      ticketId: input.ticket.id,
+      throughRevision: input.ticket.revision,
+      lastVisibleMessageId: input.lastVisibleMessageId,
+    },
+    handlingGeneration: effectiveTicketHandling(input.ticket).generation,
+    createdAt: input.occurredAt,
+  };
+  // Support's existing codec stores one JSON string property, unlike KB chunks.
+  if (JSON.stringify(work).length * 2 > 60_000)
+    throw new SupportDeskLimitError("serialized_record", 60_000);
+  return work;
 }
 
 async function staffAuthoritativeView(
@@ -2266,6 +2607,9 @@ function deriveQueueIndexRecord(ticket: Ticket): QueueIndexRecord {
       ? {}
       : { assignedTo: ticket.assignedTo }),
     updatedAt: ticket.updatedAt,
+    ...(ticket.handling === undefined
+      ? {}
+      : { handling: { ...ticket.handling } }),
   };
 }
 
@@ -2289,7 +2633,8 @@ function queueIndexContentEqual(
     left.requesterAssociation === right.requesterAssociation &&
     left.channel === right.channel &&
     left.assignedTo === right.assignedTo &&
-    left.updatedAt === right.updatedAt
+    left.updatedAt === right.updatedAt &&
+    JSON.stringify(left.handling) === JSON.stringify(right.handling)
   );
 }
 
@@ -2437,6 +2782,13 @@ export async function projectTicketToQueue(
       if (queueIndexContentEqual(current, derived)) {
         return { action: "keep" };
       }
+      // Exact pre-SD-01 rows may already contain Task-13 fields but no handling.
+      const { handling: _newHandling, ...beforeHandling } = derived;
+      if (
+        current.handling === undefined &&
+        queueIndexContentEqual(current, beforeHandling)
+      )
+        return { action: "write", value: derived };
       // Pre-Task-13 rows have none of these additive staff fields. Enrich
       // only that exact legacy shape from freshly loaded authoritative state.
       const {
@@ -2445,6 +2797,7 @@ export async function projectTicketToQueue(
         resolutionDueAt: _due,
         firstStaffRespondedAt: _responded,
         resolvedAt: _resolved,
+        handling: _handling,
         ...legacy
       } = derived;
       if (queueIndexContentEqual(current, legacy))
@@ -2460,6 +2813,7 @@ export async function projectTicketToQueue(
 
 function toStaffQueueItem(ticket: Ticket): StaffQueueItem {
   return Object.freeze({
+    handling: effectiveTicketHandling(ticket).state,
     ticketId: ticket.id,
     ...staffLifecycleFields(ticket),
     revision: ticket.revision,
@@ -2489,6 +2843,12 @@ function staffQueueItemMatches(
   query: StaffQueueQuery,
   now: number | undefined,
 ): boolean {
+  const handling = query.handling ?? "human";
+  if (
+    handling !== "all" &&
+    (handling === "assistant") !== (item.handling === "assistant")
+  )
+    return false;
   if (query.tag !== undefined && !(item.tags ?? []).includes(query.tag))
     return false;
   if (query.targetState !== undefined) {
@@ -2601,6 +2961,14 @@ function snapshotStaffQueueQuery(input: unknown): StaffQueueQuery {
   const source = boundaryObject(input, "staff queue query");
   const readOptional = (key: keyof StaffQueueQuery): unknown =>
     ownDataProperty(source, key, `staff queue query.${key}`, true);
+  const handling = readOptional("handling");
+  if (
+    handling !== undefined &&
+    handling !== "human" &&
+    handling !== "assistant" &&
+    handling !== "all"
+  )
+    throw new TypeError("invalid queue handling view");
 
   const status = readOptional("status");
   const priority = readOptional("priority");
@@ -2659,6 +3027,7 @@ function snapshotStaffQueueQuery(input: unknown): StaffQueueQuery {
   }
 
   const query: StaffQueueQuery = {
+    ...(handling === undefined ? {} : { handling }),
     ...(tag === undefined ? {} : { tag }),
     ...(target === undefined ? {} : { target }),
     ...(targetState === undefined ? {} : { targetState }),
@@ -3040,8 +3409,21 @@ export function createSupportDeskApplication(options: {
   /** Default 8, hard maximum 32. Empty tags always clear the ticket. */
   readonly maxTagsPerTicket?: number;
   readonly responseTargetPolicy?: ResponseTargetPolicy;
+  readonly assistantHandlingEnabled?: boolean;
 }): SupportDeskApplication {
   const source = boundaryObject(options, "application options");
+  const rawAssistantEnabled = ownDataProperty(
+    source,
+    "assistantHandlingEnabled",
+    "application options.assistantHandlingEnabled",
+    true,
+  );
+  if (
+    rawAssistantEnabled !== undefined &&
+    typeof rawAssistantEnabled !== "boolean"
+  )
+    throw new TypeError("assistantHandlingEnabled must be boolean");
+  const assistantHandlingEnabled = rawAssistantEnabled === true;
   const store = ownDataProperty(
     source,
     "store",
@@ -3538,11 +3920,512 @@ export function createSupportDeskApplication(options: {
     return reserveNextTicketNumber(numbers, maxConflictAttempts);
   }
 
+  type HandlingOperation =
+    | "assistant_reply"
+    | "assistant_escalate"
+    | "request_person"
+    | "take_over"
+    | "confirm_customer_success";
+  type HandlingMutation = RequestPersonCommand & {
+    readonly expectedRevision?: number;
+    readonly expectedHandlingGeneration?: number;
+    readonly triggerMessageId?: MessageId;
+    readonly messageId?: MessageId;
+    readonly body?: string;
+    readonly lastSeenVisibleMessageId?: MessageId;
+    readonly reason?: AssistantEscalationReason;
+    readonly summary?: string;
+    readonly attemptedGuideIds?: readonly string[];
+  };
+
+  function owns(ticket: Ticket, principalId: PrincipalId): boolean {
+    return (
+      ticket.requester.association === "authenticated" &&
+      ticket.requester.principalId === principalId
+    );
+  }
+  function handlingAck(
+    ticket: Ticket,
+    messageId?: MessageId,
+  ): HandlingCommandResult {
+    return {
+      ticketId: ticket.id,
+      revision: ticket.revision,
+      handlingGeneration: effectiveTicketHandling(ticket).generation,
+      ...(messageId === undefined ? {} : { messageId }),
+    };
+  }
+
+  /** Only the new handling commands share this small executor; legacy fingerprints stay untouched. */
+  async function mutateHandling(
+    access: AccessContext,
+    command: HandlingMutation,
+    operation: HandlingOperation,
+  ): Promise<Ticket> {
+    requireIdentifier(access.principalId, "principalId");
+    const customer =
+      operation === "request_person" ||
+      operation === "confirm_customer_success";
+    const fingerprint = await requestFingerprint({
+      type: operation,
+      actorId: access.principalId,
+      ...Object.fromEntries(
+        Object.entries(command).filter(
+          ([key]) => key !== "commandId" && key !== "correlationId",
+        ),
+      ),
+    });
+    for (let attempt = 0; attempt < maxConflictAttempts; attempt += 1) {
+      const versioned = await records.getVersioned(ticketKey(command.ticketId));
+      if (
+        versioned?.value.kind !== "ticket" ||
+        (customer && !owns(versioned.value.ticket, access.principalId))
+      )
+        throw new SupportDeskNotFoundError();
+      const ticket = versioned.value.ticket;
+      const duplicate = await records.get(
+        commandKey(command.ticketId, command.commandId),
+      );
+      if (
+        duplicateMatches(duplicate, operation, command.messageId, fingerprint)
+      ) {
+        if (
+          duplicate?.kind !== "command" ||
+          duplicate.resultTicket === undefined
+        )
+          throw new SupportDeskConflictError("Handling receipt is incomplete");
+        return duplicate.resultTicket;
+      }
+      if (duplicate !== null)
+        throw new SupportDeskConflictError(
+          "Command ID reused with different input",
+        );
+      if (operation === "assistant_reply" && !assistantHandlingEnabled)
+        throw new SupportDeskConflictError("Assistant handling is disabled");
+      const rows = await records.list(command.ticketId);
+      enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket);
+      const latest = latestVisibleRecord(rows);
+      if (operation === "assistant_reply" || operation === "assistant_escalate")
+        requireAssistantTurn(ticket, rows, command as AssistantTurnFence);
+      if (
+        operation === "request_person" &&
+        !isTerminalTicketStatus(ticket.status) &&
+        effectiveTicketHandling(ticket).state !== "assistant"
+      )
+        return ticket;
+      if (operation === "confirm_customer_success") {
+        if (latest?.message.id !== command.lastSeenVisibleMessageId)
+          throw new SupportDeskConflictError("Visible conversation changed");
+        if (
+          ticket.status === "resolved" &&
+          rows.some(
+            (row) =>
+              row.kind === "customer_success" &&
+              row.lastSeenVisibleMessageId === command.lastSeenVisibleMessageId,
+          )
+        )
+          return ticket;
+      }
+      const now = clampTicketTime(clock.now(), ticket.updatedAt);
+      const common = { actorId: access.principalId, occurredAt: now };
+      const fence = {
+        expectedRevision: command.expectedRevision!,
+        expectedHandlingGeneration: command.expectedHandlingGeneration!,
+      };
+      const updated =
+        operation === "assistant_reply"
+          ? applyTicketEvent(ticket, {
+              type: "assistant_replied",
+              ...common,
+              ...fence,
+            })
+          : operation === "assistant_escalate"
+            ? applyTicketEvent(ticket, {
+                type: "human_escalated",
+                ...common,
+                ...fence,
+              })
+            : operation === "take_over"
+              ? applyTicketEvent(ticket, {
+                  type: "human_taken_over",
+                  ...common,
+                  ...fence,
+                })
+              : operation === "request_person"
+                ? applyTicketEvent(ticket, {
+                    type: "human_requested",
+                    ...common,
+                  })
+                : applyTicketEvent(ticket, {
+                    type: "customer_success_confirmed",
+                    ...common,
+                  });
+      if (updated.revision === ticket.revision) return ticket;
+      const newRows = operation === "take_over" ? 2 : 3;
+      if (operation === "assistant_reply")
+        enforceManagedAdmission(ticket, rows, limits, newRows, true);
+      else enforceHandlingControlAdmission(ticket, rows, limits, newRows);
+      const actions: Parameters<typeof records.transact>[1][number][] = [
+        {
+          action: "putIfUnchanged",
+          version: versioned.version,
+          value: { ...versioned.value, ticket: updated },
+        },
+      ];
+      if (operation === "assistant_reply") {
+        const quota = await records.getVersioned(
+          ticketQuotaKey(command.ticketId),
+        );
+        if (quota?.value.kind !== "ticket_quota")
+          throw new SupportDeskConflictError(
+            "Ticket partition quota metadata is missing",
+          );
+        if (quota.value.messageCount >= limits.maxMessagesPerTicket)
+          throw new SupportDeskLimitError(
+            "ticket_messages",
+            limits.maxMessagesPerTicket,
+          );
+        const assistantMessage: MessageRecord = {
+          kind: "message",
+          partition: ticket.id,
+          id: "message:" + command.messageId!,
+          ordinal: updated.revision,
+          message: {
+            id: command.messageId!,
+            ticketId: ticket.id,
+            authorKind: "assistant",
+            authorPrincipalId: access.principalId,
+            channel: "web",
+            visibility: "customer",
+            format: "plain_text",
+            body: command.body!,
+            createdAt: now,
+          },
+        };
+        if (JSON.stringify(assistantMessage).length * 2 > 60_000)
+          throw new SupportDeskLimitError("serialized_record", 60_000);
+        actions.push(
+          {
+            action: "putIfUnchanged",
+            version: quota.version,
+            value: {
+              ...quota.value,
+              messageCount: quota.value.messageCount + 1,
+            },
+          },
+          { action: "insert", value: assistantMessage },
+        );
+      } else if (
+        operation === "request_person" ||
+        operation === "assistant_escalate"
+      ) {
+        if (latest === undefined)
+          throw new SupportDeskConflictError(
+            "Ticket conversation is unavailable",
+          );
+        actions.push({
+          action: "insert",
+          value: handoffWork({
+            ticket: updated,
+            commandId: command.commandId,
+            occurredAt: now,
+            lastVisibleMessageId: latest.message.id,
+            reason:
+              operation === "request_person"
+                ? "customer_requested"
+                : (command.reason ?? "other"),
+            ...(command.summary === undefined
+              ? {}
+              : { summary: command.summary }),
+            ...(command.attemptedGuideIds === undefined
+              ? {}
+              : { attemptedGuideIds: command.attemptedGuideIds }),
+          }),
+        });
+      } else if (operation === "confirm_customer_success") {
+        actions.push({
+          action: "insert",
+          value: {
+            kind: "customer_success",
+            partition: ticket.id,
+            id: "success:" + command.commandId,
+            commandId: command.commandId,
+            ticketId: ticket.id,
+            confirmedBy: access.principalId,
+            confirmedAt: now,
+            lastSeenVisibleMessageId: command.lastSeenVisibleMessageId!,
+            revision: updated.revision,
+            handlingGeneration: effectiveTicketHandling(updated).generation,
+          },
+        });
+      }
+      const auditAction =
+        operation === "assistant_reply"
+          ? supportTicketAuditActions.assistantReplied
+          : operation === "assistant_escalate"
+            ? supportTicketAuditActions.humanEscalated
+            : operation === "request_person"
+              ? supportTicketAuditActions.humanRequested
+              : operation === "take_over"
+                ? supportTicketAuditActions.humanTakenOver
+                : supportTicketAuditActions.customerSuccessConfirmed;
+      actions.push(
+        ticketAuditAction({
+          commandId: command.commandId,
+          correlationId: command.correlationId,
+          ticketId: ticket.id,
+          revision: updated.revision,
+          actorId: access.principalId,
+          occurredAt: now,
+          action: auditAction,
+        }),
+        {
+          action: "insert",
+          value: {
+            kind: "command",
+            partition: ticket.id,
+            id: "command:" + command.commandId,
+            commandId: command.commandId,
+            commandType: operation,
+            ...(command.messageId === undefined
+              ? {}
+              : { messageId: command.messageId }),
+            requestFingerprint: fingerprint,
+            completedAt: now,
+            resultTicket: updated,
+          },
+        },
+      );
+      if ((await records.transact(ticket.id, actions)).committed) {
+        await safeProjectQueue(ticket.id);
+        return updated;
+      }
+    }
+    const current = await records.get(ticketKey(command.ticketId));
+    if (
+      current?.kind !== "ticket" ||
+      (customer && !owns(current.ticket, access.principalId))
+    )
+      throw new SupportDeskNotFoundError();
+    const receipt = await records.get(
+      commandKey(command.ticketId, command.commandId),
+    );
+    if (
+      duplicateMatches(receipt, operation, command.messageId, fingerprint) &&
+      receipt?.kind === "command" &&
+      receipt.resultTicket !== undefined
+    )
+      return receipt.resultTicket;
+    throw new SupportDeskConflictError();
+  }
+
   return {
+    async readHandoffWork(access, ticketId) {
+      requirePermission(access, supportPermissions.queueRead);
+      requireIdentifier(access.principalId, "principalId");
+      requireIdentifier(ticketId, "ticketId");
+      const rows = await records.list(ticketId);
+      enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket);
+      if (!rows.some((row) => row.kind === "ticket"))
+        throw new SupportDeskNotFoundError();
+      return rows
+        .filter((row): row is HandoffWorkRecord => row.kind === "handoff_work")
+        .sort(
+          (a, b) =>
+            a.transcript.throughRevision - b.transcript.throughRevision ||
+            a.id.localeCompare(b.id),
+        )
+        .map((row) =>
+          Object.freeze({
+            ticketId,
+            workId: row.id,
+            status: row.status,
+            reason: row.reason,
+            ...(row.summary === undefined ? {} : { summary: row.summary }),
+            attemptedGuideIds: Object.freeze([...row.attemptedGuideIds]),
+            transcript: Object.freeze({ ...row.transcript }),
+            handlingGeneration: row.handlingGeneration,
+            createdAt: row.createdAt,
+          }),
+        );
+    },
+    async readAssistantConversation(access, ticketId) {
+      requirePermission(access, supportPermissions.assistantRead);
+      requireIdentifier(access.principalId, "principalId");
+      requireIdentifier(ticketId, "ticketId");
+      const rows = await records.list(ticketId);
+      enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket);
+      const ticket = rows.find(
+        (row): row is TicketRecord => row.kind === "ticket",
+      )?.ticket;
+      if (ticket === undefined) throw new SupportDeskNotFoundError();
+      if (
+        ticket.channel !== "web" ||
+        isTerminalTicketStatus(ticket.status) ||
+        effectiveTicketHandling(ticket).state !== "assistant"
+      )
+        throw new SupportDeskConflictError(
+          "Assistant conversation is unavailable",
+        );
+      const latest = latestVisibleRecord(rows);
+      return {
+        ticket: toCustomerTicketSummary(ticket),
+        messages: customerMessages(rows),
+        revision: ticket.revision,
+        handling: { ...effectiveTicketHandling(ticket) },
+        ...(latest?.message.authorKind === "customer"
+          ? { triggerMessageId: latest.message.id }
+          : {}),
+      };
+    },
+    async replyAsAssistant(access, input) {
+      requirePermission(access, supportPermissions.assistantReply);
+      const raw = handlingInput(input, [
+        "expectedRevision",
+        "expectedHandlingGeneration",
+        "triggerMessageId",
+        "messageId",
+        "body",
+      ]);
+      handlingFence(raw);
+      for (const key of ["triggerMessageId", "messageId"])
+        requireIdentifier(boundaryString(raw[key], key), key);
+      const body = boundaryString(raw.body, "body");
+      enforceLimit(body, "body", limits.maxMessageCharacters);
+      const command = raw as unknown as AssistantReplyCommand;
+      return handlingAck(
+        await mutateHandling(access, command, "assistant_reply"),
+        command.messageId,
+      );
+    },
+    async escalateToHuman(access, input) {
+      requirePermission(access, supportPermissions.assistantEscalate);
+      const raw = handlingInput(
+        input,
+        ["expectedRevision", "expectedHandlingGeneration", "triggerMessageId"],
+        ["reason", "summary", "attemptedGuideIds"],
+      );
+      handlingFence(raw);
+      requireIdentifier(
+        boundaryString(raw.triggerMessageId, "triggerMessageId"),
+        "triggerMessageId",
+      );
+      if (
+        raw.reason !== undefined &&
+        ![
+          "no_guidance",
+          "unsuccessful",
+          "capacity",
+          "provider_failure",
+          "other",
+        ].includes(raw.reason as string)
+      )
+        throw new TypeError("Invalid escalation reason");
+      if (raw.summary !== undefined) {
+        const summary = boundaryString(raw.summary, "summary");
+        requireNonempty(summary, "handoff_summary");
+        if (summary.length > 2_000)
+          throw new SupportDeskLimitError("handoff_summary", 2_000);
+      }
+      if (raw.attemptedGuideIds !== undefined) {
+        if (
+          !Array.isArray(raw.attemptedGuideIds) ||
+          raw.attemptedGuideIds.length > 16
+        )
+          throw new TypeError("Too many attempted guide IDs");
+        const guides = raw.attemptedGuideIds;
+        if (
+          Object.keys(guides).length !== guides.length ||
+          Object.getOwnPropertySymbols(guides).length !== 0
+        )
+          throw new TypeError("Guide IDs must be dense data");
+        raw.attemptedGuideIds = Object.freeze(
+          Array.from({ length: guides.length }, (_, index) => {
+            const value = ownDataProperty(
+              guides,
+              String(index),
+              "attemptedGuideIds",
+            );
+            const id = boundaryString(value, "guideId");
+            requireIdentifier(id, "guideId");
+            if (id.length > 200 || id.includes("://"))
+              throw new TypeError(
+                "Guide IDs must be bounded opaque references",
+              );
+            return id;
+          }),
+        );
+      }
+      return handlingAck(
+        await mutateHandling(
+          access,
+          raw as unknown as AssistantEscalationCommand,
+          "assistant_escalate",
+        ),
+      );
+    },
+    async requestPerson(access, input) {
+      requirePermission(access, supportPermissions.requestPerson);
+      const command = handlingInput(
+        input,
+        [],
+      ) as unknown as RequestPersonCommand;
+      await mutateHandling(access, command, "request_person");
+      return customerViewAfterChange(access.principalId, command.ticketId);
+    },
+    async takeOverTicket(access, input) {
+      requireStaffMutationAccess(access, supportPermissions.takeOver);
+      const command = handlingFence(
+        handlingInput(input, [
+          "expectedRevision",
+          "expectedHandlingGeneration",
+        ]),
+      );
+      await mutateHandling(access, command, "take_over");
+      return staffCommandResult(command.ticketId, command.commandId);
+    },
+    async confirmCustomerSuccess(access, input) {
+      requirePermission(access, supportPermissions.confirmSuccess);
+      const raw = handlingInput(input, ["lastSeenVisibleMessageId"]);
+      requireIdentifier(
+        boundaryString(
+          raw.lastSeenVisibleMessageId,
+          "lastSeenVisibleMessageId",
+        ),
+        "lastSeenVisibleMessageId",
+      );
+      const command = raw as unknown as ConfirmCustomerSuccessCommand;
+      await mutateHandling(access, command, "confirm_customer_success");
+      return customerViewAfterChange(access.principalId, command.ticketId);
+    },
+    async readCustomerSuccessConfirmations(access, ticketId) {
+      requireStaffMutationAccess(access, supportPermissions.auditRead);
+      requireIdentifier(access.principalId, "principalId");
+      requireIdentifier(ticketId, "ticketId");
+      const rows = await records.list(ticketId);
+      enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket);
+      if (!rows.some((row) => row.kind === "ticket"))
+        throw new SupportDeskNotFoundError();
+      return rows
+        .filter(
+          (row): row is CustomerSuccessRecord =>
+            row.kind === "customer_success",
+        )
+        .sort(
+          (a, b) =>
+            a.revision - b.revision || a.commandId.localeCompare(b.commandId),
+        )
+        .map(({ kind: _kind, partition: _partition, id: _id, ...proof }) =>
+          Object.freeze(proof),
+        );
+    },
     async createCustomerTicket(access, input) {
       requirePermission(access, supportPermissions.create);
       requireIdentifier(access.principalId, "principalId");
       const command = snapshotCreateCustomerTicketCommand(input);
+      if (command.initialHandling === "assistant") {
+        requirePermission(access, supportPermissions.assistantStart);
+      }
       requireIdentifier(command.ticketId, "ticketId");
       requireIdentifier(command.messageId, "messageId");
       requireIdentifier(command.commandId, "commandId");
@@ -3561,6 +4444,9 @@ export function createSupportDeskApplication(options: {
           : { category: command.category }),
         requesterEmail: command.requesterEmail ?? null,
         notification: stableNotification(command.notification),
+        ...(command.initialHandling === undefined
+          ? {}
+          : { initialHandling: command.initialHandling }),
       };
       const fingerprint = await requestFingerprint(fingerprintPayload);
       const createThreading: ThreadingHint = {
@@ -3583,6 +4469,7 @@ export function createSupportDeskApplication(options: {
       );
       if (
         !createIsReplay &&
+        command.initialHandling === undefined &&
         existingCreate?.kind === "command" &&
         existingCreate.commandType === "create_customer_ticket" &&
         existingCreate.messageId === command.messageId
@@ -3613,6 +4500,12 @@ export function createSupportDeskApplication(options: {
         }
       }
       if (createIsReplay) {
+        const current = await records.get(ticketKey(command.ticketId));
+        if (
+          current?.kind !== "ticket" ||
+          !owns(current.ticket, access.principalId)
+        )
+          throw new SupportDeskNotFoundError();
         // A crash after ticket commit and before index confirmation must still
         // converge the principal hint on retry.
         const fence = await records.get(ticketReservationKey(command.ticketId));
@@ -3633,6 +4526,8 @@ export function createSupportDeskApplication(options: {
           createThreading,
         );
       }
+      if (command.initialHandling === "assistant" && !assistantHandlingEnabled)
+        throw new SupportDeskConflictError("Assistant handling is disabled");
       if (command.category !== undefined) {
         if (
           allowedCategories === undefined ||
@@ -3653,8 +4548,19 @@ export function createSupportDeskApplication(options: {
       enforcePartitionRecordLimit(
         0,
         limits.maxRecordsPerTicket,
-        estimatedCreateRows,
+        estimatedCreateRows +
+          (command.initialHandling === "assistant"
+            ? assistantHumanReserveRows
+            : 0),
       );
+      if (
+        command.initialHandling === "assistant" &&
+        limits.maxMessagesPerTicket < 1 + assistantHumanReserveMessages
+      )
+        throw new SupportDeskLimitError(
+          "ticket_messages",
+          limits.maxMessagesPerTicket,
+        );
 
       // Reserve outside the ticket transaction; gaps are accepted if create fails.
       const ticketNumber = await reserveTicketNumber();
@@ -3671,6 +4577,9 @@ export function createSupportDeskApplication(options: {
           number: ticketNumber,
           subject: command.subject,
           channel: "web",
+          ...(command.initialHandling === undefined
+            ? {}
+            : { initialHandling: command.initialHandling }),
           ...(command.category === undefined
             ? {}
             : { category: command.category }),
@@ -3776,6 +4685,9 @@ export function createSupportDeskApplication(options: {
             partition: command.ticketId,
             id: "quota",
             messageCount: 1,
+            ...(command.initialHandling === "assistant"
+              ? { assistantManaged: true as const }
+              : {}),
           },
         },
         ...reservationActions,
@@ -3904,6 +4816,13 @@ export function createSupportDeskApplication(options: {
           partitionRows.length,
           limits.maxRecordsPerTicket,
           command.notification === undefined ? 3 : 4,
+        );
+        enforceManagedAdmission(
+          versioned.value.ticket,
+          partitionRows,
+          limits,
+          command.notification === undefined ? 3 : 4,
+          true,
         );
         const quota = await records.getVersioned(
           ticketQuotaKey(command.ticketId),
@@ -4175,11 +5094,20 @@ export function createSupportDeskApplication(options: {
           const ticket = ticketRecord.ticket;
           if (
             ticket.id !== projection.ticketId ||
-            ticket.revision !== projection.projectedRevision ||
+            !Number.isSafeInteger(projection.projectedRevision) ||
+            projection.projectedRevision <= 0 ||
+            projection.projectedRevision > ticket.revision ||
             isTerminalTicketStatus(ticket.status)
           ) {
             continue;
           }
+          const handlingView = query.handling ?? "human";
+          if (
+            handlingView !== "all" &&
+            (handlingView === "assistant") !==
+              (effectiveTicketHandling(ticket).state === "assistant")
+          )
+            continue;
           if (seenTicketIds.has(ticket.id)) {
             // Scan pages may repeat rows; de-duplicate after confirmation.
             continue;
@@ -4301,6 +5229,14 @@ export function createSupportDeskApplication(options: {
           partitionRows.length,
           limits.maxRecordsPerTicket,
           command.notification === undefined ? 3 : 4,
+        );
+        enforceManagedAdmission(
+          versioned.value.ticket,
+          partitionRows,
+          limits,
+          command.notification === undefined ? 3 : 4,
+          true,
+          true,
         );
         const quota = await records.getVersioned(
           ticketQuotaKey(command.ticketId),
@@ -4482,6 +5418,13 @@ export function createSupportDeskApplication(options: {
           partitionRows.length,
           limits.maxRecordsPerTicket,
           3,
+        );
+        enforceManagedAdmission(
+          versioned.value.ticket,
+          partitionRows,
+          limits,
+          3,
+          true,
         );
         const quota = await records.getVersioned(
           ticketQuotaKey(command.ticketId),
@@ -4672,6 +5615,13 @@ export function createSupportDeskApplication(options: {
           limits.maxRecordsPerTicket,
           addedRecords,
         );
+        enforceManagedAdmission(
+          versioned.value.ticket,
+          partitionRows,
+          limits,
+          addedRecords,
+          command.messageId !== undefined,
+        );
         let quotaVersion: Awaited<
           ReturnType<CollectionStore<SupportRecord>["getVersioned"]>
         > = null;
@@ -4751,9 +5701,7 @@ export function createSupportDeskApplication(options: {
                   action: "putIfUnchanged" as const,
                   version: quotaVersion.version,
                   value: {
-                    kind: "ticket_quota" as const,
-                    partition: command.ticketId,
-                    id: "quota" as const,
+                    ...quotaVersion.value,
                     messageCount: quotaVersion.value.messageCount + 1,
                   },
                 },
@@ -4879,6 +5827,12 @@ export function createSupportDeskApplication(options: {
         enforcePartitionRecordLimit(
           partitionRows.length,
           limits.maxRecordsPerTicket,
+          2,
+        );
+        enforceManagedAdmission(
+          versioned.value.ticket,
+          partitionRows,
+          limits,
           2,
         );
         const statusBefore = versioned.value.ticket.status;
@@ -5009,6 +5963,7 @@ export function createSupportDeskApplication(options: {
           throw new TypeError("tags must be on the host allowlist");
         const rows = await records.list(command.ticketId);
         enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket, 2);
+        enforceManagedAdmission(versioned.value.ticket, rows, limits, 2);
         const now = clampTicketTime(
           clock.now(),
           versioned.value.ticket.updatedAt,
@@ -5182,6 +6137,13 @@ export function createSupportDeskApplication(options: {
         addedRecords,
       );
 
+      enforceManagedAdmission(
+        versioned.value.ticket,
+        partitionRows,
+        limits,
+        addedRecords,
+        command.messageId !== undefined,
+      );
       let quotaVersion: Awaited<
         ReturnType<CollectionStore<SupportRecord>["getVersioned"]>
       > = null;
@@ -5251,9 +6213,7 @@ export function createSupportDeskApplication(options: {
                 action: "putIfUnchanged" as const,
                 version: quotaVersion.version,
                 value: {
-                  kind: "ticket_quota" as const,
-                  partition: command.ticketId,
-                  id: "quota" as const,
+                  ...quotaVersion.value,
                   messageCount: quotaVersion.value.messageCount + 1,
                 },
               },
@@ -7657,6 +8617,7 @@ export function createInboundMailProcessor(
         limits.maxRecordsPerTicket,
         1,
       );
+      enforceManagedAdmission(ticket.value.ticket, partitionRows, limits, 1);
       const outcome = await records.transact(input.ticketId, [
         {
           action: "putIfUnchanged",
@@ -8333,11 +9294,23 @@ export function createInboundMailProcessor(
         senderAcknowledgementAllowed:
           inboundSenderAcknowledgementAllowed(input),
       });
-      if (
-        partitionRows.length + (notification === undefined ? 3 : 4) >
-        limits.maxRecordsPerTicket
-      ) {
-        return rejected("ticket_partition_limit");
+      const requiresHandoff =
+        effectiveTicketHandling(ticket).state === "assistant";
+      try {
+        enforceManagedAdmission(
+          ticket,
+          partitionRows,
+          limits,
+          (notification === undefined ? 3 : 4) + (requiresHandoff ? 1 : 0),
+          true,
+        );
+      } catch (error) {
+        if (!(error instanceof SupportDeskLimitError)) throw error;
+        return rejected(
+          error.field === "ticket_messages"
+            ? "ticket_messages_limit"
+            : "ticket_partition_limit",
+        );
       }
       const now = clampTicketTime(clock.now(), ticket.updatedAt);
       // Customer-reply semantics: any status, including resolved or closed,
@@ -8346,6 +9319,7 @@ export function createInboundMailProcessor(
         applyTicketEvent(ticket, {
           type: "customer_replied",
           occurredAt: now,
+          channel: "email",
         }),
         responseTargetPolicy,
         "customer_replied",
@@ -8403,6 +9377,20 @@ export function createInboundMailProcessor(
         ...(notification === undefined
           ? []
           : [deliveryJobAction(ticketId, messageId, now, notification)]),
+        ...(requiresHandoff
+          ? [
+              {
+                action: "insert" as const,
+                value: handoffWork({
+                  ticket: updated,
+                  commandId,
+                  occurredAt: now,
+                  lastVisibleMessageId: messageId,
+                  reason: "email_reply",
+                }),
+              },
+            ]
+          : []),
       ]);
       if (outcome.committed) {
         return completed();

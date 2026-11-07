@@ -15,6 +15,13 @@ must not be repeated.
 Merging a pull request never publishes. The publish workflow has no token
 fallback and no `workflow_dispatch` path.
 
+Current source remains `0.1.1` and includes unreleased lifecycle and SD-01
+handling/handoff changes beyond the published artifacts at that version.
+SD-01 creates no package and performs no publication. The enhancement needs
+a new synchronized version under SD-06 before host adoption; never replace
+the existing `0.1.1` registry artifacts. Source dependency pins and registry
+baselines are recorded separately in [P-00](KNOWLEDGE_AI_P00.md).
+
 ## Standing external configuration
 
 The following is configured and must stay in place for OIDC releases to work:

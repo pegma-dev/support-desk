@@ -10,22 +10,20 @@ See also the runnable example at
 
 ## Public packages
 
-Install the synchronized exact set (first advertised release):
+This guide describes current source APIs. Source packages remain `0.1.1`, but
+their newer dependencies and lifecycle/SD-01 changes are not equivalent to the
+published `0.1.1` artifacts. The [P-00 baseline](KNOWLEDGE_AI_P00.md) separates
+source and registry snapshots. Hosts must wait for a new synchronized release
+under SD-06 before adopting this enhancement; never overwrite an existing
+registry version. See [release operations](RELEASING.md).
 
-```sh
-npm install @pegma/support-desk-contracts@0.1.0 \
-  @pegma/support-desk-core@0.1.0 \
-  @pegma/support-desk-templates@0.1.0 \
-  @pegma/support-desk-application@0.1.0
-```
-
-Also require exact peer ecosystem pins used by the application package:
+Current source manifests use these exact ecosystem pins:
 
 - `@pegma/spine@0.1.2`
 - `@pegma/storage-core@0.4.0`
 - `@pegma/authorization-core@0.4.0`
-- `@pegma/audit@0.1.0`
-- `@pegma/mail@0.1.0`
+- `@pegma/audit@0.2.0`
+- `@pegma/mail@0.1.1`
 
 For the seven direct host loops, pin the advertised durable coordinator:
 
@@ -60,6 +58,8 @@ const application = createSupportDeskApplication({
 Mint command, correlation, ticket, and message IDs on the server. Controllers
 never invent ticket numbers — create reserves them from
 `support-desk.ticket-numbers.v1`.
+The host server supplies each command's `correlationId`; the application
+validates and propagates it and never generates one.
 
 ## Error categories for HTTP mapping
 
@@ -73,7 +73,7 @@ diagnostics to a browser.
 | `SupportDeskAuthorizationError` (missing permission)                                                                  | `403`                                               |
 | `SupportDeskNotFoundError` (missing or non-owned ticket)                                                              | the same content-free `404` response for both cases |
 | `SupportDeskConflictError` (command ID reused with different input, exhausted conflict retry, callback key collision) | `409`                                               |
-| `SupportDeskLimitError` with field `subject` or `body`                                                                | `413`                                               |
+| `SupportDeskLimitError` with field `subject`, `body`, `handoff_summary`, or `serialized_record`                       | `413`                                               |
 | `SupportDeskLimitError` with field `customer_tickets`, `ticket_messages`, or `ticket_partition`                       | `409`                                               |
 | Host durable request limit refused (`@pegma/rate-limit`)                                                              | `429` with bounded `Retry-After`                    |
 | `SupportDeskQueueCapacityError` (staff queue scan/materialization budget exhausted)                                   | `503`; never return a partial queue                 |
@@ -86,6 +86,15 @@ its safe `currentRevision` and `updatedAt` hint fields. It extends
 
 `TicketWorkflowError` from lifecycle transitions is a refused state change; hosts
 typically map it to `409` after the caller was already authorized.
+
+Keep revision/generation collision hints on trusted staff/assistant paths.
+Customer deterministic controls use a content-free conflict response, never
+an internal ticket revision, handling generation, or staff update hint.
+
+`handoff_summary` has maximum 2,000 UTF-16 code units. `serialized_record` has
+maximum 60,000 UTF-16 bytes of the complete JSON record, including its wrapper,
+for assistant messages and handoff work. Both are named size failures before
+commit, distinct from message/partition capacity limits.
 
 ## Optional lifecycle extras (Task 13)
 
@@ -125,7 +134,7 @@ entirely to the host; Support Desk stores dates and compares instants only.
 
 `firstStaffRespondedAt` is set once by the first customer-visible staff reply
 and survives resolution, closure, and reopening. Notes, assignment messages,
-and lifecycle system messages do not set it. `resolvedAt` records entry into
+assistant replies, and lifecycle system messages do not set it. `resolvedAt` records entry into
 resolved; resolving an already resolved ticket preserves it. Closure preserves
 it. Explicit reopening or a customer/staff reply clears it; re-resolution sets
 it to the new resolution time. Reopening preserves due timestamps until a
@@ -163,6 +172,96 @@ or when they want the latest state following a replay.
 Tags, due timestamps, and milestones never enter customer DTOs or automatic
 customer mail projections. Hosts must keep these fields out of customer
 notification variables and template bodies as well.
+
+## Optional handling and deterministic controls (SD-01)
+
+`assistantHandlingEnabled` defaults to false. Only new trusted web creation with
+`initialHandling: "assistant"`, normal create permission, and
+`support.ticket.assistant.start` opts a ticket into assistant handling. Do not
+pass browser-selected authority through this field. Omission preserves human
+handling and existing create fingerprints. This option enables source
+handling commands, not a model, KB connection, or live deployment.
+
+| Method                             | Required permission and result boundary                                                                                                   |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `readAssistantConversation`        | `support.ticket.assistant.read`; service-only safe conversation plus current revision/handling and optional customer trigger              |
+| `replyAsAssistant`                 | `support.ticket.assistant.reply`; new work requires enabled handling; attributed plain-text message and bounded acknowledgement           |
+| `escalateToHuman`                  | `support.ticket.assistant.escalate`; fenced transition and bounded handoff work                                                           |
+| `requestPerson`                    | `support.ticket.request_person.own` plus authoritative ownership; current customer-safe view                                              |
+| `takeOverTicket`                   | `support.queue.read` plus `support.ticket.take_over`; staff view with exact revision/handling fences                                      |
+| `confirmCustomerSuccess`           | `support.ticket.confirm_success.own` plus ownership/current visible-message proof; always resolves and returns current customer-safe view |
+| `readCustomerSuccessConfirmations` | `support.queue.read` plus `support.audit.read`; private structured proof without conversation text                                        |
+
+`readHandoffWork(access, ticketId)` additionally requires `support.queue.read`
+and returns bounded staff-only `HandoffWorkDto` values: work identity/status,
+reason, optional summary, attempted guide IDs, transcript reference,
+handling generation, and creation time. These are separate from historical
+`StaffTicketView` replay and from assistant/customer DTOs. Staff handoff review
+does not require controllers to bypass the application through raw Store reads.
+
+Assistant reply/escalation require `expectedRevision`,
+`expectedHandlingGeneration`, and `triggerMessageId`. The latest visible
+message must still be that customer message on an active web assistant ticket.
+New input, internal revision changes, escalation, or takeover defeats stale
+work. `readAssistantConversation` returns no requester identity or internal
+notes; its revision/handling fences are service metadata and must not become a
+customer DTO. Assistant messages never set `firstStaffRespondedAt`.
+
+Takeover requires its current revision and handling generation; terminal work
+must reopen first. Staff reopening explicit handling routes it to human-pending.
+Missing legacy handling remains implicit human-pending/generation zero. An
+owned `requestPerson` needs no customer revision: it reopens terminal work for
+humans and is a no-op on already-human active work. Disabling assistant start/
+reply does not disable request-person, escalation, or takeover. Deterministic
+means independent of a provider, with authentication, concurrency, and finite
+capacity checks still enforced.
+
+`confirmCustomerSuccess` accepts only command/correlation/ticket IDs and
+`lastSeenVisibleMessageId`; there is no optional resolve flag or free-form
+evidence body. Use the latest visible message ID from the customer view.
+Internal notes do not change that proof. The application derives private
+revision/handling facts and records evidence with resolution, Audit, and the
+receipt. A closed ticket must reopen before confirmation. Repeating accepted
+proof on a resolved ticket with the same last-visible message adds no rows.
+Neither proof records nor internal revisions/generations enter customer
+responses. The assistant cannot invoke customer resolution as its own action.
+
+Every mutation uses stable `commandId`/semantic input and a host-server-supplied
+`correlationId`; the application does not generate it. New handling receipts retain bounded result tickets for
+replay. Assistant reply/escalation return `HandlingCommandResult` with IDs and
+revision/handling fences; takeover returns its historical staff result;
+customer controls reload the current authorized safe view. A no-op creates no
+receipt/Audit/work rows. Reuse the same ID and exact input after an unknown
+commit outcome; a changed fingerprint conflicts.
+
+The flag refuses new assistant creation/reply, not an exact already committed
+receipt replay. Replay still requires current create plus assistant-start
+permissions and ownership for customer creation, or current assistant-reply
+permission for a reply. It adds no rows, reservations, or model work. A
+retained receipt does not restore revoked authority.
+
+Handoff work contains a compact transcript reference and optional summary of
+at most 2,000 UTF-16 code units plus at most 16 opaque guide IDs of 200 units each.
+The caller must minimize that staff payload; schema limits do not redact
+private content. Never copy internal notes or a raw transcript into summary
+text. No automatic mail job or guide fetch is created. Source row/byte limits
+and the 12-row ordinary / four-row control-tail human reserve are documented
+in [collections](COLLECTIONS.md#sd-01-handling-and-handoff-layout-checkpoint).
+Limits remain visible named failures, including finite extra control cycles.
+
+`listStaffQueue` defaults to `handling: "human"`; `"assistant"` and `"all"`
+are explicit supervision views under queue permission. Selection confirms
+current authoritative handling, including legacy omission, and returns a safe
+handling state on staff queue items. Schedule the existing projection repair;
+no separate human queue store is introduced.
+A valid positive older active projection hint can discover the freshly loaded
+human ticket immediately. Future/nonpositive/malformed/inactive hints are
+refused; missing or inactive hints can still leave a temporary repair gap.
+
+SD-01 includes no AI provider, knowledge retrieval, learning, or publication.
+Keep model activation disabled. KB-04's live scoped author-credential proof,
+KB-05 exact package publication, SD-02 generation/data controls, SD-06 release,
+and host acceptance/pilot gates remain separate prerequisites.
 
 ## Inbound mail
 

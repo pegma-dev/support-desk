@@ -7,7 +7,8 @@ A composable, open-source support queue for web and email.
 
 > [!IMPORTANT]
 > Support Desk is in early `0.x` development. Source packages stay at exact
-> `0.1.1`; lifecycle additions are unreleased. Hosts must consume published
+> `0.1.1`; lifecycle and SD-01 additions are unreleased and differ from the
+> published artifacts at that version. Hosts must consume published
 > versions and cannot substitute Git branches, copied source, or local paths.
 
 Implemented in source today: the customer-facing and staff application
@@ -41,7 +42,11 @@ The first release will stay deliberately smaller than that vision. See the
 The approved [knowledge-base and AI support implementation plan](docs/KNOWLEDGE_AI_PLAN.md)
 defines the next enhancement: a standalone API/MCP-authored KB and an optional
 ticket-backed support agent, with working integrations on both launch hosts.
-It records the agreed scope and task sequence; these features are planned.
+It records the agreed scope and task sequence. SD-01 is the current source
+task: optional web assistant handling, explicit attribution, deterministic
+human handoff/takeover, private customer success evidence, and human queue
+separation. It includes no model or KB integration. Review/tests determine
+source completion; later features and live activation remain gated.
 The [P-00 handoff](docs/KNOWLEDGE_AI_P00.md) supplies the package baseline,
 synthetic evaluation fixtures, capacity checks, and prerequisites for implementation.
 Passing that harness does not establish a working KB, bot, or host deployment.
@@ -109,8 +114,10 @@ The organization profile is at
 | `@pegma/support-desk-templates`   | Safe versioned templates and optional host-branded packs     |
 
 The first `0.1.0` set is published under the `@pegma` scope. Current source
-packages remain at exact `0.1.1`; unreleased lifecycle work does not publish
-a new set. Follow [docs/RELEASING.md](docs/RELEASING.md) for releases. There is
+packages remain at exact `0.1.1`; unreleased lifecycle/SD-01 source is not
+registry-equivalent and does not publish a new set. A future synchronized
+SD-06 release is required before enhancement adoption. Follow
+[docs/RELEASING.md](docs/RELEASING.md) for releases. There is
 deliberately no storage package and no access package. Inbound mail processing
 is implemented (Buildout Task 11); host adapters, production hardening, and the
 knowledge pipeline remain later work. See the
