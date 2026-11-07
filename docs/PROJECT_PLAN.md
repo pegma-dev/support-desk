@@ -329,7 +329,7 @@ complete repair cycle, and internal notes never reach customers.
 **Goal:** Notify customers and staff without coupling to one mail provider.
 
 - Define mail-delivery and callback ports.
-- Consume published exact `@pegma/mail@0.1.0` for delivery state, workers,
+- Consume published exact `@pegma/mail@0.1.1` for delivery state, workers,
   authenticated callback application, and terminal sweeping.
 - Implement outbox-backed delivery jobs, writing the state change and its
   outbox record in one `transact` call on the ticket's partition.

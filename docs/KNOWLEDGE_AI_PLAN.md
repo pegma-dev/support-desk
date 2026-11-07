@@ -2,9 +2,10 @@
 
 ## Status and reading order
 
-Approved product decisions: 2026-11-06. The source work below is merged;
-package publication, authenticated author transport, model integration, and
-host activation remain separately gated.
+Approved product decisions: 2026-11-06. Only the six entries in the ledger
+below are merged source. KB-04 transport source remains unimplemented; full
+KB-05 and SD-02 onward remain pending. Package publication, authenticated
+author transport, model integration, and host activation remain separately gated.
 Use the [P-00 handoff](KNOWLEDGE_AI_P00.md) for the frozen package baseline,
 acceptance corpus, capacity assumptions, and owned activation prerequisites.
 This plan covers a standalone Pegma knowledge base, an optional Support Desk
@@ -23,11 +24,19 @@ integration. Completing one host does not complete this enhancement.
 | SD-01                            | [Support #34](https://github.com/pegma-dev/support-desk/pull/34) · [`593006e`](https://github.com/pegma-dev/support-desk/commit/593006e5a5e64b223cc7525447b3813a20ff90dd) | Optional handling, attributed replies, deterministic human controls, and private success proof; no model    |
 | KB-05 partial source preparation | [KB #4](https://github.com/pegma-dev/knowledge-base/pull/4) · [`ed530cb`](https://github.com/pegma-dev/knowledge-base/commit/ed530cb318f222ace6f392748bb19c9d8c83d96e)    | Shared memory/Azurite/real local D1 conformance and a public synthetic composition; full KB-05 remains open |
 
-Latest verified source gates: Support Desk passed 399 tests; KB passed 340,
-including its three-backend suites and synthetic example. Both passed Node
-22/24 validation, CodeQL/security checks, current-head code review, and
-clean-consumer import checks. These are source and local-consumer results,
-not live credential, production-performance, deployment, or pilot evidence.
+Support Desk's [Node 22/24 CI](https://github.com/pegma-dev/support-desk/actions/runs/42347759445)
+passed 399 tests per lane; its [review check](https://github.com/pegma-dev/support-desk/actions/runs/42347759580)
+was clean and [PR #34's security report](https://github.com/pegma-dev/support-desk/pull/34#issuecomment-6703506061)
+reported no findings. Four-package pack/import validation was a **local check**
+recorded in [PR #34](https://github.com/pegma-dev/support-desk/pull/34).
+
+KB's [Node 22/24 CI](https://github.com/pegma-dev/knowledge-base/actions/runs/42350344635)
+passed 340 tests per lane, its synthetic example, and three-package
+clean-consumer imports. Its [review check](https://github.com/pegma-dev/knowledge-base/actions/runs/42350344641)
+was clean and [PR #4's security report](https://github.com/pegma-dev/knowledge-base/pull/4#issuecomment-6703808221)
+reported no findings. Both source PRs also record passed CodeQL checks.
+These are source and local-consumer results, not live credential,
+production-performance, deployment, or pilot evidence.
 The three KB packages remain unpublished at source `0.1.0`. Current Support
 Desk `0.1.1` source includes unreleased changes and is not the registry artifact
 at that version; new synchronized publication is required before adoption.
