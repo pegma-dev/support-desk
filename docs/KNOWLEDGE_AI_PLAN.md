@@ -42,6 +42,9 @@ production-performance, deployment, or pilot evidence.
 The three KB packages remain unpublished at source `0.1.0`. Current Support
 Desk `0.1.1` source includes unreleased changes and is not the registry artifact
 at that version; new synchronized publication is required before adoption.
+The [post-baseline producer inventory](KNOWLEDGE_AI_P00.md#post-baseline-dependency-inventory-2026-11-07)
+records Agent Access source `0.1.0` and future host dependency gates without
+changing P-00's frozen registry snapshot or inventing a production pin.
 
 **Next gates:** Complete AUTH-01 source and synthetic protocol proof in
 [Agent Access](https://github.com/pegma-dev/agent-access), then KB-04's transport
@@ -70,30 +73,30 @@ private systems. Do not copy them into this repository or pegma.dev.
 
 ## Accepted decisions
 
-| Decision             | Initial delivery                                                                               | Boundary or later extension                                     |
-| -------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Hosts                | Both sites; isolated data and configuration                                                    | No shared control plane in this plan                            |
-| Product scope        | Working KB, signed-in chat, essential staff/admin controls on both sites                       | Richer publishing and support interfaces                        |
-| KB boundary          | Standalone Pegma component for product documentation and support knowledge                     | Other hosts can compose the same component                      |
-| Authoring            | Authenticated API/MCP; KB owns content and revision history                                    | GitHub may be an agent's optional source, never a KB dependency |
-| Agent linking        | Existing host login; current Admin consents through Agent Access device-code or S256 PKCE flow | No agent Admin role; new capabilities require fresh consent     |
-| Authoring scopes     | Instance-wide draft read/write and test-evidence submission only                               | Collection-specific consent is a future extension               |
-| Guide verification   | Article-appropriate checks; local agents test instructions against staging and submit evidence | Additional validators as needed                                 |
-| Access               | Collection-level audience permissions, inherited by every article                              | Explicitly enable public collections later                      |
-| Bot knowledge        | Customer-readable collections plus collections approved for bot answers to that audience       | No access to staff-only collections through customer chat       |
-| Agent authority      | Answer, ask questions, and escalate; customer/staff control resolution                         | Evaluated, explicitly configured automatic lifecycle handling   |
-| Conversation         | Ticket from the first message; human queue entry on escalation                                 | Same conversation across later transports                       |
-| Escalation           | Shared defaults with site-specific rules; customer can always request a person                 | Policy tuning from evaluated outcomes                           |
-| Channels             | Signed-in web chat on both sites                                                               | Public chat and automated email support                         |
-| AI processing        | Disclose AI use; process customer-submitted support text through a verified ZDR configuration  | Host-selectable compatible providers                            |
-| Learning             | Automatically prepare drafts; staff approve before bot/customer use                            | Selective automatic publication after evidence supports it      |
-| Eligibility          | Customer confirmation, staff-verified fix, or successful relevant test                         | Reopened tickets hold drafts for reassessment                   |
-| Provenance           | Private source references and verification evidence for authorized staff                       | No copied raw-ticket archive in KB                              |
-| Bug validity         | Verified reproduction or relevant test evidence; otherwise human review                        | Autonomous source-code investigation                            |
-| Repository selection | AI chooses from an admin allowlist; ambiguity/insufficient confidence requires a human         | Calibrated routing improvements                                 |
-| Issue publication    | Per-repository authority; every repository initially requires approval                         | Selective automatic filing; stricter checks for public trackers |
-| Release follow-up    | Prepare customer updates, KB changes, and retests; staff approve sends/publication             | Automatic notifications after release tracking proves reliable  |
-| Acceptance           | Full workflow scenarios on both sites                                                          | Supervised production pilot before wider rollout                |
+| Decision             | Initial delivery                                                                                                         | Boundary or later extension                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| Hosts                | Both sites; isolated data and configuration                                                                              | No shared control plane in this plan                            |
+| Product scope        | Working KB, signed-in chat, essential staff/admin controls on both sites                                                 | Richer publishing and support interfaces                        |
+| KB boundary          | Standalone Pegma component for product documentation and support knowledge                                               | Other hosts can compose the same component                      |
+| Authoring            | Authenticated API/MCP; KB owns content and revision history                                                              | GitHub may be an agent's optional source, never a KB dependency |
+| Agent linking        | Existing host login; current Admin consents through the RFC 8628 device grant or authorization-code grant with S256 PKCE | No agent Admin role; new capabilities require fresh consent     |
+| Authoring scopes     | Instance-wide draft read/write and test-evidence submission only                                                         | Collection-specific consent is a future extension               |
+| Guide verification   | Article-appropriate checks; local agents test instructions against staging and submit evidence                           | Additional validators as needed                                 |
+| Access               | Collection-level audience permissions, inherited by every article                                                        | Explicitly enable public collections later                      |
+| Bot knowledge        | Customer-readable collections plus collections approved for bot answers to that audience                                 | No access to staff-only collections through customer chat       |
+| Agent authority      | Answer, ask questions, and escalate; customer/staff control resolution                                                   | Evaluated, explicitly configured automatic lifecycle handling   |
+| Conversation         | Ticket from the first message; human queue entry on escalation                                                           | Same conversation across later transports                       |
+| Escalation           | Shared defaults with site-specific rules; customer can always request a person                                           | Policy tuning from evaluated outcomes                           |
+| Channels             | Signed-in web chat on both sites                                                                                         | Public chat and automated email support                         |
+| AI processing        | Disclose AI use; process customer-submitted support text through a verified ZDR configuration                            | Host-selectable compatible providers                            |
+| Learning             | Automatically prepare drafts; staff approve before bot/customer use                                                      | Selective automatic publication after evidence supports it      |
+| Eligibility          | Customer confirmation, staff-verified fix, or successful relevant test                                                   | Reopened tickets hold drafts for reassessment                   |
+| Provenance           | Private source references and verification evidence for authorized staff                                                 | No copied raw-ticket archive in KB                              |
+| Bug validity         | Verified reproduction or relevant test evidence; otherwise human review                                                  | Autonomous source-code investigation                            |
+| Repository selection | AI chooses from an admin allowlist; ambiguity/insufficient confidence requires a human                                   | Calibrated routing improvements                                 |
+| Issue publication    | Per-repository authority; every repository initially requires approval                                                   | Selective automatic filing; stricter checks for public trackers |
+| Release follow-up    | Prepare customer updates, KB changes, and retests; staff approve sends/publication                                       | Automatic notifications after release tracking proves reliable  |
+| Acceptance           | Full workflow scenarios on both sites                                                                                    | Supervised production pilot before wider rollout                |
 
 The initial authorization covers customer-visible AI answers and ticket
 escalation. It does not authorize AI account changes, financial calculations,
@@ -131,11 +134,13 @@ fixed short-lived consume-on-verify grants remain unchanged. KB is the resource
 server, and its optional MCP package owns transport over KB services.
 
 Hosts reuse their existing human login and current Admin-only linking policy.
-Agent Access owns device-code authorization and authorization-code grants with
-mandatory S256 PKCE, explicit client/resource/scope binding, opaque credentials
-hashed at rest, rotating refresh families, replay revocation, and bounded grant
-storage. Current principal status, current approval authority, and current
-permissions are rechecked on use and refresh; missing/unavailable authority
+Agent Access owns the RFC 8628 device grant with a human user code, explicit
+polling interval, and `slow_down` handling. Its authorization-code grant
+requires S256 PKCE. Both flows use explicit client/resource/scope binding,
+opaque credentials hashed at rest, rotating refresh families, replay
+revocation, and bounded grant storage. Current principal status, current
+approval authority, and current permissions are rechecked on use and refresh;
+missing/unavailable authority
 fails closed. Agent permissions intersect that authority with the consented
 scope snapshot; Admin roles, entitlements, and browser cookies are not inherited.
 Only selected scope definitions are fingerprinted: unrelated new scopes cannot
@@ -236,6 +241,21 @@ collection reading/listing, evidence reading, review submission, publication,
 admin commands, or private provenance. Existing authorized retrieval and staff
 services remain separate; future agent operations need explicit scopes and
 fresh consent.
+
+Map the host's selected OAuth scopes to the existing KB public-service
+permissions exactly; the transport does not create a second permission model:
+
+| Agent operation              | Existing KB permission required      |
+| ---------------------------- | ------------------------------------ |
+| `getDraft`                   | `draftRead`                          |
+| `createDraft`, `updateDraft` | `draftWrite`                         |
+| `submitEvidence`             | `evidenceSubmit`                     |
+| `getValidationRequirements`  | `draftWrite` **or** `evidenceSubmit` |
+
+For `getValidationRequirements`, `draftRead` alone and `validationManage` alone
+must fail at the initial agent boundary; do not use either as a fallback.
+Source parity and retained host acceptance test the permitted alternatives
+and these denied cases. Staff validation-policy management remains separate.
 
 Staff-only commands approve/publish, reject with reasons, retire, manage
 collections/audiences, and manage validation policy. Local authoring credentials
@@ -554,7 +574,7 @@ is too large, preserving the dependency and exit criteria.
 | KB-01 / new KB repo    | P-00                                 | Create repo and implement contracts/core for collections, article kinds, immutable revisions, validation requirements, and exact approval. Establish CI and release documentation; no empty adapter packages.                                                              | Pure transition, stale approval, collection inheritance, and malformed-content tests; Node 22/24 gate.                                                                                                                                                                    |
 | KB-02 / KB repo        | KB-01                                | Implement authorized authoring/review/publication/evidence services and declared collections using Storage Core and Audit. Document partition layout, limits, replay, and source-reference privacy.                                                                        | Public-entry memory and real-Azurite tests cover concurrency, atomic audit/jobs, private DTOs, revoked access, and idempotent evidence/review.                                                                                                                            |
 | KB-03 / KB repo        | KB-02                                | Implement bounded retrieval projection, authoritative confirmation, repair/retirement, and audience-aware citation DTOs.                                                                                                                                                   | Retrieval evaluation passes on representative paraphrases; stale index/access, physical scan bounds, bot-only collections, and draft exclusion cases pass.                                                                                                                |
-| AUTH-01 / Agent Access | P-00; approved agent-access decision | Implement the separate scoped OAuth device-code/S256 PKCE lifecycle using exact released foundations, current Admin consent, opaque hashed credentials, bounded refresh/replay state, discovery, and host HTTP ports.                                                      | Node 22/24 source/pack/review gates and synthetic actual-SDK proof; first publication and actual two-host login/client acceptance remain separate gates.                                                                                                                  |
+| AUTH-01 / Agent Access | P-00; approved agent-access decision | Implement the separate RFC 8628 device grant and authorization-code grant with S256 PKCE, using exact released foundations, current Admin consent, opaque hashed credentials, bounded refresh/replay state, discovery, and host HTTP ports.                                | Node 22/24 source/pack/review gates and synthetic actual-SDK proof; first publication and actual two-host login/client acceptance remain separate gates.                                                                                                                  |
 | KB-04 / KB repo        | KB-03; AUTH-01 source/SDK fixture    | Implement the five-operation optional MCP adapter and versioned HTTP contract over the same services; integrate protected host-attested evidence without exposing staff/provenance operations.                                                                             | Source exit: real SDK against a test-only synthetic composition creates/updates/reads drafts and submits bound evidence; API/MCP parity, rejected credential/evidence cases, Node 22/24 and clean review pass. Real-host acceptance remains open in P-00 and PG-01/RG-01. |
 | KB-05 / KB repo        | KB-04 source exit                    | Release candidate, runnable synthetic host composition, D1 consumer conformance fixture, pack/import checks, and new-package bootstrap/trusted-publisher setup.                                                                                                            | Azure Tables and D1 pass the same public contracts; all source/review gates pass; artifacts exclude tests and include README/LICENSE; publish approved exact artifacts before host installation. Source release readiness does not close host acceptance.                 |
 
@@ -599,8 +619,13 @@ actual client discovery and existing-login/current-Admin consent, scoped
 draft read/create/update and host-attested exact-revision evidence, matching
 API/MCP behavior, expiry/wrong-audience/revocation/excess-scope rejection,
 current principal/permission changes, and wrong revision/build/runner or stale
-evidence rejection. Both hosts and every initial requested client/mode must
-have recorded results. Staff approval/publication, privacy, isolation, bounded
+evidence rejection. Explicit negative tests must prove initial agent credentials
+cannot publish, submit/read reviews, act as staff or Admin, manage collections
+or validation policy, read collections/evidence/private provenance, or link or
+manage grants. They must also verify the exact tool-permission alternatives
+above, including denial of `getValidationRequirements` with only `draftRead`
+or only `validationManage`. Both hosts and every initial requested client/mode
+must have recorded results. Staff approval/publication, privacy, isolation, bounded
 work, and all full-workflow scenarios below remain required activation gates
 before A-01 and either pilot; a synthetic SDK run waives none of them.
 

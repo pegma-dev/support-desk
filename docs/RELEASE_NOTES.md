@@ -41,9 +41,11 @@ and [capacity details](COLLECTIONS.md#sd-01-handling-and-handoff-layout-checkpoi
 
 This adds no model integration, KB dependency, or new package. The
 [implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) records
-merged standalone KB-01 through KB-03 and partial KB-05 source; KB-04's real
-scoped-credential proof, the full KB-05 release, and then SD-02 remain pending.
-Host integration and activation retain their separate gates.
+merged standalone KB-01 through KB-03 and partial KB-05 source. The next path
+is AUTH-01 Agent Access source/SDK proof, KB-04 transport source exit, then
+KB-05 publication; SD-02 waits for KB-05 publication. Agent Access publication
+also precedes host assembly. PG-01/RG-01 retain actual two-host login/client
+proof before activation or pilots. All future gates remain pending.
 
 ## Unreleased — lifecycle extras (Buildout Task 13)
 
