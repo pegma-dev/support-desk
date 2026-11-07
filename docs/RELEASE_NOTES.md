@@ -41,10 +41,12 @@ and [capacity details](COLLECTIONS.md#sd-01-handling-and-handoff-layout-checkpoi
 
 This adds no model integration, KB dependency, or new package. The
 [implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) records
-merged standalone KB-01 through KB-04, AUTH-01 Agent Access, and both
-producers' release preparation. All four KB packages and Agent Access remain
-unpublished at source `0.1.0`; first-publisher bootstrap and verified registry
-publication remain open. SD-02 waits for KB-05 publication. PG-01/RG-01 require
+merged standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
+preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
+both producers' final release preparation. All four KB packages and Agent Access
+remain unpublished at source `0.1.0`; unadvertised maintainer-2FA bootstrap and
+the separately reviewed first advertised release with verified registry
+provenance remain open. SD-02 waits for KB-05 publication. PG-01/RG-01 require
 both published producers before host assembly and actual existing-login/Admin
 consent and requested-client proof before activation or pilots. Synthetic
 SDK/source proof uses no actual customer data and does not close host privacy,

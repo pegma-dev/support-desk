@@ -8,7 +8,7 @@ and SD-01 are merged source. The standalone KB has merged KB-01/02/03 and
 independent partial KB-05 preparation, KB-04's transport source exit, and
 KB-05 release preparation. AUTH-01 Agent Access source and its separate release
 preparation are also merged. The ten entries in the
-[current source ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) records
+[current source ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) record
 the exact PRs/commits, verified gates, and remaining dependency order.
 
 Current Support Desk source remains `0.1.1` but differs from the registry's
@@ -17,13 +17,16 @@ Mail `0.1.1`, Spine `0.1.2`, and Storage Core `0.4.0`. These source changes
 require a new synchronized SD-06 release before enhancement adoption; never
 overwrite an existing version. All four KB packages and Agent Access remain
 unpublished at source `0.1.0`; the five public npm names returned HTTP 404 on
-2026-11-07. Source release preparation is complete; actual publication remains
+2026-11-07. Treat this as a historical snapshot; before activation, repeat the
+[producer's registry check](https://github.com/pegma-dev/knowledge-base/blob/main/docs/SOURCE_PREPARATION.md).
+Source release preparation is complete; actual publication remains
 open. Follow the public
 [KB first-publication handoff](https://github.com/pegma-dev/knowledge-base/blob/main/docs/BOOTSTRAP.md)
 and separate
 [Agent Access handoff](https://github.com/pegma-dev/agent-access/blob/main/docs/BOOTSTRAP.md).
-Maintainer 2FA bootstrap remains unadvertised and supplies no OIDC provenance;
-the first advertised trusted versions need separate review, protected
+The maintainer's 2FA bootstrap creates each npm package name under an
+unadvertised `bootstrap` tag without OIDC provenance. The first advertised
+trusted versions need separate review, protected
 `npm-publish` environments, approved signers, immutable tag rules, npm trusted
 publishers with direct publishing enabled, and actual registry
 artifact/signature/provenance verification. Full KB-05 publication remains

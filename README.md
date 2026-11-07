@@ -47,10 +47,12 @@ via [PR #34](https://github.com/pegma-dev/support-desk/pull/34): optional web
 assistant handling, explicit attribution and completion fences, deterministic
 human controls and atomic handoff work, private customer success evidence,
 and human queue separation. It includes no model or KB integration and has not
-been published. Standalone KB-01 through KB-04, AUTH-01 Agent Access, and both
-producers' release preparation are merged. The four KB packages and
-`@pegma/agent-access` remain unpublished at source `0.1.0`; first-publisher
-bootstrap and verified registry publication remain open. PG-01/RG-01 require
+been published. Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial
+KB-05 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
+and both producers' final release preparation are merged. The four KB packages
+and `@pegma/agent-access` remain unpublished at source `0.1.0`; unadvertised
+maintainer-2FA bootstrap and the separately reviewed first advertised release
+with verified registry provenance remain open. PG-01/RG-01 require
 both published producers before host assembly and actual existing-login/Admin
 consent and requested-client proof before activation or pilots. SD-02 waits
 for KB-05 publication. Synthetic SDK/source proof uses no actual customer data

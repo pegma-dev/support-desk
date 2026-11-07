@@ -13,10 +13,13 @@ help desk." Give it exactly one task below.
 
 Buildout Tasks 1–6, the Task 11 package slice, and Task 13 are implemented in
 source. The enhancement has also merged P-00, KB-01 through KB-04, AUTH-01,
-SD-01, and both producers' release preparation; exact linked evidence is in the
+SD-01, partial KB-05 source preparation
+([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and both producers'
+final release preparation; exact linked evidence is in the
 [current status ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
 All four KB packages and Agent Access remain unpublished at source `0.1.0`.
-First-publisher bootstrap and verified registry publication remain open;
+Unadvertised maintainer-2FA bootstrap and the separately reviewed first
+advertised release with verified registry provenance remain open;
 PG-01/RG-01 require both published producers before host assembly. Actual
 two-host existing-login/Admin consent and requested-client proof remain
 required before activation or pilots; SD-02 waits for KB-05 publication.
@@ -630,9 +633,11 @@ repository-scoped task cards. Its foundational source work may proceed while
 Task 12 evidence is gathered; production pilots still require that evidence.
 Attachments, macros, and other independent queue items are not prerequisites
 for the KB. Give an implementation agent one task card, not the whole plan.
-P-00, KB-01 through KB-04, AUTH-01, SD-01, and both producers' release
-preparation are already merged. Follow the ledger's first-publisher bootstrap
-and actual KB-05/Agent Access publication gates. PG-01/RG-01 require both
+P-00, KB-01 through KB-04, AUTH-01, SD-01, partial KB-05 source preparation
+([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and both producers'
+final release preparation are already merged. Follow the ledger's unadvertised
+maintainer-2FA bootstrap and separately advertised KB-05/Agent Access release
+gates. PG-01/RG-01 require both
 published producers before host assembly and retain actual two-host
 existing-login/Admin consent and requested-client acceptance before activation
 or pilots. SD-02 waits for KB-05 publication. Do not recreate completed source

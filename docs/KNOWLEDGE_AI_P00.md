@@ -103,14 +103,17 @@ registry observations, dependency tuples, and integrities remain historical.
 
 Future PG-01/RG-01 host assembly requires **both Agent Access and KB published
 artifacts**, with exact versions selected and integrity verified after their
-actual reviewed releases. All five names returned public npm registry HTTP 404
-on 2026-11-07. AUTH-01 source/SDK proof, KB-04 source exit, and both producers'
+actual reviewed releases. All five names returned HTTP 404 from the public npm
+registry on 2026-11-07. Treat this as a historical snapshot; before activation,
+repeat the [producer's registry check](https://github.com/pegma-dev/knowledge-base/blob/main/docs/SOURCE_PREPARATION.md).
+AUTH-01 source/SDK proof, KB-04 source exit, and both producers'
 release preparation are merged; actual KB-05 and Agent Access publication remain
 open. Follow the public
 [KB bootstrap handoff](https://github.com/pegma-dev/knowledge-base/blob/main/docs/BOOTSTRAP.md)
 and separate
-[Agent Access handoff](https://github.com/pegma-dev/agent-access/blob/main/docs/BOOTSTRAP.md):
-maintainer 2FA bootstrap remains unadvertised and supplies no OIDC provenance.
+[Agent Access handoff](https://github.com/pegma-dev/agent-access/blob/main/docs/BOOTSTRAP.md).
+The maintainer's 2FA bootstrap creates each npm package name under an
+unadvertised `bootstrap` tag without OIDC provenance.
 Each first advertised trusted version needs separate review, the protected
 `npm-publish` environment, approved signers, immutable tag rules, npm trust with
 direct publishing enabled, and actual registry artifact/signature/provenance

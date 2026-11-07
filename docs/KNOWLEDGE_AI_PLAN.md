@@ -64,6 +64,8 @@ model calls, or pilots.
 
 All four KB packages and Agent Access remain unpublished at source `0.1.0`;
 all five names returned HTTP 404 from the public npm registry on 2026-11-07.
+Treat this as a historical snapshot; before activation, repeat the
+[producer's registry check](https://github.com/pegma-dev/knowledge-base/blob/main/docs/SOURCE_PREPARATION.md).
 Current Support Desk `0.1.1` source includes unreleased changes and is not the
 registry artifact at that version; new synchronized publication is required
 before adoption.
@@ -75,8 +77,8 @@ changing P-00's frozen registry snapshot or inventing a production pin.
 [KB first-publication handoff](https://github.com/pegma-dev/knowledge-base/blob/main/docs/BOOTSTRAP.md)
 and separate
 [Agent Access handoff](https://github.com/pegma-dev/agent-access/blob/main/docs/BOOTSTRAP.md).
-The maintainer's 2FA bootstrap creates each name under an unadvertised
-`bootstrap` tag without OIDC provenance. A separately reviewed first advertised
+The maintainer's 2FA bootstrap creates each npm package name under an
+unadvertised `bootstrap` tag without OIDC provenance. A separately reviewed first advertised
 version, protected `npm-publish` environment, approved signers, immutable tag
 rules, npm trusted publishers with direct publishing enabled, and actual
 registry artifact/signature/provenance verification remain required. Merged
