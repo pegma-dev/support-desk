@@ -42,11 +42,16 @@ The first release will stay deliberately smaller than that vision. See the
 The approved [knowledge-base and AI support implementation plan](docs/KNOWLEDGE_AI_PLAN.md)
 defines the next enhancement: a standalone API/MCP-authored KB and an optional
 ticket-backed support agent, with working integrations on both launch hosts.
-It records the agreed scope and task sequence. SD-01 is the current source
-task: optional web assistant handling, explicit attribution, deterministic
-human handoff/takeover, private customer success evidence, and human queue
-separation. It includes no model or KB integration. Review/tests determine
-source completion; later features and live activation remain gated.
+It records the agreed scope and task sequence. SD-01 is implemented in source
+via [PR #34](https://github.com/pegma-dev/support-desk/pull/34): optional web
+assistant handling, explicit attribution and completion fences, deterministic
+human controls and atomic handoff work, private customer success evidence,
+and human queue separation. It includes no model or KB integration and has not
+been published. Standalone KB-01 through KB-03 and part of KB-05 are merged in
+[Knowledge Base](https://github.com/pegma-dev/knowledge-base); KB-04's real
+scoped-credential proof, the full KB-05 release, and then SD-02 remain pending.
+Use the [implementation ledger](docs/KNOWLEDGE_AI_PLAN.md#status-and-reading-order)
+for merged-source evidence and the remaining release and activation gates.
 The [P-00 handoff](docs/KNOWLEDGE_AI_P00.md) supplies the package baseline,
 synthetic evaluation fixtures, capacity checks, and prerequisites for implementation.
 Passing that harness does not establish a working KB, bot, or host deployment.

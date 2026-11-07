@@ -173,14 +173,19 @@ Authorization Core is pinned to exact `0.4.0` and accepted-change history uses
 exact `@pegma/audit@0.2.0`. Host Tasks 7–8 begin only after registry publication.
 Provider selection and operation remain host work.
 
-SD-01 is the current source task: optional handling defaults legacy tickets to
-human support, explicitly attributes assistant messages, and adds deterministic
-owned request-person, staff takeover, private success evidence, human queue
-selection, and bounded atomic handoff work. Review/tests determine completion.
-It adds no model, KB dependency, or package. Source `0.1.1` is not equivalent to
+SD-01 is implemented in source via
+[PR #34](https://github.com/pegma-dev/support-desk/pull/34): optional handling
+defaults legacy tickets to human support, explicitly attributes assistant
+messages with exact completion fences, and adds deterministic owned
+request-person, staff takeover, private success evidence, human queue
+selection, and bounded atomic handoff work. It adds no model, KB dependency,
+or package and has not been published. Source `0.1.1` is not equivalent to
 registry `0.1.1`; do not overwrite it or install a source substitute. A future
-synchronized SD-06 release precedes host adoption. KB-04's live author credential
-proof and KB-05 publication remain separate pending integration gates.
+synchronized SD-06 release precedes host adoption. Standalone KB-01 through
+KB-03 and partial KB-05 source are merged; KB-04's real scoped-credential
+proof, the full KB-05 release, and then SD-02 remain pending. Follow the
+[implementation ledger](docs/KNOWLEDGE_AI_PLAN.md#status-and-reading-order)
+for merged-source evidence and remaining gates.
 
 This project was developed under the `@support-desk` scope and moved into Pegma
 on 2026-07-26. The git history begins at that move, nothing was published under

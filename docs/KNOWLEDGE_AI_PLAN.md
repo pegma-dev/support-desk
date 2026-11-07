@@ -2,14 +2,43 @@
 
 ## Status and reading order
 
-Approved product decisions: 2026-11-06. P-00's baseline and synthetic test
-infrastructure are implemented; operational KB and AI features remain pending.
+Approved product decisions: 2026-11-06. The source work below is merged;
+package publication, authenticated author transport, model integration, and
+host activation remain separately gated.
 Use the [P-00 handoff](KNOWLEDGE_AI_P00.md) for the frozen package baseline,
 acceptance corpus, capacity assumptions, and owned activation prerequisites.
 This plan covers a standalone Pegma knowledge base, an optional Support Desk
 AI agent and engineering workflow, and working integrations on both launch
 hosts. RetireGolden is the primary use case; pegma.dev is the simpler early
 integration. Completing one host does not complete this enhancement.
+
+**Merged-source status: 2026-11-07.**
+
+| Source work                      | Merged evidence                                                                                                                                                           | Delivered source                                                                                            |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| P-00                             | [Support #33](https://github.com/pegma-dev/support-desk/pull/33) · [`fcf5a68`](https://github.com/pegma-dev/support-desk/commit/fcf5a68f83d335b9867a6975443c03d3a86e3c4f) | Frozen baseline, synthetic acceptance oracles, and capacity checks                                          |
+| KB-01                            | [KB #1](https://github.com/pegma-dev/knowledge-base/pull/1) · [`2830be7`](https://github.com/pegma-dev/knowledge-base/commit/2830be77b246683c16bbc22da2cbc260dae904be)    | Standalone contracts/core, validation, and exact approval                                                   |
+| KB-02                            | [KB #2](https://github.com/pegma-dev/knowledge-base/pull/2) · [`bc74cb1`](https://github.com/pegma-dev/knowledge-base/commit/bc74cb1eccc61416de6146702886b6cfd584e635)    | Authorized services, bounded persistence, private DTOs, and atomic Audit/receipts/work                      |
+| KB-03                            | [KB #3](https://github.com/pegma-dev/knowledge-base/pull/3) · [`8caecbe`](https://github.com/pegma-dev/knowledge-base/commit/8caecbee5968d7ee1d4a8707727381d94b288ac0)    | Bounded retrieval, authoritative confirmation, safe citations, and repair                                   |
+| SD-01                            | [Support #34](https://github.com/pegma-dev/support-desk/pull/34) · [`593006e`](https://github.com/pegma-dev/support-desk/commit/593006e5a5e64b223cc7525447b3813a20ff90dd) | Optional handling, attributed replies, deterministic human controls, and private success proof; no model    |
+| KB-05 partial source preparation | [KB #4](https://github.com/pegma-dev/knowledge-base/pull/4) · [`ed530cb`](https://github.com/pegma-dev/knowledge-base/commit/ed530cb318f222ace6f392748bb19c9d8c83d96e)    | Shared memory/Azurite/real local D1 conformance and a public synthetic composition; full KB-05 remains open |
+
+Latest verified source gates: Support Desk passed 399 tests; KB passed 340,
+including its three-backend suites and synthetic example. Both passed Node
+22/24 validation, CodeQL/security checks, current-head code review, and
+clean-consumer import checks. These are source and local-consumer results,
+not live credential, production-performance, deployment, or pilot evidence.
+The three KB packages remain unpublished at source `0.1.0`. Current Support
+Desk `0.1.1` source includes unreleased changes and is not the registry artifact
+at that version; new synchronized publication is required before adoption.
+
+**Next gates:** Host identity/API owners must prove scoped, revocable,
+audience-bound author credentials and the protected-resource/real-client flow
+for KB-04. Complete KB-04, then the full KB-05 release, first publication,
+trusted-publisher setup, and verified released consumers before SD-02 and
+dependent host work. Task 12, provider/ZDR/intermediary verification,
+issue-to-deployed-build mapping, operations, dual-host acceptance, and supervised
+pilots remain open. The independent partial KB-05 work does not close those gates.
 
 Read the decision record and boundaries below, then give an implementation
 agent exactly one task card. `PROJECT_PLAN.md` remains the roadmap and
@@ -58,13 +87,11 @@ educational decision-support boundaries.
 
 ### Standalone knowledge base
 
-Create the proposed `pegma-dev/knowledge-base` repository when KB-01 begins,
-after P-00 records repository/package name availability and organization
-conventions. Use MIT licensing and the normal Pegma validation/release pattern.
-Proposed package
-names are contracts, core, application, and an optional MCP adapter under
-`@pegma/knowledge-base-*`; confirm names in P-00 before creating manifests.
-Create each package only when its implementation begins, with its own README, LICENSE,
+The MIT [knowledge-base repository](https://github.com/pegma-dev/knowledge-base)
+now contains `@pegma/knowledge-base-contracts`, `@pegma/knowledge-base-core`,
+and `@pegma/knowledge-base-application` source. They remain unpublished; the
+optional MCP adapter is still KB-04 work. Create a package only when its
+implementation begins, with its own README, LICENSE,
 build-on-pack behavior, and compiled-test exclusion.
 
 The KB owns collections, article revisions, validation requirements and
@@ -484,9 +511,11 @@ is too large, preserving the dependency and exit criteria.
 | R-PG / pegma.dev          | A-01; existing Task 12 host evidence | Run the supervised pilot using its host rollout controls.                                                                                                                                              | Staff sign off pilot observations and rollback rehearsal before widening access.                                                                                  |
 | R-RG / RetireGolden host  | A-01; existing Task 12 host evidence | Run its separately controlled supervised pilot.                                                                                                                                                        | Equivalent host sign-off, with independent customer/data/operations policy.                                                                                       |
 
-Practical order: P-00, KB-01 through KB-05, SD-01 through SD-06, then host
-adoption. PG-01 can deliver the early KB win while Support Desk extensions are
-built; RG-01 follows against the same released contracts. Host PRs are separate
+The merged-source ledger above records completed source slices, including
+SD-01 and independent partial KB-05 preparation. The remaining critical path
+is KB-04 credential/client proof and full KB-05 publication before SD-02 and
+dependent host adoption. PG-01 can deliver the early KB win once its released
+dependencies exist; RG-01 follows the same contracts. Host PRs are separate
 and must each satisfy their own review/CI/deployment rules. No shared-package
 PR edits a host. Do not create all task branches/packages in advance.
 
