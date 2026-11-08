@@ -144,10 +144,41 @@ commit and archives. Preserve the release evidence under the owner's retention
 policy before Actions retention expires. Missing or mismatched evidence blocks
 approval; an unchanged version string cannot substitute for it.
 
-The strict CLI is:
+The unprivileged `registry-preflight` job runs after `identity` and `prepare`,
+without a protected environment or OIDC authority. It downloads the original
+prepared artifact and uses the pinned npm CLI to authenticate the complete
+already-present candidate subset before further uploads. The subset must be
+dependency-closed. A fresh registry installation with scripts disabled performs
+the actual npm signature/Sigstore and source-provenance checks, without
+importing those packages. If all five versions are absent, the receipt records
+that no audit occurred (`npmVersion: null`); absence is not authenticated
+publication evidence.
+
+The common independent CLI bindings are:
 
 ```text
 node scripts/release-verification.mjs <preflight|publish|verify> --manifest .release/package-manifest.json --manifest-sha256 SHA256 --release-tag v0.2.0 --expected-release-commit COMMIT
+```
+
+Both `preflight` and `publish` also require
+`--prepared-artifact-id ORIGINAL_ID --prepared-artifact-sha256 ORIGINAL_ZIP_SHA`.
+These bind the original preparation's immutable upload ID/archive digest from
+trusted `needs.prepare` outputs. The receipt's `preparedArtifact: { id, sha256 }`
+must match those independently supplied values; it cannot authenticate itself.
+
+`preflight` emits its authenticated observation as JSON. The workflow retains
+`registry-preflight.json` for 30 days in the separate immutable artifact
+`support-desk-registry-preflight-<run_id>-<run_attempt>`. Its outputs are
+`receipt-sha256`, `artifact-id`, and `artifact-digest`. The summary binds those
+independent values to the source tag/commit, original manifest SHA-256, and
+original prepared artifact ID/archive digest. Keep this evidence outside the
+strict six-file directory.
+
+`publish` additionally requires the downloaded receipt and its independently
+recorded file digest:
+
+```text
+node scripts/release-verification.mjs publish --manifest .release/package-manifest.json --manifest-sha256 SHA256 --release-tag v0.2.0 --expected-release-commit COMMIT --prepared-artifact-id ORIGINAL_ID --prepared-artifact-sha256 ORIGINAL_ZIP_SHA --preflight-receipt PREFLIGHT_DOWNLOAD/registry-preflight.json --preflight-receipt-sha256 TRUSTED_PREFLIGHT_SHA256
 ```
 
 The package scripts `release:preflight`, `release:publish`, and `release:verify`
@@ -158,9 +189,20 @@ unreviewed npm executable.
 
 `publish` is for the trusted GitHub release runtime and protected environment,
 not a local manual stable-release command. Only its minimal publish job receives
-`id-token: write`; it publishes the prepared bytes in dependency order. No
-source rebuild, dependency installation, provider credential, or token fallback
-belongs in that privileged job. The unprivileged `verify` operation still binds
+`id-token: write`; it publishes the prepared bytes in dependency order after
+the separate unprivileged registry preflight succeeds. It authenticates the
+separately downloaded receipt against the trusted file digest and original
+release/artifact identity. The receipt's `authenticatedAt` is canonical
+observation metadata, not an age-based expiry gate. Staleness means a mismatch
+in source, tag, commit, manifest, original artifact, or existing registry subset.
+Before each upload, fresh whole-five-package checks allow only the authenticated
+existing subset plus this invocation's own confirmed writes. An unverifiable
+or newly present package, or any binding/subset drift, blocks further uploads
+and requires fresh preflight; newly present packages are not silently skipped.
+The receipt's own upload ID/archive digest and independent file SHA-256 remain
+external trusted bindings, never self-embedded proof.
+No source rebuild, dependency installation, signature audit, provider credential,
+or token fallback belongs in the privileged publish job. The unprivileged `verify` operation still binds
 the expected repository, workflow, tag, and commit; lack of publish authority
 does not weaken artifact/provenance verification.
 
@@ -173,12 +215,17 @@ receipt with the release handoff before changing host pins.
 
 ## Partial publication and recovery
 
-Keep the release tag, commit, manifest, and tarballs unchanged. Re-run only the
-failed trusted workflow jobs, retaining the original prepare outputs and both
-the release and consumer-evidence artifacts. Do not re-run all jobs or repack:
+Keep the release tag, commit, manifest, and tarballs unchanged, retaining the
+original prepare outputs and both the release and consumer-evidence artifacts.
+For a publication failure or uncertain upload, re-run the unprivileged
+`registry-preflight` job and its publication/verification dependents against
+that original preparation. Re-running only the failed publish job can reuse an
+obsolete observation; refresh preflight rather than treating it as recovery. Do not
+re-run `prepare`, re-run all jobs, repack, or create another tag for recovery:
 
 - a genuinely absent exact version may be published;
-- an existing identical artifact is verified and skipped;
+- an existing identical artifact is authenticated in the fresh unprivileged
+  preflight and skipped only while its receipt's exact set still matches;
 - mismatched bytes/dependencies, unverifiable provenance, or a registry error
   other than the recognized absent-version case stops recovery.
 
@@ -186,6 +233,8 @@ Never unpublish/reuse a version, move a tag, rebuild a different artifact under
 the same identity, or manually fill a stable-release gap. A failed final verify
 leaves the release unverified even if some packages were accepted. Preserve
 receipts and diagnose the actual failed stage before another attempt.
+If publication succeeded and only final registry verification failed, re-run
+`verify` alone with the original preparation; no further uploads are authorized.
 
 ## Historical original-name bootstrap
 

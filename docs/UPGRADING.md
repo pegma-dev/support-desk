@@ -63,6 +63,17 @@ evidence before the workflow's 30-day retention expires. See
 This document does not mark that proof passed. These clean memory-Store
 scenarios do not establish production-store migration or rollback readiness.
 
+A partial registry publication is not an adoption-ready release. Recovery
+must reuse the original prepared artifacts and freshly authenticate the
+already-present subset in the unprivileged registry preflight before any
+remaining uploads. The publisher requires the independently bound preflight
+receipt, the original preparation artifact ID/archive digest, and matching
+release/subset bindings. Observation time has no arbitrary expiry limit.
+Fresh whole-five-package checks before each upload allow only the authenticated
+subset plus that invocation's own confirmed writes; drift or unavailable
+evidence blocks further uploads. Only the final complete-set verification permits release
+handoff; see [partial publication recovery](RELEASING.md#partial-publication-and-recovery).
+
 Before enabling new capabilities:
 
 1. Back up the instance and rehearse restore with the host's durable adapter.

@@ -605,15 +605,19 @@ export function releaseRegistryFixture(
         const lock: Lock = {
           lockfileVersion: 3,
           packages: Object.fromEntries(
-            f.packages.map(({ record, packageJson }) => [
-              `node_modules/${record.name}`,
-              {
-                version: record.version,
-                resolved: tarballUrl(record.name),
-                integrity: record.integrity,
-                dependencies: structuredClone(packageJson.dependencies),
-              },
-            ]),
+            f.packages
+              .filter(({ record }) =>
+                Object.hasOwn(state.consumerDependencies, record.name),
+              )
+              .map(({ record, packageJson }) => [
+                `node_modules/${record.name}`,
+                {
+                  version: record.version,
+                  resolved: tarballUrl(record.name),
+                  integrity: record.integrity,
+                  dependencies: structuredClone(packageJson.dependencies),
+                },
+              ]),
           ),
         };
         state.mutateLock?.(lock);
@@ -630,7 +634,14 @@ export function releaseRegistryFixture(
       )
         return {
           status: state.auditStatus,
-          stdout: state.auditJson ?? JSON.stringify(audit),
+          stdout:
+            state.auditJson ??
+            JSON.stringify({
+              ...audit,
+              verified: audit.verified.filter(({ name }) =>
+                Object.hasOwn(state.consumerDependencies, name),
+              ),
+            }),
         };
       throw new Error(
         "Synthetic release verification forbids publish, pack and unknown commands",
@@ -731,8 +742,16 @@ export function releasePublisherFixture(
   });
   const run = vi.fn<NonNullable<ReleasePorts["run"]>>(
     async (binary, args, processOptions) => {
+      if (args[1] === "install" || args[1] === "audit")
+        throw new Error(
+          "OIDC publication must not run registry crypto consumers",
+        );
+      if (args[0] === registry.npmCli && args[1] === "--version")
+        return { status: 0, stdout: `${registry.state.npmVersion}\n` };
       if (args[0] !== registry.npmCli || args[1] !== "publish")
-        return registry.run(binary, args, processOptions);
+        throw new Error(
+          "Synthetic publisher only permits pinned npm publication",
+        );
       const path = args[2];
       if (path === undefined)
         throw new Error("Synthetic publication needs a copied tarball");
@@ -782,6 +801,8 @@ export function releasePublisherFixture(
     publication,
     hide,
     accept,
+    preflightPorts: registry.ports,
+    preflightRun: registry.run,
     fetch,
     run,
     ports: { fetch, run, sleep: registry.sleep },

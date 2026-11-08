@@ -14,6 +14,14 @@ export interface PreparedReleaseOptions {
   npmCli?: string;
   npmVersion?: string;
 }
+export interface RegistryPreflightOptions extends PreparedReleaseOptions {
+  preparedArtifactId: string;
+  preparedArtifactSha256: string;
+}
+export interface PublishReleaseOptions extends RegistryPreflightOptions {
+  preflightReceipt: string;
+  preflightReceiptSha256: string;
+}
 export interface PreparedPackage {
   name: string;
   version: string;
@@ -32,6 +40,23 @@ export interface VerifiedRelease {
   manifestPath: string;
   manifestSha256: string;
   packages: readonly Readonly<PreparedPackage>[];
+}
+export interface RegistryPreflightReceipt {
+  readonly schemaVersion: 1;
+  readonly kind: "support-desk-registry-preflight";
+  readonly identity: Readonly<ReleaseIdentity>;
+  readonly manifestSha256: string;
+  readonly preparedArtifact: Readonly<{ id: string; sha256: string }>;
+  readonly authenticatedAt: string;
+  readonly authentication:
+    "none-existing" | "npm-signatures-and-source-provenance";
+  readonly npmVersion: "11.18.0" | null;
+  readonly existingPackages: readonly Readonly<
+    Pick<
+      PreparedPackage,
+      "name" | "version" | "tarball" | "size" | "shasum" | "integrity"
+    >
+  >[];
 }
 export interface ReleasePorts {
   fetch?: typeof globalThis.fetch;
@@ -78,6 +103,11 @@ export function preflightRegistry(
   verified: VerifiedRelease,
   ports?: Pick<ReleasePorts, "fetch">,
 ): Promise<{ name: string; version: string; action: "publish" | "skip" }[]>;
+/** Unprivileged actual signature/source audit of the existing exact subset. */
+export function preflightRegistryRelease(
+  options: RegistryPreflightOptions,
+  ports?: ReleasePorts,
+): Promise<Readonly<RegistryPreflightReceipt>>;
 export function verifyProvenanceAudit(
   audit: unknown,
   verified: Pick<VerifiedRelease, "identity"> & {
@@ -102,6 +132,6 @@ export function verifyRegistryRelease(
   distTags: DistTagObservation[];
 }>;
 export function publishRegistryRelease(
-  options: PreparedReleaseOptions,
+  options: PublishReleaseOptions,
   ports?: ReleasePorts,
 ): Promise<{ published: string[]; skipped: string[]; manifestSha256: string }>;

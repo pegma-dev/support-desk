@@ -599,6 +599,7 @@ async function registryRecord(record, fetch_) {
   return { unavailable: false };
 }
 
+/** Byte inventory only; publication additionally requires the crypto preflight receipt. */
 export async function preflightRegistry(verified, ports = {}) {
   const decisions = [];
   for (const record of verified.packages) {
@@ -986,7 +987,7 @@ export function verifyProvenanceAudit(audit, verified) {
   }
 }
 
-async function registryConsumer(verified, options, ports) {
+async function registryConsumer(verified, options, ports, imports = true) {
   return temporary(async (directory) => {
     const { invoke, run, env } = await npmContext(
       options,
@@ -1045,6 +1046,9 @@ async function registryConsumer(verified, options, ports) {
       fail("registry signatures or provenance verification failed");
     }
     verifyProvenanceAudit(audit, verified);
+    // Recovery preflight authenticates registry artifacts without executing
+    // their exports. The final complete-release verifier still imports all.
+    if (!imports) return;
     const consumer = join(directory, "consumer.mjs");
     await writeFile(
       consumer,
@@ -1058,6 +1062,229 @@ async function registryConsumer(verified, options, ports) {
     if (imported?.status !== 0)
       fail("fresh registry consumer public imports failed");
   });
+}
+
+function preparedArtifactIdentity(options) {
+  if (
+    typeof options.preparedArtifactId !== "string" ||
+    !/^[1-9][0-9]{0,24}$/u.test(options.preparedArtifactId) ||
+    typeof options.preparedArtifactSha256 !== "string" ||
+    !/^[0-9a-f]{64}$/u.test(options.preparedArtifactSha256)
+  ) {
+    fail(
+      "original preparation artifact identity and independent archive digest are required",
+      "preflight",
+      "prepared_artifact_identity_required",
+    );
+  }
+  return {
+    id: options.preparedArtifactId,
+    sha256: options.preparedArtifactSha256,
+  };
+}
+function preflightPackage(record) {
+  return {
+    name: record.name,
+    version: record.version,
+    tarball: record.tarball,
+    size: record.size,
+    shasum: record.shasum,
+    integrity: record.integrity,
+  };
+}
+function assertPreflightSnapshot(verified, receipt, decisions, published = []) {
+  const authenticated = new Set([
+    ...receipt.existingPackages.map((record) => record.name),
+    ...published,
+  ]);
+  const expected = verified.packages
+    .filter((record) => authenticated.has(record.name))
+    .map(preflightPackage);
+  const current = verified.packages
+    .filter((record) =>
+      decisions.some(
+        (decision) =>
+          decision.name === record.name && decision.action === "skip",
+      ),
+    )
+    .map(preflightPackage);
+  if (JSON.stringify(current) !== JSON.stringify(expected)) {
+    fail(
+      "current registry existing subset differs from its authenticated preflight",
+      "preflight",
+      "registry_subset_changed",
+    );
+  }
+}
+
+/** Authenticate only existing registry roots, without OIDC authority or imports. */
+export async function preflightRegistryRelease(options = {}, ports = {}) {
+  if (
+    process.env.ACTIONS_ID_TOKEN_REQUEST_URL ||
+    process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN ||
+    process.env.RELEASE_ENVIRONMENT === RELEASE_ENVIRONMENT
+  ) {
+    fail(
+      "registry crypto preflight must run without publishing authority",
+      "preflight",
+      "preflight_requires_unprivileged_context",
+    );
+  }
+  const preparedArtifact = preparedArtifactIdentity(options);
+  const verified = await verifyPreparedRelease(options);
+  const decisions = await preflightRegistry(verified, ports);
+  const existing = verified.packages.filter((record) =>
+    decisions.some(
+      (decision) => decision.name === record.name && decision.action === "skip",
+    ),
+  );
+  const names = new Set(existing.map((record) => record.name));
+  for (const record of existing) {
+    if (
+      Object.keys(record.dependencies).some(
+        (name) =>
+          RELEASE_PACKAGES.some((entry) => entry.name === name) &&
+          !names.has(name),
+      )
+    ) {
+      fail(
+        "an existing release package depends on an absent candidate registry package",
+        "preflight",
+        "existing_dependency_not_available",
+      );
+    }
+  }
+  if (existing.length > 0) {
+    // Never replace missing registry dependencies with original tarballs,
+    // workspace links or overrides. A real npm failure is a closed gate.
+    await registryConsumer(
+      { ...verified, packages: existing },
+      options,
+      ports,
+      false,
+    );
+  }
+  const receipt = {
+    schemaVersion: 1,
+    kind: "support-desk-registry-preflight",
+    identity: verified.identity,
+    manifestSha256: verified.manifestSha256,
+    preparedArtifact,
+    authenticatedAt: new Date().toISOString(),
+    authentication:
+      existing.length === 0
+        ? "none-existing"
+        : "npm-signatures-and-source-provenance",
+    npmVersion: existing.length === 0 ? null : RELEASE_NPM_VERSION,
+    existingPackages: existing.map(preflightPackage),
+  };
+  // Close a concurrent appearance/disappearance during the external audit.
+  assertPreflightSnapshot(
+    verified,
+    receipt,
+    await preflightRegistry(verified, ports),
+  );
+  return freeze(receipt);
+}
+
+async function readRegistryPreflight(options, verified) {
+  try {
+    const preparedArtifact = preparedArtifactIdentity(options);
+    if (
+      typeof options.preflightReceipt !== "string" ||
+      typeof options.preflightReceiptSha256 !== "string" ||
+      !/^[0-9a-f]{64}$/u.test(options.preflightReceiptSha256)
+    ) {
+      fail(
+        "an independent registry preflight receipt digest is required",
+        "preflight",
+        "preflight_receipt_required",
+      );
+    }
+    const path = resolve(options.preflightReceipt);
+    const directory = dirname(path);
+    const metadata = await lstat(directory);
+    if (
+      !metadata.isDirectory() ||
+      metadata.isSymbolicLink() ||
+      (await realpath(directory)) !== directory
+    ) {
+      fail(
+        "registry preflight receipt directory must be canonical",
+        "preflight",
+        "preflight_receipt_invalid",
+      );
+    }
+    const bytes = await boundedFile(path, directory, 1024 * 1024);
+    if (!equal(hash(bytes), options.preflightReceiptSha256)) {
+      fail(
+        "independent registry preflight receipt digest does not match",
+        "preflight",
+        "preflight_receipt_digest_mismatch",
+      );
+    }
+    const receipt = JSON.parse(bytes.toString("utf8"));
+    if (
+      !exactKeys(receipt, [
+        "schemaVersion",
+        "kind",
+        "identity",
+        "manifestSha256",
+        "preparedArtifact",
+        "authenticatedAt",
+        "authentication",
+        "npmVersion",
+        "existingPackages",
+      ]) ||
+      receipt.schemaVersion !== 1 ||
+      receipt.kind !== "support-desk-registry-preflight" ||
+      !sameDependencies(receipt.identity, verified.identity) ||
+      receipt.manifestSha256 !== verified.manifestSha256 ||
+      !sameDependencies(receipt.preparedArtifact, preparedArtifact) ||
+      typeof receipt.authenticatedAt !== "string" ||
+      !Number.isFinite(Date.parse(receipt.authenticatedAt)) ||
+      new Date(receipt.authenticatedAt).toISOString() !==
+        receipt.authenticatedAt ||
+      !Array.isArray(receipt.existingPackages) ||
+      receipt.existingPackages.length > RELEASE_PACKAGES.length
+    ) {
+      fail(
+        "registry preflight receipt does not match the original prepared release",
+        "preflight",
+        "preflight_receipt_identity_mismatch",
+      );
+    }
+    const expected = verified.packages
+      .filter((record) =>
+        receipt.existingPackages.some((entry) => entry?.name === record.name),
+      )
+      .map(preflightPackage);
+    if (
+      JSON.stringify(receipt.existingPackages) !== JSON.stringify(expected) ||
+      receipt.authentication !==
+        (expected.length === 0
+          ? "none-existing"
+          : "npm-signatures-and-source-provenance") ||
+      receipt.npmVersion !==
+        (expected.length === 0 ? null : RELEASE_NPM_VERSION)
+    ) {
+      fail(
+        "registry preflight receipt has an invalid authenticated package set",
+        "preflight",
+        "preflight_receipt_subset_invalid",
+      );
+    }
+    // No arbitrary elapsed-age TTL: environment approval can wait. Immutable
+    // source/bytes remain bound; a fresh whole-set check detects stale permits.
+    return freeze(receipt);
+  } catch (error) {
+    if (controlledFailures.has(error)) throw error;
+    fail(
+      "registry preflight receipt is unavailable or invalid",
+      "preflight",
+      "preflight_receipt_invalid",
+    );
+  }
 }
 async function confirmRegistry(record, ports) {
   const sleep =
@@ -1095,9 +1322,11 @@ export async function verifyRegistryRelease(options = {}, ports = {}) {
 export async function publishRegistryRelease(options = {}, ports = {}) {
   const verified = await verifyPreparedRelease(options);
   assertTrustedPublishingEnvironment(process.env, verified.identity);
+  const receipt = await readRegistryPreflight(options, verified);
   // Preflight the whole set before any irreversible publication. Existing
   // metadata without verified exact bytes blocks a recovery rather than repacks.
   const decisions = await preflightRegistry(verified, ports);
+  assertPreflightSnapshot(verified, receipt, decisions);
   const published = [];
   const skipped = [];
   await temporary(async (directory) => {
@@ -1121,6 +1350,15 @@ export async function publishRegistryRelease(options = {}, ports = {}) {
         fail("original prepared archive changed before upload");
       const upload = join(directory, record.tarball);
       await writeFile(upload, bytes, { flag: "wx" });
+      // Only this invocation's positively confirmed uploads may extend the
+      // authenticated set. An uncertain acceptance stops the loop; recovery
+      // requires a new unprivileged preflight over the original preparation.
+      assertPreflightSnapshot(
+        verified,
+        receipt,
+        await preflightRegistry(verified, ports),
+        published,
+      );
       await invoke([
         "publish",
         upload,
@@ -1147,6 +1385,10 @@ async function main(args) {
     ["--expected-release-commit", "expectedReleaseCommit"],
     ["--npm-cli", "npmCli"],
     ["--npm-version", "npmVersion"],
+    ["--prepared-artifact-id", "preparedArtifactId"],
+    ["--prepared-artifact-sha256", "preparedArtifactSha256"],
+    ["--preflight-receipt", "preflightReceipt"],
+    ["--preflight-receipt-sha256", "preflightReceiptSha256"],
   ]);
   const options = {};
   for (let index = 0; index < remaining.length; index += 2) {
@@ -1161,8 +1403,7 @@ async function main(args) {
     options[key] = remaining[index + 1];
   }
   let result;
-  if (command === "preflight")
-    result = await preflightRegistry(await verifyPreparedRelease(options));
+  if (command === "preflight") result = await preflightRegistryRelease(options);
   else if (command === "verify") result = await verifyRegistryRelease(options);
   else if (command === "publish")
     result = await publishRegistryRelease(options);

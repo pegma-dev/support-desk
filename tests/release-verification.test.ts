@@ -6,6 +6,7 @@ import {
   describeReleaseFailure,
   inspectReleaseTarball,
   preflightRegistry,
+  preflightRegistryRelease,
   publishRegistryRelease,
   verifyPreparedRelease,
   verifyProvenanceAudit,
@@ -30,6 +31,7 @@ import {
 
 type Fixture = ReturnType<typeof releaseArtifactFixture>;
 const fixtures = new Set<Fixture>();
+let preflightSequence = 0;
 function fixture() {
   const value = releaseArtifactFixture();
   fixtures.add(value);
@@ -41,6 +43,43 @@ function options(f: Fixture) {
     manifestSha256: f.originalManifestSha256,
     releaseTag: `v${releaseVerificationVersion}`,
     expectedReleaseCommit: releaseVerificationCommit,
+    // Controlled Actions transport outputs, supplied independently of receipt contents.
+    preparedArtifactId: "4242000123",
+    preparedArtifactSha256: releaseDigest(
+      "sha256",
+      Buffer.from("controlled-original-actions-archive"),
+    ),
+  };
+}
+async function preparePublication(
+  f: Fixture,
+  publisher: ReturnType<typeof releasePublisherFixture>,
+) {
+  const unprivileged = [
+    "ACTIONS_ID_TOKEN_REQUEST_URL",
+    "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+    "RELEASE_ENVIRONMENT",
+  ] as const;
+  const previous = unprivileged.map((key) => [key, process.env[key]] as const);
+  for (const key of unprivileged) vi.stubEnv(key, undefined);
+  let receipt: Awaited<ReturnType<typeof preflightRegistryRelease>>;
+  try {
+    receipt = await preflightRegistryRelease(
+      { ...options(f), npmCli: publisher.npmCli },
+      publisher.preflightPorts,
+    );
+  } finally {
+    for (const [key, value] of previous) vi.stubEnv(key, value);
+  }
+  const bytes = Buffer.from(`${JSON.stringify(receipt)}\n`);
+  preflightSequence += 1;
+  const path = join(f.root, `registry-preflight-${preflightSequence}.json`);
+  writeFileSync(path, bytes);
+  return {
+    ...options(f),
+    npmCli: publisher.npmCli,
+    preflightReceipt: path,
+    preflightReceiptSha256: releaseDigest("sha256", bytes),
   };
 }
 function writeManifest(f: Fixture) {
@@ -75,15 +114,13 @@ describe("actual publication orchestration with controlled external acceptance",
     const f = fixture();
     const publisher = releasePublisherFixture(f);
     useReleasePublishingEnvironment();
-    const present = [f.packages[1]!.record.name, f.packages[3]!.record.name];
+    const present = f.packages.slice(0, 3).map(({ record }) => record.name);
     const absent = f.packages.filter(
       ({ record }) => !present.includes(record.name),
     );
     for (const { record } of absent) publisher.hide(record.name);
-    const result = await publishRegistryRelease(
-      { ...options(f), npmCli: publisher.npmCli },
-      publisher.ports,
-    );
+    const prepared = await preparePublication(f, publisher);
+    const result = await publishRegistryRelease(prepared, publisher.ports);
     expect(result).toEqual({
       published: absent.map(({ record }) => record.name),
       skipped: present,
@@ -103,6 +140,21 @@ describe("actual publication orchestration with controlled external acceptance",
       });
     for (const { name } of publisher.uploads)
       expect(present).not.toContain(name);
+    expect(publisher.state.consumerDependencies).toEqual(
+      Object.fromEntries(present.map((name) => [name, "0.2.0"])),
+    );
+    expect(
+      publisher.preflightRun.mock.calls.map(([, args]) => args[1]),
+    ).toEqual(["--version", "install", "audit"]);
+    for (const [, , processOptions] of publisher.preflightRun.mock.calls) {
+      expect(processOptions.env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
+      expect(processOptions.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
+    }
+    expect(
+      publisher.run.mock.calls.some(
+        ([, args]) => args[1] === "install" || args[1] === "audit",
+      ),
+    ).toBe(false);
     expect(publisher.state.imports).toBe(0);
   });
 
@@ -115,10 +167,16 @@ describe("actual publication orchestration with controlled external acceptance",
       "must-not-reach-the-publish-child",
     );
     for (const { record } of f.packages) publisher.hide(record.name);
-    const result = await publishRegistryRelease(
-      { ...options(f), npmCli: publisher.npmCli },
-      publisher.ports,
-    );
+    const prepared = await preparePublication(f, publisher);
+    expect(
+      JSON.parse(readFileSync(prepared.preflightReceipt, "utf8")),
+    ).toMatchObject({
+      authentication: "none-existing",
+      npmVersion: null,
+      existingPackages: [],
+    });
+    expect(publisher.preflightRun).not.toHaveBeenCalled();
+    const result = await publishRegistryRelease(prepared, publisher.ports);
     expect(result.published).toEqual(
       f.packages.map(({ record }) => record.name),
     );
@@ -173,12 +231,8 @@ describe("actual publication orchestration with controlled external acceptance",
     const f = fixture();
     const publisher = releasePublisherFixture(f);
     useReleasePublishingEnvironment();
-    expect(
-      await publishRegistryRelease(
-        { ...options(f), npmCli: publisher.npmCli },
-        publisher.ports,
-      ),
-    ).toEqual({
+    const prepared = await preparePublication(f, publisher);
+    expect(await publishRegistryRelease(prepared, publisher.ports)).toEqual({
       published: [],
       skipped: f.packages.map(({ record }) => record.name),
       manifestSha256: f.originalManifestSha256,
@@ -193,18 +247,17 @@ describe("actual publication orchestration with controlled external acceptance",
     const f = fixture();
     const publisher = releasePublisherFixture(f);
     useReleasePublishingEnvironment();
-    publisher.hide(f.packages[0]!.record.name);
-    const last = f.packages[4]!.record.name;
+    for (const index of [1, 3, 4])
+      publisher.hide(f.packages[index]!.record.name);
+    const prepared = await preparePublication(f, publisher);
+    const last = f.packages[2]!.record.name;
     const bytes = Buffer.from(
       publisher.tarballs.get(publisher.tarballUrl(last))!,
     );
     bytes[bytes.length - 1] = bytes[bytes.length - 1]! ^ 0xff;
     publisher.tarballs.set(publisher.tarballUrl(last), bytes);
     await expect(
-      publishRegistryRelease(
-        { ...options(f), npmCli: publisher.npmCli },
-        publisher.ports,
-      ),
+      publishRegistryRelease(prepared, publisher.ports),
     ).rejects.toThrow();
     expect(publisher.uploads).toEqual([]);
     expect(publisher.run).not.toHaveBeenCalled();
@@ -221,6 +274,7 @@ describe("actual publication orchestration with controlled external acceptance",
       const f = fixture();
       const publisher = releasePublisherFixture(f);
       useReleasePublishingEnvironment();
+      const prepared = await preparePublication(f, publisher);
       vi.stubEnv(
         key,
         key === "ACTIONS_ID_TOKEN_REQUEST_TOKEN"
@@ -228,10 +282,7 @@ describe("actual publication orchestration with controlled external acceptance",
           : "synthetic-unapproved-token",
       );
       await expect(
-        publishRegistryRelease(
-          { ...options(f), npmCli: publisher.npmCli },
-          publisher.ports,
-        ),
+        publishRegistryRelease(prepared, publisher.ports),
       ).rejects.toThrow();
       expect(publisher.fetch).not.toHaveBeenCalled();
       expect(publisher.run).not.toHaveBeenCalled();
@@ -248,7 +299,7 @@ describe("actual publication orchestration with controlled external acceptance",
       for (const { record } of f.packages) publisher.hide(record.name);
       publisher.publication.uncertainPackage = f.packages[1]!.record.name;
       publisher.publication.uncertainty = uncertainty;
-      const expected = { ...options(f), npmCli: publisher.npmCli };
+      const expected = await preparePublication(f, publisher);
       const failure = await publishRegistryRelease(
         expected,
         publisher.ports,
@@ -267,7 +318,16 @@ describe("actual publication orchestration with controlled external acceptance",
         ),
       ).toBe(true);
       publisher.publication.uncertainPackage = undefined;
-      const recovered = await publishRegistryRelease(expected, publisher.ports);
+      await expect(
+        publishRegistryRelease(expected, publisher.ports),
+      ).rejects.toThrow();
+      expect(publisher.uploads).toHaveLength(2);
+      const refreshed = await preparePublication(f, publisher);
+      expect(refreshed.manifestSha256).toBe(expected.manifestSha256);
+      const recovered = await publishRegistryRelease(
+        refreshed,
+        publisher.ports,
+      );
       expect(recovered).toEqual({
         published: f.packages.slice(2).map(({ record }) => record.name),
         skipped: f.packages.slice(0, 2).map(({ record }) => record.name),
@@ -295,7 +355,7 @@ describe("actual publication orchestration with controlled external acceptance",
     for (const { record } of f.packages) publisher.hide(record.name);
     const first = f.packages[0]!.record.name;
     publisher.publication.uncertainPackage = first;
-    const expected = { ...options(f), npmCli: publisher.npmCli };
+    const expected = await preparePublication(f, publisher);
     await expect(
       publishRegistryRelease(expected, publisher.ports),
     ).rejects.toThrow();
@@ -305,6 +365,7 @@ describe("actual publication orchestration with controlled external acceptance",
     altered[altered.length - 1] = altered[altered.length - 1]! ^ 0xff;
     publisher.tarballs.set(publisher.tarballUrl(first), altered);
     publisher.publication.uncertainPackage = undefined;
+    await expect(preparePublication(f, publisher)).rejects.toThrow();
     await expect(
       publishRegistryRelease(expected, publisher.ports),
     ).rejects.toThrow();
@@ -316,6 +377,7 @@ describe("actual publication orchestration with controlled external acceptance",
     const publisher = releasePublisherFixture(f);
     useReleasePublishingEnvironment();
     for (const { record } of f.packages) publisher.hide(record.name);
+    const prepared = await preparePublication(f, publisher);
     const invoke = publisher.run.getMockImplementation()!;
     let changed = false;
     publisher.run.mockImplementation(async (...args) => {
@@ -331,14 +393,194 @@ describe("actual publication orchestration with controlled external acceptance",
       return invoke(...args);
     });
     await expect(
-      publishRegistryRelease(
-        { ...options(f), npmCli: publisher.npmCli },
-        publisher.ports,
-      ),
+      publishRegistryRelease(prepared, publisher.ports),
     ).rejects.toThrow();
     expect(changed).toBe(true);
     expect(publisher.uploads).toEqual([]);
     expect(readFileSync(f.manifestPath)).toEqual(f.manifestBytes);
+  });
+});
+
+describe("unprivileged authentication before irreversible recovery", () => {
+  it.each(["crypto-failure", "missing-provenance", "foreign-source"] as const)(
+    "blocks all remaining uploads when existing exact bytes have %s",
+    async (failure) => {
+      const f = fixture();
+      const publisher = releasePublisherFixture(f);
+      useReleasePublishingEnvironment();
+      for (const { record } of f.packages.slice(1)) publisher.hide(record.name);
+      if (failure === "crypto-failure") publisher.state.auditStatus = 1;
+      if (failure === "missing-provenance")
+        publisher.audit.verified[0]!.attestationBundles = [];
+      if (failure === "foreign-source") {
+        const statement = releaseAuditStatement(publisher.audit);
+        statement.predicate.buildDefinition.externalParameters.workflow.repository =
+          "https://github.com/foreign/support-desk";
+        setReleaseAuditStatement(publisher.audit, statement);
+      }
+      await expect(preparePublication(f, publisher)).rejects.toThrow();
+      expect(
+        publisher.preflightRun.mock.calls.some(
+          ([, args]) => args[1] === "audit" && args[2] === "signatures",
+        ),
+      ).toBe(true);
+      await expect(
+        publishRegistryRelease(
+          {
+            ...options(f),
+            npmCli: publisher.npmCli,
+            preflightReceipt: join(f.root, "no-authenticated-receipt.json"),
+            preflightReceiptSha256: "0".repeat(64),
+          },
+          publisher.ports,
+        ),
+      ).rejects.toThrow();
+      expect(publisher.uploads).toEqual([]);
+      expect(publisher.run).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    "missing-file",
+    "missing-digest",
+    "tampered-bytes",
+    "unverified-existing",
+    "source",
+    "manifest",
+    "artifact-id",
+    "artifact-digest",
+    "added-existing",
+    "removed-existing",
+  ] as const)(
+    "refuses %s preflight evidence before any upload",
+    async (failure) => {
+      const f = fixture();
+      const publisher = releasePublisherFixture(f);
+      useReleasePublishingEnvironment();
+      for (const { record } of f.packages.slice(1)) publisher.hide(record.name);
+      if (failure === "added-existing")
+        publisher.hide(f.packages[0]!.record.name);
+      const prepared = await preparePublication(f, publisher);
+      if (failure === "missing-file") unlinkSync(prepared.preflightReceipt);
+      if (failure === "missing-digest") prepared.preflightReceiptSha256 = "";
+      if (failure === "tampered-bytes")
+        writeFileSync(
+          prepared.preflightReceipt,
+          `${readFileSync(prepared.preflightReceipt, "utf8")} `,
+        );
+      if (["unverified-existing", "source", "manifest"].includes(failure)) {
+        const receipt = JSON.parse(
+          readFileSync(prepared.preflightReceipt, "utf8"),
+        );
+        if (failure === "unverified-existing")
+          receipt.authentication = "none-existing";
+        if (failure === "source") receipt.identity.commit = "a".repeat(40);
+        if (failure === "manifest") receipt.manifestSha256 = "b".repeat(64);
+        const bytes = Buffer.from(JSON.stringify(receipt));
+        writeFileSync(prepared.preflightReceipt, bytes);
+        prepared.preflightReceiptSha256 = releaseDigest("sha256", bytes);
+      }
+      if (failure === "artifact-id") prepared.preparedArtifactId = "4242000999";
+      if (failure === "artifact-digest")
+        prepared.preparedArtifactSha256 = "c".repeat(64);
+      if (failure === "added-existing")
+        publisher.accept(f.packages[0]!.record.name, f.packages[0]!.bytes);
+      if (failure === "removed-existing")
+        publisher.hide(f.packages[0]!.record.name);
+      await expect(
+        publishRegistryRelease(prepared, publisher.ports),
+      ).rejects.toThrow();
+      expect(publisher.uploads).toEqual([]);
+      expect(publisher.run).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a receipt's altered original artifact binding even with an independently updated receipt digest", async () => {
+    const f = fixture();
+    const publisher = releasePublisherFixture(f);
+    useReleasePublishingEnvironment();
+    for (const { record } of f.packages) publisher.hide(record.name);
+    const prepared = await preparePublication(f, publisher);
+    const receipt = JSON.parse(readFileSync(prepared.preflightReceipt, "utf8"));
+    expect(receipt.preparedArtifact).toEqual({
+      id: prepared.preparedArtifactId,
+      sha256: prepared.preparedArtifactSha256,
+    });
+    receipt.preparedArtifact.id = "4242000777";
+    receipt.preparedArtifact.sha256 = "d".repeat(64);
+    const bytes = Buffer.from(JSON.stringify(receipt));
+    writeFileSync(prepared.preflightReceipt, bytes);
+    prepared.preflightReceiptSha256 = releaseDigest("sha256", bytes);
+    await expect(
+      publishRegistryRelease(prepared, publisher.ports),
+    ).rejects.toThrow();
+    expect(publisher.uploads).toEqual([]);
+    expect(publisher.run).not.toHaveBeenCalled();
+  });
+
+  it("refuses an existing subset whose required candidate dependencies are still absent before running npm", async () => {
+    const f = fixture();
+    const publisher = releasePublisherFixture(f);
+    for (const [index, { record }] of f.packages.entries())
+      if (index !== 3) publisher.hide(record.name);
+    await expect(preparePublication(f, publisher)).rejects.toThrow();
+    expect(publisher.preflightRun).not.toHaveBeenCalled();
+    expect(publisher.uploads).toEqual([]);
+  });
+
+  it("rejects preflight under actual OIDC authority instead of installing with publish credentials", async () => {
+    const f = fixture();
+    const publisher = releasePublisherFixture(f);
+    useReleasePublishingEnvironment();
+    await expect(
+      preflightRegistryRelease(
+        {
+          ...options(f),
+          npmCli: publisher.npmCli,
+        },
+        publisher.preflightPorts,
+      ),
+    ).rejects.toThrow();
+    expect(publisher.preflightRun).not.toHaveBeenCalled();
+    expect(publisher.uploads).toEqual([]);
+  });
+
+  it("rechecks the existing set after crypto and refuses a newly visible unauthenticated package", async () => {
+    const f = fixture();
+    const publisher = releasePublisherFixture(f);
+    for (const { record } of f.packages.slice(1)) publisher.hide(record.name);
+    const invoke = publisher.preflightRun.getMockImplementation()!;
+    publisher.preflightRun.mockImplementation(async (...args) => {
+      const result = await invoke(...args);
+      if (args[1][1] === "audit")
+        publisher.accept(f.packages[2]!.record.name, f.packages[2]!.bytes);
+      return result;
+    });
+    await expect(preparePublication(f, publisher)).rejects.toThrow();
+    expect(publisher.uploads).toEqual([]);
+    expect(publisher.run).not.toHaveBeenCalled();
+  });
+
+  it("stops remaining uploads if another package becomes visible after this publisher's first confirmed upload", async () => {
+    const f = fixture();
+    const publisher = releasePublisherFixture(f);
+    useReleasePublishingEnvironment();
+    for (const { record } of f.packages) publisher.hide(record.name);
+    const prepared = await preparePublication(f, publisher);
+    const invoke = publisher.run.getMockImplementation()!;
+    publisher.run.mockImplementation(async (...args) => {
+      const result = await invoke(...args);
+      if (args[1][1] === "publish" && publisher.uploads.length === 1)
+        publisher.accept(f.packages[2]!.record.name, f.packages[2]!.bytes);
+      return result;
+    });
+    await expect(
+      publishRegistryRelease(prepared, publisher.ports),
+    ).rejects.toThrow();
+    expect(publisher.uploads.map(({ name }) => name)).toEqual([
+      f.packages[0]!.record.name,
+    ]);
+    expect(publisher.preflightRun).not.toHaveBeenCalled();
   });
 });
 
@@ -427,6 +669,25 @@ describe("registry verification of the original bytes", () => {
         "https://registry.npmjs.org/",
       );
     }
+    const repeated = await verifyRegistryRelease(
+      { ...options(f), npmCli: registry.npmCli, npmVersion: "11.18.0" },
+      registry.ports,
+    );
+    expect(repeated).toMatchObject({
+      verified: true,
+      identity: receipt.identity,
+      manifestSha256: receipt.manifestSha256,
+      packages: receipt.packages,
+    });
+    expect(registry.state.imports).toBe(2);
+    expect(
+      registry.run.mock.calls.some(
+        ([, args]) => args.includes("publish") || args.includes("pack"),
+      ),
+    ).toBe(false);
+    expect(readFileSync(f.manifestPath)).toEqual(f.manifestBytes);
+    for (const { record, bytes } of f.packages)
+      expect(readFileSync(join(f.directory, record.tarball))).toEqual(bytes);
   });
 
   it("preflights every existing package as skip only after checking its exact original bytes", async () => {

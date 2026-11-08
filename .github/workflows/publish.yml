@@ -1,6 +1,7 @@
 # Normal publication is release-event-only from a protected signed stable tag.
-# Recovery reruns failed jobs on the unchanged tag, retaining the original
-# preparation outputs/artifact; never rerun all jobs or repack a partial release.
+# Recovery reruns registry-preflight and its dependents on the unchanged tag,
+# retaining original preparation outputs/artifacts; never repack a partial set.
+# A verify-only failure can rerun verify alone after publication has succeeded.
 name: Publish
 
 on:
@@ -293,9 +294,101 @@ jobs:
           printf 'Source tag: %s\n\nSource commit: %s\n\nPrepared artifact ID: %s\n\nArtifact SHA-256: %s\n\nIndependent manifest SHA-256: %s\n\nIndependent consumer receipt SHA-256: %s\n\nConsumer evidence artifact ID: %s\n\nConsumer evidence archive SHA-256: %s\n' \
             "${RELEASE_TAG}" "${RELEASE_COMMIT}" "${ARTIFACT_ID}" "${ARTIFACT_DIGEST}" "${MANIFEST_SHA256}" "${RECEIPT_SHA256}" "${CONSUMER_ARTIFACT_ID}" "${CONSUMER_ARTIFACT_DIGEST}" >> "${GITHUB_STEP_SUMMARY}"
 
+  registry-preflight:
+    name: Authenticate existing registry release artifacts
+    needs: [identity, prepare]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: none
+    outputs:
+      receipt-sha256: ${{ steps.preflight.outputs.sha256 }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+    env:
+      RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+      RELEASE_COMMIT: ${{ needs.identity.outputs.commit }}
+      RELEASE_MANIFEST_SHA256: ${{ needs.prepare.outputs.manifest-sha256 }}
+      PREPARED_ARTIFACT_ID: ${{ needs.prepare.outputs.artifact-id }}
+      PREPARED_ARTIFACT_SHA256: ${{ needs.prepare.outputs.artifact-digest }}
+      GIT_NO_REPLACE_OBJECTS: "1"
+    steps:
+      - name: Check out the exact verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.identity.outputs.commit }}
+          persist-credentials: false
+      - name: Set up Node.js without package-manager configuration
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - name: Verify and extract the reviewed npm CLI
+        shell: bash
+        env:
+          NPM_VERSION: 11.18.0
+          NPM_TARBALL_SHA256: 73f6155215ebabf4ed96dca1f567c2372cc713c33af2e5b9b62fde4e92373e2e
+        run: |
+          set -euo pipefail
+          tarball="${RUNNER_TEMP}/npm-${NPM_VERSION}.tgz"
+          npm_root="${RUNNER_TEMP}/release-npm-${NPM_VERSION}"
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://registry.npmjs.org/npm/-/npm-${NPM_VERSION}.tgz" --output "${tarball}"
+          echo "${NPM_TARBALL_SHA256}  ${tarball}" | sha256sum --check --strict --quiet
+          mkdir "${npm_root}"
+          tar --extract --gzip --file "${tarball}" --directory "${npm_root}"
+          npm_cli="${npm_root}/package/bin/npm-cli.js"
+          [[ "$(node "${npm_cli}" --version)" == "${NPM_VERSION}" ]]
+          printf 'RELEASE_NPM_CLI=%s\nRELEASE_NPM_VERSION=%s\n' "${npm_cli}" "${NPM_VERSION}" >> "${GITHUB_ENV}"
+      - name: Download the original immutable preparation artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact-id }}
+          path: ${{ runner.temp }}/support-desk-prepared
+      # Installs only existing registry roots with scripts disabled. Missing
+      # candidate dependencies and unverifiable signatures/provenance block.
+      # All-absent preparation explicitly records no audit; no imports run.
+      - name: Authenticate the existing subset and independently hash its receipt
+        id: preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt_dir="${RUNNER_TEMP}/support-desk-registry-preflight"
+          mkdir "${receipt_dir}"
+          node scripts/release-verification.mjs preflight \
+            --manifest "${RUNNER_TEMP}/support-desk-prepared/package-manifest.json" \
+            --manifest-sha256 "${RELEASE_MANIFEST_SHA256}" \
+            --release-tag "${RELEASE_TAG}" --expected-release-commit "${RELEASE_COMMIT}" \
+            --prepared-artifact-id "${PREPARED_ARTIFACT_ID}" \
+            --prepared-artifact-sha256 "${PREPARED_ARTIFACT_SHA256}" \
+            > "${receipt_dir}/registry-preflight.json"
+          cat "${receipt_dir}/registry-preflight.json"
+          read -r receipt_sha256 _ < <(sha256sum "${receipt_dir}/registry-preflight.json")
+          [[ "${receipt_sha256}" =~ ^[0-9a-f]{64}$ ]]
+          printf 'sha256=%s\n' "${receipt_sha256}" >> "${GITHUB_OUTPUT}"
+      - name: Retain the independently bound registry preflight receipt
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: support-desk-registry-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/support-desk-registry-preflight/registry-preflight.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 30
+      - name: Record the preflight and original preparation identities
+        env:
+          PREFLIGHT_RECEIPT_SHA256: ${{ steps.preflight.outputs.sha256 }}
+          PREFLIGHT_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          PREFLIGHT_ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          printf 'Source tag: %s\n\nSource commit: %s\n\nOriginal preparation artifact ID: %s\n\nOriginal preparation archive SHA-256: %s\n\nIndependent manifest SHA-256: %s\n\nIndependent preflight receipt SHA-256: %s\n\nPreflight artifact ID: %s\n\nPreflight archive SHA-256: %s\n' \
+            "${RELEASE_TAG}" "${RELEASE_COMMIT}" "${PREPARED_ARTIFACT_ID}" "${PREPARED_ARTIFACT_SHA256}" "${RELEASE_MANIFEST_SHA256}" "${PREFLIGHT_RECEIPT_SHA256}" "${PREFLIGHT_ARTIFACT_ID}" "${PREFLIGHT_ARTIFACT_DIGEST}" >> "${GITHUB_STEP_SUMMARY}"
+
   publish:
     name: Publish exact prepared artifacts
-    needs: [identity, prepare]
+    needs: [identity, prepare, registry-preflight]
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -307,6 +400,9 @@ jobs:
       RELEASE_TAG: ${{ needs.identity.outputs.tag }}
       RELEASE_COMMIT: ${{ needs.identity.outputs.commit }}
       RELEASE_MANIFEST_SHA256: ${{ needs.prepare.outputs.manifest-sha256 }}
+      PREPARED_ARTIFACT_ID: ${{ needs.prepare.outputs.artifact-id }}
+      PREPARED_ARTIFACT_SHA256: ${{ needs.prepare.outputs.artifact-digest }}
+      PREFLIGHT_RECEIPT_SHA256: ${{ needs.registry-preflight.outputs.receipt-sha256 }}
       RELEASE_ENVIRONMENT: npm-publish
       GIT_NO_REPLACE_OBJECTS: "1"
     steps:
@@ -344,12 +440,21 @@ jobs:
         with:
           artifact-ids: ${{ needs.prepare.outputs.artifact-id }}
           path: ${{ runner.temp }}/support-desk-prepared
-      - name: Preflight all five and publish original tarballs through OIDC
+      - name: Download the authenticated unprivileged preflight receipt
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.registry-preflight.outputs.artifact-id }}
+          path: ${{ runner.temp }}/support-desk-registry-preflight
+      - name: Recheck the authenticated subset and publish original tarballs through OIDC
         run: >-
           node scripts/release-verification.mjs publish
           --manifest "${RUNNER_TEMP}/support-desk-prepared/package-manifest.json"
           --manifest-sha256 "${RELEASE_MANIFEST_SHA256}"
           --release-tag "${RELEASE_TAG}" --expected-release-commit "${RELEASE_COMMIT}"
+          --prepared-artifact-id "${PREPARED_ARTIFACT_ID}"
+          --prepared-artifact-sha256 "${PREPARED_ARTIFACT_SHA256}"
+          --preflight-receipt "${RUNNER_TEMP}/support-desk-registry-preflight/registry-preflight.json"
+          --preflight-receipt-sha256 "${PREFLIGHT_RECEIPT_SHA256}"
 
   verify:
     name: Verify registry signatures, source provenance and consumer
