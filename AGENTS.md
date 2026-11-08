@@ -188,11 +188,18 @@ synchronized SD-06 release precedes adoption of new Support Desk behavior.
 Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
 preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
 both producers' final release preparation are merged. All four KB packages and
-Agent Access remain unpublished at source `0.1.0`; unadvertised maintainer-2FA
-bootstrap and the separately reviewed first advertised release with verified
-registry provenance remain open. PG-01/RG-01 require both published producers before
-host assembly and actual existing-login/Admin consent and requested-client
-proof before activation or pilots. SD-02 waits for KB-05 publication. Synthetic
+Agent Access now have verified trusted `0.1.1` registry releases. Their manual
+`0.1.0` bootstrap receipts remain historical and have no OIDC provenance;
+the separate trusted releases close the producer publication gates. SD-02 is
+an in-progress source candidate adding optional `@pegma/support-desk-ai` and
+bounded turn work to the existing ticket partition. Its current-head tests,
+code/security review, and release remain open. The base application has no KB
+or provider dependency; actual KB `0.1.1` dependencies belong only to the
+optional AI package. See [assistant coordination](docs/ASSISTANT_COORDINATION.md)
+and its [layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint).
+PG-01/RG-01 consume exact verified published producers and still require actual
+existing-login/Admin consent and requested-client proof before activation or
+pilots. Synthetic
 SDK/source proof uses no actual customer data and does not close host privacy,
 operations, full-workflow, or pilot gates. Follow the
 [implementation ledger](docs/KNOWLEDGE_AI_PLAN.md#status-and-reading-order)

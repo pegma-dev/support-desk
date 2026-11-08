@@ -1,0 +1,43 @@
+{
+  "name": "@pegma/support-desk-ai",
+  "version": "0.1.1",
+  "description": "Optional bounded, provider-neutral Support Desk answer coordinator.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist/**/*.d.ts",
+    "dist/**/*.d.ts.map",
+    "dist/**/*.js",
+    "dist/**/*.js.map"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pegma-dev/support-desk.git",
+    "directory": "packages/ai"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "prepack": "pnpm run --silent build"
+  },
+  "dependencies": {
+    "@pegma/authorization-core": "0.4.0",
+    "@pegma/knowledge-base-application": "0.1.1",
+    "@pegma/knowledge-base-contracts": "0.1.1",
+    "@pegma/spine": "0.1.2",
+    "@pegma/support-desk-application": "0.1.1"
+  }
+}

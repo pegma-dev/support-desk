@@ -42,6 +42,10 @@ export const RELEASE_PACKAGES = [
     directory: "application",
     name: "@pegma/support-desk-application",
   },
+  {
+    directory: "ai",
+    name: "@pegma/support-desk-ai",
+  },
 ];
 
 const RELEASE_NAMES = new Set(RELEASE_PACKAGES.map(({ name }) => name));
