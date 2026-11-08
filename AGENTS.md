@@ -195,8 +195,11 @@ the separate trusted releases close the producer publication gates. SD-02
 merged in [PR #38](https://github.com/pegma-dev/support-desk/pull/38), adding
 optional `@pegma/support-desk-ai` and bounded turn work to the existing ticket
 partition. SD-03 merged in [PR #39](https://github.com/pegma-dev/support-desk/pull/39),
-adding verified resolution learning and KB draft delivery. SD-04's engineering
-workflow is the current source candidate; see [its guide](docs/ENGINEERING_EXPORT.md).
+adding verified resolution learning and KB draft delivery. SD-04 merged in
+[PR #40](https://github.com/pegma-dev/support-desk/pull/40), adding verified
+engineering export and reconciliation; see [its guide](docs/ENGINEERING_EXPORT.md).
+SD-05's release follow-up is the current source candidate; see
+[its guide](docs/ENGINEERING_FOLLOWUP.md).
 Current-head review/validation and the future synchronized release remain
 required. The base application has no KB or provider dependency; actual KB
 `0.1.2` dependencies belong only to the

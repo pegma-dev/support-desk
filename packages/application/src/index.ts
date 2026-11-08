@@ -71,6 +71,38 @@ import { createEngineeringPolicyServices } from "./engineering-policy.js";
 import { createEngineeringWorkerServices } from "./engineering-work.js";
 import { createEngineeringReconciliationServices } from "./engineering-reconciliation.js";
 import type { EngineeringDependencies } from "./engineering-internal.js";
+import type {
+  EngineeringFollowupApplication,
+  EngineeringFollowupOptions,
+} from "./engineering-followup-types.js";
+import {
+  assertEngineeringFollowupRecord,
+  resolveEngineeringFollowupOptions,
+  type EngineeringFollowupRecord,
+  type EngineeringFollowupWorkRecord,
+} from "./engineering-followup-records.js";
+import {
+  createEngineeringFollowupSourceServices,
+  planEngineeringFollowupSourceChange,
+  planEngineeringFollowupTicketMutation,
+} from "./engineering-followup-source.js";
+import { createEngineeringFollowupWorkServices } from "./engineering-followup-work.js";
+import type { EngineeringFollowupDependencies } from "./engineering-followup-internal.js";
+import {
+  fields as followupFields,
+  integer as followupInteger,
+  text as followupText,
+} from "./assistant-turn-records.js";
+import {
+  engineeringFollowupCommandKey,
+  engineeringFollowupHeadKey,
+  safeEngineeringFollowupSnapshot as followupSnapshot,
+  checkEngineeringFollowupRecordCapacity,
+} from "./engineering-followup-records.js";
+import {
+  engineeringFollowupNow,
+  engineeringFollowupVersionsCurrent,
+} from "./engineering-followup-source.js";
 import {
   assertResolutionLearningRecord,
   resolveResolutionLearningOptions,
@@ -98,6 +130,26 @@ export type { AssistantTurnRecord } from "./assistant-turn-records.js";
 
 export type { InboundSenderAuthentication };
 export type * from "./engineering-types.js";
+export type * from "./engineering-followup-types.js";
+export type {
+  EngineeringFollowupHeadRecord,
+  EngineeringFollowupWorkRecord,
+  EngineeringFollowupReceiptRecord,
+  EngineeringFollowupRecord,
+  EngineeringFollowupPreparedBundle,
+  EngineeringFollowupRetestSummary,
+} from "./engineering-followup-records.js";
+export {
+  engineeringFollowupModelManifestHash,
+  engineeringFollowupContextHash,
+  engineeringFollowupPublicFactsHash,
+  engineeringFollowupChecksBinding,
+  engineeringFollowupRetestRequestId,
+  engineeringFollowupRetestProductBinding,
+  engineeringFollowupRetestRequestHash,
+  engineeringFollowupRetestSummary,
+  engineeringFollowupModelAttemptCount,
+} from "./engineering-followup-records.js";
 export type {
   EngineeringSourceRecord,
   EngineeringWorkRecord,
@@ -154,6 +206,11 @@ export const supportPermissions = Object.freeze({
   engineeringReconcile: "support.engineering.reconcile",
   engineeringPolicyRead: "support.engineering.policy.read",
   engineeringPolicyManage: "support.engineering.policy.manage",
+  engineeringFollowupRead: "support.engineering.followup.read",
+  engineeringFollowupProcess: "support.engineering.followup.process",
+  engineeringFollowupReview: "support.engineering.followup.review",
+  engineeringFollowupEvidenceSubmit:
+    "support.engineering.followup.evidence.submit",
 } as const);
 
 export interface SupportDeskLimits {
@@ -451,6 +508,7 @@ interface TicketReservationRecord {
 }
 
 export type SupportRecord =
+  | EngineeringFollowupRecord
   | EngineeringSourceRecord
   | EngineeringWorkRecord
   | EngineeringReceiptRecord
@@ -510,6 +568,14 @@ export const supportTicketAuditActions = Object.freeze({
   engineeringDispatchStarted: "support.engineering.dispatch_started",
   engineeringExportRecorded: "support.engineering.export_recorded",
   engineeringReconciled: "support.engineering.reconciled",
+  engineeringFollowupObserved: "support.engineering.followup.observed",
+  engineeringFollowupBundlePrepared:
+    "support.engineering.followup.bundle_prepared",
+  engineeringFollowupReassessed: "support.engineering.followup.reassessed",
+  engineeringFollowupRejected: "support.engineering.followup.rejected",
+  engineeringFollowupNoticePosted: "support.engineering.followup.notice_posted",
+  engineeringFollowupRetestRecorded:
+    "support.engineering.followup.retest_recorded",
 } as const);
 
 export interface CustomerTicketIndexEntry {
@@ -678,6 +744,17 @@ function jsonCodec<T>(key: (value: T) => EntityKey): Codec<T> {
       const location = key(value);
       if (
         [
+          "engineering_followup_head",
+          "engineering_followup_work",
+          "engineering_followup_receipt",
+        ].includes((value as { kind?: string }).kind ?? "") ||
+        location.id === "engineering-followup-head" ||
+        location.id.startsWith("engineering-followup:") ||
+        location.id.startsWith("engineering-followup-command:")
+      )
+        assertEngineeringFollowupRecord(value, location);
+      if (
+        [
           "engineering_source",
           "engineering_work",
           "engineering_receipt",
@@ -714,6 +791,27 @@ function jsonCodec<T>(key: (value: T) => EntityKey): Codec<T> {
         throw new TypeError("stored Support Desk record has no JSON payload");
       }
       const decoded = JSON.parse(record.payload) as T;
+      if (
+        [
+          "engineering_followup_head",
+          "engineering_followup_work",
+          "engineering_followup_receipt",
+        ].includes((decoded as { kind?: string })?.kind ?? "") ||
+        record.id === "engineering-followup-head" ||
+        (typeof record.id === "string" &&
+          (record.id.startsWith("engineering-followup:") ||
+            record.id.startsWith("engineering-followup-command:")))
+      ) {
+        if (
+          typeof record.partition !== "string" ||
+          typeof record.id !== "string"
+        )
+          throw new TypeError("Follow-up record has invalid physical envelope");
+        assertEngineeringFollowupRecord(decoded, {
+          partition: record.partition,
+          id: record.id,
+        });
+      }
       if (
         [
           "engineering_source",
@@ -1330,6 +1428,7 @@ export interface SupportDeskApplication
     AssistantTurnApplication,
     ResolutionLearningApplication,
     EngineeringApplication,
+    EngineeringFollowupApplication,
     EngineeringPolicyApplication {
   readHandoffWork(
     access: AccessContext,
@@ -2305,26 +2404,72 @@ async function planTicketDerivationMutation(
   records: Parameters<typeof planResolutionLearningTicketMutation>[0],
   before: Parameters<typeof planResolutionLearningTicketMutation>[1],
   after: Ticket,
+  rows: readonly SupportRecord[],
   visibleChange = false,
+  notice?: { readonly completedFollowupWorkId: string },
 ) {
   const learning = await planResolutionLearningTicketMutation(
     records,
     before,
     after,
+    notice !== undefined && visibleChange,
   );
-  const engineering = await planEngineeringTicketMutation(
-    records,
-    before,
-    after,
-    {
-      visibleChange,
-    },
-  );
+  const engineering =
+    notice === undefined
+      ? await planEngineeringTicketMutation(records, before, after, {
+          visibleChange,
+        })
+      : { actions: [], additionalRows: 0 };
+  const reopened =
+    ["resolved", "closed"].includes(before.value.ticket.status) &&
+    !["resolved", "closed"].includes(after.status);
+  const followup =
+    visibleChange || reopened
+      ? await planEngineeringFollowupTicketMutation(
+          records,
+          rows,
+          after.id,
+          notice !== undefined
+            ? "approved_followup_notice"
+            : reopened
+              ? "reopened"
+              : "visible_source_changed",
+          notice?.completedFollowupWorkId,
+        )
+      : { actions: [], nextWorkRows: [] };
   return {
     ...learning,
-    actions: [...learning.actions, ...engineering.actions],
+    actions: [...learning.actions, ...engineering.actions, ...followup.actions],
     additionalRows: learning.additionalRows + engineering.additionalRows,
+    nextWorkRows: followup.nextWorkRows,
   };
+}
+
+/** Project reserved work transitions without inventing another quota counter. */
+function projectFollowupRows(
+  rows: readonly SupportRecord[],
+  nextWorkRows: readonly EngineeringFollowupWorkRecord[],
+): readonly SupportRecord[] {
+  if (nextWorkRows.length > 8)
+    throw new SupportDeskConflictError("Follow-up transition bound exceeded");
+  const updates = new Map(nextWorkRows.map((row) => [row.id, row]));
+  if (updates.size !== nextWorkRows.length)
+    throw new SupportDeskConflictError("Duplicate follow-up transition");
+  const projected = rows.map((row) => {
+    if (row.kind !== "engineering_followup_work") return row;
+    const next = updates.get(row.id);
+    updates.delete(row.id);
+    return next ?? row;
+  });
+  return [...projected, ...updates.values()];
+}
+
+function followupMessageSlots(rows: readonly SupportRecord[]): number {
+  return rows.reduce(
+    (sum, row) =>
+      sum + (row.kind === "engineering_followup_work" ? row.messageSlots : 0),
+    0,
+  );
 }
 
 function humanReserveRows(rows: readonly SupportRecord[]): number {
@@ -2368,7 +2513,12 @@ function derivationReserveRows(
         : 0),
     0,
   );
-  return learning + engineering + terminal;
+  const followup = rows.reduce(
+    (sum, row) =>
+      sum + (row.kind === "engineering_followup_work" ? row.completionRows : 0),
+    0,
+  );
+  return learning + engineering + terminal + followup;
 }
 
 /** Reserve is opt-in metadata on the existing quota, never a second counter. */
@@ -2400,7 +2550,8 @@ function enforceManagedAdmission(
     quota !== undefined &&
     quota.messageCount >=
       limits.maxMessagesPerTicket -
-        (reserved ? assistantHumanReserveMessages : 0)
+        (reserved ? assistantHumanReserveMessages : 0) -
+        followupMessageSlots(rows)
   )
     throw new SupportDeskLimitError(
       "ticket_messages",
@@ -3718,6 +3869,7 @@ export function createSupportDeskApplication(options: {
   readonly assistantTurns?: AssistantTurnOptions;
   readonly resolutionLearning?: ResolutionLearningOptions;
   readonly engineering?: EngineeringOptions;
+  readonly engineeringFollowup?: EngineeringFollowupOptions;
   readonly engineeringPolicy?: {
     readonly maxRepositories?: number;
     readonly maxRecords?: number;
@@ -3725,6 +3877,14 @@ export function createSupportDeskApplication(options: {
   };
 }): SupportDeskApplication {
   const source = boundaryObject(options, "application options");
+  const engineeringFollowupOptions = resolveEngineeringFollowupOptions(
+    ownDataProperty(
+      source,
+      "engineeringFollowup",
+      "application options.engineeringFollowup",
+      true,
+    ) as EngineeringFollowupOptions | undefined,
+  );
   const engineeringOptions = resolveEngineeringOptions(
     ownDataProperty(
       source,
@@ -4332,6 +4492,8 @@ export function createSupportDeskApplication(options: {
     options: engineeringOptions,
     maxConflictAttempts,
     policy: engineeringPolicy,
+    planFollowupSourceChange: (context) =>
+      planEngineeringFollowupSourceChange(records, context),
     admission: (ticket, rows, additional) =>
       enforceManagedAdmission(ticket, rows, limits, additional),
     withdrawalAdmission: (ticket, rows, additional) =>
@@ -4385,6 +4547,379 @@ export function createSupportDeskApplication(options: {
   const engineeringReconciliation = createEngineeringReconciliationServices(
     engineeringDependencies,
   );
+
+  const followupDependencies: EngineeringFollowupDependencies = {
+    records,
+    clock,
+    limits,
+    options: engineeringFollowupOptions,
+    maxConflictAttempts,
+    audit: (command, ticket, actorId, now, action) =>
+      ticketAuditAction({
+        commandId: command.commandId,
+        correlationId: command.correlationId,
+        ticketId: ticket.id,
+        revision: ticket.revision,
+        actorId,
+        occurredAt: now,
+        action:
+          action as (typeof supportTicketAuditActions)[keyof typeof supportTicketAuditActions],
+      }),
+    admission: (
+      ticket,
+      rows,
+      nextWorkRows,
+      addedPhysicalRows,
+      addsMessage = false,
+    ) => {
+      const projected = projectFollowupRows(rows, nextWorkRows);
+      const newlyProjected = projected.length - rows.length;
+      if (addedPhysicalRows < newlyProjected)
+        throw new SupportDeskConflictError(
+          "Follow-up admission uses a stale partition view",
+        );
+      const quota = projected.find(
+        (row): row is TicketQuotaRecord => row.kind === "ticket_quota",
+      );
+      if (followupMessageSlots(projected) > 0) {
+        if (quota === undefined)
+          throw new SupportDeskConflictError(
+            "Follow-up quota metadata is missing",
+          );
+        const humanSlot =
+          quota.assistantManaged === true &&
+          ticket.firstStaffRespondedAt === undefined
+            ? assistantHumanReserveMessages
+            : 0;
+        if (
+          quota.messageCount + followupMessageSlots(projected) + humanSlot >
+          limits.maxMessagesPerTicket
+        )
+          throw new SupportDeskLimitError(
+            "ticket_messages",
+            limits.maxMessagesPerTicket,
+          );
+      }
+      enforceManagedAdmission(
+        ticket,
+        projected,
+        limits,
+        addedPhysicalRows - newlyProjected,
+        addsMessage,
+      );
+    },
+  };
+  const engineeringFollowupSource =
+    createEngineeringFollowupSourceServices(followupDependencies);
+  const engineeringFollowupWork = createEngineeringFollowupWorkServices(
+    followupDependencies,
+    engineeringFollowupSource.internal.load,
+  );
+
+  const approveAndPostEngineeringFollowupWebUpdate: EngineeringFollowupApplication["approveAndPostEngineeringFollowupWebUpdate"] =
+    async (access, input, guard) => {
+      const actorId = access.principalId;
+      const authorize = () => {
+        requireIdentifier(access.principalId, "principalId");
+        if (access.principalId !== actorId)
+          throw new SupportDeskAuthorizationError(
+            supportPermissions.engineeringFollowupReview,
+          );
+        requirePermission(access, supportPermissions.engineeringFollowupReview);
+        requirePermission(access, supportPermissions.queueRead);
+        requirePermission(access, supportPermissions.replyAny);
+      };
+      authorize();
+      const command = followupSnapshot(
+        followupFields(input, "follow-up web update", [
+          "ticketId",
+          "workId",
+          "commandId",
+          "correlationId",
+          "expectedWorkGeneration",
+          "expectedTicketRevision",
+          "bundleHash",
+          "messageId",
+        ]),
+      ) as unknown as typeof input;
+      for (const name of [
+        "ticketId",
+        "workId",
+        "commandId",
+        "correlationId",
+        "bundleHash",
+        "messageId",
+      ] as const)
+        followupText(command[name], name);
+      followupInteger(
+        command.expectedWorkGeneration,
+        "expectedWorkGeneration",
+        1,
+      );
+      followupInteger(
+        command.expectedTicketRevision,
+        "expectedTicketRevision",
+        1,
+      );
+      if (!/^[0-9a-f]{64}$/.test(command.bundleHash))
+        throw new TypeError("Invalid follow-up bundle hash");
+      if (typeof guard !== "function")
+        throw new TypeError("Follow-up posting requires a current-proof guard");
+      const hash = await requestFingerprint({
+        operation: "engineering_followup_web_update",
+        actorId,
+        command,
+      });
+      const receiptKey = engineeringFollowupCommandKey(
+        command.ticketId,
+        command.commandId,
+      );
+      const now = engineeringFollowupNow(followupDependencies);
+      for (let attempt = 0; attempt < maxConflictAttempts; attempt += 1) {
+        const prior = await records.get(receiptKey);
+        authorize();
+        if (prior !== null) {
+          if (
+            prior.kind !== "engineering_followup_receipt" ||
+            prior.fingerprint !== hash ||
+            !("messageId" in prior.result) ||
+            prior.result.messageId === undefined ||
+            !("bundleHash" in prior.result) ||
+            prior.result.bundleHash !== command.bundleHash ||
+            !("ticketRevision" in prior.result) ||
+            prior.result.ticketRevision === undefined ||
+            !("workId" in prior.result) ||
+            prior.result.workId !== command.workId
+          )
+            throw new SupportDeskConflictError(
+              "Follow-up posting command changed",
+            );
+          return followupSnapshot({
+            ticketId: command.ticketId,
+            workId: command.workId,
+            messageId: prior.result.messageId,
+            ticketRevision: prior.result.ticketRevision,
+            bundleHash: prior.result.bundleHash,
+          });
+        }
+        if (!engineeringFollowupOptions.enabled)
+          throw new SupportDeskConflictError("Follow-up is disabled");
+        const current = await engineeringFollowupWork.internal.current(
+          { ticketId: command.ticketId, workId: command.workId },
+          now,
+        );
+        authorize();
+        const work = current.work.value;
+        const prepared = work.preparedBundle;
+        const ticket = current.loaded.ticket.value.ticket;
+        if (
+          prepared === undefined ||
+          current.loaded.head === null ||
+          work.workGeneration !== command.expectedWorkGeneration ||
+          ticket.revision !== command.expectedTicketRevision ||
+          prepared.bundleHash !== command.bundleHash ||
+          work.completionRows !== 3 ||
+          work.messageSlots !== 1 ||
+          now() >= Date.parse(work.deadline)
+        )
+          throw new SupportDeskConflictError(
+            "Follow-up exact prepared work or ticket changed",
+          );
+        const checked = await engineeringFollowupWork.internal.verifyBundle(
+          current,
+          now,
+        );
+        const body = prepared.bundle.customerDraft.body;
+        requireNonempty(body, "body");
+        enforceLimit(body, "body", limits.maxMessageCharacters);
+        const bodyHash = await requestFingerprint({ body });
+        await guard();
+        authorize();
+        const occurredAt = clampTicketTime(clock.now(), ticket.updatedAt);
+        const updated = applyTicketEvent(ticket, {
+          type: "customer_notice_added",
+          actorId,
+          occurredAt,
+        });
+        const derivations = await planTicketDerivationMutation(
+          records,
+          current.loaded.ticket,
+          updated,
+          current.loaded.rows,
+          true,
+          { completedFollowupWorkId: work.workId },
+        );
+        const {
+          claim: _claim,
+          leaseUntil: _lease,
+          retryAt: _retry,
+          candidate: _candidate,
+          candidateHash: _candidateHash,
+          preparedBundle: _prepared,
+          ...remaining
+        } = work;
+        const next: EngineeringFollowupWorkRecord = {
+          ...remaining,
+          stage: "delivered",
+          status: "delivered",
+          workGeneration: work.workGeneration + 1,
+          completionRows: 0,
+          messageSlots: 0,
+          modelAttempts: [],
+          usageTombstones: [
+            ...new Map([
+              ...(work.usageTombstones ?? []).map(
+                (entry) => [entry.stepId, entry] as const,
+              ),
+              ...work.modelAttempts.map(
+                (entry) =>
+                  [
+                    entry.stepId,
+                    {
+                      stepId: entry.stepId,
+                      requestHash: entry.requestHash,
+                      usageReservationId: entry.binding.usageReservationId,
+                      accounting: entry.accounting,
+                    },
+                  ] as const,
+              ),
+            ]).values(),
+          ],
+          delivered: {
+            messageId: command.messageId,
+            ticketRevision: updated.revision,
+            bodyHash,
+            bundleHash: prepared.bundleHash,
+            commandId: command.commandId,
+            postedBy: actorId,
+            postedAt: occurredAt,
+          },
+          handoff: {
+            kbProposal: prepared.bundle.kbProposal,
+            retestRequests: prepared.bundle.retestRequests,
+          },
+        };
+        checkEngineeringFollowupRecordCapacity(next);
+        const quota = await records.getVersioned(
+          ticketQuotaKey(command.ticketId),
+        );
+        authorize();
+        if (quota?.value.kind !== "ticket_quota")
+          throw new SupportDeskConflictError(
+            "Follow-up quota metadata is missing",
+          );
+        const admissionRows = current.loaded.rows.map((row) =>
+          row.kind === "ticket_quota" ? quota.value : row,
+        );
+        followupDependencies.admission(
+          updated,
+          admissionRows,
+          [...derivations.nextWorkRows, next],
+          3 + derivations.additionalRows,
+          true,
+        );
+        const result = {
+          ticketId: command.ticketId,
+          workId: command.workId,
+          messageId: command.messageId,
+          ticketRevision: updated.revision,
+          bundleHash: prepared.bundleHash,
+        };
+        const receipt = {
+          kind: "engineering_followup_receipt" as const,
+          partition: command.ticketId,
+          id: receiptKey.id,
+          fingerprint: hash,
+          result,
+        };
+        checkEngineeringFollowupRecordCapacity(receipt);
+        if (
+          !(await engineeringFollowupVersionsCurrent(
+            followupDependencies,
+            current.loaded,
+            current.work,
+            current.engineeringWork,
+          ))
+        )
+          continue;
+        authorize();
+        if (
+          now() >=
+          Math.min(
+            Date.parse(work.deadline),
+            checked.deadline,
+            Date.parse(current.proof.attestation.validUntil),
+          )
+        )
+          throw new SupportDeskConflictError("Follow-up posting proof expired");
+        const outcome = await records.transact(command.ticketId, [
+          ...derivations.actions,
+          {
+            action: "putIfUnchanged",
+            version: current.loaded.source.version,
+            value: current.loaded.source.value,
+          },
+          {
+            action: "putIfUnchanged",
+            version: current.engineeringWork.version,
+            value: current.engineeringWork.value,
+          },
+          {
+            action: "putIfUnchanged",
+            version: current.loaded.head.version,
+            value: current.loaded.head.value,
+          },
+          {
+            action: "putIfUnchanged",
+            version: current.work.version,
+            value: next,
+          },
+          {
+            action: "putIfUnchanged",
+            version: quota.version,
+            value: {
+              ...quota.value,
+              messageCount: quota.value.messageCount + 1,
+            },
+          },
+          {
+            action: "insert",
+            value: {
+              kind: "message",
+              partition: command.ticketId,
+              id: `message:${command.messageId}`,
+              ordinal: updated.revision,
+              message: {
+                id: command.messageId,
+                ticketId: command.ticketId,
+                authorKind: "staff",
+                authorPrincipalId: actorId,
+                channel: "web",
+                visibility: "customer",
+                format: "plain_text",
+                body,
+                createdAt: occurredAt,
+              },
+            },
+          },
+          ticketAuditAction({
+            commandId: command.commandId,
+            correlationId: command.correlationId,
+            ticketId: command.ticketId,
+            revision: updated.revision,
+            actorId,
+            occurredAt,
+            action: supportTicketAuditActions.engineeringFollowupNoticePosted,
+          }),
+          { action: "insert", value: receipt },
+        ]);
+        if (outcome.committed) {
+          authorize();
+          return result;
+        }
+      }
+      throw new SupportDeskConflictError();
+    };
 
   type HandlingOperation =
     | "assistant_reply"
@@ -4544,6 +5079,7 @@ export function createSupportDeskApplication(options: {
         records,
         { value: versioned.value, version: versioned.version },
         updated,
+        rows,
         operation === "assistant_reply",
       );
       const learningConfirmation =
@@ -4562,8 +5098,20 @@ export function createSupportDeskApplication(options: {
         learningMutation.additionalRows +
         learningConfirmation.additionalRows;
       if (operation === "assistant_reply")
-        enforceManagedAdmission(ticket, rows, limits, newRows, true);
-      else enforceHandlingControlAdmission(ticket, rows, limits, newRows);
+        enforceManagedAdmission(
+          ticket,
+          projectFollowupRows(rows, learningMutation.nextWorkRows),
+          limits,
+          newRows,
+          true,
+        );
+      else
+        enforceHandlingControlAdmission(
+          ticket,
+          projectFollowupRows(rows, learningMutation.nextWorkRows),
+          limits,
+          newRows,
+        );
       const actions: Parameters<typeof records.transact>[1][number][] = [
         ...learningMutation.actions,
         ...learningConfirmation.actions,
@@ -4761,6 +5309,9 @@ export function createSupportDeskApplication(options: {
     ...engineeringWorkers,
     ...engineeringReconciliation,
     ...engineeringPolicy.application,
+    ...engineeringFollowupSource.application,
+    ...engineeringFollowupWork.application,
+    approveAndPostEngineeringFollowupWebUpdate,
     scanAssistantTurnCandidates: assistantTurns.scanAssistantTurnCandidates,
     claimAssistantTurn: assistantTurns.claimAssistantTurn,
     prepareAssistantTurnAttempt: assistantTurns.prepareAssistantTurnAttempt,
@@ -5452,6 +6003,7 @@ export function createSupportDeskApplication(options: {
           records,
           { value: versioned.value, version: versioned.version },
           updated,
+          partitionRows,
           true,
         );
         enforcePartitionRecordLimit(
@@ -5461,7 +6013,7 @@ export function createSupportDeskApplication(options: {
         );
         enforceManagedAdmission(
           versioned.value.ticket,
-          partitionRows,
+          projectFollowupRows(partitionRows, learningMutation.nextWorkRows),
           limits,
           addedReplyRows + learningMutation.additionalRows,
           true,
@@ -5877,6 +6429,7 @@ export function createSupportDeskApplication(options: {
           records,
           { value: versioned.value, version: versioned.version },
           updated,
+          partitionRows,
           true,
         );
         enforcePartitionRecordLimit(
@@ -5887,7 +6440,7 @@ export function createSupportDeskApplication(options: {
         );
         enforceManagedAdmission(
           versioned.value.ticket,
-          partitionRows,
+          projectFollowupRows(partitionRows, learningMutation.nextWorkRows),
           limits,
           (command.notification === undefined ? 3 : 4) +
             learningMutation.additionalRows,
@@ -6796,6 +7349,7 @@ export function createSupportDeskApplication(options: {
         records,
         { value: versioned.value, version: versioned.version },
         updated,
+        partitionRows,
         command.messageId !== undefined,
       );
       enforcePartitionRecordLimit(
@@ -6805,7 +7359,7 @@ export function createSupportDeskApplication(options: {
       );
       enforceManagedAdmission(
         versioned.value.ticket,
-        partitionRows,
+        projectFollowupRows(partitionRows, learningMutation.nextWorkRows),
         limits,
         addedRecords + learningMutation.additionalRows,
         command.messageId !== undefined,
@@ -9961,12 +10515,13 @@ export function createInboundMailProcessor(
         records,
         { value: versioned.value, version: versioned.version },
         updated,
+        partitionRows,
         true,
       );
       try {
         enforceManagedAdmission(
           ticket,
-          partitionRows,
+          projectFollowupRows(partitionRows, learningMutation.nextWorkRows),
           limits,
           (notification === undefined ? 3 : 4) +
             (requiresHandoff ? 1 : 0) +

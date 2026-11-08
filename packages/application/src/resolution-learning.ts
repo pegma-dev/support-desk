@@ -162,6 +162,7 @@ export async function planResolutionLearningTicketMutation(
   records: CollectionStore<SupportRecord>,
   before: TicketVersion,
   after: Ticket,
+  invalidateVisible = false,
 ): Promise<{
   readonly actions: readonly Action[];
   readonly additionalRows: number;
@@ -173,18 +174,21 @@ export async function planResolutionLearningTicketMutation(
     version: before.version,
     value: { ...before.value, ticket: after },
   };
-  if (source === null || !terminal(before.value.ticket) || terminal(after))
+  const reopened = terminal(before.value.ticket) && !terminal(after);
+  if (source === null || (!reopened && !invalidateVisible))
     return { actions: [ticketAction], additionalRows: 0, source };
   const next: ResolutionLearningSourceRecord = {
     ...source.value,
-    resolutionCycle: source.value.resolutionCycle + 1,
+    resolutionCycle: source.value.resolutionCycle + (reopened ? 1 : 0),
     sourceGeneration: source.value.sourceGeneration + 1,
     workGeneration: source.value.workGeneration + 1,
     state: source.value.state === "withdrawn" ? "withdrawn" : "held",
     heldReason:
       source.value.state === "withdrawn"
         ? (source.value.heldReason ?? "withdrawn")
-        : "reopened",
+        : reopened
+          ? "reopened"
+          : "visible_source_changed",
     updatedAt: after.updatedAt,
     reconciliationPending: source.value.destinations.length > 0,
     destinations: source.value.destinations.map((entry) => ({

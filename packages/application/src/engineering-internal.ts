@@ -12,6 +12,10 @@ import type {
   EngineeringCommand,
   EngineeringPolicyPort,
 } from "./engineering-types.js";
+import type {
+  EngineeringFollowupMutationPlan,
+  EngineeringFollowupSourceChangeContext,
+} from "./engineering-followup-internal.js";
 
 export type EngineeringAction = Parameters<
   CollectionStore<SupportRecord>["transact"]
@@ -26,6 +30,19 @@ export interface EngineeringLoaded {
   readonly source: EngineeringSourceVersion;
   readonly rows: readonly SupportRecord[];
 }
+/** Admission sees released child reservations before the enclosing CAS commits. */
+export function projectEngineeringRows(
+  rows: readonly SupportRecord[],
+  replacements: readonly SupportRecord[],
+): readonly SupportRecord[] {
+  const pending = new Map(replacements.map((row) => [row.id, row]));
+  const projected = rows.map((row) => {
+    const replacement = pending.get(row.id);
+    pending.delete(row.id);
+    return replacement ?? row;
+  });
+  return [...projected, ...pending.values()];
+}
 export interface EngineeringDependencies {
   readonly records: CollectionStore<SupportRecord>;
   readonly clock: Clock;
@@ -33,6 +50,9 @@ export interface EngineeringDependencies {
   readonly options: ResolvedEngineeringOptions;
   readonly maxConflictAttempts: number;
   readonly policy: EngineeringPolicyPort;
+  planFollowupSourceChange(
+    context: EngineeringFollowupSourceChangeContext,
+  ): Promise<EngineeringFollowupMutationPlan>;
   audit(
     command: EngineeringCommand,
     ticket: Pick<Ticket, "id" | "revision">,

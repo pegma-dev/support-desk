@@ -45,6 +45,7 @@ import { SupportDeskLimitError } from "./index.js";
 export interface EngineeringDestination {
   readonly repositoryId: string;
   readonly sourceGeneration: number;
+  readonly followupRevocationEpoch?: number;
   readonly stepId: string;
   readonly requestHash: string;
   readonly exportMarker: string;
@@ -71,6 +72,7 @@ export interface EngineeringSourceRecord {
   readonly ticketId: string;
   readonly sourceId: string;
   readonly sourceGeneration: number;
+  readonly followupRevocationEpoch?: number;
   readonly workGeneration: number;
   readonly generationCount: number;
   readonly state:
@@ -262,6 +264,13 @@ export const engineeringCommandKey = (
 
 export const safeEngineeringSnapshot = safeLearningSnapshot;
 export const engineeringEncodedBytes = encodedBytes;
+export function advanceEngineeringFollowupRevocationEpoch(
+  source: EngineeringSourceRecord,
+): number {
+  const next = (source.followupRevocationEpoch ?? 0) + 1;
+  integer(next, "followupRevocationEpoch", 0);
+  return next;
+}
 function prose(value: unknown, name: string, maximum: number): string {
   if (
     typeof value !== "string" ||
@@ -891,6 +900,7 @@ export async function createEngineeringSource(
       ticketId: ticket.id,
     }),
     sourceGeneration: 0,
+    followupRevocationEpoch: 0,
     workGeneration: 1,
     generationCount: 0,
     state: "unverified",
@@ -910,6 +920,7 @@ export function maximumEngineeringSourceBytes(
   const future = {
     ...source,
     sourceGeneration: Number.MAX_SAFE_INTEGER,
+    followupRevocationEpoch: Number.MAX_SAFE_INTEGER,
     workGeneration: Number.MAX_SAFE_INTEGER,
     state: "restricted",
     security: "restricted",
@@ -919,6 +930,7 @@ export function maximumEngineeringSourceBytes(
     reconciliationPending: false,
     destinations: source.destinations.map((entry) => ({
       ...entry,
+      followupRevocationEpoch: Number.MAX_SAFE_INTEGER,
       dispatchId: entry.dispatchId ?? escaped,
       outcome: "confirmed_rejected",
       reconciliation: "confirmed",
@@ -984,6 +996,7 @@ function validateSource(value: Record<string, unknown>): void {
       "evidence",
       "product",
       "pendingEvidenceReference",
+      "followupRevocationEpoch",
     ],
   );
   if (value.id !== "engineering-source")
@@ -1014,6 +1027,8 @@ function validateSource(value: Record<string, unknown>): void {
   ]);
   if (value.acceptedTicketRevision !== undefined)
     integer(value.acceptedTicketRevision, "acceptedTicketRevision", 1);
+  if (value.followupRevocationEpoch !== undefined)
+    integer(value.followupRevocationEpoch, "followupRevocationEpoch", 0);
   const destinations = dataArray(value.destinations, "destinations", 4);
   if (
     typeof value.reconciliationPending !== "boolean" ||
@@ -1038,11 +1053,22 @@ function validateSource(value: Record<string, unknown>): void {
         "outcome",
         "reconciliation",
       ],
-      ["dispatchId", "acknowledgement", "lastReconciliation"],
+      [
+        "dispatchId",
+        "acknowledgement",
+        "lastReconciliation",
+        "followupRevocationEpoch",
+      ],
     );
     for (const key of ["repositoryId", "stepId", "requestHash", "exportMarker"])
       text(destination[key], key);
     integer(destination.sourceGeneration, "destination.sourceGeneration", 1);
+    if (destination.followupRevocationEpoch !== undefined)
+      integer(
+        destination.followupRevocationEpoch,
+        "destination.followupRevocationEpoch",
+        0,
+      );
     optionalText(destination, ["dispatchId"]);
     literals(destination.outcome, "destination.outcome", [
       "prepared",
