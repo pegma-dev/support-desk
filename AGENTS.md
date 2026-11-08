@@ -168,14 +168,15 @@ collision hints. Customer DTOs and automatic customer mail omit these fields.
 Calendars and presence stay host-owned. Task 12 remains pending on both hosts'
 durable-store production evidence. Source work does not publish a package.
 
-The four base packages have published `0.1.1` versions. All five source
-packages are synchronized at the unpublished `0.2.0` candidate; follow
-`docs/RELEASING.md` for the verified release and the new AI name's separate
-registration bootstrap. Customer services return safe DTOs; staff
+All five packages have verified published `0.2.0` versions; earlier `0.1.1`
+artifacts remain immutable history, including the AI name's registration-only
+bootstrap. Follow `docs/RELEASING.md` for the publication receipt and release
+operations. Customer services return safe DTOs; staff
 services return the authoritative ticket for authorized staff only, and the
 staff queue scans a confirmed projection that is never authorization evidence.
 Authorization Core is pinned to exact `0.4.0` and accepted-change history uses
-exact `@pegma/audit@0.2.0`. Host Tasks 7–8 begin only after registry publication.
+exact `@pegma/audit@0.2.0`. Host Tasks 7–8 consume exact verified published artifacts
+and retain their own deployment and acceptance gates.
 Provider selection and operation remain host work.
 
 SD-01 is implemented in source via
@@ -184,9 +185,9 @@ defaults legacy tickets to human support, explicitly attributes assistant
 messages with exact completion fences, and adds deterministic owned
 request-person, staff takeover, private success evidence, human queue
 selection, and bounded atomic handoff work. It adds no model, KB dependency,
-or package and has not been published. Source `0.2.0` is a new candidate;
-do not overwrite registry `0.1.1` or install a source substitute. A future
-synchronized SD-06 release precedes adoption of new Support Desk behavior.
+or package; its behavior shipped in synchronized `0.2.0`;
+do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
+activation gates after verified SDK publication.
 Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
 preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
 both producers' final release preparation are merged. All four KB packages have
@@ -203,8 +204,9 @@ engineering export and reconciliation; see [its guide](docs/ENGINEERING_EXPORT.m
 SD-05 merged in [PR #41](https://github.com/pegma-dev/support-desk/pull/41),
 adding confirmed-deployment release follow-up; see
 [its guide](docs/ENGINEERING_FOLLOWUP.md).
-Current-head review/validation and the future synchronized release remain
-required for SD-06. Its public composition example lives in `examples/ai`;
+SD-06's synchronized `0.2.0` release is published and strictly verified from
+signed `v0.2.0` at `efc9d733b3d305d24cf4197444e1d76c99bdb777`; see
+`docs/RELEASING.md` for the dated receipt. Its public composition example lives in `examples/ai`;
 the migration and operations handbooks are `docs/UPGRADING.md` and
 `docs/AI_OPERATIONS.md`. The base application has no KB or provider dependency; actual KB
 `0.1.2` dependencies belong only to the

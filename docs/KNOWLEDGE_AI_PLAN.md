@@ -7,10 +7,11 @@ Approved product decisions: 2026-11-06; scoped-agent-access decision added
 AUTH-01, KB-04's transport source exit, and both producers' release preparation.
 The current verified producer versions are KB `0.1.2` for all four packages
 and Agent Access `0.1.1`, closing SD-02's KB-05 prerequisite. The dated ledger
-below is historical; Support Desk source is now the unpublished synchronized
-`0.2.0` candidate. Current-head release
-gates/review, future Support Desk publication, actual two-host authenticated
-authoring, model activation, and pilots remain separate gates.
+below is historical. Support Desk's synchronized `0.2.0` release is now
+published and strictly verified for all five packages; see the
+[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+Actual two-host authenticated authoring, model activation, and pilots remain
+separate gates.
 Use the [P-00 handoff](KNOWLEDGE_AI_P00.md) for the frozen package baseline,
 acceptance corpus, capacity assumptions, and owned activation prerequisites.
 This plan covers a standalone Pegma knowledge base, an optional Support Desk
@@ -19,7 +20,7 @@ hosts. RetireGolden is the primary use case; pegma.dev is the simpler early
 integration. Completing one host does not complete this enhancement.
 
 **Historical merged-source ledger: 2026-11-07.** Publication was still pending
-at these ten source checkpoints; the verified releases and current candidate
+at these ten source checkpoints; the later verified releases
 are recorded separately below.
 
 | Source work                      | Merged evidence                                                                                                                                                              | Delivered source                                                                                                               |
@@ -91,23 +92,37 @@ source `004044bfa836b74a61fb5defa49d5ebab1fe37dd`, with strict
 [registry/consumer verification](https://github.com/pegma-dev/knowledge-base/actions/runs/42436081951/job/128617897564).
 The dated `0.1.1` receipts above are retained history, not current KB pins.
 
-**Current version facts and next gates:** The synchronized Support Desk source
-candidate is `0.2.0`, unpublished. Its optional `@pegma/support-desk-ai` package uses
+**Verified Support Desk publication: 2026-11-08.** The signed
+[`v0.2.0` release](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.0)
+binds reviewed source
+[`efc9d733`](https://github.com/pegma-dev/support-desk/commit/efc9d733b3d305d24cf4197444e1d76c99bdb777).
+[Release run 42494797076](https://github.com/pegma-dev/support-desk/actions/runs/42494797076)
+passed 2,449 tests across 53 files on each Node 22/24 lane with zero skips,
+plus formatting, types, examples, five-package pack/import and
+clean-consumer gates. Attempt 2 completed publication, and its
+[strict registry verification](https://github.com/pegma-dev/support-desk/actions/runs/42494797076/job/128785494994)
+passed exact original bytes, dependencies, registry signatures, workflow/tag/source
+provenance and clean public imports for all five packages. Their observed
+`latest` tags are `0.2.0`; AI's registration-only `bootstrap` remains `0.1.1`.
+The [release handbook](RELEASING.md#verified-sd-06-publication-2026-11-08)
+records the original artifact identities and recovery without repacking.
+
+**Current version facts and next gates:** All five Support Desk packages are
+published at verified `0.2.0`. The optional `@pegma/support-desk-ai` package uses
 exact KB `0.1.2` runtime dependencies; the base application remains independent
 of KB and providers. The [coordination design](ASSISTANT_COORDINATION.md) and
 [layout checkpoint](COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
 record its five public application operations, bounded same-partition turns,
 authority/data controls, and replay contract. Public-entry memory/Azurite tests
-with the actual KB and a fake provider, current-head Node 22/24 gates, and
-code/security review are required for release. Verified synchronized SD-06
-publication precedes adoption and must never
-overwrite an existing registry version. PG-01/RG-01 use both exact verified
-published producers. Actual existing-login/current-Admin consent and every
+with the actual KB and a fake provider, Node 22/24 gates, and code/security
+review support this SDK release; they do not establish host activation.
+Existing registry versions remain immutable. PG-01/RG-01 use exact verified
+published dependencies. Actual existing-login/current-Admin consent and every
 requested client/mode on both hosts remain unproven activation gates tracked
 by P-00 and PG-01/RG-01. Publication and source/SDK results do not close them.
 Task 12, provider/ZDR/intermediary verification,
 issue-to-deployed-build mapping, operations, dual-host acceptance, and supervised
-pilots remain open. The merged source and release preparation do not close
+pilots remain open. Verified SDK publication does not close
 those gates.
 
 Read the decision record and boundaries below, then give an implementation
@@ -661,14 +676,13 @@ is too large, preserving the dependency and exit criteria.
 The merged-source ledger above records completed source slices, including
 AUTH-01, SD-01, KB-04's transport source exit, and both producers' release
 preparation. The current producer publication gates are closed by strictly
-verified trusted KB `0.1.2` and Agent Access `0.1.1`. Support Desk remains an
-unpublished synchronized `0.2.0` candidate requiring current-head release
-gates and review. PG-01 and RG-01 consume those published dependencies and prove actual
+verified trusted KB `0.1.2`, Agent Access `0.1.1`, and the synchronized Support
+Desk `0.2.0` release recorded above. PG-01 and RG-01 must consume those
+published dependencies and prove actual
 existing-login and requested-client draft/evidence flows. KB-04's merged source
 exit closes only its source slice; retained actual two-host acceptance remains pending in P-00,
 PG-01/RG-01, and A-01 until those real runs pass. Source/SDK success cannot close
-it. SD-02 implementation does not claim host activation; SD-03 onward and the
-future synchronized verified SD-06 Support Desk release remain separate work.
+it. SD-01 through SD-06 SDK source and publication do not claim host activation.
 Host PRs are separate and must each satisfy their review/CI/deployment rules.
 No shared-package PR edits a host. Do not create all task branches/packages in
 advance.
