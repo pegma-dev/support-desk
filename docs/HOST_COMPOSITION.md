@@ -360,6 +360,19 @@ ZDR-compatible policy before call and commit. Source fake providers are not
 operational privacy evidence. Count the full prompt locally, enforce raw JSON
 UTF-8 limits before parsing, accept only exact supplied citations and safe
 labels, and never infer a portal URL from a bot-answer source.
+The pre-generation customer/source/configuration resolver phase is bounded by
+the attempt deadline minus the commit reserve; each final-CAS guard uses the
+full attempt deadline.
+
+Pass the coordinator's trusted `maxMessageCharacters` option to match the
+application's configured message cap (default 20,000 UTF-16 code units, allowed
+1–20,000). Before preparing or reserving paid work, it reserves the complete
+possible citation footer for all supplied approved labels and derives
+`maxAnswerTextCharacters`. Both limits are exposed in server-side attempt
+budgets and fingerprinted; the answer allowance also enters trusted model
+instructions. Insufficient remaining space fails to human support before a
+provider call. Final validation bounds the complete rendered answer and never
+truncates content to fit. Raw response UTF-8 byte limits remain separate.
 
 Keep generation's kill switch independent of deterministic request-person and
 staff takeover. Those controls preserve authenticated human handoff even when

@@ -6,6 +6,7 @@ import type {
   AssistantAttemptBinding,
   AssistantPreparedAttempt,
   AssistantTurnClaimFence,
+  AssistantTurnAccounting,
   AssistantTurnFinishResult,
   AssistantTurnOptions,
   AssistantTurnProcessingMetadata,
@@ -48,8 +49,8 @@ export interface AssistantTurnRecord {
 }
 
 const identifierMaximum = 200;
-const hardRecordBytes = 60_000;
-/** Leave room for failure/accounting/terminal state even after four preparations. */
+export const maximumRecordBytes = 60_000;
+/** Initial ceiling; preparation also reserves the largest reachable later state. */
 export const preparedRecordBytes = 52_000;
 export const maximumBindingBytes = 12_000;
 
@@ -234,6 +235,45 @@ export function terminalTurn(record: AssistantTurnRecord): boolean {
     record.status === "escalated" ||
     record.status === "superseded"
   );
+}
+
+export function withoutAssistantTurnLease(
+  job: AssistantTurnRecord,
+): AssistantTurnRecord {
+  const {
+    claim: _claim,
+    leaseUntil: _lease,
+    nextAttemptAt: _next,
+    ...rest
+  } = job;
+  return rest;
+}
+
+/** Shared by real state changes and the constructive preparation size bound. */
+export function assistantTurnProcessingState(
+  job: AssistantTurnRecord,
+  processing: AssistantTurnProcessingMetadata | undefined,
+  accounting?: {
+    readonly attemptId: string;
+    readonly accounting: AssistantTurnAccounting;
+  },
+): AssistantTurnRecord {
+  return {
+    ...job,
+    preparedAttempts:
+      accounting === undefined
+        ? job.preparedAttempts
+        : job.preparedAttempts.map((attempt) =>
+            attempt.attemptId === accounting.attemptId
+              ? {
+                  ...attempt,
+                  accounting: accounting.accounting,
+                  ...(processing === undefined ? {} : { processing }),
+                }
+              : attempt,
+          ),
+    ...(processing === undefined ? {} : { processing }),
+  };
 }
 
 export async function createAssistantTurnRecord(
@@ -588,7 +628,7 @@ export function assertAssistantTurnRecord(
     )
       throw new TypeError("Assistant finish result is incomplete");
   }
-  if (encodedBytes(row) > hardRecordBytes)
+  if (encodedBytes(row) > maximumRecordBytes)
     throw new TypeError("Assistant turn exceeds its encoded record bound");
 }
 

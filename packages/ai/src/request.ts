@@ -5,6 +5,7 @@ import type {
 import type { AssistantTurnClaim } from "@pegma/support-desk-application";
 import type {
   AssistantCustomerAuthority,
+  AssistantAttemptBudgets,
   AssistantModelInput,
   AssistantTokenCounter,
   VerifiedAssistantConfiguration,
@@ -16,6 +17,7 @@ import {
   count,
   exactKeys,
   snapshot,
+  scalar,
   text,
   timestamp,
 } from "./boundary.js";
@@ -33,7 +35,7 @@ export function configurationSnapshot(
     config.model,
     config.pricingRef,
   ])
-    text(value);
+    scalar(value);
   text(config.trustedInstructions, 16_384);
   count(config.framingTokens, 8_192);
   const budget = config.budgets;
@@ -45,7 +47,7 @@ export function configurationSnapshot(
   count(budget.maxOutputTokens, 8_192, 1);
   count(budget.maxDurationMilliseconds, 20_000, 1);
   count(budget.maxCostMicros, Number.MAX_SAFE_INTEGER);
-  text(budget.currency, 12);
+  scalar(budget.currency, 12);
   count(budget.maxAttempts, 10, 1);
   count(budget.maxAssistantTurns, 100, 1);
   const controls = config.dataControls;
@@ -62,13 +64,14 @@ export function configurationSnapshot(
     controls.featuresRef,
     controls.exceptionsRef,
   ])
-    text(value);
+    scalar(value);
+  scalar(controls.configurationBinding);
   if (
     !Array.isArray(controls.intermediaryRefs) ||
     controls.intermediaryRefs.length > 16
   )
     throw new AssistantBoundaryError("configuration_unverified");
-  controls.intermediaryRefs.forEach((ref) => text(ref));
+  controls.intermediaryRefs.forEach((ref) => scalar(ref));
   if (
     timestamp(controls.verifiedAt) > now ||
     timestamp(controls.validUntil) <= now
@@ -84,13 +87,14 @@ export function authoritySnapshot(
   const authority = snapshot(raw);
   if (authority.access.principalId !== principalId)
     throw new AssistantBoundaryError("authority_unavailable");
+  scalar(authority.access.principalId);
   for (const value of [
     authority.audienceVersion,
     authority.policyVersion,
     authority.usageScopeRef,
     authority.access.policyVersion,
   ])
-    text(value);
+    scalar(value);
   for (const values of [
     authority.access.roles,
     authority.access.entitlements,
@@ -98,7 +102,7 @@ export function authoritySnapshot(
   ]) {
     if (!Array.isArray(values) || values.length > 1_024)
       throw new AssistantBoundaryError("authority_unavailable");
-    values.forEach((value) => text(value));
+    values.forEach((value) => scalar(value));
   }
   if (
     !Array.isArray(authority.collectionIds) ||
@@ -107,7 +111,7 @@ export function authoritySnapshot(
     new Set(authority.collectionIds).size !== authority.collectionIds.length
   )
     throw new AssistantBoundaryError("authority_unavailable");
-  authority.collectionIds.forEach((value) => text(value));
+  authority.collectionIds.forEach((value) => scalar(value));
   const applicability = authority.applicability;
   const keys = [
     "productId",
@@ -116,7 +120,7 @@ export function authoritySnapshot(
     ...(applicability.locale === undefined ? [] : ["locale"]),
   ];
   exactKeys(applicability, keys);
-  Object.values(applicability).forEach((value) => text(value));
+  Object.values(applicability).forEach((value) => scalar(value));
   return snapshot({
     ...authority,
     access: {
@@ -141,7 +145,7 @@ export function checkedReference(value: unknown): AnswerSourceReference {
     "validationGeneration",
   ]);
   for (const key of ["articleId", "collectionId", "contentHash"])
-    text(ref[key]);
+    scalar(ref[key]);
   for (const key of [
     "collectionPolicyVersion",
     "articleRevision",
@@ -209,6 +213,7 @@ export function modelInput(
   config: VerifiedAssistantConfiguration,
   sources: AnswerSourcesResult,
   counter: AssistantTokenCounter,
+  attemptBudgets: AssistantAttemptBudgets,
 ): AssistantModelInput {
   const visible = claim.conversation.messages;
   if (
@@ -234,7 +239,9 @@ export function modelInput(
   if (assistantTurns >= config.budgets.maxAssistantTurns)
     throw new AssistantBoundaryError("turn_limit");
   const input = snapshot({
-    trustedInstructions: config.trustedInstructions,
+    trustedInstructions:
+      config.trustedInstructions +
+      `\n\nOutput constraint: the answer text field must contain at most ${attemptBudgets.maxAnswerTextCharacters} UTF-16 code units. Do not truncate procedural instructions; escalate when a complete supported answer cannot fit.`,
     messages,
     serializedSources: sources.serializedSources,
   });

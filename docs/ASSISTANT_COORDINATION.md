@@ -102,6 +102,10 @@ state or create a cross-store transaction; each component keeps its own
 authoritative contract. Invalidation before generation makes zero provider
 calls, reconciles usage as `not_called`, and takes bounded human fallback or
 supersedes stale work under the application fences.
+Every awaited customer, source-confirmation, and configuration resolver in
+this pre-generation guard uses the attempt deadline minus the commit reserve.
+The final-CAS guard uses the full attempt deadline, preserving that separate
+completion phase even when a resolver stalls before generation.
 
 The model receives only trusted instructions, a bounded customer-visible
 conversation, and explicitly delimited authorized source data. Internal notes,
@@ -121,6 +125,20 @@ The complete raw JSON response is bounded in UTF-8 bytes before parsing. Its
 structured result can only answer or escalate. Citations must exactly match
 the supplied source references and use safe labels. A bot-answer source does
 not imply a browsable portal article; the coordinator cannot invent URLs.
+Before preparation, usage reservation, or a paid call, the coordinator reserves
+the complete possible citation footer for every supplied approved source label
+against `maxMessageCharacters`. This trusted option defaults to 20,000 UTF-16
+code units and accepts 1–20,000; hosts must pass the actual application cap
+when it is lower because the coordinator cannot inspect application settings.
+The remaining answer allowance is `maxAnswerTextCharacters`. A remaining
+allowance below 256 code units takes human fallback without a provider call.
+Both effective limits appear in server-side `AssistantAttemptContext.budgets`
+as `AssistantAttemptBudgets`, are bound into the request fingerprint, and the
+answer-text allowance is appended to the trusted model instructions. The model
+input still has its three declared fields. Validation enforces that allowance
+and the final rendered body cap, including citations; it never truncates an
+answer or procedural instructions to fit. A complete supported answer that
+cannot fit must escalate.
 There are no account actions, ticket resolution, arbitrary tools, autonomous
 source execution, or automatic knowledge/issue publication.
 Runtime schema and exact-citation validation do not establish factual support;
@@ -132,9 +150,17 @@ shared fallback behavior. Missing sources, unsupported/conflicting guidance,
 invalid output, disabled or unavailable controls, exceeded budgets, and
 provider failures route to bounded human work according to that policy and
 the application fences. The owned request-person command and staff takeover
-remain usable without the model. The 12-row/one-human-message reserve and
-encoded job completion headroom preserve their finite admission budget;
-ordinary capacity limits still apply.
+remain usable without the model. The 12-row/one-human-message reserve preserves
+their finite physical admission budget. Separately, preparing a turn requires
+both a 52,000-byte current-row ceiling and a constructive check that every
+maximum reachable completion, finish/retry/supersession receipt, and replacement
+claim fits the 60,000-byte hard record cap. That check includes maximum legal
+JSON-escaped processing metadata and all its stored copies, identifiers,
+fences, and timestamps, while retaining earlier bindings/metadata unchanged.
+Oversized preparation fails with the typed limit before a provider call and
+leaves the claim available for bounded human handoff. Ordinary capacity limits
+still apply; the [layout checkpoint](COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
+records the complete encoded admission rule.
 
 Disabling assistant handling preserves a new customer reply by atomically
 moving it to human handling with bounded handoff work, rather than leaving an
@@ -196,7 +222,10 @@ and citation attacks, budget/deadline exhaustion, ambiguous commits, usage
 reconciliation, provider failures, email handoff, and disabled generation.
 Duplicate external callbacks must leave another live claim untouched, and
 configuration changes during an awaited usage reservation must prevent every
-provider call. The current fixes still require their current-head gates.
+provider call. Answer-limit cases must cover the full citation footer and lower
+application caps without truncation, and stalled pre-generation resolvers must
+respect the tighter phase deadline. The current fixes still require their
+current-head gates.
 Current-head Node 22/24 format/check/test gates and actual code/security review
 remain required; historical SD-01 or producer results do not certify SD-02.
 

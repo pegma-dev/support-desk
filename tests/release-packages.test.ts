@@ -102,9 +102,9 @@ describe("release package metadata", () => {
     expect(
       manifests[4]?.dependencies?.["@pegma/support-desk-application"],
     ).toBe("0.1.1");
-    expect(manifests[4]?.dependencies?.["@pegma/support-desk-contracts"]).toBe(
-      "0.1.1",
-    );
+    expect(
+      manifests[4]?.dependencies?.["@pegma/support-desk-contracts"],
+    ).toBeUndefined();
     expect(
       manifests[4]?.dependencies?.["@pegma/knowledge-base-application"],
     ).toBe("0.1.1");

@@ -87,6 +87,10 @@ guidance should escalate. Extra output fields and unsupported outcomes fail.
 The adapter returns raw `outputJson` with separate provider/model/request
 identity and usage. Bytes are bounded **before** parsing, then structure,
 citations, token/cost budgets, and expected provider/model identity are checked.
+Provider/model/request IDs, currency, configuration/version IDs and other
+scalar metadata reject every C0 control character and DEL, including tabs and
+line breaks, matching the application's persisted metadata boundary. Actual
+instructions, messages, answer text and handoff summaries remain multiline.
 Only safe confirmed KB labels are appended as plain text citations. No article
 URL is inferred, including for bot-only collections. No unchecked text streams
 to customers. Runtime schema checks do not prove factual support: maintain
@@ -142,6 +146,23 @@ bounded by the actual job lease, fixed turn deadline, and configured duration
 provider output even if an adapter ignores cancellation. Cleanup remains
 bounded and can reconcile usage and attempt human handoff after cancellation.
 Storage commands retry identically at most three times (default two).
+Pre-provider customer/configuration/source reads share the earlier generation
+deadline, preserving the completion reserve. Final commit validation can use
+the full attempt deadline; late results never authorize a provider call or CAS.
+
+Set the trusted `maxMessageCharacters` factory option to the application's
+actual message cap (default 20,000; integer 1–20,000). The application API does
+not expose its configured limit, so a host with a lower limit must pass the
+same value here. Before preparation, reservation, or a paid request, the
+coordinator reserves the complete worst-case citation footer using all supplied
+approved labels. At least 256 UTF-16 code units must remain for useful answer
+text, or it hands off before calling the model. Effective
+`AssistantAttemptBudgets.maxMessageCharacters` and `maxAnswerTextCharacters`
+are passed in server context; the answer allowance is also appended to the
+trusted model instructions. That complete prompt and the effective budgets
+are fingerprinted before preparation. Oversized output is rejected with human
+handoff; procedural answers are never silently truncated. The final rendered
+body, including its actual citation footer, must fit the same application cap.
 
 Every deployment supplies explicit `AssistantBudgets`. Hard ceilings are 100
 visible messages, 256 KiB encoded input, 65,536 input tokens, 131,072 total

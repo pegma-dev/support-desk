@@ -8,6 +8,7 @@ import type {
 } from "@pegma/support-desk-application";
 import type {
   AssistantModelResult,
+  AssistantAttemptBudgets,
   AssistantModelUsage,
   AssistantTokenCounter,
   VerifiedAssistantConfiguration,
@@ -19,6 +20,7 @@ import {
   count,
   exactKeys,
   snapshot,
+  scalar,
   text,
 } from "./boundary.js";
 import { checkedReference } from "./request.js";
@@ -49,7 +51,9 @@ export function modelUsage(
 ): AssistantModelUsage {
   if (result.provider !== config.provider || result.model !== config.model)
     throw new AssistantBoundaryError("provider_mismatch");
-  text(result.requestId);
+  scalar(result.provider);
+  scalar(result.model);
+  scalar(result.requestId);
   const usage = snapshot(result.usage);
   exactKeys(usage, ["inputTokens", "outputTokens", "costMicros", "currency"]);
   count(usage.inputTokens, config.budgets.maxInputTokens);
@@ -57,6 +61,7 @@ export function modelUsage(
   if (usage.inputTokens + usage.outputTokens > config.budgets.maxContextTokens)
     throw new AssistantBoundaryError("budget_exceeded");
   count(usage.costMicros, config.budgets.maxCostMicros);
+  scalar(usage.currency, 12);
   if (usage.currency !== config.budgets.currency)
     throw new AssistantBoundaryError("budget_exceeded");
   return usage;
@@ -79,6 +84,7 @@ export function modelDecision(
   config: VerifiedAssistantConfiguration,
   sources: AnswerSourcesResult,
   counter: AssistantTokenCounter,
+  attemptBudgets: AssistantAttemptBudgets,
 ): ValidatedDecision {
   if (
     typeof result.outputJson !== "string" ||
@@ -125,13 +131,39 @@ export function modelDecision(
       throw new AssistantBoundaryError("invalid_citations");
     unique.add(binding);
   }
-  return snapshot({ kind, text: text(data.text, 20_000), citations });
+  const answerText = text(data.text, 20_000);
+  if (answerText.length > attemptBudgets.maxAnswerTextCharacters)
+    throw new AssistantBoundaryError("answer_limit");
+  return snapshot({ kind, text: answerText, citations });
+}
+
+function citationLabel(label: string): string {
+  return text(label, 500).replace(/[\r\n]/gu, " ");
+}
+
+/** Reserve every possible supplied citation before allowing a paid request. */
+export function answerTextAllowance(
+  sources: AnswerSourcesResult,
+  maxMessageCharacters: number,
+): number {
+  const longestFooter =
+    "\n\nSources:\n" +
+    sources.sources
+      .map(
+        (source, index) =>
+          `${index + 1}. ${citationLabel(source.citation.label)}`,
+      )
+      .join("\n");
+  const allowance = maxMessageCharacters - longestFooter.length;
+  if (allowance < 256) throw new AssistantBoundaryError("budget_exceeded");
+  return allowance;
 }
 
 /** Labels only: a bot citation is not an inferred permission to browse an article. */
 export function answerBody(
   decision: Extract<ValidatedDecision, { kind: "answer" }>,
   confirmed: AnswerSourcesResult,
+  maxMessageCharacters: number,
 ): string {
   const labels = decision.citations.map((reference, index) => {
     const source = confirmed.sources.find(
@@ -139,7 +171,10 @@ export function answerBody(
     );
     if (source === undefined)
       throw new AssistantBoundaryError("source_changed");
-    return `${index + 1}. ${text(source.citation.label, 500).replace(/[\r\n]/gu, " ")}`;
+    return `${index + 1}. ${citationLabel(source.citation.label)}`;
   });
-  return text(decision.text + "\n\nSources:\n" + labels.join("\n"), 20_000);
+  return text(
+    decision.text + "\n\nSources:\n" + labels.join("\n"),
+    maxMessageCharacters,
+  );
 }

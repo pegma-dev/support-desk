@@ -197,6 +197,7 @@ function knowledgeFixture(
   async function publishGuide(
     articleId = "article/export",
     text = "Open Workspace, choose Export, then download the CSV spreadsheet.",
+    title = "Export your workspace",
   ) {
     await app.createDraft(author, {
       ...command("draft", 0),
@@ -204,7 +205,7 @@ function knowledgeFixture(
       collectionId: syntheticCollectionId,
       draft: {
         kind: "explanation",
-        title: "Export your workspace",
+        title,
         summary: "Download a fictional workspace export.",
         content: { format: "plain_text", text },
         tags: ["export", "workspace", "download", "csv"],
@@ -245,7 +246,10 @@ function knowledgeFixture(
       artifacts: [{ id: "PRIVATE_KB_ARTIFACT", hash: "a".repeat(64) }],
     };
     // This trusted fixture runner knows the exact synthetic procedure above.
-    if (current.revision.content.text !== text)
+    if (
+      current.revision.content.text !== text ||
+      current.revision.title !== title
+    )
       throw new Error("Synthetic check received an unexpected article");
     const governance = await app.getGovernanceConfiguration(administrator, {
       collectionId: syntheticCollectionId,
@@ -357,20 +361,31 @@ type ModelScript = (
 export async function assistantAiFixture(
   backing: Store = createMemoryStore(),
   options: {
-    readonly guides?: readonly { readonly id: string; readonly text: string }[];
+    readonly guides?: readonly {
+      readonly id: string;
+      readonly text: string;
+      readonly title?: string;
+    }[];
     readonly initialBody?: string;
+    readonly maxMessageCharacters?: number;
   } = {},
 ) {
-  const support = handlingFixture(backing, { assistantTurns: {} });
+  const support = handlingFixture(backing, {
+    assistantTurns: {},
+    ...(options.maxMessageCharacters === undefined
+      ? {}
+      : { limits: { maxMessageCharacters: options.maxMessageCharacters } }),
+  });
   const knowledge = knowledgeFixture(backing, support.clock, support.advance);
   await knowledge.setup();
   for (const guide of options.guides ?? [
     {
       id: "article/export",
       text: "Open Workspace, choose Export, then download the CSV spreadsheet.",
+      title: "Export your workspace",
     },
   ])
-    await knowledge.publishGuide(guide.id, guide.text);
+    await knowledge.publishGuide(guide.id, guide.text, guide.title);
   const input = support.createInput();
   await support.app.createCustomerTicket(handlingCustomer, {
     ...input,
@@ -465,6 +480,9 @@ export async function assistantAiFixture(
     model: { generate },
     tokenCounter: { count: countFixtureTokens },
     clock: support.clock,
+    ...(options.maxMessageCharacters === undefined
+      ? {}
+      : { maxMessageCharacters: options.maxMessageCharacters }),
   };
   const assistant = createSupportDeskAssistant(baseOptions);
   async function nextCommand() {

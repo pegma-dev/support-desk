@@ -22,6 +22,14 @@ export function text(value: unknown, maximum = 200): string {
   return value;
 }
 
+/** Single-line persisted metadata follows the application's stricter C0 rule. */
+export function scalar(value: unknown, maximum = 200): string {
+  const result = text(value, maximum);
+  if (/[\u0000-\u001F\u007F]/u.test(result))
+    throw new AssistantBoundaryError("invalid_data");
+  return result;
+}
+
 export function count(value: unknown, maximum: number, minimum = 0): number {
   if (
     !Number.isSafeInteger(value) ||
@@ -33,7 +41,7 @@ export function count(value: unknown, maximum: number, minimum = 0): number {
 }
 
 export function timestamp(value: unknown): number {
-  const parsed = Date.parse(text(value, 40));
+  const parsed = Date.parse(scalar(value, 40));
   if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== value)
     throw new AssistantBoundaryError("invalid_data");
   return parsed;

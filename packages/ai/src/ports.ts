@@ -30,6 +30,12 @@ export interface AssistantBudgets {
   readonly maxAssistantTurns: number;
 }
 
+/** Effective per-attempt limits, including the application's rendered message cap. */
+export interface AssistantAttemptBudgets extends AssistantBudgets {
+  readonly maxMessageCharacters: number;
+  readonly maxAnswerTextCharacters: number;
+}
+
 /** Host evidence, checked by the trusted resolver against its current route. */
 export interface AssistantDataControls {
   readonly status: "verified";
@@ -121,7 +127,7 @@ export interface AssistantAttemptContext {
   readonly allSourceReferences: readonly AnswerSourceReference[];
   readonly deadline: IsoTimestamp;
   readonly signal: AbortSignal;
-  readonly budgets: AssistantBudgets;
+  readonly budgets: AssistantAttemptBudgets;
 }
 
 export interface AssistantModelUsage {
@@ -203,6 +209,8 @@ export interface SupportDeskAssistantOptions {
   readonly tokenCounter: AssistantTokenCounter;
   readonly clock: Clock;
   readonly escalationPolicy?: AssistantEscalationPolicy;
+  /** Actual application cap (default 20,000); pass a lower configured host limit. */
+  readonly maxMessageCharacters?: number;
   /** Entire invocation ceiling; at most 25s, below the default 30s host lease. */
   readonly maxOperationMilliseconds?: number;
   /** Reserved after generation for final validation and atomic completion. */

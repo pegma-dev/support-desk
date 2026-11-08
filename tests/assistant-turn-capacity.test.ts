@@ -1,6 +1,9 @@
 import {
+  createSupportDeskApplication,
   customerTicketIndex,
+  supportRecords,
   type NotificationInput,
+  type SupportRecord,
 } from "@pegma/support-desk-application";
 import { describe, expect, it } from "vitest";
 import { assistantTurnFixture } from "../test/assistant-turn-fixtures.js";
@@ -23,6 +26,210 @@ const notification: NotificationInput = {
 
 for (const [name, createStore] of handlingStores) {
   describe(`durable assistant turn capacity (${name})`, () => {
+    it("atomically hands a disabled web follow-up to the human queue while preserving replay and completion capacity", async () => {
+      const limits = { maxRecordsPerTicket: 23, maxMessagesPerTicket: 3 };
+      const f = assistantTurnFixture(createStore(), { limits });
+      await f.create();
+      const before = await f.rows();
+      const app = createSupportDeskApplication({
+        store: f.store,
+        clock: f.clock,
+        assistantHandlingEnabled: false,
+        assistantTurns: {},
+        limits,
+      });
+      const input = {
+        ...f.command("disabled-web-follow-up"),
+        messageId: "disabled-web-follow-up",
+        body: "The export still needs help.",
+      };
+      f.observed.transactions.length = 0;
+      const accepted = await app.replyToCustomerTicket(customer, input);
+      const rows = await f.rows();
+      expect(rows).toHaveLength(before.length + 4);
+      expect(rows.filter((row) => row.kind === "assistant_turn")).toEqual(
+        before.filter((row) => row.kind === "assistant_turn"),
+      );
+      expect(rows.find((row) => row.kind === "ticket_quota")).toMatchObject({
+        messageCount: 2,
+        assistantManaged: true,
+      });
+      expect(await app.readHandoffWork(staff, "ticket")).toEqual([
+        expect.objectContaining({
+          transcript: expect.objectContaining({
+            ticketId: "ticket",
+            lastVisibleMessageId: input.messageId,
+          }),
+        }),
+      ]);
+      expect((await app.readStaffTicket(staff, "ticket")).ticket).toMatchObject(
+        {
+          status: "waiting_on_support",
+          handling: { state: "human-pending" },
+        },
+      );
+      expect((await app.listStaffQueue(staff)).items).toEqual([
+        expect.objectContaining({
+          ticketId: "ticket",
+          handling: "human-pending",
+        }),
+      ]);
+      const transactions = f.observed.transactions.filter(
+        (trace) => trace.collection === supportRecords.name,
+      );
+      expect(transactions).toHaveLength(1);
+      expect(transactions[0]?.partition).toBe("ticket");
+      const actions = transactions[0]?.actions;
+      expect(
+        actions?.some(
+          (action) =>
+            action.action === "insert" &&
+            (action.value as SupportRecord).kind === "handoff_work",
+        ),
+      ).toBe(true);
+      expect(
+        actions
+          ?.filter((action) => action.action !== "delete")
+          .map((action) => (action.value as SupportRecord).kind),
+      ).toEqual(
+        expect.arrayContaining([
+          "ticket",
+          "ticket_quota",
+          "message",
+          "audit",
+          "command",
+          "handoff_work",
+        ]),
+      );
+      expect(await app.replyToCustomerTicket(customer, input)).toEqual(
+        accepted,
+      );
+      expect(await f.rows()).toEqual(rows);
+      expect(limits.maxRecordsPerTicket - rows.length).toBe(12);
+      await expect(
+        app.replyToCustomerTicket(customer, {
+          ...f.command("ordinary-after-disabled-handoff"),
+          messageId: "ordinary-after-disabled-handoff",
+          body: "Another detail",
+        }),
+      ).rejects.toMatchObject({ name: "SupportDeskLimitError" });
+      expect(await f.rows()).toEqual(rows);
+    });
+
+    it.each([
+      { generationEnabled: true, visibleMessage: false },
+      { generationEnabled: false, visibleMessage: false },
+      { generationEnabled: true, visibleMessage: true },
+      { generationEnabled: false, visibleMessage: true },
+    ])(
+      "commits staff reopening with human work and reserved capacity (%j)",
+      async ({ generationEnabled, visibleMessage }) => {
+        const limits = {
+          maxRecordsPerTicket: visibleMessage ? 25 : 24,
+          maxMessagesPerTicket: visibleMessage ? 3 : 2,
+        };
+        const f = assistantTurnFixture(createStore(), { limits });
+        await f.create();
+        await f.app.resolveTicket(
+          staff,
+          f.command("resolve-before-staff-reopen"),
+        );
+        const before = await f.rows();
+        const app = createSupportDeskApplication({
+          store: f.store,
+          clock: f.clock,
+          assistantHandlingEnabled: generationEnabled,
+          assistantTurns: {},
+          limits,
+        });
+        const input = {
+          ...f.command("staff-reopen"),
+          ...(visibleMessage
+            ? {
+                messageId: "staff-reopen-notice",
+                body: "Support reopened this conversation.",
+              }
+            : {}),
+        };
+        f.observed.transactions.length = 0;
+        const accepted = await app.reopenTicket(staff, input);
+        const rows = await f.rows();
+        expect(rows).toHaveLength(before.length + (visibleMessage ? 4 : 3));
+        expect(rows.filter((row) => row.kind === "assistant_turn")).toEqual(
+          before.filter((row) => row.kind === "assistant_turn"),
+        );
+        const quota = rows.find((row) => row.kind === "ticket_quota");
+        expect(quota).toMatchObject({
+          messageCount: visibleMessage ? 2 : 1,
+          assistantManaged: true,
+        });
+        if (!visibleMessage)
+          expect(quota).toEqual(
+            before.find((row) => row.kind === "ticket_quota"),
+          );
+        expect(await app.readHandoffWork(staff, "ticket")).toEqual([
+          expect.objectContaining({
+            transcript: expect.objectContaining({
+              ticketId: "ticket",
+              lastVisibleMessageId: visibleMessage
+                ? "staff-reopen-notice"
+                : "initial-ticket",
+            }),
+          }),
+        ]);
+        expect(accepted.ticket).toMatchObject({
+          status: "waiting_on_support",
+          handling: { state: "human-pending" },
+        });
+        expect((await app.listStaffQueue(staff)).items).toEqual([
+          expect.objectContaining({
+            ticketId: "ticket",
+            handling: "human-pending",
+          }),
+        ]);
+        const transactions = f.observed.transactions.filter(
+          (trace) => trace.collection === supportRecords.name,
+        );
+        expect(transactions).toHaveLength(1);
+        expect(transactions[0]?.partition).toBe("ticket");
+        const actions = transactions[0]?.actions;
+        expect(
+          actions?.some(
+            (action) =>
+              action.action === "insert" &&
+              (action.value as SupportRecord).kind === "handoff_work",
+          ),
+        ).toBe(true);
+        const kinds = actions
+          ?.filter((action) => action.action !== "delete")
+          .map((action) => (action.value as SupportRecord).kind);
+        expect(kinds).toEqual(
+          expect.arrayContaining([
+            "ticket",
+            "audit",
+            "command",
+            "handoff_work",
+            ...(visibleMessage ? ["message", "ticket_quota"] : []),
+          ]),
+        );
+        if (!visibleMessage) {
+          expect(kinds).not.toContain("message");
+          expect(kinds).not.toContain("ticket_quota");
+        }
+        expect(await app.reopenTicket(staff, input)).toEqual(accepted);
+        expect(await f.rows()).toEqual(rows);
+        expect(limits.maxRecordsPerTicket - rows.length).toBe(12);
+        await expect(
+          app.replyToCustomerTicket(customer, {
+            ...f.command("ordinary-after-staff-reopen"),
+            messageId: "ordinary-after-staff-reopen",
+            body: "Another detail",
+          }),
+        ).rejects.toMatchObject({ name: "SupportDeskLimitError" });
+        expect(await f.rows()).toEqual(rows);
+      },
+    );
+
     it.each([false, true])(
       "accounts for the job before reserving customer capacity (create mail: %s)",
       async (withMail) => {

@@ -8,6 +8,7 @@ import {
   type AssistantAttemptBinding,
   type AssistantTurnClaim,
   type AssistantTurnKey,
+  type AssistantTurnProcessingMetadata,
   type SupportRecord,
 } from "@pegma/support-desk-application";
 import { handlingAgent, handlingFixture } from "./handling-fixtures.js";
@@ -156,5 +157,39 @@ export function assistantAnswer(
       messageId: "assistant-answer",
       body: "Open Workspace and choose Export.",
     },
+  };
+}
+
+/** Exercise the complete supported processing envelope, including JSON escaping. */
+export function maximumAssistantProcessing(): AssistantTurnProcessingMetadata {
+  return {
+    provider: "\ud800".repeat(200),
+    model: "\ud800".repeat(200),
+    requestId: "\ud800".repeat(200),
+    currency: "\ud800".repeat(200),
+    failureCategory: "\ud800".repeat(80),
+    inputTokens: Number.MAX_SAFE_INTEGER,
+    outputTokens: Number.MAX_SAFE_INTEGER,
+    costMicros: Number.MAX_SAFE_INTEGER,
+  };
+}
+
+/** Fill a public binding close to its explicit UTF-16 JSON byte allowance. */
+export function assistantBindingWithinBytes(
+  binding: AssistantAttemptBinding,
+  maximumBytes: number,
+): AssistantAttemptBinding {
+  const base = {
+    ...binding,
+    references: [{ ...binding.references[0]!, binding: "" }],
+  };
+  const count = Math.floor(
+    (maximumBytes - JSON.stringify(base).length * 2) / 12,
+  );
+  if (count < 1 || count > 6_000)
+    throw new Error("Fixture binding cannot fit the requested allowance");
+  return {
+    ...base,
+    references: [{ ...base.references[0]!, binding: "\ud800".repeat(count) }],
   };
 }

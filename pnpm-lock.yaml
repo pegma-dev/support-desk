@@ -77,9 +77,6 @@ importers:
       '@pegma/support-desk-application':
         specifier: 0.1.1
         version: link:../application
-      '@pegma/support-desk-contracts':
-        specifier: 0.1.1
-        version: link:../contracts
 
   packages/application:
     dependencies:

@@ -228,21 +228,29 @@ adds one causal job row: assistant creation needs at least 7 + 12 rows without
 delivery or 8 + 12 with delivery. Later signed-in web replies count their job
 row in the same admission check as message, Audit, receipt, and quota effects.
 Claims and inline attempts add no physical rows.
-The candidate additionally reserves encoded space in each turn row for
-its final bounded attempt metadata; preparation cannot fill the row and make
-completion impossible. No unbounded history or second private usage ledger is
-permitted. The implemented record schema currently has these candidate caps:
+Preparation admits a turn only when its current row is within the 52,000-byte
+ceiling and every constructed maximum reachable post-preparation state fits
+the 60,000-byte hard record cap. The capacity check uses the actual encoder
+and processing-state builder with maximum legal JSON-escaped metadata,
+identifiers, fences, timestamps, duplicated metadata/receipts, and replacement
+claim fields. It covers answer, escalation, retry, supersession, and the next
+claim while preserving earlier bindings and metadata verbatim. Only the
+current attempt's processing/accounting state changes; a later preparation
+reserves again. Oversized preparation raises the typed limit before a provider
+call and leaves the claim available for bounded human handoff. No unbounded
+history or second private usage ledger is permitted. The implemented record
+schema currently has these candidate caps:
 
-| Bound                       | Default / hard maximum                                                                                          |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Attempts per turn           | 2 / 4; prepared attempts stay inline and cannot exceed the admitted turn budget                                 |
-| Turn lifetime               | 300,000 / 3,600,000 milliseconds                                                                                |
-| Configured maximum lease    | 60,000 / 300,000 milliseconds; the worker's actual requested lease must also accommodate its bounded invocation |
-| Complete persisted turn row | 60,000 conservative serialized UTF-16 JSON bytes                                                                |
-| Row at preparation          | 52,000 serialized bytes, leaving 8,000 encoded bytes for accounting, failure, and terminal metadata             |
-| Complete attempt binding    | 12,000 serialized bytes, including at most 16 version entries and 32 opaque source references                   |
-| Opaque reference binding    | 6,000 UTF-16 code units each, still subject to the whole-binding bound                                          |
-| Processing strings          | At most 200 code units each; failure category 80; usage counters are nonnegative safe integers                  |
+| Bound                       | Default / hard maximum                                                                                                                             |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Attempts per turn           | 2 / 4; prepared attempts stay inline and cannot exceed the admitted turn budget                                                                    |
+| Turn lifetime               | 300,000 / 3,600,000 milliseconds                                                                                                                   |
+| Configured maximum lease    | 60,000 / 300,000 milliseconds; the worker's actual requested lease must also accommodate its bounded invocation                                    |
+| Complete persisted turn row | 60,000 conservative serialized UTF-16 JSON bytes                                                                                                   |
+| Row at preparation          | 52,000 serialized bytes, plus constructive admission requiring every maximum reachable completion/finish/replacement-claim row to fit 60,000 bytes |
+| Complete attempt binding    | 12,000 serialized bytes, including at most 16 version entries and 32 opaque source references                                                      |
+| Opaque reference binding    | 6,000 UTF-16 code units each, still subject to the whole-binding bound                                                                             |
+| Processing strings          | At most 200 code units each; failure category 80; usage counters are nonnegative safe integers                                                     |
 
 Byte accounting uses the complete JSON serialization, including escaping and
 wrappers, multiplied by two; it is distinct from model input/output UTF-8

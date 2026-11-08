@@ -10,6 +10,7 @@ import type {
 } from "@pegma/support-desk-application";
 import type {
   AssistantAttemptContext,
+  AssistantAttemptBudgets,
   AssistantCustomerAuthority,
   AssistantModelInput,
   AssistantModelResult,
@@ -39,6 +40,7 @@ import {
 } from "./request.js";
 import {
   answerBody,
+  answerTextAllowance,
   escalationReasons,
   modelDecision,
   modelUsage,
@@ -62,6 +64,11 @@ export function createSupportDeskAssistant(
     1,
   );
   const commandAttempts = count(options.storageCommandAttempts ?? 2, 3, 1);
+  const maxMessageCharacters = count(
+    options.maxMessageCharacters ?? 20_000,
+    20_000,
+    1,
+  );
   if (commitReserve >= operationMilliseconds)
     throw new TypeError(
       "Completion reserve must be below the operation deadline",
@@ -213,9 +220,11 @@ export function createSupportDeskAssistant(
       };
       const configuration = async (
         expectedVersion?: string,
+        phaseDeadline = operationDeadline,
       ): Promise<VerifiedAssistantConfiguration> => {
-        const current = await within(() =>
-          options.configuration.resolve(expectedVersion),
+        const current = await within(
+          () => options.configuration.resolve(expectedVersion),
+          phaseDeadline,
         );
         if (current.outcome !== "ready")
           throw new AssistantBoundaryError("configuration_unavailable");
@@ -227,9 +236,12 @@ export function createSupportDeskAssistant(
           throw new AssistantBoundaryError("configuration_changed");
         return value;
       };
-      const customer = async (): Promise<AssistantCustomerAuthority> => {
-        const current = await within(() =>
-          options.customerAuthority.resolve(claim!.requesterPrincipalId),
+      const customer = async (
+        phaseDeadline = operationDeadline,
+      ): Promise<AssistantCustomerAuthority> => {
+        const current = await within(
+          () => options.customerAuthority.resolve(claim!.requesterPrincipalId),
+          phaseDeadline,
         );
         if (current.outcome !== "ready")
           throw new AssistantBoundaryError("authority_unavailable");
@@ -303,11 +315,20 @@ export function createSupportDeskAssistant(
           authority,
           options.tokenCounter,
         );
+        const attemptBudgets: AssistantAttemptBudgets = snapshot({
+          ...config.budgets,
+          maxMessageCharacters,
+          maxAnswerTextCharacters: answerTextAllowance(
+            sources,
+            maxMessageCharacters,
+          ),
+        });
         const input: AssistantModelInput = modelInput(
           claim,
           config,
           sources,
           options.tokenCounter,
+          attemptBudgets,
         );
         const deadlineMilliseconds = Math.min(
           operationDeadline,
@@ -340,6 +361,7 @@ export function createSupportDeskAssistant(
           references,
           deadline,
           usageReservationId,
+          budgets: attemptBudgets,
         });
         const binding: AssistantAttemptBinding = snapshot({
           inputFingerprint,
@@ -379,7 +401,7 @@ export function createSupportDeskAssistant(
           allSourceReferences: Object.freeze(references),
           deadline,
           signal: providerController.signal,
-          budgets: config.budgets,
+          budgets: attemptBudgets,
         });
         const policyReason = options.escalationPolicy?.evaluate(input, context);
         if (policyReason !== undefined && policyReason !== null) {
@@ -390,9 +412,11 @@ export function createSupportDeskAssistant(
 
         let prepared = false;
         const prepareCommand = snapshot({ ...claim.fence, binding });
-        const verifyCurrentInputs = async (): Promise<void> => {
-          ensure(deadlineMilliseconds);
-          const currentAuthority = await customer();
+        const verifyCurrentInputs = async (
+          phaseDeadline: number,
+        ): Promise<void> => {
+          ensure(phaseDeadline);
+          const currentAuthority = await customer(phaseDeadline);
           if (canonical(currentAuthority) !== canonical(authority))
             throw new AssistantBoundaryError("authority_changed");
           const confirmed = sourceSnapshot(
@@ -405,7 +429,7 @@ export function createSupportDeskAssistant(
                     applicability: currentAuthority.applicability,
                   },
                 ),
-              deadlineMilliseconds,
+              phaseDeadline,
             ),
             currentAuthority,
             options.tokenCounter,
@@ -416,10 +440,13 @@ export function createSupportDeskAssistant(
           // Configuration is the last awaited observation before generation:
           // neither usage reservation nor source confirmation can conceal a
           // disabled or changed customer-content processing route.
-          const currentConfig = await configuration(config.version);
+          const currentConfig = await configuration(
+            config.version,
+            phaseDeadline,
+          );
           if (canonical(currentConfig) !== canonical(config))
             throw new AssistantBoundaryError("configuration_changed");
-          ensure(deadlineMilliseconds);
+          ensure(phaseDeadline);
         };
         for (let attempt = 0; attempt < commandAttempts; attempt += 1) {
           try {
@@ -475,7 +502,7 @@ export function createSupportDeskAssistant(
           canonical(rechecked.binding) !== canonical(binding)
         )
           throw new AssistantBoundaryError("preparation_mismatch");
-        await verifyCurrentInputs();
+        await verifyCurrentInputs(deadlineMilliseconds - commitReserve);
         ensure(deadlineMilliseconds - commitReserve);
         observation = { state: "unknown" };
         accounting = "unknown";
@@ -499,6 +526,7 @@ export function createSupportDeskAssistant(
           config,
           sources,
           options.tokenCounter,
+          attemptBudgets,
         );
         await reconcile();
         const completion: CompleteAssistantTurnCommand = snapshot({
@@ -516,7 +544,7 @@ export function createSupportDeskAssistant(
                         turnId: claim.fence.turnId,
                       })
                     ).slice(0, 48),
-                  body: answerBody(decision, sources),
+                  body: answerBody(decision, sources, maxMessageCharacters),
                 }
               : {
                   kind: "escalate",
@@ -530,7 +558,7 @@ export function createSupportDeskAssistant(
         });
         const guard = async (): Promise<void> => {
           try {
-            await verifyCurrentInputs();
+            await verifyCurrentInputs(deadlineMilliseconds);
           } catch (error) {
             throw new GuardFailure(
               error instanceof AssistantBoundaryError
@@ -582,6 +610,7 @@ export function createSupportDeskAssistant(
                   "turn_limit",
                   "usage_unavailable",
                   "deadline",
+                  "answer_limit",
                 ].includes(category)
               ? "capacity"
               : "provider_failure";

@@ -26,6 +26,7 @@ import type {
 } from "./assistant-turn-types.js";
 import {
   assertAssistantTurnRecord,
+  assistantTurnProcessingState,
   assistantTurnKey,
   canonical,
   dataArray,
@@ -33,6 +34,7 @@ import {
   fields,
   fingerprint,
   integer,
+  maximumRecordBytes,
   preparedRecordBytes,
   snapshot,
   terminalTurn,
@@ -41,9 +43,11 @@ import {
   validateBinding,
   validateFence,
   validateProcessing,
+  withoutAssistantTurnLease as withoutLease,
   type AssistantTurnRecord,
   type ResolvedAssistantTurnOptions,
 } from "./assistant-turn-records.js";
+import { maximumPostPreparationRecordBytes } from "./assistant-turn-capacity.js";
 
 /** Private, closed integration with the existing handling transaction executor. */
 export type AssistantTurnCommit =
@@ -168,16 +172,6 @@ function ack(ticket: Ticket, messageId?: string): HandlingCommandResult {
     handlingGeneration: effectiveTicketHandling(ticket).generation,
     ...(messageId === undefined ? {} : { messageId }),
   };
-}
-
-function withoutLease(job: AssistantTurnRecord): AssistantTurnRecord {
-  const {
-    claim: _claim,
-    leaseUntil: _lease,
-    nextAttemptAt: _next,
-    ...rest
-  } = job;
-  return rest;
 }
 
 function validateReason(value: unknown): void {
@@ -598,6 +592,11 @@ export function createAssistantTurnServices(
             "serialized_record",
             preparedRecordBytes,
           );
+        if (maximumPostPreparationRecordBytes(prepared) > maximumRecordBytes)
+          throw new SupportDeskLimitError(
+            "serialized_record",
+            maximumRecordBytes,
+          );
         activeClaim(job, command, ticketVersion.value.ticket);
         if (timestamp(binding.deadline, "binding.deadline") <= now())
           throw new SupportDeskConflictError(
@@ -825,19 +824,12 @@ export function createAssistantTurnServices(
           ? { ...key, outcome: "retry_scheduled", nextAttemptAt }
           : { ...key, outcome: "superseded" };
         const updated: AssistantTurnRecord = {
-          ...withoutLease(job),
+          ...assistantTurnProcessingState(withoutLease(job), processing, {
+            attemptId: command.attemptId,
+            accounting: command.accounting,
+          }),
           status: eligible ? "retry" : "superseded",
           ...(eligible ? { nextAttemptAt } : {}),
-          preparedAttempts: job.preparedAttempts.map((attempt) =>
-            attempt.attemptId === command.attemptId
-              ? {
-                  ...attempt,
-                  accounting: command.accounting,
-                  ...(processing === undefined ? {} : { processing }),
-                }
-              : attempt,
-          ),
-          ...(processing === undefined ? {} : { processing }),
           lastFinish: { fingerprint: requestFingerprint, result },
         };
         assertAssistantTurnRecord(updated);
@@ -916,25 +908,21 @@ export function createAssistantTurnServices(
       const processing =
         commit.kind === "exhausted" ? undefined : commit.command.processing;
       const terminal: AssistantTurnRecord = {
-        ...withoutLease(job),
+        ...assistantTurnProcessingState(
+          withoutLease(job),
+          processing,
+          commit.kind === "finish"
+            ? {
+                attemptId: commit.command.attemptId,
+                accounting: commit.command.accounting,
+              }
+            : undefined,
+        ),
         status:
           commit.kind === "complete" && commit.command.outcome.kind === "answer"
             ? "completed"
             : "escalated",
         terminalResult: result,
-        ...(processing === undefined ? {} : { processing }),
-        preparedAttempts:
-          commit.kind === "finish"
-            ? job.preparedAttempts.map((attempt) =>
-                attempt.attemptId === commit.command.attemptId
-                  ? {
-                      ...attempt,
-                      accounting: commit.command.accounting,
-                      ...(processing === undefined ? {} : { processing }),
-                    }
-                  : attempt,
-              )
-            : job.preparedAttempts,
         ...(commit.kind === "finish"
           ? {
               lastFinish: {
