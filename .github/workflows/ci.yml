@@ -50,3 +50,12 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+      - name: Run synthetic composition
+        run: pnpm example
+
+      - name: Check release metadata
+        run: pnpm run release:check
+
+      - name: Pack and import public artifacts
+        run: pnpm run release:pack -- --output .release/ci-check

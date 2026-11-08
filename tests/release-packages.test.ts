@@ -65,6 +65,7 @@ describe("release package metadata", () => {
       "@pegma/support-desk-core",
       "@pegma/support-desk-templates",
       "@pegma/support-desk-application",
+      "@pegma/support-desk-ai",
     ]);
   });
 
@@ -87,6 +88,7 @@ describe("release package metadata", () => {
       { name: "@pegma/support-desk-core", version: "0.1.1" },
       { name: "@pegma/support-desk-templates", version: "0.1.1" },
       { name: "@pegma/support-desk-application", version: "0.1.1" },
+      { name: "@pegma/support-desk-ai", version: "0.1.1" },
     ]);
     expect(manifests[1]?.dependencies?.["@pegma/support-desk-contracts"]).toBe(
       "0.1.1",
@@ -97,6 +99,23 @@ describe("release package metadata", () => {
     expect(manifests[3]?.dependencies?.["@pegma/support-desk-core"]).toBe(
       "0.1.1",
     );
+    expect(
+      manifests[4]?.dependencies?.["@pegma/support-desk-application"],
+    ).toBe("0.1.1");
+    expect(manifests[4]?.dependencies?.["@pegma/support-desk-contracts"]).toBe(
+      "0.1.1",
+    );
+    expect(
+      manifests[4]?.dependencies?.["@pegma/knowledge-base-application"],
+    ).toBe("0.1.1");
+    expect(
+      manifests[4]?.dependencies?.["@pegma/knowledge-base-contracts"],
+    ).toBe("0.1.1");
+    expect(
+      Object.keys(manifests[3]?.dependencies ?? {}).filter((name) =>
+        name.startsWith("@pegma/knowledge-base-"),
+      ),
+    ).toEqual([]);
   });
 
   it("validates package manifests and the lockfile together", async () => {

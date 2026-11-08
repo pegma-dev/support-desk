@@ -15,23 +15,22 @@ Current Support Desk source remains `0.1.1` but differs from the registry's
 latest `0.1.1` artifacts. It pins Audit `0.2.0`, Authorization Core `0.4.0`,
 Mail `0.1.1`, Spine `0.1.2`, and Storage Core `0.4.0`. These source changes
 require a new synchronized SD-06 release before enhancement adoption; never
-overwrite an existing version. All four KB packages and Agent Access remain
-unpublished at source `0.1.0`; the five public npm names returned HTTP 404 on
-2026-11-07. Treat this as a historical snapshot; before activation, repeat the
-[producer's registry check](https://github.com/pegma-dev/knowledge-base/blob/main/docs/SOURCE_PREPARATION.md).
-Source release preparation is complete; actual publication remains
-open. Follow the public
-[KB first-publication handoff](https://github.com/pegma-dev/knowledge-base/blob/main/docs/BOOTSTRAP.md)
-and separate
-[Agent Access handoff](https://github.com/pegma-dev/agent-access/blob/main/docs/BOOTSTRAP.md).
-The maintainer's 2FA bootstrap creates each npm package name under an
-unadvertised `bootstrap` tag without OIDC provenance. The first advertised
-trusted versions need separate review, protected
-`npm-publish` environments, approved signers, immutable tag rules, npm trusted
-publishers with direct publishing enabled, and actual registry
-artifact/signature/provenance verification. Full KB-05 publication remains
-open and **hard-blocks SD-02**. PG-01/RG-01 host assembly requires **both published
-Agent Access and KB** with exact verified registry dependencies. Actual
+overwrite an existing version. All four KB packages and Agent Access now have
+strictly verified trusted `0.1.1` releases. The
+[producer verification receipts](HOST_COMPOSITION.md#kb-authoring-producers)
+record exact release commits and strict registry/clean-consumer jobs. Earlier
+manual `0.1.0` bootstrap receipts have no OIDC provenance and remain historical;
+the later trusted releases close the KB-05/Agent Access publication gates.
+
+SD-02 is an in-progress source candidate adding optional
+`@pegma/support-desk-ai` with exact KB `0.1.1` runtime dependencies and bounded
+turn jobs in the existing ticket partition. The base application remains
+independent of KB/providers. Read the
+[coordination guide](ASSISTANT_COORDINATION.md) and
+[layout checkpoint](COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint).
+Current-head public-entry memory/Azurite/actual-KB fake-provider tests,
+Node 22/24 gates, and code/security review remain pending while implementation
+is in progress. PG-01/RG-01 consume both exact verified published producers. Actual
 two-host existing-login/current-Admin consent and requested-client/mode proof
 remains unproven before activation or pilots. Source and synthetic SDK results
 do not establish deployment, model calls, host acceptance, or pilots.
@@ -441,11 +440,11 @@ phase is intentionally not one large release.
 **Goal:** Compose a standalone knowledge base for product documentation and
 reviewed support knowledge on both launch hosts.
 
-**Source status (2026-11-07):** KB-01/02/03, partial KB-05 preparation, AUTH-01
-source/SDK proof, KB-04's transport source exit, and both producers' release
-preparation are merged. Full KB-05 actual publication remains open and
-hard-blocks SD-02. All four KB packages and Agent Access remain unpublished at
-source `0.1.0`; both published producers are required before host assembly.
+**Source/release status (2026-11-07):** KB-01/02/03, partial KB-05 preparation,
+AUTH-01 source/SDK proof, KB-04's transport source exit, and both producers'
+release preparation are merged. Both producers now have strictly verified
+trusted `0.1.1` releases, closing SD-02's publication prerequisite. Hosts consume
+those exact verified registry artifacts rather than source substitutes.
 Actual two-host existing-login/current-Admin consent and Codex, Claude Code,
 Grok Bot desktop/hosted-agent, and T3 Code Codex-provider proof remains unproven
 under PG-01/RG-01 before activation or pilots. See the
@@ -473,7 +472,10 @@ follows under Phase 11's Support Desk tasks.
 human handoff, reviewed learning, and safe engineering follow-up.
 
 **Source status:** SD-01 handling/handoff foundations are merged without a
-model. SD-02 onward and the phase's host/production acceptance remain pending.
+model. SD-02 is an in-progress optional coordinator candidate after verified
+KB publication; its current-head validation/review and future SD-06 release
+remain open. SD-03 onward and this phase's host/production acceptance remain
+pending. See [assistant coordination](ASSISTANT_COORDINATION.md).
 
 Follow [KNOWLEDGE_AI_PLAN.md](KNOWLEDGE_AI_PLAN.md), which replaces the earlier
 staff-only execution outline. Every chat starts as a ticket; assistant-handled

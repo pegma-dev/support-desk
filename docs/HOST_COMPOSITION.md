@@ -51,34 +51,41 @@ actual customer data was used, and it does not establish an operational host.
 
 All four KB packages (`@pegma/knowledge-base-contracts`,
 `@pegma/knowledge-base-core`, `@pegma/knowledge-base-application`, and
-`@pegma/knowledge-base-mcp`) and `@pegma/agent-access` remain unpublished at
-source `0.1.0`. The public registry's HTTP 404 responses for all five names on
-2026-11-07 are historical observations; follow the canonical
-[KB source-preparation registry method](https://github.com/pegma-dev/knowledge-base/blob/main/docs/SOURCE_PREPARATION.md)
-and recheck before publication, host dependency adoption, or activation.
-Follow the public
-[KB bootstrap handoff](https://github.com/pegma-dev/knowledge-base/blob/main/docs/BOOTSTRAP.md)
-and [Agent Access bootstrap handoff](https://github.com/pegma-dev/agent-access/blob/main/docs/BOOTSTRAP.md).
-The maintainer's 2FA bootstrap creates each name under an unadvertised
-`bootstrap` tag without OIDC provenance. That external bootstrap remains open,
-along with a separately reviewed first advertised version, npm trusted-publisher
-configuration, protected publishing environments, signers, protected signed
-annotated tags, and registry artifact-integrity/signature/provenance
-verification. Release preparation does not complete KB-05 publication or
-publish Agent Access; the manual bootstrap cannot satisfy the advertised
-release's OIDC provenance gate.
+`@pegma/knowledge-base-mcp`) and `@pegma/agent-access` now have verified trusted
+`0.1.1` registry releases:
 
-PG-01/RG-01 must consume both published Agent Access and KB artifacts before
-host assembly. Exact production pins follow actual reviewed publication and
-registry verification; these producers are not added Support Desk dependencies.
-Each host must then prove existing-login/current-Admin consent and actual
-draft/evidence flows through Codex, Claude Code, Grok Bot's desktop application
-with its hosted agent (not Grok Build CLI), and T3 Code in Codex-provider mode.
-Source/SDK tests cannot close this retained two-host acceptance or the staging
-privacy, operations, full-workflow, and pilot gates. SD-02 waits for KB-05
-publication; new Support Desk behavior still requires SD-06. See the
-[post-baseline inventory](KNOWLEDGE_AI_P00.md#post-baseline-dependency-inventory-2026-11-07)
-and [current implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
+| Producer                          | Signed `v0.1.1` source                                                                                                                                                | Strict registry and clean-consumer verification                                                                                                                                                                                     |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent Access                      | [PR #4](https://github.com/pegma-dev/agent-access/pull/4), [`ffe4d86`](https://github.com/pegma-dev/agent-access/commit/ffe4d8616632ce9d057caaf65124746f03d4d349)     | [Run 42420302775, attempt 2, verify job 128549453970](https://github.com/pegma-dev/agent-access/actions/runs/42420302775/job/128549453970), 2026-11-07T22:32:42Z: verified registry release and clean consumer for one package.     |
+| Knowledge Base, all four packages | [PR #8](https://github.com/pegma-dev/knowledge-base/pull/8), [`32086e4`](https://github.com/pegma-dev/knowledge-base/commit/32086e4374f2ef45044cd09c371e506d10b88d64) | [Run 42424148244, attempt 5, verify job 128564059833](https://github.com/pegma-dev/knowledge-base/actions/runs/42424148244/job/128564059833), 2026-11-07T23:35:31Z: verified registry release and clean consumer for four packages. |
+
+These strict jobs verify exact artifact bytes and dependency tuples,
+cryptographic signatures, source repository/workflow/tag/commit provenance,
+and clean consumers. Canonical artifact identities and historical manual
+`0.1.0` bootstrap receipts remain in the public
+[KB release handoff](https://github.com/pegma-dev/knowledge-base/blob/main/docs/BOOTSTRAP.md)
+and [Agent Access release handoff](https://github.com/pegma-dev/agent-access/blob/main/docs/BOOTSTRAP.md).
+The completed manual bootstrap has no OIDC provenance; the separate trusted
+`0.1.1` releases supply the required verified producer evidence. Earlier npm
+404 observations and the `a444e21` source fixture are historical only. The
+current KB protocol proof composes four packed KB packages with registry
+`@pegma/agent-access@0.1.1`.
+
+The KB-05 publication prerequisite for SD-02 is closed. Its optional AI source
+candidate uses exact KB `0.1.1` dependencies, while the base application has no
+KB or provider dependency. Current-head SD-02 validation/review is pending;
+new Support Desk behavior still requires a future synchronized verified SD-06
+release before host adoption. Do not substitute branches, copied source,
+local paths, or unpublished tarballs for production dependencies.
+
+PG-01/RG-01 consume both exact verified published producers, then prove
+existing-login/current-Admin consent and actual draft/evidence flows through
+Codex, Claude Code, Grok Bot's installed desktop application with its hosted
+agent (not Grok Build CLI), and T3 Code in Codex-provider mode. Publication,
+source tests, and SDK tests cannot close retained two-host acceptance,
+staging privacy/provider/intermediary controls, operations, full workflows,
+Task 12, or pilots. Follow the
+[current implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
 
 ## Constructing the application
 
@@ -306,14 +313,62 @@ human ticket immediately. Future/nonpositive/malformed/inactive hints are
 refused; missing or inactive hints can still leave a temporary repair gap.
 
 SD-01 includes no AI provider, knowledge retrieval, learning, or publication.
-Keep model activation disabled. AUTH-01/KB-04 source proofs, partial KB-05 source
-preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and both
-producers' final release preparation are merged; KB-05 and Agent Access publication remain
-pending. Both published producers precede host assembly. SD-02 generation/data
-controls wait for KB-05 publication, and SD-06 release remains pending.
-PG-01/RG-01 retain actual two-host existing-login/Admin consent and
-requested-client proof before activation, followed by the remaining privacy,
-operations, full-workflow, and pilot gates.
+Keep model activation disabled until the host gates pass. Both KB and Agent
+Access now have strictly verified trusted `0.1.1` releases, closing SD-02's
+producer publication prerequisite. SD-02 adds an in-progress optional
+coordinator source candidate; its tests/review and future SD-06 publication
+remain open. Actual two-host login/client, privacy, operations, Task 12,
+full-workflow, and pilot evidence remain separate gates.
+
+## Optional assistant coordination (SD-02)
+
+The candidate `createSupportDeskAssistant` from `@pegma/support-desk-ai`
+composes the five public `AssistantTurnApplication` operations with the actual
+KB `retrieveAnswerSources`/`confirmAnswerSources` surface and host-owned model,
+configuration, customer-authority, usage, tokenizer, and escalation ports.
+The base application needs only opt-in bounded `assistantTurns` configuration;
+without that option it creates no turn jobs and still works without AI.
+See [the coordination guide](ASSISTANT_COORDINATION.md) and
+[the layout checkpoint](COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
+for actual types, bounds, replay, and required validation.
+
+Hosts persist scan continuations, repeat bounded physical scan cycles, claim
+with a deadline-compatible lease, and keep per-instance durable usage
+reservation/reconciliation outside the Support Desk store contract. The
+coordinator's `processTurn` takes `ProcessAssistantTurnCommand`: ticket/turn,
+worker identity, and lease duration, without a caller-supplied `claimId`.
+Each physical invocation generates a fresh cryptographic claim ID. A duplicate
+callback returns `not_claimed` while another claim is live and does not cancel
+or reconcile its reservation. After expiry, a new generation/attempt retains
+the prior bounded unknown metadata for conservative reconciliation. The model
+runs once per newly prepared attempt outside CAS retries. A storage response
+loss replays the exact prepared/completion command; provider acceptance or
+usage can still be unknown and conservatively reserved. No exactly-once
+provider-call or billing guarantee is made.
+
+Resolve service and customer authority independently. Recheck the actual
+customer's current active principal, collection/audience/applicability policy,
+and the complete supplied KB source set, including uncited sources, immediately
+before the paid provider call and before every completion CAS. After awaited
+retrieval, preparation, and usage reservation, the identical prepare command
+rechecks the live claim/deadline, then the full input guard runs with current
+configuration as the last awaited observation before generation. Invalidation
+at this point makes zero provider calls and reconciles `not_called` usage
+before bounded human fallback or superseding stale work. Trusted configuration must verify the actual provider account,
+route, endpoint/model features, exceptions and intermediaries for the bound
+ZDR-compatible policy before call and commit. Source fake providers are not
+operational privacy evidence. Count the full prompt locally, enforce raw JSON
+UTF-8 limits before parsing, accept only exact supplied citations and safe
+labels, and never infer a portal URL from a bot-answer source.
+
+Keep generation's kill switch independent of deterministic request-person and
+staff takeover. Those controls preserve authenticated human handoff even when
+configuration, usage reservation, retrieval, or the provider is unavailable.
+Only actual signed-in web messages enqueue turns: an email reply to a ticket
+whose original `Ticket.channel` is `web` still hands off with `email_reply`.
+The worker can answer or escalate; it cannot resolve tickets, act on accounts,
+execute broad tools, or publish knowledge/issues. The two hosts retain separate
+stores, policies, queues, cursors, usage scopes, and secrets.
 
 ## Inbound mail
 

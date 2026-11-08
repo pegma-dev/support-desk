@@ -12,6 +12,19 @@ without model generation or a KB dependency; source review/tests determine
 completion. Host adoption requires the later synchronized SD-06 release and
 activation gates, not a source checkout or overwritten registry version.
 
+SD-02's in-progress source candidate adds opt-in `assistantTurns` and the
+`AssistantTurnApplication` methods `scanAssistantTurnCandidates`,
+`claimAssistantTurn`, `prepareAssistantTurnAttempt`, `completeAssistantTurn`,
+and `finishAssistantTurnAttempt`. These keep bounded causal turn work beside
+the ticket and expose fixed answer/escalation completion with a read-only
+validation guard. They add no KB or provider dependency to this package;
+the optional `@pegma/support-desk-ai` coordinator owns those integrations.
+Lease/preparation/retry metadata do not bump Ticket revision, exact receipts recover
+ambiguous commits, and request-person/takeover remain provider-independent.
+See the [layout checkpoint](../../docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
+and [coordination guide](../../docs/ASSISTANT_COORDINATION.md). Current-head
+tests/review and future verified SD-06 publication remain required.
+
 Customer create uses `support.ticket.create`; list and read both use the
 documented `support.ticket.read.own` permission and then confirm authoritative
 ownership; reply uses `support.ticket.reply.own`.

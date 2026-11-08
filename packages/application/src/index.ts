@@ -31,6 +31,22 @@ import {
   createTicket,
   effectiveTicketHandling,
 } from "@pegma/support-desk-core";
+import type {
+  AssistantTurnApplication,
+  AssistantTurnOptions,
+} from "./assistant-turn-types.js";
+import {
+  assertAssistantTurnRecord,
+  createAssistantTurnRecord,
+  resolveAssistantTurnOptions,
+  type AssistantTurnRecord,
+} from "./assistant-turn-records.js";
+import {
+  createAssistantTurnServices,
+  type AssistantTurnCommit,
+} from "./assistant-turns.js";
+export type * from "./assistant-turn-types.js";
+export type { AssistantTurnRecord } from "./assistant-turn-records.js";
 
 export type { InboundSenderAuthentication };
 
@@ -345,6 +361,7 @@ interface TicketReservationRecord {
 }
 
 export type SupportRecord =
+  | AssistantTurnRecord
   | TicketRecord
   | TicketQuotaRecord
   | TicketReservationRecord
@@ -541,6 +558,11 @@ function jsonCodec<T>(key: (value: T) => EntityKey): Codec<T> {
   return {
     encode(value) {
       const location = key(value);
+      if (
+        (value as { kind?: unknown }).kind === "assistant_turn" ||
+        location.id.startsWith("assistant-turn:")
+      )
+        assertAssistantTurnRecord(value as AssistantTurnRecord, location);
       return {
         partition: location.partition,
         id: location.id,
@@ -551,7 +573,25 @@ function jsonCodec<T>(key: (value: T) => EntityKey): Codec<T> {
       if (typeof record.payload !== "string") {
         throw new TypeError("stored Support Desk record has no JSON payload");
       }
-      return JSON.parse(record.payload) as T;
+      const decoded = JSON.parse(record.payload) as T;
+      if (
+        (decoded as { kind?: unknown })?.kind === "assistant_turn" ||
+        (typeof record.id === "string" &&
+          record.id.startsWith("assistant-turn:"))
+      ) {
+        if (
+          typeof record.partition !== "string" ||
+          typeof record.id !== "string"
+        )
+          throw new TypeError(
+            "stored assistant turn has no string partition/id envelope",
+          );
+        assertAssistantTurnRecord(decoded as AssistantTurnRecord, {
+          partition: record.partition,
+          id: record.id,
+        });
+      }
+      return decoded;
     },
   };
 }
@@ -1101,7 +1141,7 @@ export interface QueueInactiveSweepResult {
   readonly deleted: number;
 }
 
-export interface SupportDeskApplication {
+export interface SupportDeskApplication extends AssistantTurnApplication {
   readHandoffWork(
     access: AccessContext,
     ticketId: TicketId,
@@ -3410,8 +3450,18 @@ export function createSupportDeskApplication(options: {
   readonly maxTagsPerTicket?: number;
   readonly responseTargetPolicy?: ResponseTargetPolicy;
   readonly assistantHandlingEnabled?: boolean;
+  /** Optional durable scheduling; absent retains the SD-01 manual assistant seam. */
+  readonly assistantTurns?: AssistantTurnOptions;
 }): SupportDeskApplication {
   const source = boundaryObject(options, "application options");
+  const assistantTurnOptions = resolveAssistantTurnOptions(
+    ownDataProperty(
+      source,
+      "assistantTurns",
+      "application options.assistantTurns",
+      true,
+    ) as AssistantTurnOptions | undefined,
+  );
   const rawAssistantEnabled = ownDataProperty(
     source,
     "assistantHandlingEnabled",
@@ -3961,6 +4011,7 @@ export function createSupportDeskApplication(options: {
     access: AccessContext,
     command: HandlingMutation,
     operation: HandlingOperation,
+    assistantTurnCommit?: AssistantTurnCommit,
   ): Promise<Ticket> {
     requireIdentifier(access.principalId, "principalId");
     const customer =
@@ -3974,6 +4025,9 @@ export function createSupportDeskApplication(options: {
           ([key]) => key !== "commandId" && key !== "correlationId",
         ),
       ),
+      ...(assistantTurnCommit === undefined
+        ? {}
+        : { assistantTurnFingerprint: assistantTurnCommit.fingerprint }),
     });
     for (let attempt = 0; attempt < maxConflictAttempts; attempt += 1) {
       const versioned = await records.getVersioned(ticketKey(command.ticketId));
@@ -4196,6 +4250,19 @@ export function createSupportDeskApplication(options: {
           },
         },
       );
+      const assistantCommit =
+        assistantTurnCommit === undefined
+          ? undefined
+          : await assistantTurns.completionAction(
+              ticket,
+              rows,
+              updated,
+              assistantTurnCommit,
+            );
+      if (assistantCommit !== undefined) {
+        actions.push(assistantCommit.action);
+        await assistantCommit.verifyBeforeCommit();
+      }
       if ((await records.transact(ticket.id, actions)).committed) {
         await safeProjectQueue(ticket.id);
         return updated;
@@ -4219,7 +4286,33 @@ export function createSupportDeskApplication(options: {
     throw new SupportDeskConflictError();
   }
 
+  const assistantTurns = createAssistantTurnServices({
+    records,
+    clock,
+    options: assistantTurnOptions,
+    assistantHandlingEnabled,
+    limits,
+    maxConflictAttempts,
+    conversation(ticket, rows) {
+      return {
+        ticket: toCustomerTicketSummary(ticket),
+        messages: customerMessages(rows),
+        revision: ticket.revision,
+        handling: { ...effectiveTicketHandling(ticket) },
+        ...(latestVisibleRecord(rows) === undefined
+          ? {}
+          : { triggerMessageId: latestVisibleRecord(rows)!.message.id }),
+      };
+    },
+    mutateHandling,
+  });
+
   return {
+    scanAssistantTurnCandidates: assistantTurns.scanAssistantTurnCandidates,
+    claimAssistantTurn: assistantTurns.claimAssistantTurn,
+    prepareAssistantTurnAttempt: assistantTurns.prepareAssistantTurnAttempt,
+    completeAssistantTurn: assistantTurns.completeAssistantTurn,
+    finishAssistantTurnAttempt: assistantTurns.finishAssistantTurnAttempt,
     async readHandoffWork(access, ticketId) {
       requirePermission(access, supportPermissions.queueRead);
       requireIdentifier(access.principalId, "principalId");
@@ -4544,7 +4637,11 @@ export function createSupportDeskApplication(options: {
       // reserved-but-never-created tickets.
       const estimatedCreateRows =
         6 + // ticket, quota, reservation, message, audit, command
-        (command.notification === undefined ? 0 : 1);
+        (command.notification === undefined ? 0 : 1) +
+        (assistantTurnOptions !== undefined &&
+        command.initialHandling === "assistant"
+          ? 1
+          : 0);
       enforcePartitionRecordLimit(
         0,
         limits.maxRecordsPerTicket,
@@ -4606,6 +4703,16 @@ export function createSupportDeskApplication(options: {
         body: command.body,
         createdAt: now,
       };
+      const assistantTurn =
+        assistantTurnOptions !== undefined &&
+        command.initialHandling === "assistant"
+          ? await createAssistantTurnRecord(
+              ticket,
+              message,
+              command.correlationId,
+              assistantTurnOptions,
+            )
+          : undefined;
       const notificationJob =
         notification === undefined
           ? undefined
@@ -4727,6 +4834,9 @@ export function createSupportDeskApplication(options: {
           },
         },
         ...(notificationJob === undefined ? [] : [notificationJob]),
+        ...(assistantTurn === undefined
+          ? []
+          : [{ action: "insert" as const, value: assistantTurn }]),
       ];
       // Create starts an empty partition; fail closed if the first write would
       // exceed the configured physical-record budget.
@@ -4812,16 +4922,22 @@ export function createSupportDeskApplication(options: {
           throw new SupportDeskNotFoundError();
         }
         const partitionRows = await records.list(command.ticketId);
+        const durableAssistantIngress =
+          assistantTurnOptions !== undefined &&
+          effectiveTicketHandling(versioned.value.ticket).state === "assistant";
+        const addedReplyRows =
+          (command.notification === undefined ? 3 : 4) +
+          (durableAssistantIngress ? 1 : 0);
         enforcePartitionRecordLimit(
           partitionRows.length,
           limits.maxRecordsPerTicket,
-          command.notification === undefined ? 3 : 4,
+          addedReplyRows,
         );
         enforceManagedAdmission(
           versioned.value.ticket,
           partitionRows,
           limits,
-          command.notification === undefined ? 3 : 4,
+          addedReplyRows,
           true,
         );
         const quota = await records.getVersioned(
@@ -4849,7 +4965,7 @@ export function createSupportDeskApplication(options: {
           sampledEpoch < storedEpoch
             ? versioned.value.ticket.updatedAt
             : sampledNow;
-        const updated = await applyResponseTargets(
+        let updated = await applyResponseTargets(
           applyTicketEvent(versioned.value.ticket, {
             type: "customer_replied",
             actorId: access.principalId,
@@ -4858,6 +4974,18 @@ export function createSupportDeskApplication(options: {
           responseTargetPolicy,
           "customer_replied",
         );
+        if (durableAssistantIngress && !assistantHandlingEnabled) {
+          // Configuration can disable generation while an older assistant
+          // conversation exists. The causal reply itself commits human work.
+          updated = applyTicketEvent(updated, {
+            type: "human_escalated",
+            actorId: access.principalId,
+            occurredAt: now,
+            expectedRevision: updated.revision,
+            expectedHandlingGeneration:
+              effectiveTicketHandling(updated).generation,
+          });
+        }
         const message: TicketMessage = {
           id: command.messageId,
           ticketId: command.ticketId,
@@ -4870,6 +4998,23 @@ export function createSupportDeskApplication(options: {
           createdAt: now,
         };
         const notificationContent = deliveryContent(command.notification);
+        const assistantIngress: SupportRecord | undefined =
+          !durableAssistantIngress
+            ? undefined
+            : assistantHandlingEnabled
+              ? await createAssistantTurnRecord(
+                  updated,
+                  message,
+                  command.correlationId,
+                  assistantTurnOptions!,
+                )
+              : handoffWork({
+                  ticket: updated,
+                  commandId: command.commandId,
+                  occurredAt: now,
+                  lastVisibleMessageId: command.messageId,
+                  reason: "other",
+                });
         const notificationJob =
           command.notification === undefined
             ? undefined
@@ -4929,6 +5074,9 @@ export function createSupportDeskApplication(options: {
             },
           },
           ...(notificationJob === undefined ? [] : [notificationJob]),
+          ...(assistantIngress === undefined
+            ? []
+            : [{ action: "insert" as const, value: assistantIngress }]),
         ]);
         if (outcome.committed) {
           return customerViewAfterChange(
@@ -6125,12 +6273,16 @@ export function createSupportDeskApplication(options: {
           notificationThreading(command),
         );
       const partitionRows = await records.list(command.ticketId);
+      const needsReopenHandoff =
+        assistantTurnOptions !== undefined &&
+        spec.eventType === "reopened" &&
+        effectiveTicketHandling(versioned.value.ticket).state === "assistant";
       const addedRecords =
-        command.messageId === undefined
+        (command.messageId === undefined
           ? 2 // audit + command
           : command.notification === undefined
             ? 3 // message + audit + command
-            : 4; // message + audit + command + delivery
+            : 4) + (needsReopenHandoff ? 1 : 0); // optional atomic human handoff
       enforcePartitionRecordLimit(
         partitionRows.length,
         limits.maxRecordsPerTicket,
@@ -6261,6 +6413,22 @@ export function createSupportDeskApplication(options: {
           },
         },
         ...(notificationJob === undefined ? [] : [notificationJob]),
+        ...(needsReopenHandoff
+          ? [
+              {
+                action: "insert" as const,
+                value: handoffWork({
+                  ticket: updated,
+                  commandId: command.commandId,
+                  occurredAt: now,
+                  lastVisibleMessageId:
+                    systemMessage?.id ??
+                    latestVisibleRecord(partitionRows)!.message.id,
+                  reason: "other",
+                }),
+              },
+            ]
+          : []),
       ]);
       if (outcome.committed) {
         return staffCommandResult(

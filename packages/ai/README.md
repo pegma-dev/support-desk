@@ -1,0 +1,161 @@
+# @pegma/support-desk-ai
+
+Optional, provider-neutral coordination for signed-in web Support Desk answers.
+This source candidate is `0.1.1`; it has not been published. A synchronized
+Support Desk release is required before host adoption. Its KB dependencies are
+the exact published `0.1.1` application and contracts packages.
+
+The base Support Desk application works without this package, a KB, or a model.
+Customer request-person and staff takeover remain deterministic application
+commands during provider outages. Email remains human support. This package
+only answers or escalates; it cannot resolve tickets, change accounts, publish
+knowledge, execute tools, or route engineering work.
+
+## Composition
+
+`createSupportDeskAssistant(options)` takes the existing
+`AssistantTurnApplication`, the KB application's `retrieveAnswerSources` and
+`confirmAnswerSources` methods, a fresh service-access resolver, a Spine clock,
+and explicit host ports exported from this package:
+
+- `AssistantConfigurationPort` resolves current, verified configuration.
+- `AssistantCustomerAuthorityPort` independently rechecks the active customer's
+  current access, audience/policy versions, collection IDs, applicability, and
+  opaque usage scope. Assistant permissions never establish the KB audience.
+- `AssistantModelPort` performs one provider request outside storage retries.
+- `AssistantUsagePort` durably reserves and reconciles operation/customer/site
+  token, cost, and attempt limits. The host supplies its limiter and ledger.
+- `AssistantTokenCounter` counts locally using the selected model's tokenizer.
+- Optional `AssistantEscalationPolicy` adds trusted site topic, security, or
+  repeated-unsuccessful-suggestion rules. Built-in boundaries escalate missing
+  approved guidance, configured turn/attempt limits, invalid results, unavailable
+  authority/configuration, and exhausted budgets.
+
+`scanCandidates({cursor?, limit})` delegates one bounded physical scan page;
+the host persists its opaque cursor. `processTurn(command, {signal?})` accepts
+`ProcessAssistantTurnCommand`: ticket/turn, worker ID, and lease duration.
+Each physical invocation generates its own fresh internal claim ID. Concurrent
+scheduler callbacks cannot replay one live execution's claim and call the
+provider twice. An invocation encountering a live owner returns `not_claimed`;
+it neither settles that owner's reservation nor finishes its attempt. The result
+is `not_claimed`, `completed`, `finished`, or `pending` with a storage stage. The
+host repeats bounded discovery; recovery waits for the prior lease to expire.
+Claims and jobs are durable application state, not an in-package queue or
+database. The underlying application's claim API remains idempotent for its
+trusted direct callers; the coordinator owns a separate ID for each execution.
+
+The host resolves and verifies actual documented ZDR account/project, endpoint,
+model, feature, exception, and every intermediary setting before returning
+`ready`. `AssistantDataControls` holds opaque references, configuration version
+binding, verification time, and expiry. It contains no credentials. Disabled,
+unavailable, expired, mismatched, and unverified configurations fail closed;
+there is no retention-mode or provider fallback. The resolver must recheck
+current configuration on every invocation, including final validation. These
+typed evidence references do not independently verify a provider's settings.
+
+## Model boundary
+
+The first `generate` argument is the entire allowed model input: trusted
+instructions, customer-visible customer/assistant/support message text, and
+the KB's **unchanged canonical `serializedSources`** envelope. The adapter must
+treat message/document text as untrusted data and must not forward the second
+argument's server context or configuration proof references into prompts or
+content logs. No internal notes, requester identities, principal IDs, usage
+scopes, ticket fences, private provenance, or operational identifiers are added
+to model-visible input. The host prompt and adapter must request this exact
+JSON schema:
+
+```ts
+type Output =
+  | { kind: "answer"; text: string; citations: AnswerSourceReference[] }
+  | {
+      kind: "escalate";
+      reason:
+        | "no_guidance"
+        | "unsuccessful"
+        | "capacity"
+        | "provider_failure"
+        | "other";
+      text: string;
+    };
+```
+
+References use all eight KB fields, including policy and application/governance/
+validation generations. Answers require at least one exact supplied reference.
+A source-backed clarifying question is an answer; unsupported or conflicting
+guidance should escalate. Extra output fields and unsupported outcomes fail.
+The adapter returns raw `outputJson` with separate provider/model/request
+identity and usage. Bytes are bounded **before** parsing, then structure,
+citations, token/cost budgets, and expected provider/model identity are checked.
+Only safe confirmed KB labels are appended as plain text citations. No article
+URL is inferred, including for bot-only collections. No unchecked text streams
+to customers. Runtime schema checks do not prove factual support: maintain
+versioned source-grounded evaluations and host acceptance evidence.
+
+## Durable execution and recovery
+
+The coordinator claims, resolves fresh configuration/customer authority,
+retrieves permitted approved whole articles, fingerprints the complete bounded
+request, and prepares its immutable generic binding on the existing job row.
+That binding retains versions, every full source reference, applicability/
+audience hash, deadline, fingerprint, and a predetermined usage reservation ID;
+it contains no prompt dump. Only then does the host reserve usage. After that
+awaited reservation, the coordinator rechecks its live fence through identical
+preparation and freshly resolves customer authority, confirms every supplied
+source, and verifies identical current configuration immediately before its
+single provider call. Disabled or changed processing controls cause zero model
+calls and `not_called` reservation reconciliation, followed by human handoff.
+
+Immediately before **each** completion CAS, the application's trusted read-only
+guard resolves current configuration and customer authority and confirms
+**all** supplied sources, including uncited sources. Changed configuration,
+authority, applicability, references, or source envelope rejects the result.
+The application rechecks lease/deadline and ticket/handling/trigger fences after
+the guard, atomically committing reply/escalation, terminal job, receipt, Audit,
+and handoff/quota effects. KB confirmation is a current observation; it is not
+a cross-store lease or transaction.
+
+Identical preparation retries within an invocation reuse the same binding.
+A new invocation waits until the live owner's lease expires, then claims a
+fresh fenced generation and bounded attempt. Prior prepared provider execution
+is conservatively unknown; a restart never blindly repeats that attempt's
+provider request. Old unknown reservation references remain available for host
+reconciliation, and bounded attempts or automatic exhaustion handoff prevent
+unbounded calls. Provider acceptance can be uncertain, so this makes no
+exactly-once paid-call guarantee.
+
+Lost completion acknowledgment retries the **same command, body, and
+fingerprint**. If acceptance remains uncertain, the result is `pending` at
+`complete`; no finish or model regeneration occurs in that invocation. Later
+claims observe an accepted terminal job, or conservatively recover a remaining
+prepared attempt. Usage reserve/reconcile operations must be durable,
+idempotent for operation/attempt/fingerprint/reservation identity, and retain
+unknown reservations until conservatively settled. Failed reconciliation does
+not imply free usage or authorize an unbounded retry.
+
+## Limits and host obligations
+
+The invocation defaults to at most 25 seconds with a one-second completion
+reserve, below the host scheduler's default 30-second lease. Generation is also
+bounded by the actual job lease, fixed turn deadline, and configured duration
+(at most 20 seconds). An AbortSignal and independent bounded wait reject late
+provider output even if an adapter ignores cancellation. Cleanup remains
+bounded and can reconcile usage and attempt human handoff after cancellation.
+Storage commands retry identically at most three times (default two).
+
+Every deployment supplies explicit `AssistantBudgets`. Hard ceilings are 100
+visible messages, 256 KiB encoded input, 65,536 input tokens, 131,072 total
+context tokens, 64 KiB output, 8,192 output tokens, ten attempts, and 100
+assistant turns; deployments normally choose lower measured bounds. Local
+counting includes the complete encoded prompt/conversation/source envelope,
+the trusted adapter `framingTokens` allowance, and output token reserve against
+the context ceiling. The host must verify its framing allowance, pricing,
+provider request limits, and conservative ledger behavior. KB's independent
+whole-source ceilings still apply (five sources, four collections, 64 KiB and
+8,192 source tokens); exact applicability has no wildcard fallback.
+
+Source preparation is not deployment evidence. Host ZDR verification,
+disclosure, retention/export/deletion, production durable-store operation,
+evaluations, complete-workflow acceptance, and supervised pilots remain their
+separate activation gates. Provider SDKs, credentials, model selection, HTTP,
+customer UI, schedulers, and operational content logging remain host work.

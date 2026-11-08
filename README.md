@@ -50,14 +50,20 @@ and human queue separation. It includes no model or KB integration and has not
 been published. Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial
 KB-05 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
 and both producers' final release preparation are merged. The four KB packages
-and `@pegma/agent-access` remain unpublished at source `0.1.0`; unadvertised
-maintainer-2FA bootstrap and the separately reviewed first advertised release
-with verified registry provenance remain open. PG-01/RG-01 require
-both published producers before host assembly and actual existing-login/Admin
-consent and requested-client proof before activation or pilots. SD-02 waits
-for KB-05 publication. Synthetic SDK/source proof uses no actual customer data
+and `@pegma/agent-access` now have verified trusted `0.1.1` registry releases;
+the KB-05 publication prerequisite for SD-02 is closed. SD-02 is an in-progress
+source candidate adding optional `@pegma/support-desk-ai` coordination and
+bounded ticket-partition turn jobs. It has not passed its current-head
+validation/review gates or been published. PG-01/RG-01 consume exact published
+producers and still require actual existing-login/Admin consent and
+requested-client proof before activation or pilots. Synthetic SDK/source proof uses no actual customer data
 and does not close host privacy, operations, full-workflow, or pilot gates.
 See the [producer evidence and bootstrap handoff](docs/HOST_COMPOSITION.md#kb-authoring-producers).
+The [assistant coordination guide](docs/ASSISTANT_COORDINATION.md) and
+[layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
+describe the source candidate. The base application works without AI; only
+the optional coordinator depends on KB. Future SD-06 verified publication
+still precedes host adoption of new Support Desk behavior.
 Use the [implementation ledger](docs/KNOWLEDGE_AI_PLAN.md#status-and-reading-order)
 for merged-source evidence and the remaining release and activation gates.
 The [P-00 handoff](docs/KNOWLEDGE_AI_P00.md) supplies the package baseline,
@@ -119,12 +125,13 @@ The organization profile is at
 
 ## Current packages
 
-| Package                           | Purpose                                                      |
-| --------------------------------- | ------------------------------------------------------------ |
-| `@pegma/support-desk-contracts`   | Provider-neutral ticket, message, requester, and event types |
-| `@pegma/support-desk-core`        | Pure ticket creation and workflow transitions                |
-| `@pegma/support-desk-application` | Authorized customer services, collections, audit, and outbox |
-| `@pegma/support-desk-templates`   | Safe versioned templates and optional host-branded packs     |
+| Package                           | Purpose                                                              |
+| --------------------------------- | -------------------------------------------------------------------- |
+| `@pegma/support-desk-contracts`   | Provider-neutral ticket, message, requester, and event types         |
+| `@pegma/support-desk-core`        | Pure ticket creation and workflow transitions                        |
+| `@pegma/support-desk-application` | Authorized customer services, collections, audit, and outbox         |
+| `@pegma/support-desk-templates`   | Safe versioned templates and optional host-branded packs             |
+| `@pegma/support-desk-ai`          | In-progress optional SD-02 coordinator; unpublished source candidate |
 
 The first `0.1.0` set is published under the `@pegma` scope. Current source
 packages remain at exact `0.1.1`; unreleased lifecycle/SD-01 source is not
@@ -210,6 +217,7 @@ pnpm run format:check
 - [Knowledge base and AI implementation plan](docs/KNOWLEDGE_AI_PLAN.md)
 - [Declared collections](docs/COLLECTIONS.md)
 - [Host composition](docs/HOST_COMPOSITION.md)
+- [Assistant coordination](docs/ASSISTANT_COORDINATION.md)
 - [Release notes](docs/RELEASE_NOTES.md)
 - [Releasing](docs/RELEASING.md)
 

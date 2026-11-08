@@ -40,6 +40,10 @@ ID. One partition contains:
   nonqualifying reply route may reserve this key with a bounded reroute fence;
 - `delivery:<notification-id>`: durable outbound jobs.
 
+The SD-02 source candidate adds bounded `assistant_turn` work to this same
+ticket partition; its design checkpoint is below. It adds no collection or
+storage implementation.
+
 This layout is load-bearing. It lets a customer state change, its canonical
 message, its audit event, its command receipt, and its outbound job commit in
 one single-partition transaction. Ticket updates use `putIfUnchanged` with the
@@ -171,15 +175,92 @@ still grants no web principal or account access. SD-01 supplies handling and
 deterministic controls only. AUTH-01, KB-04 transport source/SDK proof, partial
 KB-05 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
 and both producers' final release preparation are merged. All four KB packages
-and Agent Access remain unpublished at source `0.1.0`; unadvertised
-maintainer-2FA bootstrap and the separately reviewed first advertised release
-with verified registry provenance remain open. PG-01/RG-01 require both
-published producers before host assembly and retain actual two-host
+and Agent Access now have verified trusted `0.1.1` releases, closing the
+publication prerequisite for SD-02's in-progress source candidate below.
+PG-01/RG-01 consume exact verified published producers and retain actual two-host
 existing-login/Admin consent and requested-client proof before activation or
 pilots. Synthetic SDK proof uses no actual customer data and cannot close those
-host gates. SD-02 model generation waits for KB-05 publication; host privacy,
+host gates. SD-02 current-head source validation/review and host privacy,
 operations, full-workflow, activation, and pilot gates stay pending under the
 [current implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
+
+### SD-02 assistant-turn layout checkpoint
+
+This checkpoint was written while the SD-02 implementation was in progress.
+It describes the candidate contract, not a completed validation or release.
+The optional `@pegma/support-desk-ai` coordinator consumes public application
+operations; the application keeps no KB or provider dependency.
+
+| Record or operation                          | Durable boundary                                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `assistant-turn:<turnId>` (`assistant_turn`) | One causal turn job in `support-desk.records.v1`, in the existing ticket partition. `turnId` is the 64-character lowercase SHA-256 of canonical `{ messageId }`. It binds the ticket, signed-in web customer trigger, handling generation, retry/deadline state, and current claim.                                |
+| Customer ingress                             | The triggering message, turn job, Ticket/handling change, Audit, receipt, and quota accounting commit atomically. An email message does not create assistant work, even when the ticket's original channel is `web`.                                                                                               |
+| Prepared attempt                             | A bounded inline array on the turn job stores attempt identity, input fingerprint, version bindings, opaque source/context bindings, deadline, predetermined usage reservation, and compact processing/accounting metadata. It stores no prompt, conversation dump, retrieved article body, or raw model response. |
+| Claim and preparation                        | Claim identity/generation and the exact revision/handling/customer-trigger fence control ownership. Lease, preparation, and retry metadata do not advance the ticket revision or append attempt rows. Automatic fallback is a ticket transition with atomic handoff work.                                          |
+| Answer or escalation                         | The application accepts only these fixed outcomes. It updates the turn together with the resulting assistant message or human handoff, Audit, replay receipt, Ticket, and quota work in one ticket transaction.                                                                                                    |
+
+`AssistantTurnApplication` exposes exactly five operations:
+`scanAssistantTurnCandidates`, `claimAssistantTurn`,
+`prepareAssistantTurnAttempt`, `completeAssistantTurn`, and
+`finishAssistantTurnAttempt`. The scan bounds physical adapter rows before
+filtering and returns one page and an opaque continuation. Candidate rows are
+hints; the claim rechecks the authoritative ticket and turn. The completion
+guard is read-only source/authority validation, not a caller-supplied list of
+transaction actions. Model calls never run inside a storage retry callback.
+The coordinator generates a fresh internal claim ID per physical invocation;
+its public `ProcessAssistantTurnCommand` omits `claimId`. The lower-level
+application claim remains idempotent for the same worker/claim. A duplicate
+coordinator callback leaves another live claim and its reservation untouched;
+only after lease expiry can a new generation/attempt retain and conservatively
+reconcile prior prepared/unknown metadata. After awaited usage reservation,
+an identical prepare rechecks the live fence/deadline, followed immediately by
+the full current customer/source/configuration guard before the provider call.
+The same guard runs before every completion CAS.
+Expired deadlines remain discoverable even under an old active lease.
+Disabled handling, exhausted attempts/deadline, and retries at or beyond the
+deadline take the bounded atomic human fallback. A customer reply while
+handling is disabled, or a staff reopen of explicit assistant handling, commits
+human handoff work in the same lifecycle transaction.
+
+The assistant-managed 12-row and one-human-message reserve remains in force.
+The SD-01 admission counts above exclude turn work. Enabling `assistantTurns`
+adds one causal job row: assistant creation needs at least 7 + 12 rows without
+delivery or 8 + 12 with delivery. Later signed-in web replies count their job
+row in the same admission check as message, Audit, receipt, and quota effects.
+Claims and inline attempts add no physical rows.
+The candidate additionally reserves encoded space in each turn row for
+its final bounded attempt metadata; preparation cannot fill the row and make
+completion impossible. No unbounded history or second private usage ledger is
+permitted. The implemented record schema currently has these candidate caps:
+
+| Bound                       | Default / hard maximum                                                                                          |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Attempts per turn           | 2 / 4; prepared attempts stay inline and cannot exceed the admitted turn budget                                 |
+| Turn lifetime               | 300,000 / 3,600,000 milliseconds                                                                                |
+| Configured maximum lease    | 60,000 / 300,000 milliseconds; the worker's actual requested lease must also accommodate its bounded invocation |
+| Complete persisted turn row | 60,000 conservative serialized UTF-16 JSON bytes                                                                |
+| Row at preparation          | 52,000 serialized bytes, leaving 8,000 encoded bytes for accounting, failure, and terminal metadata             |
+| Complete attempt binding    | 12,000 serialized bytes, including at most 16 version entries and 32 opaque source references                   |
+| Opaque reference binding    | 6,000 UTF-16 code units each, still subject to the whole-binding bound                                          |
+| Processing strings          | At most 200 code units each; failure category 80; usage counters are nonnegative safe integers                  |
+
+Byte accounting uses the complete JSON serialization, including escaping and
+wrappers, multiplied by two; it is distinct from model input/output UTF-8
+budgets. Job states are `pending`, `claimed`, `retry`, `completed`, `escalated`,
+and `superseded`. No new per-attempt collection or physical row is created.
+
+An unknown commit is recovered through the exact command receipt rather than
+a second visible answer. A crashed worker may have called a provider even
+when completion is absent; bounded retries and conservative host usage
+reconciliation do not promise exactly-once provider calls or billing. Human
+request-person and staff takeover remain independent of the provider and
+invalidate stale completion through the existing handling fences.
+
+See [assistant coordination](ASSISTANT_COORDINATION.md) for current authority,
+full-source confirmation, data controls, and host usage ownership. Public-entry
+memory/Azurite tests with the actual KB and a fake model, current-head Node
+22/24 gates, and code/security review remain pending while implementation is
+in progress. No source result closes host privacy, Task 12, or pilot gates.
 
 ## Ticket numbers
 

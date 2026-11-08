@@ -1,5 +1,25 @@
 # Release notes
 
+## Source candidate — optional assistant coordination (SD-02)
+
+Implementation is in progress at source `0.1.1`; current-head validation,
+code/security review, and publication have not completed. The source release
+inventory now includes optional `@pegma/support-desk-ai` as a fifth package,
+with exact published KB `0.1.1` dependencies. The existing application remains
+KB/provider-independent and works with AI disabled. This candidate adds
+bounded same-ticket turn jobs and five fixed application operations around
+external model work, current-authority/full-source checks, durable host usage,
+and exact answer/human-handoff commit. See
+[assistant coordination](ASSISTANT_COORDINATION.md).
+
+Both KB and Agent Access have strictly verified trusted `0.1.1` registry
+releases; [producer receipts](HOST_COMPOSITION.md#kb-authoring-producers)
+close SD-02's publication prerequisite. Their historical manual `0.1.0`
+bootstrap supplied no OIDC provenance. No Support Desk source version is
+published or overwritten by this work: future synchronized verified SD-06
+publication, new AI package bootstrap/trusted-publisher setup, and all real
+host login/client/privacy/Task 12/full-workflow/pilot gates remain open.
+
 ## Unreleased — handling and deterministic controls (SD-01)
 
 Implemented in source via
@@ -43,11 +63,10 @@ This adds no model integration, KB dependency, or new package. The
 [implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) records
 merged standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
 preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
-both producers' final release preparation. All four KB packages and Agent Access
-remain unpublished at source `0.1.0`; unadvertised maintainer-2FA bootstrap and
-the separately reviewed first advertised release with verified registry
-provenance remain open. SD-02 waits for KB-05 publication. PG-01/RG-01 require
-both published producers before host assembly and actual existing-login/Admin
+both producers' final release preparation. Both producers subsequently
+completed strictly verified trusted `0.1.1` publication. SD-02 is now an
+in-progress source candidate, described above. PG-01/RG-01 consume both exact
+verified published producers and still require actual existing-login/Admin
 consent and requested-client proof before activation or pilots. Synthetic
 SDK/source proof uses no actual customer data and does not close host privacy,
 operations, full-workflow, or pilot gates. See the

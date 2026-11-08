@@ -373,15 +373,38 @@ artifact at that version; SD-06's future release precedes adoption of new
 Support Desk behavior. AUTH-01, KB-04 transport source/SDK proof, partial KB-05
 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
 and both producers' final release preparation are merged. All four KB packages
-and Agent Access remain unpublished at source `0.1.0`; unadvertised
-maintainer-2FA bootstrap and the separately reviewed first advertised release
-with verified registry provenance remain open. PG-01/RG-01 require both published
-producers before host assembly and actual two-host existing-login/Admin consent
+and Agent Access now have strictly verified trusted `0.1.1` releases, closing
+SD-02's producer publication prerequisite. PG-01/RG-01 consume both exact
+verified published producers and retain actual two-host existing-login/Admin consent
 and requested-client proof before activation or pilots. Synthetic proof uses
-no actual customer data and cannot close those host gates. SD-02 generation/data
-controls wait for KB-05 publication; host privacy, operations, full-workflow,
+no actual customer data and cannot close those host gates. SD-02 is an
+in-progress source candidate; its current-head validation/review and host privacy, operations, full-workflow,
 activation, and pilot gates remain pending. Follow the
 [current implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
+
+### SD-02 optional coordination candidate
+
+The optional `@pegma/support-desk-ai` package composes exact published KB
+`0.1.1` APIs with five fixed turn operations on the base application. The
+application has no KB/provider dependency. Causal signed-in web ingress writes
+bounded `assistant_turn` work in the existing ticket partition with its
+message, Ticket, Audit, receipt, and quota changes. Lease, preparation, and
+retry metadata do not advance Ticket revision. Email into an assistant web
+ticket retains the human handoff path based on the actual message channel.
+
+Each coordinator invocation generates a fresh internal claim ID; duplicate
+external callbacks cannot replay another live claim. After usage reservation,
+the coordinator rechecks the claim and all current customer/policy/applicability,
+source, and configuration/ZDR bindings immediately before calling the model
+outside storage retries. It repeats the full input guard, including every
+uncited supplied KB source, before each exact answer/escalation commit CAS.
+Generic inline attempt metadata contains opaque bindings rather than prompt
+or article dumps. The final read-only guard cannot add arbitrary transaction
+actions, and KB confirmation supplies no cross-store lease. Human controls
+remain independent; unknown provider usage stays conservatively reserved in
+the host's durable usage port. See the
+[coordination guide](ASSISTANT_COORDINATION.md) and
+[layout checkpoint](COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint).
 
 ## Persistence model
 
