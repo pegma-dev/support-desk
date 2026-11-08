@@ -1,10 +1,11 @@
 # Release follow-up: SD-05 source contracts
 
-SD-05 is an implementation candidate. This handbook describes its source
-contracts and host responsibilities; it does not establish passed gates,
-publication, deployment, or host acceptance. SD-04 merged in
-[PR #40](https://github.com/pegma-dev/support-desk/pull/40). The synchronized
-SD-06 release still precedes host adoption. Scope comes from the
+SD-05's source merged in [PR #41](https://github.com/pegma-dev/support-desk/pull/41)
+and shipped in the verified published synchronized `0.2.0` release; see the
+[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+This handbook describes its contracts and host responsibilities, not deployment
+or host acceptance. SD-04 merged in
+[PR #40](https://github.com/pegma-dev/support-desk/pull/40). Scope comes from the
 [approved release follow-up plan](KNOWLEDGE_AI_PLAN.md#release-follow-up)
 and [collection checkpoint](COLLECTIONS.md#sd-05-release-follow-up-layout-checkpoint).
 There is no runnable host recipe here.

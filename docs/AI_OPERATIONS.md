@@ -1,10 +1,11 @@
 # Optional AI operations
 
 This runbook describes the merged SD-01 through SD-05 contracts assembled by
-the candidate synchronized `0.2.0` release. It is not evidence of publication,
-production deployment, verified host data controls, or pilot acceptance. Use
-exact published artifacts only after [release verification](RELEASING.md),
-then complete each host's own [upgrade rehearsal](UPGRADING.md).
+the verified published synchronized `0.2.0` release; see its
+[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+SDK publication does not establish production deployment, verified host data
+controls, or pilot acceptance. Use exact published artifacts and complete each
+host's own [upgrade rehearsal](UPGRADING.md).
 
 The workflows are separate: [answers](ASSISTANT_COORDINATION.md),
 [resolution learning](RESOLUTION_LEARNING.md),
@@ -137,8 +138,9 @@ policy history has a separate authorized prune/receipt-retention horizon.
 | Capacity exhausted                            | Stop new derivation, keep human/privacy paths, and complete or explicitly abandon eligible work under its public contract.                 |
 | Privacy deletion requested                    | Withdraw enrolled sources first, retain minimal unresolved identities, then perform the host's separately authorized deletion/remediation. |
 
-The release owner still owes current-head Node 22/24, pack/consumer, migration,
-review, and publication receipts. Each host owner still owes durable-store
+The [publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08)
+records the completed SDK release gates and artifact/consumer bindings; the
+release owner retains that evidence. Each host owner still owes durable-store
 recovery, existing-login/Admin consent, actual requested-client results,
 verified staging/provider/privacy controls, complete workflows, and pilot
 sign-off. Package source tests do not close those gates.

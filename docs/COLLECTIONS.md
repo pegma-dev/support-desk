@@ -24,9 +24,11 @@ memory tests, and real-adapter tests.
 
 ### SD-05 release follow-up layout checkpoint
 
-This checkpoint precedes SD-05 implementation. SD-04 merged in
-[PR #40](https://github.com/pegma-dev/support-desk/pull/40); follow-up source,
-validation, release and host acceptance remain open. The owning scope is
+This checkpoint originated before SD-05 implementation. SD-05 later merged in
+[PR #41](https://github.com/pegma-dev/support-desk/pull/41) and shipped in the
+verified published synchronized `0.2.0` release; see the
+[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+Host acceptance remains open. The owning scope is
 [the approved release follow-up task](KNOWLEDGE_AI_PLAN.md#release-follow-up).
 
 Follow-up adds no collection, database, event-bus dependency or access model.
@@ -157,8 +159,10 @@ no new KB write, source verifier or fabricated resolution proof is introduced.
 
 ### SD-04 engineering layout checkpoint
 
-This checkpoint precedes SD-04 production changes. It records a source design,
-not implementation, publication, or host acceptance. SD-03 merged in
+This checkpoint originated before SD-04 production changes. SD-04 later merged
+in [PR #40](https://github.com/pegma-dev/support-desk/pull/40) and shipped in the
+verified published synchronized `0.2.0` release recorded above. Host acceptance
+remains separate. SD-03 merged in
 [PR #39](https://github.com/pegma-dev/support-desk/pull/39) before this work began.
 
 An explicitly enrolled ticket has one `engineering-source` record and bounded
@@ -248,7 +252,7 @@ ID. One partition contains:
   nonqualifying reply route may reserve this key with a bounded reroute fence;
 - `delivery:<notification-id>`: durable outbound jobs.
 
-The SD-02 source candidate adds bounded `assistant_turn` work to this same
+SD-02 adds bounded `assistant_turn` work to this same
 ticket partition; its design checkpoint is below. It adds no collection or
 storage implementation.
 
@@ -384,12 +388,14 @@ deterministic controls only. AUTH-01, KB-04 transport source/SDK proof, partial
 KB-05 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
 and both producers' final release preparation are merged. All four KB packages
 now have verified trusted `0.1.2` releases and Agent Access has verified `0.1.1`, closing the
-producer publication prerequisite. Support Desk remains an unpublished
-synchronized `0.2.0` source candidate; the checkpoint below is historical.
+producer publication prerequisite. Support Desk's synchronized `0.2.0` release
+is published and strictly verified; see the
+[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+The implementation checkpoint below is historical.
 PG-01/RG-01 consume exact verified published producers and retain actual two-host
 existing-login/Admin consent and requested-client proof before activation or
 pilots. Synthetic SDK proof uses no actual customer data and cannot close those
-host gates. Current-head Support Desk release validation/review and host privacy,
+host gates. Host privacy,
 operations, full-workflow, activation, and pilot gates stay pending under the
 [current implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
 
@@ -397,6 +403,8 @@ operations, full-workflow, activation, and pilot gates stay pending under the
 
 This checkpoint was written while the SD-02 implementation was in progress.
 It describes the candidate contract, not a completed validation or release.
+That status records the implementation checkpoint; the current publication
+receipt above supersedes its release status without changing the layout.
 The optional `@pegma/support-desk-ai` coordinator consumes public application
 operations; the application keeps no KB or provider dependency.
 
@@ -474,10 +482,11 @@ request-person and staff takeover remain independent of the provider and
 invalidate stale completion through the existing handling fences.
 
 See [assistant coordination](ASSISTANT_COORDINATION.md) for current authority,
-full-source confirmation, data controls, and host usage ownership. Public-entry
-memory/Azurite tests with the actual KB and a fake model, current-head Node
-22/24 gates, and code/security review remain pending while implementation is
-in progress. No source result closes host privacy, Task 12, or pilot gates.
+full-source confirmation, data controls, and host usage ownership. Changes
+require public-entry memory/Azurite tests with the actual KB and a fake model,
+current-head Node 22/24 gates, and code/security review. The completed SDK
+release gates are recorded in the publication receipt above. No source result
+closes host privacy, Task 12, or pilot gates.
 
 ### SD-03 resolution-learning layout and API checkpoint
 
@@ -488,8 +497,10 @@ application acquires no KB or provider dependency. KB's merged `0.1.2` producer
 work became consumable after its exact public artifacts, signatures,
 provenance, and clean consumer were verified in
 [release run 42436081951](https://github.com/pegma-dev/knowledge-base/actions/runs/42436081951).
-The optional delivery adapter now pins the verified public `0.1.2` producers;
-current Support Desk integration validation and review remain separate gates.
+The optional delivery adapter pins the verified public `0.1.2` producers.
+SD-03 later merged in [PR #39](https://github.com/pegma-dev/support-desk/pull/39)
+and shipped in the verified `0.2.0` release recorded above; host activation
+remains separate.
 
 #### Enrollment, source authority, and evidence
 
@@ -939,8 +950,8 @@ must retain every necessary bounded destination mapping and repeat durable
 reconciliation scans. A required producer operation that cannot preserve other
 sources, fence an unbound intermediate draft, or safely reconcile withdrawal is
 an explicit integration gap to close before enabling delivery. Source tests,
-fake providers, and this checkpoint do not close host privacy, release,
-full-workflow, or pilot gates.
+fake providers, and this checkpoint do not close host privacy, full-workflow,
+or pilot gates. The actual SDK publication receipt is recorded above.
 
 ## Ticket numbers
 

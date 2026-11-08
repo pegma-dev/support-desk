@@ -1,6 +1,6 @@
 # Assistant coordination (SD-02)
 
-## Candidate status and reading order
+## Release status and reading order
 
 SD-02's source is merged in
 [PR #38](https://github.com/pegma-dev/support-desk/pull/38) after review and
@@ -13,9 +13,11 @@ and `packages/ai/src/ports.ts` when changing this boundary.
 
 The optional `@pegma/support-desk-ai` package owns coordination and exact KB
 `0.1.2` dependencies after SD-03's verified KB producer update. The base application remains usable without AI and
-contains no KB or model-provider dependency. Support Desk source is the
-unpublished synchronized `0.2.0` candidate; a verified SD-06 release
-must precede host adoption. Existing registry versions remain immutable.
+contains no KB or model-provider dependency. The synchronized `0.2.0` release
+is published and strictly verified; see the
+[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+Host activation retains its own acceptance gates. Existing registry versions
+remain immutable.
 
 ## One ticket transaction around external work
 
@@ -213,9 +215,9 @@ The [optional package README](../packages/ai/README.md#limits-and-host-obligatio
 records its enforced model/retrieval ceilings separately from the application
 job caps in the collections reference.
 
-## Validation and activation still required
+## SDK validation and open host activation
 
-The source candidate requires public-entry tests on memory and real Azurite,
+Changes to this boundary require public-entry tests on memory and real Azurite,
 using the actual KB with a fake provider. They must cover races, current
 authority/source revocation including uncited sources, note exclusion, JSON
 and citation attacks, budget/deadline exhaustion, ambiguous commits, usage
@@ -224,10 +226,12 @@ Duplicate external callbacks must leave another live claim untouched, and
 configuration changes during an awaited usage reservation must prevent every
 provider call. Answer-limit cases must cover the full citation footer and lower
 application caps without truncation, and stalled pre-generation resolvers must
-respect the tighter phase deadline. The current fixes still require their
+respect the tighter phase deadline. Each subsequent change requires its own
 current-head gates.
 Current-head Node 22/24 format/check/test gates and actual code/security review
-remain required; historical SD-01 or producer results do not certify SD-02.
+remain required for changes; historical SD-01 or producer results do not
+certify SD-02. The completed `0.2.0` release gates are recorded in the
+[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
 
 Both hosts still need their own existing-login/current-Admin consent and
 actual Codex, Claude Code, Grok Bot installed desktop/hosted-agent, and T3 Code

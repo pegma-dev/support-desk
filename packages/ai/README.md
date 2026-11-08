@@ -2,8 +2,9 @@
 
 Optional, provider-neutral Support Desk answer, learning, engineering, and
 release follow-up coordination.
-This source candidate is `0.2.0`; it has not been published. A synchronized
-Support Desk release is required before host adoption. Its KB dependencies are
+This package is part of the verified published synchronized `0.2.0` release;
+see the [publication receipt](../../docs/RELEASING.md#verified-sd-06-publication-2026-11-08).
+Host activation retains its own acceptance gates. Its KB dependencies are
 the exact verified published `0.1.2` application and contracts packages.
 
 The base Support Desk application works without this package, a KB, or a model.
@@ -21,16 +22,15 @@ resolve tickets, change accounts, or publish knowledge.
 `createSupportDeskLearning` and `createSupportDeskLearningSourceVerifier` are
 merged SD-03 source. See the
 [resolution learning guide](../../docs/RESOLUTION_LEARNING.md) for exact proof,
-permission, draft, review, privacy, and recovery boundaries. Host adoption
-requires the synchronized SD-06 release.
+permission, draft, review, privacy, and recovery boundaries. SDK publication
+does not establish host activation.
 
 `createSupportDeskEngineering` is merged SD-04 source. It uses verified
 failure evidence, current admin repository policy, independently calibrated
 routing, exact sanitized export checks, and staff approval. A durable dispatch
 fence precedes one physical GitHub creation attempt; uncertain acceptance
 requires reconciliation. See the [engineering guide](../../docs/ENGINEERING_EXPORT.md).
-Host adoption still requires the synchronized SD-06 release and its activation
-gates.
+Host adoption retains its own activation gates.
 
 `createSupportDeskReleaseFollowup` is merged SD-05 source, with
 four methods: `scanCandidates`, `processWork`, `prepareStaffReassessment`, and
@@ -71,8 +71,8 @@ parent privacy withdrawal. Stale/unchanged/unavailable observations that change
 no durable state remain live reads with no persisted receipt.
 There is no automatic notification or email path. See the
 [release follow-up guide](../../docs/ENGINEERING_FOLLOWUP.md) and
-[port contracts](src/release-followup-ports.ts). Current-head validation/review,
-publication, and host acceptance remain open.
+[port contracts](src/release-followup-ports.ts). SDK validation and publication
+are recorded in the receipt above; host acceptance remains open.
 
 ## Composition
 

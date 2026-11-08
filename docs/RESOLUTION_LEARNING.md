@@ -1,6 +1,8 @@
 # Resolution learning: SD-03 source contracts
 
-SD-03 is a source candidate in draft [PR #39](https://github.com/pegma-dev/support-desk/pull/39).
+SD-03's source merged in [PR #39](https://github.com/pegma-dev/support-desk/pull/39)
+and shipped in the verified published synchronized `0.2.0` release; see the
+[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
 The ticket application implements enrollment, structured resolution evidence,
 durable work, exact staff review, invalidation, withdrawal, and reconciliation
 records. The optional AI package adds bounded model processing, KB draft
@@ -8,7 +10,7 @@ delivery, exact staff review, and source retirement/reconciliation through
 `createSupportDeskLearning`, with read-only callbacks from
 `createSupportDeskLearningSourceVerifier`. It consumes the verified published
 [KB `0.1.2` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.2).
-Current-head integration validation and review remain required. No host has
+SDK validation and publication do not establish host activation. No host has
 activated this behavior.
 
 This document describes the implemented source boundary, not a released host

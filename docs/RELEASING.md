@@ -29,7 +29,7 @@ published reviewed main source
 [`efc9d733b3d305d24cf4197444e1d76c99bdb777`](https://github.com/pegma-dev/support-desk/commit/efc9d733b3d305d24cf4197444e1d76c99bdb777).
 [Run 42494797076](https://github.com/pegma-dev/support-desk/actions/runs/42494797076)
 verified the approved signed tag and main ancestry. Each Node 22/24 lane passed
-2,449 tests across 53 files with zero skips, plus formatting,
+2,449 tests across 53 test files with zero skips, plus formatting,
 types, synthetic examples, five-package pack/import and clean-consumer gates.
 The retained synthetic consumer includes actual published application `0.1.1`
 forward migration with AI omitted/disabled and optional AI public composition;
@@ -40,6 +40,25 @@ it does not certify host durable migration or live-provider behavior.
 | Preparation artifact ID    | `13622923209`                                                      |
 | Preparation ZIP SHA-256    | `95d87a72bcc5167331a51521173312d959394f1629a019798dd49d0401b81cdd` |
 | Canonical manifest SHA-256 | `7c5ccec571711df2f3003d4ea97a19a6a60cba584de05a0ab72636e55ab9e06d` |
+
+The [preserved original preparation ZIP](https://github.com/pegma-dev/support-desk/releases/download/v0.2.0/sd06-v0.2.0-artifact-13622923209.zip)
+is retained on the existing `v0.2.0` release as asset `724580443` (478,270
+bytes). It is the unchanged original Actions archive, not a repack or a new
+package publication. Its server-recorded SHA-256 matches the preparation ZIP
+digest above.
+
+For a later audit:
+
+1. Download that exact original ZIP and compute its SHA-256 **before extraction**.
+   Compare it with the independently recorded preparation ZIP digest above;
+   stop on any mismatch.
+2. Extract the verified ZIP into an empty directory, recompute SHA-256 for
+   `package-manifest.json`, and compare it with the canonical manifest digest
+   above. A digest copied only from the downloaded archive cannot authenticate
+   that same archive.
+3. Retain its five original tarballs and use the immutable release source's
+   verification procedure below to check inventory, dependencies and registry
+   bytes. This asset does not contain raw postflight audit or consumer output.
 
 The [attempt 1 publisher](https://github.com/pegma-dev/support-desk/actions/runs/42494797076/job/128775870798)
 stopped after contracts publication when bounded registry visibility confirmation

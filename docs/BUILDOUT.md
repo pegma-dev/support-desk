@@ -19,14 +19,15 @@ final release preparation; exact linked evidence is in the
 [current status ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
 All four KB packages now have strictly verified trusted `0.1.2` registry
 releases; Agent Access remains verified at `0.1.1`, closing SD-02's producer
-publication prerequisite. The optional AI source candidate includes bounded
-turn work; its current-head release tests/review and synchronized SD-06 publication remain
-open. PG-01/RG-01 consume both exact verified published producers. Actual
+publication prerequisite. The optional AI package includes bounded turn work
+and shipped in the verified synchronized `0.2.0` release; see the
+[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+PG-01/RG-01 consume exact verified published dependencies. Actual
 two-host existing-login/Admin consent and requested-client proof remain
 required before activation or pilots.
 Synthetic SDK/source gates use no actual customer data and do not prove an
-operational host. The synchronized Support Desk `0.2.0` source candidate is
-unpublished and differs from the four base registry `0.1.1` artifacts. See the
+operational host. The older base registry `0.1.1` artifacts remain immutable.
+See the
 [producer evidence and bootstrap handoff](HOST_COMPOSITION.md#kb-authoring-producers).
 Task 12, ZDR, deployment mapping, operations, acceptance, and pilots stay open.
 
@@ -638,12 +639,13 @@ P-00, KB-01 through KB-04, AUTH-01, SD-01, partial KB-05 source preparation
 ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and both producers'
 final release preparation are already merged. The four KB packages have since
 passed strict verified trusted `0.1.2` publication and Agent Access has verified
-`0.1.1`. Support Desk's synchronized `0.2.0` source candidate remains unpublished.
+`0.1.1`. Support Desk's synchronized `0.2.0` release is published and strictly
+verified; see the [publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
 Follow its [coordination checkpoint](ASSISTANT_COORDINATION.md).
 PG-01/RG-01 consume both exact verified published producers and retain actual two-host
 existing-login/Admin consent and requested-client acceptance before activation
-or pilots. Do not recreate completed producer slices or mark SD-02 validation,
-future Support Desk publication, or host gates complete.
+or pilots. Do not recreate completed producer slices or treat SDK validation
+and publication as completion of host gates.
 
 These tasks follow Task 11 and retain the same rules: one task per
 pull request, additive to `0.x` contracts, docs in the same change, and no
@@ -666,8 +668,8 @@ records roadmap priority, not a dependency forcing all source work to wait.
 ### Task 13 — lifecycle extras
 
 **Status (Task 13):** Implemented in source against the then-current `0.1.1`,
-with no publication at that checkpoint; included in the current unpublished
-`0.2.0` candidate. This pure package task proceeds independently of
+with no publication at that checkpoint; later shipped in the verified
+`0.2.0` release. This pure package task proceeds independently of
 Task 12's pending host durable-store evidence.
 
 - Staff `setTags` uses bounded host `allowedTags` and `maxTagsPerTicket`,

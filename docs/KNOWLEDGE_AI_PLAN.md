@@ -97,7 +97,7 @@ The dated `0.1.1` receipts above are retained history, not current KB pins.
 binds reviewed source
 [`efc9d733`](https://github.com/pegma-dev/support-desk/commit/efc9d733b3d305d24cf4197444e1d76c99bdb777).
 [Release run 42494797076](https://github.com/pegma-dev/support-desk/actions/runs/42494797076)
-passed 2,449 tests across 53 files on each Node 22/24 lane with zero skips,
+passed 2,449 tests across 53 test files on each Node 22/24 lane with zero skips,
 plus formatting, types, examples, five-package pack/import and
 clean-consumer gates. Attempt 2 completed publication, and its
 [strict registry verification](https://github.com/pegma-dev/support-desk/actions/runs/42494797076/job/128785494994)

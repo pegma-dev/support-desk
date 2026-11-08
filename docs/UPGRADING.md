@@ -1,10 +1,12 @@
-# Upgrading to the synchronized 0.2.0 candidate
+# Upgrading to the synchronized 0.2.0 release
 
-`0.2.0` is the SD-06 release candidate, not a published or host-approved release.
+`0.2.0` is the verified published SD-06 release; it does not certify a host's
+deployment or acceptance. See the
+[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
 The original four Support Desk packages were published at `0.1.1`. Before
 SD-06, source also used `0.1.1` while accumulating additional behavior; those
-source changes now form the `0.2.0` candidate. Registry versions are immutable.
-Upgrade only after the exact synchronized artifacts pass
+source changes shipped in `0.2.0`. Registry versions are immutable.
+Use the exact synchronized artifacts recorded by
 [release verification](RELEASING.md), using published packages rather than
 branches, copied source, local paths, or candidate tarballs in production.
 
@@ -16,7 +18,7 @@ dependency tree.
 
 ## Package and host boundary
 
-The candidate inventory is `@pegma/support-desk-contracts`, `-core`,
+The released inventory is `@pegma/support-desk-contracts`, `-core`,
 `-templates`, `-application`, and optional `-ai`, all at exact `0.2.0` with
 matching internal pins. Keep one coherent set. The base application remains
 usable without AI, KB, a model provider, or GitHub.
@@ -32,11 +34,11 @@ Store/namespace, mail transport, model and usage ports, KB authority, GitHub
 installation, release proof, schedulers, retention, and UI. Package methods
 grant no roles, Admin inheritance, or Agent Access scopes.
 
-## Rehearse the actual registry-to-candidate upgrade
+## Rehearse the actual 0.1.1-to-0.2.0 upgrade
 
 The required migration proof starts with records produced by the actual
 published `0.1.1` application, then reads and mutates them with the packed
-candidate in a clean consumer. Its current-head receipt must record the exact
+`0.2.0` artifacts in a clean consumer. Its receipt must record the exact
 old and new artifacts, dependencies, runtime, Store adapter, operations, and
 outcomes. The packer's separate `<output>-consumer-verification.json` receipt
 (by default `.release-consumer-verification.json`) identifies synthetic
@@ -60,8 +62,8 @@ both upload IDs/archive digests with the release handoff, and preserve the
 evidence before the workflow's 30-day retention expires. See
 [release retention and recovery](RELEASING.md#stable-tag-and-workflow).
 
-This document does not mark that proof passed. These clean memory-Store
-scenarios do not establish production-store migration or rollback readiness.
+The publication receipt records the passed clean memory-Store upgrade proof.
+Those scenarios do not establish production-store migration or rollback readiness.
 
 A partial registry publication is not an adoption-ready release. Recovery
 must reuse the original prepared artifacts and freshly authenticate the
@@ -132,14 +134,14 @@ Withdrawal is not a physical KB purge or GitHub retraction; external privacy
 remediation remains separately authorized host work. Already sent canonical
 messages follow ordinary ticket retention.
 
-## Open handoffs
+## Release evidence and open host handoffs
 
-| Owner                   | Evidence still required                                                                                                                 |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Release owner           | Current SD-06 Node 22/24 gates, review, five packed consumers, actual old-registry upgrade proof, and verified publication.             |
-| Package maintainer      | AI name registration, actual dist-tags/policy, trusted-publisher configuration, and final signed-tag release evidence.                  |
-| Each host owner         | Durable-store upgrade/restore and AI-off fallback, current access/data controls, retention/recovery, and complete workflow acceptance.  |
-| Client and pilot owners | Actual requested-client authentication/authoring results, approved staging smoke, cross-host acceptance, and supervised pilot sign-off. |
+| Owner                   | Evidence and remaining responsibility                                                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Release owner           | Retain the verified SD-06 publication, original package and clean-consumer evidence recorded in the release receipt.                                   |
+| Package maintainer      | AI registration and stable publication are complete; recheck actual dist-tags, policy and trusted-publisher configuration for each subsequent release. |
+| Each host owner         | Durable-store upgrade/restore and AI-off fallback, current access/data controls, retention/recovery, and complete workflow acceptance.                 |
+| Client and pilot owners | Actual requested-client authentication/authoring results, approved staging smoke, cross-host acceptance, and supervised pilot sign-off.                |
 
 Source receipts and a successful package install do not close the host, client,
 staging, or pilot handoffs. Follow [AI operations](AI_OPERATIONS.md) during the

@@ -11,26 +11,27 @@ preparation are also merged. The ten entries in the
 [current source ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) record
 the exact PRs/commits, verified gates, and remaining dependency order.
 
-Current Support Desk source is the synchronized `0.2.0` candidate, unpublished
-and distinct from the four base registry `0.1.1` artifacts. It pins Audit `0.2.0`, Authorization Core `0.4.0`,
-Mail `0.1.1`, Spine `0.1.2`, and Storage Core `0.4.0`. These source changes
-require a new synchronized SD-06 release before enhancement adoption; never
-overwrite an existing version. All four KB packages have strictly verified
+Support Desk's synchronized `0.2.0` release is published and strictly verified;
+see the [publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+It pins Audit `0.2.0`, Authorization Core `0.4.0`, Mail `0.1.1`, Spine `0.1.2`,
+and Storage Core `0.4.0`. The older base registry `0.1.1` artifacts remain
+immutable; host adoption retains its own acceptance gates. All four KB packages have strictly verified
 trusted `0.1.2` releases; Agent Access remains verified at `0.1.1`. The
 [producer verification receipts](HOST_COMPOSITION.md#kb-authoring-producers)
 record exact release commits and strict registry/clean-consumer jobs. Earlier
 manual `0.1.0` bootstrap receipts have no OIDC provenance and remain historical;
 the later trusted releases close the KB-05/Agent Access publication gates.
 
-SD-02's optional coordinator is included in the source candidate as
+SD-02's optional coordinator shipped as
 `@pegma/support-desk-ai@0.2.0`, with exact KB `0.1.2` runtime dependencies and bounded
 turn jobs in the existing ticket partition. The base application remains
 independent of KB/providers. Read the
 [coordination guide](ASSISTANT_COORDINATION.md) and
 [layout checkpoint](COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint).
-Current-head public-entry memory/Azurite/actual-KB fake-provider tests,
-Node 22/24 gates, and code/security review are required for the release
-candidate. PG-01/RG-01 consume both exact verified published producers. Actual
+Changes require current-head public-entry memory/Azurite/actual-KB fake-provider
+tests, Node 22/24 gates, and code/security review. The completed SDK release
+gates are recorded in the publication receipt above. PG-01/RG-01 consume exact
+verified published dependencies. Actual
 two-host existing-login/current-Admin consent and requested-client/mode proof
 remains unproven before activation or pilots. Source and synthetic SDK results
 do not establish deployment, model calls, host acceptance, or pilots.
@@ -473,9 +474,9 @@ human handoff, reviewed learning, and safe engineering follow-up.
 
 **Source status:** SD-01 through SD-05 are merged, covering handling/handoff,
 optional answer coordination, resolution learning, engineering export, and
-release follow-up. They form the unpublished synchronized `0.2.0` candidate.
-SD-06's verified publication and this phase's host/production acceptance remain
-open. See [assistant coordination](ASSISTANT_COORDINATION.md).
+release follow-up. They shipped in the verified synchronized `0.2.0` release
+recorded above. This phase's host/production acceptance remains open.
+See [assistant coordination](ASSISTANT_COORDINATION.md).
 
 Follow [KNOWLEDGE_AI_PLAN.md](KNOWLEDGE_AI_PLAN.md), which replaces the earlier
 staff-only execution outline. Every chat starts as a ticket; assistant-handled

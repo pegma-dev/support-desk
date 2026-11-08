@@ -1,9 +1,10 @@
 # Engineering assessment and export: SD-04 source contracts
 
-SD-04 is an implementation candidate. This handbook describes its source
-contracts and host responsibilities; it does not establish validation, release,
-or host activation. SD-06 remains the composition and release handoff, so there
-is no runnable host recipe here. Scope comes from the
+SD-04's source merged in [PR #40](https://github.com/pegma-dev/support-desk/pull/40)
+and shipped in the verified published synchronized `0.2.0` release; see the
+[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+This handbook describes its contracts and host responsibilities, not host
+activation. There is no runnable host recipe here. Scope comes from the
 [approved plan](KNOWLEDGE_AI_PLAN.md#bug-evaluation-routing-and-github-export)
 and the [collection checkpoint](COLLECTIONS.md#sd-04-engineering-layout-checkpoint).
 
