@@ -383,12 +383,13 @@ still grants no web principal or account access. SD-01 supplies handling and
 deterministic controls only. AUTH-01, KB-04 transport source/SDK proof, partial
 KB-05 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
 and both producers' final release preparation are merged. All four KB packages
-and Agent Access now have verified trusted `0.1.1` releases, closing the
-publication prerequisite for SD-02's in-progress source candidate below.
+now have verified trusted `0.1.2` releases and Agent Access has verified `0.1.1`, closing the
+producer publication prerequisite. Support Desk remains an unpublished
+synchronized `0.2.0` source candidate; the checkpoint below is historical.
 PG-01/RG-01 consume exact verified published producers and retain actual two-host
 existing-login/Admin consent and requested-client proof before activation or
 pilots. Synthetic SDK proof uses no actual customer data and cannot close those
-host gates. SD-02 current-head source validation/review and host privacy,
+host gates. Current-head Support Desk release validation/review and host privacy,
 operations, full-workflow, activation, and pilot gates stay pending under the
 [current implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
 

@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import * as application from "@pegma/support-desk-application";
@@ -9,11 +10,17 @@ import { RELEASE_PACKAGES } from "../scripts/release-packages.mjs";
 import {
   CONSUMER_TOOLCHAIN,
   PREVIOUS_APPLICATION,
+  consumerArtifactBindings,
   consumerPlans,
   consumerVerificationPath,
   exerciseBaseConsumer,
+  verifyConsumerReceipt,
   type ConsumerPackageRecord,
 } from "../scripts/release-consumers.mjs";
+import {
+  releaseArtifactFixture,
+  releaseFixtureTarball,
+} from "../test/release-verification-fixtures.js";
 
 function artifacts(): ConsumerPackageRecord[] {
   return RELEASE_PACKAGES.map((definition) => {
@@ -37,6 +44,70 @@ function artifacts(): ConsumerPackageRecord[] {
 }
 
 describe("isolated release consumers", () => {
+  it("binds actual archive identities and bytes rather than trusting package metadata", async () => {
+    const f = releaseArtifactFixture();
+    try {
+      const records = f.packages.map(({ record }) => ({
+        ...record,
+        tarballPath: join(f.directory, record.tarball),
+      }));
+      const bindings = await consumerArtifactBindings(
+        records,
+        RELEASE_PACKAGES,
+      );
+      for (const [index, record] of records.entries()) {
+        const bytes = readFileSync(record.tarballPath);
+        expect(bindings[index]).toEqual({
+          name: record.name,
+          version: record.version,
+          tarball: record.tarball,
+          size: bytes.length,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+          shasum: createHash("sha1").update(bytes).digest("hex"),
+          integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
+        });
+      }
+      await expect(
+        consumerArtifactBindings(
+          records.map((record, index) =>
+            index === 0 ? { ...record, version: "9.9.9" } : record,
+          ),
+          RELEASE_PACKAGES,
+        ),
+      ).rejects.toThrow("archive version differs");
+      const sourceCommit = "1".repeat(40);
+      const receipt = {
+        schemaVersion: 1,
+        synthetic: true,
+        sourceRepository: "pegma-dev/support-desk",
+        sourceCommit,
+        candidateVersion: records[0]!.version,
+        artifacts: bindings,
+      };
+      await expect(
+        verifyConsumerReceipt(receipt, {
+          sourceCommit: "2".repeat(40),
+          records,
+          inventory: RELEASE_PACKAGES,
+        }),
+      ).rejects.toThrow("source differs");
+      const changed = releaseFixtureTarball({
+        name: records[0]!.name,
+        version: records[0]!.version,
+        description: "Different bytes under the same version",
+      });
+      writeFileSync(records[0]!.tarballPath, changed.bytes);
+      await expect(
+        verifyConsumerReceipt(receipt, {
+          sourceCommit,
+          records,
+          inventory: RELEASE_PACKAGES,
+        }),
+      ).rejects.toThrow("artifacts differ");
+    } finally {
+      f.dispose();
+    }
+  });
   it("keeps diagnostic consumer evidence beside the immutable six-file artifact", () => {
     const output = join(tmpdir(), "release artifacts with spaces", "prepared");
     const receipt = consumerVerificationPath(output);

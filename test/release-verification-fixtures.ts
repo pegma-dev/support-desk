@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 import { vi } from "vitest";
 import type { ReleasePorts } from "../scripts/release-verification.mjs";
@@ -478,6 +478,7 @@ export function releaseRegistryFixture(
   const registry = "https://registry.npmjs.org/";
   const metadataUrl = (name: string) =>
     `${registry}${encodeURIComponent(name)}/0.2.0`;
+  const packageUrl = (name: string) => `${registry}${encodeURIComponent(name)}`;
   const tarballUrl = (name: string) =>
     `${registry}${name}/-/${name.split("/").at(-1)}-0.2.0.tgz`;
   const documents = new Map(
@@ -507,6 +508,15 @@ export function releaseRegistryFixture(
     f.packages.map(({ record, bytes }) => [
       tarballUrl(record.name),
       Buffer.from(bytes),
+    ]),
+  );
+  const packuments = new Map(
+    f.packages.map(({ record }) => [
+      packageUrl(record.name),
+      {
+        name: record.name,
+        "dist-tags": { latest: "0.2.0" } as Record<string, string>,
+      },
     ]),
   );
   const audit = releaseAuditFixture(f);
@@ -554,6 +564,9 @@ export function releaseRegistryFixture(
         status: state.metadataStatus,
       });
     }
+    const packument = packuments.get(url);
+    if (packument !== undefined)
+      return new Response(JSON.stringify(packument), { status: 200 });
     const bytes = tarballs.get(url);
     if (bytes !== undefined) {
       if (state.tarballFailures > 0) {
@@ -628,15 +641,153 @@ export function releaseRegistryFixture(
   return {
     documents,
     tarballs,
+    packuments,
     audit,
     state,
     npmCli,
     metadataUrl,
+    packageUrl,
     tarballUrl,
     ports: { fetch, run, sleep },
     fetch,
     run,
     sleep,
+  };
+}
+
+/** Set the real runtime guard's inputs; never supplies an authorization bypass. */
+export function useReleasePublishingEnvironment() {
+  for (const key of Object.keys(process.env))
+    if (
+      /^npm_config_/iu.test(key) ||
+      [
+        "NODE_AUTH_TOKEN",
+        "NPM_TOKEN",
+        "NPM_AUTH_TOKEN",
+        "NPM_AUTH",
+        "YARN_NPM_AUTH_TOKEN",
+      ].includes(key)
+    )
+      vi.stubEnv(key, undefined);
+  const env = releasePublishingEnvironment();
+  for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
+  return env;
+}
+
+/** Controlled external acceptance only; publication policy remains in the real CLI. */
+export function releasePublisherFixture(
+  f: ReturnType<typeof releaseArtifactFixture>,
+) {
+  const registry = releaseRegistryFixture(f);
+  const originals = new Map(
+    [...registry.documents].map(([url, document]) => [
+      url,
+      structuredClone(document),
+    ]),
+  );
+  const trace: (
+    { kind: "fetch"; url: string } | { kind: "publish"; name: string }
+  )[] = [];
+  const uploads: {
+    name: string;
+    binary: string;
+    args: string[];
+    path: string;
+    cwd: string;
+    bytes: Buffer;
+    sha256: string;
+    integrity: string;
+    env: Record<string, string>;
+    userConfig: string;
+    globalConfig: string;
+  }[] = [];
+  const publication = {
+    uncertainPackage: undefined as string | undefined,
+    uncertainty: "exit" as "exit" | "throw",
+  };
+  const hide = (name: string) => {
+    registry.documents.delete(registry.metadataUrl(name));
+    registry.tarballs.delete(registry.tarballUrl(name));
+  };
+  const accept = (name: string, bytes: Buffer) => {
+    const document = originals.get(registry.metadataUrl(name));
+    if (document === undefined)
+      throw new Error("Unknown synthetic publication package");
+    registry.documents.set(
+      registry.metadataUrl(name),
+      structuredClone(document),
+    );
+    registry.tarballs.set(registry.tarballUrl(name), Buffer.from(bytes));
+  };
+  const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    trace.push({ kind: "fetch", url });
+    return registry.fetch(input, init);
+  });
+  const run = vi.fn<NonNullable<ReleasePorts["run"]>>(
+    async (binary, args, processOptions) => {
+      if (args[0] !== registry.npmCli || args[1] !== "publish")
+        return registry.run(binary, args, processOptions);
+      const path = args[2];
+      if (path === undefined)
+        throw new Error("Synthetic publication needs a copied tarball");
+      const entry = f.packages.find(
+        ({ record }) => record.tarball === basename(path),
+      );
+      if (entry === undefined)
+        throw new Error("Unexpected synthetic publication archive");
+      const bytes = readFileSync(path);
+      trace.push({ kind: "publish", name: entry.record.name });
+      uploads.push({
+        name: entry.record.name,
+        binary,
+        args: [...args],
+        path,
+        cwd: processOptions.cwd,
+        bytes,
+        sha256: releaseDigest("sha256", bytes),
+        integrity: `sha512-${releaseDigest("sha512", bytes, "base64")}`,
+        env: { ...processOptions.env },
+        userConfig: readFileSync(
+          processOptions.env.npm_config_userconfig!,
+          "utf8",
+        ),
+        globalConfig: readFileSync(
+          processOptions.env.npm_config_globalconfig!,
+          "utf8",
+        ),
+      });
+      accept(entry.record.name, bytes);
+      if (publication.uncertainPackage === entry.record.name) {
+        if (publication.uncertainty === "throw")
+          throw new Error("PRIVATE_SYNTHETIC_AFTER_ACCEPTANCE_FAILURE");
+        return {
+          status: 1,
+          stdout: "",
+          stderr: "PRIVATE_SYNTHETIC_AFTER_ACCEPTANCE_FAILURE",
+        };
+      }
+      return { status: 0, stdout: "{}" };
+    },
+  );
+  return {
+    ...registry,
+    trace,
+    uploads,
+    publication,
+    hide,
+    accept,
+    fetch,
+    run,
+    ports: { fetch, run, sleep: registry.sleep },
+    isCopiedUpload(path: string) {
+      return dirname(path) !== f.directory;
+    },
   };
 }
 

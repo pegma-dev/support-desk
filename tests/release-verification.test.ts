@@ -1,10 +1,12 @@
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assertTrustedPublishingEnvironment,
+  describeReleaseFailure,
   inspectReleaseTarball,
   preflightRegistry,
+  publishRegistryRelease,
   verifyPreparedRelease,
   verifyProvenanceAudit,
   verifyRegistryRelease,
@@ -17,11 +19,13 @@ import {
   releaseDigest,
   releaseFixtureTarball,
   releasePublishingEnvironment,
+  releasePublisherFixture,
   releaseRegistryFixture,
   setReleaseAuditStatement,
   releaseVerificationCommit,
   releaseVerificationPackages,
   releaseVerificationVersion,
+  useReleasePublishingEnvironment,
 } from "../test/release-verification-fixtures.js";
 
 type Fixture = ReturnType<typeof releaseArtifactFixture>;
@@ -61,8 +65,281 @@ function replacePackage(
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const value of fixtures) value.dispose();
   fixtures.clear();
+});
+
+describe("actual publication orchestration with controlled external acceptance", () => {
+  it("preflights the entire mixed set before publishing only absent packages in dependency order", async () => {
+    const f = fixture();
+    const publisher = releasePublisherFixture(f);
+    useReleasePublishingEnvironment();
+    const present = [f.packages[1]!.record.name, f.packages[3]!.record.name];
+    const absent = f.packages.filter(
+      ({ record }) => !present.includes(record.name),
+    );
+    for (const { record } of absent) publisher.hide(record.name);
+    const result = await publishRegistryRelease(
+      { ...options(f), npmCli: publisher.npmCli },
+      publisher.ports,
+    );
+    expect(result).toEqual({
+      published: absent.map(({ record }) => record.name),
+      skipped: present,
+      manifestSha256: f.originalManifestSha256,
+    });
+    expect(publisher.uploads.map(({ name }) => name)).toEqual(
+      absent.map(({ record }) => record.name),
+    );
+    const firstUpload = publisher.trace.findIndex(
+      (entry) => entry.kind === "publish",
+    );
+    expect(firstUpload).toBeGreaterThan(0);
+    for (const { record } of f.packages)
+      expect(publisher.trace.slice(0, firstUpload)).toContainEqual({
+        kind: "fetch",
+        url: publisher.metadataUrl(record.name),
+      });
+    for (const { name } of publisher.uploads)
+      expect(present).not.toContain(name);
+    expect(publisher.state.imports).toBe(0);
+  });
+
+  it("uploads exact copied originals with the precise provenance argv and an OIDC-only child environment", async () => {
+    const f = fixture();
+    const publisher = releasePublisherFixture(f);
+    const oidc = useReleasePublishingEnvironment();
+    vi.stubEnv(
+      "SYNTHETIC_RELEASE_AMBIENT_SECRET",
+      "must-not-reach-the-publish-child",
+    );
+    for (const { record } of f.packages) publisher.hide(record.name);
+    const result = await publishRegistryRelease(
+      { ...options(f), npmCli: publisher.npmCli },
+      publisher.ports,
+    );
+    expect(result.published).toEqual(
+      f.packages.map(({ record }) => record.name),
+    );
+    expect(result.skipped).toEqual([]);
+    expect(publisher.uploads).toHaveLength(5);
+    publisher.uploads.forEach((upload, index) => {
+      const original = f.packages[index]!;
+      expect(upload.name).toBe(original.record.name);
+      expect(upload.binary).toBe(process.execPath);
+      expect(upload.path).toBe(join(upload.cwd, original.record.tarball));
+      expect(publisher.isCopiedUpload(upload.path)).toBe(true);
+      expect(upload.args).toEqual([
+        publisher.npmCli,
+        "publish",
+        upload.path,
+        "--access",
+        "public",
+        "--provenance",
+        "--ignore-scripts",
+        "--registry",
+        "https://registry.npmjs.org/",
+      ]);
+      expect(upload.bytes).toEqual(original.bytes);
+      expect(upload.sha256).toBe(releaseDigest("sha256", original.bytes));
+      expect(upload.integrity).toBe(original.record.integrity);
+      expect(upload.userConfig).toBe("");
+      expect(upload.globalConfig).toBe("");
+      expect(upload.env.ACTIONS_ID_TOKEN_REQUEST_URL).toBe(
+        oidc.ACTIONS_ID_TOKEN_REQUEST_URL,
+      );
+      expect(upload.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBe(
+        oidc.ACTIONS_ID_TOKEN_REQUEST_TOKEN,
+      );
+      expect(upload.env.GITHUB_REPOSITORY).toBe("pegma-dev/support-desk");
+      expect(upload.env.GITHUB_SHA).toBe(releaseVerificationCommit);
+      expect(upload.env.GITHUB_WORKFLOW_REF).toBe(oidc.GITHUB_WORKFLOW_REF);
+      expect(upload.env.NODE_AUTH_TOKEN).toBeUndefined();
+      expect(upload.env.NPM_TOKEN).toBeUndefined();
+      expect(upload.env.SYNTHETIC_RELEASE_AMBIENT_SECRET).toBeUndefined();
+      expect(upload.env.npm_config_registry).toBe(
+        "https://registry.npmjs.org/",
+      );
+      expect(upload.env.npm_config_ignore_scripts).toBe("true");
+      expect(readFileSync(join(f.directory, original.record.tarball))).toEqual(
+        original.bytes,
+      );
+    });
+    expect(readFileSync(f.manifestPath)).toEqual(f.manifestBytes);
+  });
+
+  it("never invokes publication for a completely present exact release", async () => {
+    const f = fixture();
+    const publisher = releasePublisherFixture(f);
+    useReleasePublishingEnvironment();
+    expect(
+      await publishRegistryRelease(
+        { ...options(f), npmCli: publisher.npmCli },
+        publisher.ports,
+      ),
+    ).toEqual({
+      published: [],
+      skipped: f.packages.map(({ record }) => record.name),
+      manifestSha256: f.originalManifestSha256,
+    });
+    expect(publisher.uploads).toEqual([]);
+    expect(
+      publisher.run.mock.calls.some(([, args]) => args[1] === "publish"),
+    ).toBe(false);
+  });
+
+  it("blocks every publication when a later existing package fails whole-set byte preflight", async () => {
+    const f = fixture();
+    const publisher = releasePublisherFixture(f);
+    useReleasePublishingEnvironment();
+    publisher.hide(f.packages[0]!.record.name);
+    const last = f.packages[4]!.record.name;
+    const bytes = Buffer.from(
+      publisher.tarballs.get(publisher.tarballUrl(last))!,
+    );
+    bytes[bytes.length - 1] = bytes[bytes.length - 1]! ^ 0xff;
+    publisher.tarballs.set(publisher.tarballUrl(last), bytes);
+    await expect(
+      publishRegistryRelease(
+        { ...options(f), npmCli: publisher.npmCli },
+        publisher.ports,
+      ),
+    ).rejects.toThrow();
+    expect(publisher.uploads).toEqual([]);
+    expect(publisher.run).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "NODE_AUTH_TOKEN",
+    "NPM_TOKEN",
+    "NPM_AUTH_TOKEN",
+    "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+  ])(
+    "refuses actual publication before registry access with unapproved %s authority",
+    async (key) => {
+      const f = fixture();
+      const publisher = releasePublisherFixture(f);
+      useReleasePublishingEnvironment();
+      vi.stubEnv(
+        key,
+        key === "ACTIONS_ID_TOKEN_REQUEST_TOKEN"
+          ? ""
+          : "synthetic-unapproved-token",
+      );
+      await expect(
+        publishRegistryRelease(
+          { ...options(f), npmCli: publisher.npmCli },
+          publisher.ports,
+        ),
+      ).rejects.toThrow();
+      expect(publisher.fetch).not.toHaveBeenCalled();
+      expect(publisher.run).not.toHaveBeenCalled();
+      expect(publisher.uploads).toEqual([]);
+    },
+  );
+
+  it.each(["exit", "throw"] as const)(
+    "stops after uncertain acceptance (%s) and resumes only still-absent packages from the unchanged artifact",
+    async (uncertainty) => {
+      const f = fixture();
+      const publisher = releasePublisherFixture(f);
+      useReleasePublishingEnvironment();
+      for (const { record } of f.packages) publisher.hide(record.name);
+      publisher.publication.uncertainPackage = f.packages[1]!.record.name;
+      publisher.publication.uncertainty = uncertainty;
+      const expected = { ...options(f), npmCli: publisher.npmCli };
+      const failure = await publishRegistryRelease(
+        expected,
+        publisher.ports,
+      ).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).not.toContain("PRIVATE_SYNTHETIC");
+      expect(publisher.uploads.map(({ name }) => name)).toEqual(
+        f.packages.slice(0, 2).map(({ record }) => record.name),
+      );
+      expect(
+        publisher.documents.has(
+          publisher.metadataUrl(f.packages[1]!.record.name),
+        ),
+      ).toBe(true);
+      publisher.publication.uncertainPackage = undefined;
+      const recovered = await publishRegistryRelease(expected, publisher.ports);
+      expect(recovered).toEqual({
+        published: f.packages.slice(2).map(({ record }) => record.name),
+        skipped: f.packages.slice(0, 2).map(({ record }) => record.name),
+        manifestSha256: f.originalManifestSha256,
+      });
+      expect(publisher.uploads.map(({ name }) => name)).toEqual(
+        f.packages.map(({ record }) => record.name),
+      );
+      for (const original of f.packages) {
+        expect(
+          publisher.uploads.filter(({ name }) => name === original.record.name),
+        ).toHaveLength(1);
+        expect(
+          readFileSync(join(f.directory, original.record.tarball)),
+        ).toEqual(original.bytes);
+      }
+      expect(readFileSync(f.manifestPath)).toEqual(f.manifestBytes);
+    },
+  );
+
+  it("does not skip or republish an uncertain accepted version whose visible bytes differ on retry", async () => {
+    const f = fixture();
+    const publisher = releasePublisherFixture(f);
+    useReleasePublishingEnvironment();
+    for (const { record } of f.packages) publisher.hide(record.name);
+    const first = f.packages[0]!.record.name;
+    publisher.publication.uncertainPackage = first;
+    const expected = { ...options(f), npmCli: publisher.npmCli };
+    await expect(
+      publishRegistryRelease(expected, publisher.ports),
+    ).rejects.toThrow();
+    const altered = Buffer.from(
+      publisher.tarballs.get(publisher.tarballUrl(first))!,
+    );
+    altered[altered.length - 1] = altered[altered.length - 1]! ^ 0xff;
+    publisher.tarballs.set(publisher.tarballUrl(first), altered);
+    publisher.publication.uncertainPackage = undefined;
+    await expect(
+      publishRegistryRelease(expected, publisher.ports),
+    ).rejects.toThrow();
+    expect(publisher.uploads.map(({ name }) => name)).toEqual([first]);
+  });
+
+  it("rejects an original archive changed after preflight instead of copying or publishing its replacement", async () => {
+    const f = fixture();
+    const publisher = releasePublisherFixture(f);
+    useReleasePublishingEnvironment();
+    for (const { record } of f.packages) publisher.hide(record.name);
+    const invoke = publisher.run.getMockImplementation()!;
+    let changed = false;
+    publisher.run.mockImplementation(async (...args) => {
+      if (!changed && args[1][1] === "--version") {
+        changed = true;
+        const altered = Buffer.from(f.packages[0]!.bytes);
+        altered[altered.length - 1] = altered[altered.length - 1]! ^ 0xff;
+        writeFileSync(
+          join(f.directory, f.packages[0]!.record.tarball),
+          altered,
+        );
+      }
+      return invoke(...args);
+    });
+    await expect(
+      publishRegistryRelease(
+        { ...options(f), npmCli: publisher.npmCli },
+        publisher.ports,
+      ),
+    ).rejects.toThrow();
+    expect(changed).toBe(true);
+    expect(publisher.uploads).toEqual([]);
+    expect(readFileSync(f.manifestPath)).toEqual(f.manifestBytes);
+  });
 });
 
 describe("registry verification of the original bytes", () => {
@@ -86,6 +363,17 @@ describe("registry verification of the original bytes", () => {
       },
       packages: releaseVerificationPackages.map(({ name }) => name),
     });
+    expect(receipt.distTags).toHaveLength(5);
+    for (const observation of receipt.distTags) {
+      expect(observation.version).toBe("0.2.0");
+      expect(observation.tags).toEqual({ latest: "0.2.0" });
+      expect(Number.isFinite(Date.parse(observation.observedAt))).toBe(true);
+      expect(
+        registry.fetch.mock.calls.some(
+          ([url]) => url === registry.packageUrl(observation.name),
+        ),
+      ).toBe(true);
+    }
     expect(registry.state.consumerDependencies).toEqual(
       Object.fromEntries(
         releaseVerificationPackages.map(({ name }) => [name, "0.2.0"]),
@@ -155,6 +443,69 @@ describe("registry verification of the original bytes", () => {
     expect(registry.run).not.toHaveBeenCalled();
     expect(registry.fetch).toHaveBeenCalledTimes(10);
   });
+
+  it.each(["0.1.1", "0.2.1"])(
+    "records observed latest=%s without retagging or confusing it with immutable release identity",
+    async (latest) => {
+      const f = fixture();
+      const registry = releaseRegistryFixture(f);
+      for (const packument of registry.packuments.values())
+        packument["dist-tags"].latest = latest;
+      const receipt = await verifyRegistryRelease(
+        { ...options(f), npmCli: registry.npmCli },
+        registry.ports,
+      );
+      expect(receipt.identity.version).toBe("0.2.0");
+      expect(
+        receipt.distTags.map(({ name, version, tags }) => ({
+          name,
+          version,
+          tags,
+        })),
+      ).toEqual(
+        releaseVerificationPackages.map(({ name }) => ({
+          name,
+          version: "0.2.0",
+          tags: { latest },
+        })),
+      );
+      expect(
+        registry.run.mock.calls.some(
+          ([, args]) => args.includes("dist-tag") || args.includes("publish"),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it.each(["missing", "wrong-name", "too-many-tags", "bad-target"] as const)(
+    "withholds the final verification receipt for %s dist-tag evidence",
+    async (failure) => {
+      const f = fixture();
+      const registry = releaseRegistryFixture(f);
+      const url = registry.packageUrl(releaseVerificationPackages[0]!.name);
+      const packument = registry.packuments.get(url)!;
+      if (failure === "missing") registry.packuments.delete(url);
+      if (failure === "wrong-name")
+        Object.assign(packument, { name: "@foreign/support-desk-contracts" });
+      if (failure === "too-many-tags")
+        packument["dist-tags"] = Object.fromEntries(
+          Array.from({ length: 33 }, (_, index) => [`tag-${index}`, "0.2.0"]),
+        );
+      if (failure === "bad-target")
+        packument["dist-tags"].latest = "bad\u0000target";
+      await expect(
+        verifyRegistryRelease(
+          { ...options(f), npmCli: registry.npmCli },
+          registry.ports,
+        ),
+      ).rejects.toThrow();
+      expect(
+        registry.run.mock.calls.some(
+          ([, args]) => args.includes("dist-tag") || args.includes("publish"),
+        ),
+      ).toBe(false);
+    },
+  );
 
   it("distinguishes absent versions from metadata whose original tarball is not yet visible", async () => {
     const f = fixture();
@@ -549,6 +900,67 @@ describe("protected OIDC publication authority", () => {
 });
 
 describe("source-bound original release artifact", () => {
+  it("preserves a safe controlled manifest digest stage and code", async () => {
+    const f = fixture();
+    const error = await verifyPreparedRelease({
+      ...options(f),
+      manifestSha256: "f".repeat(64),
+    }).then(
+      () => undefined,
+      (failure: unknown) => failure,
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).name).toBe("ReleaseVerificationError");
+    expect(Object.isFrozen(error)).toBe(true);
+    expect(describeReleaseFailure(error)).toMatchObject({
+      stage: "prepared",
+      code: "manifest_digest_mismatch",
+    });
+  });
+
+  it("collapses an unexpected native prepared-file failure to a safe stage without leaking its path", async () => {
+    const f = fixture();
+    const privatePath = join(
+      f.directory,
+      "PRIVATE_RELEASE_PATH_DO_NOT_LOG.json",
+    );
+    const error = await verifyPreparedRelease({
+      ...options(f),
+      manifest: privatePath,
+    }).then(
+      () => undefined,
+      (failure: unknown) => failure,
+    );
+    const description = describeReleaseFailure(error);
+    expect(description).toMatchObject({
+      stage: "prepared",
+      code: "prepared_verification_failed",
+    });
+    expect(JSON.stringify(description)).not.toContain(
+      "PRIVATE_RELEASE_PATH_DO_NOT_LOG",
+    );
+    expect(JSON.stringify(description)).not.toContain(f.root);
+  });
+
+  it("does not trust externally forged diagnostic branding or untrusted error text", () => {
+    const forged = Object.assign(new Error("PRIVATE_EXTERNAL_RELEASE_ERROR"), {
+      name: "ReleaseVerificationError",
+      stage: "prepared",
+      code: "manifest_digest_mismatch",
+    });
+    const description = describeReleaseFailure(forged);
+    expect(description).toEqual({
+      stage: "release",
+      code: "unexpected_failure",
+      message:
+        "Release verification failed at an external or unavailable boundary.",
+    });
+    expect(Object.isFrozen(description)).toBe(true);
+    expect(JSON.stringify(description)).not.toContain(
+      "PRIVATE_EXTERNAL_RELEASE_ERROR",
+    );
+  });
+
   it("reads real gzip/tar artifacts and accepts the independently pinned exact five-package candidate", async () => {
     const f = fixture();
     expect(

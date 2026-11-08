@@ -58,6 +58,13 @@ credentials or a stale policy receipt to the unprivileged workflow. Repeat
 this full readback immediately before manual publication and include its
 current result in the maintainer's 2FA handoff.
 
+The bootstrap code intentionally pins the configured ruleset identity and
+the expected maintainer bypass actor/type/mode. Rotating that authority or
+ruleset requires a reviewed update to `verifyPublicTagRules` in
+`scripts/ai-bootstrap.mjs`, its policy fixtures/tests, and the live policy.
+Update signer configuration where required as well; changing only
+`RELEASE_ALLOWED_SIGNERS` does not rotate this separate policy binding.
+
 The CLI has only `verify-source`, `prepare`, `preflight`, and `postflight`.
 For a separately approved preparation, its interface is:
 

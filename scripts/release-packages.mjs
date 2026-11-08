@@ -603,9 +603,10 @@ function verifyPackedFiles(manifest, files) {
   }
 }
 
-async function smokeTestTarballs(root, packageRecords) {
+async function smokeTestTarballs(root, packageRecords, sourceCommit) {
   return verifyReleaseConsumers({
     root,
+    sourceCommit,
     records: packageRecords,
     inventory: RELEASE_PACKAGES,
     runNpm,
@@ -652,6 +653,17 @@ export async function prepareRelease(options = {}) {
   if (!/^[0-9a-f]{40,64}$/u.test(gitCommit)) {
     fail(`git returned an invalid commit SHA: ${gitCommit}`);
   }
+  const confirmSourceCommit = () => {
+    const currentCommit = run(gitCommand(), ["rev-parse", "HEAD"], {
+      cwd: root,
+      capture: true,
+    }).stdout.trim();
+    if (!safeEqual(currentCommit, gitCommit)) {
+      fail(
+        "checkout commit changed during release preparation; discard its consumer receipt and artifacts",
+      );
+    }
+  };
   const output = resolve(root, options.output ?? ".release");
   await mkdir(output, { recursive: true });
   if ((await readdir(output)).length !== 0) {
@@ -705,11 +717,11 @@ export async function prepareRelease(options = {}) {
       manifest,
     });
   }
-  const consumers = await smokeTestTarballs(root, records);
-  await writeFile(
-    consumerVerificationPath(output),
-    `${JSON.stringify(consumers, null, 2)}\n`,
-  );
+  // Observe the checkout on both sides of awaited installs/example execution;
+  // an input commit alone cannot establish the source of those consumer runs.
+  confirmSourceCommit();
+  const consumers = await smokeTestTarballs(root, records, gitCommit);
+  confirmSourceCommit();
 
   if (releaseTag !== undefined) {
     for (const record of records.filter(({ publish }) => !publish)) {
@@ -737,6 +749,12 @@ export async function prepareRelease(options = {}) {
     ),
   };
   const manifestPath = join(output, "package-manifest.json");
+  confirmSourceCommit();
+  await writeFile(
+    consumerVerificationPath(output),
+    `${JSON.stringify(consumers, null, 2)}\n`,
+  );
+  confirmSourceCommit();
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   return { manifestPath, manifest };
 }
@@ -797,87 +815,6 @@ export async function verifyPreparedManifest(manifestPath) {
   return manifest;
 }
 
-function requireTrustedPublishingNpm() {
-  const version = runNpm(["--version"], { capture: true }).stdout.trim();
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-.+)?$/u.exec(version);
-  if (match === null) {
-    fail(`could not parse npm version ${version}`);
-  }
-  const [, majorText, minorText, patchText] = match;
-  const [major, minor, patch] = [majorText, minorText, patchText].map(Number);
-  if (
-    major < 11 ||
-    (major === 11 && minor < 5) ||
-    (major === 11 && minor === 5 && patch < 1)
-  ) {
-    fail("trusted publishing requires npm 11.5.1 or newer");
-  }
-}
-
-function wait(milliseconds) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
-}
-
-function confirmRegistryIntegrity(record) {
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const integrity = queryRegistryIntegrity(record.name, record.version);
-    if (integrity !== null && safeEqual(record.integrity, integrity)) {
-      return;
-    }
-    if (attempt < 5) {
-      wait(2 ** attempt * 1000);
-    }
-  }
-  fail(
-    `${record.name}@${record.version} did not become visible with the prepared integrity`,
-  );
-}
-
-export async function publishPreparedRelease(options = {}) {
-  if (
-    process.env.GITHUB_ACTIONS !== "true" ||
-    process.env.GITHUB_EVENT_NAME !== "release"
-  ) {
-    fail("release:publish is restricted to a GitHub release workflow");
-  }
-  requireTrustedPublishingNpm();
-  const manifestPath = resolve(
-    options.manifest ?? ".release/package-manifest.json",
-  );
-  const manifest = await verifyPreparedManifest(manifestPath);
-  const releaseTag = options.releaseTag ?? process.env.RELEASE_TAG;
-  const expectedReleaseCommit =
-    options.expectedReleaseCommit ?? process.env.RELEASE_COMMIT;
-  if (releaseTag !== manifest.releaseTag) {
-    fail("prepared manifest must match the release tag");
-  }
-  if (
-    expectedReleaseCommit === undefined ||
-    !/^[0-9a-f]{40,64}$/u.test(expectedReleaseCommit) ||
-    !safeEqual(manifest.gitCommit, expectedReleaseCommit)
-  ) {
-    fail("prepared package manifest must match the release event commit");
-  }
-  for (const record of manifest.packages.filter(({ publish }) => publish)) {
-    const registryIntegrity = queryRegistryIntegrity(
-      record.name,
-      record.version,
-    );
-    const decision = decidePublication(record.integrity, registryIntegrity);
-    if (decision === "skip") {
-      process.stdout.write(
-        `Verified existing ${record.name}@${record.version}; skipping.\n`,
-      );
-      continue;
-    }
-    const tarball = resolve(dirname(manifestPath), record.tarball);
-    runNpm(["publish", tarball, "--access", "public", "--provenance"], {
-      cwd: dirname(manifestPath),
-    });
-    confirmRegistryIntegrity(record);
-  }
-}
-
 export function parseArguments(arguments_) {
   const options = {};
   for (let index = 0; index < arguments_.length; index += 1) {
@@ -922,6 +859,11 @@ function defaultRoot() {
 
 async function main() {
   const [command, ...arguments_] = process.argv.slice(2);
+  if (command === "publish") {
+    fail(
+      "release-packages.mjs publish has been removed; use scripts/release-verification.mjs publish with the independent --manifest-sha256, --release-tag and --expected-release-commit bindings in the protected release workflow",
+    );
+  }
   const options = parseArguments(arguments_);
   if (command === "check") {
     await validateRepository(options);
@@ -933,11 +875,7 @@ async function main() {
     process.stdout.write(`Prepared release packages at ${manifestPath}.\n`);
     return;
   }
-  if (command === "publish") {
-    await publishPreparedRelease(options);
-    return;
-  }
-  fail("usage: release-packages.mjs <check|pack|publish> [options]");
+  fail("usage: release-packages.mjs <check|pack> [options]");
 }
 
 const isMain =

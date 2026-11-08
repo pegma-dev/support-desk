@@ -19,13 +19,64 @@ export const PREVIOUS_APPLICATION: Readonly<{
   version: "0.1.1";
 }>;
 export function consumerVerificationPath(output: string): string;
-export interface ConsumerPackageRecord {
+export interface ConsumerArtifactRecord {
   readonly name: string;
   readonly directory: string;
   readonly version: string;
   readonly tarballPath: string;
+}
+export interface ConsumerPackageRecord extends ConsumerArtifactRecord {
   readonly manifest: PublicPackageManifest;
 }
+export interface ConsumerArtifactBinding {
+  readonly name: string;
+  readonly version: string;
+  readonly tarball: string;
+  readonly size: number;
+  readonly sha256: string;
+  readonly shasum: string;
+  readonly integrity: string;
+}
+export interface PreviousConsumerArtifact {
+  readonly alias: "@pegma/support-desk-application-previous";
+  readonly name: "@pegma/support-desk-application";
+  readonly version: "0.1.1";
+  readonly resolved: string;
+  readonly integrity: string;
+}
+export interface ConsumerReceipt {
+  readonly schemaVersion: 1;
+  readonly synthetic: true;
+  readonly sourceRepository: "pegma-dev/support-desk";
+  readonly sourceCommit: string;
+  readonly candidateVersion: string;
+  readonly artifacts: readonly ConsumerArtifactBinding[];
+  readonly runtime: {
+    readonly node: string;
+    readonly platform: string;
+    readonly arch: string;
+    readonly v8: string;
+  };
+  readonly store: {
+    readonly package: "@pegma/storage-core";
+    readonly version: "0.4.0";
+    readonly adapter: "createMemoryStore";
+    readonly durable: false;
+  };
+  readonly consumers: readonly Readonly<Record<string, unknown>>[];
+}
+export function consumerArtifactBindings(
+  records: readonly ConsumerArtifactRecord[],
+  inventory: readonly ReleasePackageDefinition[],
+): Promise<ConsumerArtifactBinding[]>;
+export function verifyConsumerReceipt(
+  receipt: unknown,
+  options: {
+    readonly sourceCommit: string;
+    readonly records: readonly ConsumerArtifactRecord[];
+    readonly inventory: readonly ReleasePackageDefinition[];
+  },
+): Promise<ConsumerReceipt>;
 export function consumerPlans(
   records: readonly ConsumerPackageRecord[],
   inventory: readonly ReleasePackageDefinition[],
@@ -82,6 +133,7 @@ export function inspectConsumerInstallation(
   packageCount: number;
   optionalAiInstalled: boolean;
   previousApplication: "0.1.1" | null;
+  previousArtifact: PreviousConsumerArtifact | null;
   previousDependencies: readonly {
     name: string;
     version: string;
@@ -90,13 +142,9 @@ export function inspectConsumerInstallation(
 }>;
 export function verifyReleaseConsumers(options: {
   readonly root: string;
+  readonly sourceCommit: string;
   readonly records: readonly ConsumerPackageRecord[];
   readonly inventory: readonly ReleasePackageDefinition[];
   readonly runNpm: typeof runNpm;
   exportSpecifiers(manifest: PublicPackageManifest): readonly string[];
-}): Promise<{
-  schemaVersion: 1;
-  synthetic: true;
-  candidateVersion: string;
-  consumers: readonly Readonly<Record<string, unknown>>[];
-}>;
+}): Promise<ConsumerReceipt>;

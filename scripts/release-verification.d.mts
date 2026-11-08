@@ -48,6 +48,21 @@ export interface ReleasePorts {
       };
   sleep?: (milliseconds: number) => Promise<void>;
 }
+export interface ReleaseFailureDescription {
+  readonly stage: string;
+  readonly code: string;
+  readonly message: string;
+}
+export interface DistTagObservation {
+  readonly name: string;
+  readonly version: string;
+  readonly observedAt: string;
+  readonly tags: Readonly<Record<string, string>>;
+}
+/** Only internally branded static diagnostics survive; external messages are discarded. */
+export function describeReleaseFailure(
+  error: unknown,
+): Readonly<ReleaseFailureDescription>;
 export const RELEASE_REPOSITORY: "pegma-dev/support-desk";
 export const RELEASE_WORKFLOW: ".github/workflows/publish.yml";
 export const RELEASE_ENVIRONMENT: "npm-publish";
@@ -65,7 +80,12 @@ export function preflightRegistry(
 ): Promise<{ name: string; version: string; action: "publish" | "skip" }[]>;
 export function verifyProvenanceAudit(
   audit: unknown,
-  verified: VerifiedRelease,
+  verified: Pick<VerifiedRelease, "identity"> & {
+    readonly packages: readonly Pick<
+      PreparedPackage,
+      "name" | "version" | "integrity"
+    >[];
+  },
 ): void;
 export function assertTrustedPublishingEnvironment(
   env: Record<string, string | undefined>,
@@ -79,6 +99,7 @@ export function verifyRegistryRelease(
   identity: Readonly<ReleaseIdentity>;
   manifestSha256: string;
   packages: string[];
+  distTags: DistTagObservation[];
 }>;
 export function publishRegistryRelease(
   options: PreparedReleaseOptions,

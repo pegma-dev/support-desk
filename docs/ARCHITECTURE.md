@@ -368,24 +368,25 @@ previous limits. All admission remains under the hard partition cap.
 See [declared collections](COLLECTIONS.md#sd-01-handling-and-handoff-layout-checkpoint)
 for row, serialized-byte, and capacity bounds before changing durable work.
 
-Source completion needs its own tests/review. Source `0.1.1` is not the registry
-artifact at that version; SD-06's future release precedes adoption of new
+Source completion needs its own tests/review. The synchronized source `0.2.0`
+candidate is unpublished and distinct from the four base registry `0.1.1`
+artifacts; SD-06's verified release precedes adoption of new
 Support Desk behavior. AUTH-01, KB-04 transport source/SDK proof, partial KB-05
 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
 and both producers' final release preparation are merged. All four KB packages
-and Agent Access now have strictly verified trusted `0.1.1` releases, closing
+now have strictly verified trusted `0.1.2` releases and Agent Access has verified `0.1.1`, closing
 SD-02's producer publication prerequisite. PG-01/RG-01 consume both exact
 verified published producers and retain actual two-host existing-login/Admin consent
 and requested-client proof before activation or pilots. Synthetic proof uses
-no actual customer data and cannot close those host gates. SD-02 is an
-in-progress source candidate; its current-head validation/review and host privacy, operations, full-workflow,
+no actual customer data and cannot close those host gates. The source candidate
+still requires current-head release validation/review; host privacy, operations, full-workflow,
 activation, and pilot gates remain pending. Follow the
 [current implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
 
 ### SD-02 optional coordination candidate
 
-The optional `@pegma/support-desk-ai` package composes exact published KB
-`0.1.1` APIs with five fixed turn operations on the base application. The
+The optional `@pegma/support-desk-ai@0.2.0` candidate composes exact published KB
+`0.1.2` APIs with five fixed turn operations on the base application. The
 application has no KB/provider dependency. Causal signed-in web ingress writes
 bounded `assistant_turn` work in the existing ticket partition with its
 message, Ticket, Audit, receipt, and quota changes. Lease, preparation, and

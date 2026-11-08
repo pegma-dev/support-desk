@@ -10,8 +10,9 @@ packages, in dependency order:
 5. Optional `@pegma/support-desk-ai`
 
 This is release preparation, not a publication receipt. The original four
-package names have published `0.1.0`/`0.1.1` artifacts. Newer source at `0.1.1`
-contains merged SD-01 through SD-05 behavior and must not overwrite those
+package names have published `0.1.0`/`0.1.1` artifacts. Pre-SD-06 source also
+used `0.1.1` while accumulating SD-01 through SD-05 behavior; those additions
+now form the `0.2.0` candidate and must not overwrite existing registry
 versions. The new AI name has a separate registration-only
 [0.1.1 bootstrap](AI_BOOTSTRAP.md); that artifact is not host-usable and is not
 the first advertised synchronized release.
@@ -70,6 +71,13 @@ Do not pass an authenticated token or a stale policy receipt into unprivileged
 preparation; that workflow never publishes and does not verify omitted bypass
 actors. Stable publication retains its separate protected OIDC workflow gates.
 
+The registration-only bootstrap intentionally pins the configured ruleset and
+expected maintainer bypass actor/type/mode in `verifyPublicTagRules` within
+`scripts/ai-bootstrap.mjs`. Authority or ruleset rotation requires reviewed
+code and policy-fixture/test changes together with the live policy update;
+updating `RELEASE_ALLOWED_SIGNERS` alone is insufficient. Keep the independent
+authenticated policy readback even when the visible policy matches that pin.
+
 Before a release is advertised, the current head must pass format, type,
 runtime, real-store integration, and release checks on Node 22 and 24, plus
 required code/security review. The source commands include:
@@ -91,9 +99,13 @@ scenarios from the actual published `0.1.1` application with AI options omitted
 and disabled, plus the optional AI public composition's type/runtime checks.
 It explicitly records that reverse rollback is unproven. Keep this receipt
 outside the strict artifact directory, which contains only the canonical
-manifest and five tarballs. Current receipts must bind their artifacts and
-head; historical SD-05 results do not certify SD-06, and a clean memory consumer
-does not certify a host's durable migration.
+manifest and five tarballs. The receipt binds the source repository/commit,
+each actual candidate archive's name/size/SHA-256/SHA-1/SHA-512 integrity,
+the genuine previous installation's registry URL and lockfile integrity,
+resolved dependencies, actual Node/V8/platform/architecture, and the explicit
+nondurable Storage Core memory adapter. The migration scope is old web records
+only; inbound email is candidate-only. Historical SD-05 results do not certify
+SD-06, and a clean memory consumer does not certify a host's durable migration.
 
 ## Stable tag and workflow
 
@@ -109,6 +121,28 @@ and uploads the immutable prepared inventory. Preserve the artifact ID/digest,
 independently recorded manifest SHA-256, workflow run/attempt, source commit,
 and reviewed tool/workflow identity. An expected digest must not come only
 from the same untrusted downloaded manifest it is supposed to authenticate.
+
+Consumer evidence is retained separately for 30 days in
+`support-desk-consumer-<run_id>-<run_attempt>`. Before uploading it, the prepare
+job independently hashes the receipt's actual bytes and validates its source,
+archive, runtime, and Store bindings against that preparation. Its outputs are
+`consumer-receipt-sha256`, `consumer-artifact-id`, and
+`consumer-artifact-digest`. The job summary records those values beside the
+original release artifact ID/archive SHA-256, independent manifest SHA-256,
+and source tag/commit. Record these independent values before environment
+approval; a digest copied only from a downloaded receipt does not authenticate
+that receipt.
+
+Each Node validation lane also retains its own manifest and receipt for 30
+days in `support-desk-validation-consumer-node<node-version>-<run_id>-<run_attempt>`,
+with the source identity, independent manifest/receipt hashes, and upload
+artifact ID/digest in its summary. Those lane reports supplement the original
+prepare evidence; they do not replace its exact five tarballs. Download the
+separate artifacts by their immutable IDs and check the independently recorded
+archive and file digests before matching receipt bindings to the selected
+commit and archives. Preserve the release evidence under the owner's retention
+policy before Actions retention expires. Missing or mismatched evidence blocks
+approval; an unchanged version string cannot substitute for it.
 
 The strict CLI is:
 
@@ -140,7 +174,8 @@ receipt with the release handoff before changing host pins.
 ## Partial publication and recovery
 
 Keep the release tag, commit, manifest, and tarballs unchanged. Re-run only the
-appropriate trusted workflow jobs:
+failed trusted workflow jobs, retaining the original prepare outputs and both
+the release and consumer-evidence artifacts. Do not re-run all jobs or repack:
 
 - a genuinely absent exact version may be published;
 - an existing identical artifact is verified and skipped;

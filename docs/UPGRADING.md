@@ -46,6 +46,20 @@ the optional AI public composition check. It records
 `emailWriter: "candidate"`, and `reverseRollbackProven: false`. The old SDK
 writes the web records; inbound email is exercised only through the candidate,
 because the published old SDK has no inbound-email processor.
+The receipt binds `sourceRepository`/`sourceCommit` and all five actual archive
+names, sizes, SHA-256, SHA-1, and SHA-512 integrity values, recomputed from the
+bytes. Its base consumer records the genuine previous installation's official
+registry URL and lockfile integrity in `previousArtifact`, alongside its own
+resolved dependency pins. `runtime` records Node/V8, platform, and architecture;
+`store` identifies Storage Core `0.4.0`'s `createMemoryStore` with `durable: false`.
+Compare those bindings with the independently selected commit and prepared
+archives, rather than accepting a matching candidate version alone.
+The stable workflow retains consumer evidence separately from its strict
+six-file release artifact. Keep the independent receipt/manifest hashes and
+both upload IDs/archive digests with the release handoff, and preserve the
+evidence before the workflow's 30-day retention expires. See
+[release retention and recovery](RELEASING.md#stable-tag-and-workflow).
+
 This document does not mark that proof passed. These clean memory-Store
 scenarios do not establish production-store migration or rollback readiness.
 

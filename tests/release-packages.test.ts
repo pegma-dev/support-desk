@@ -53,6 +53,20 @@ function runNpm(arguments_: string[], cwd = process.cwd()): string {
 }
 
 describe("release package metadata", () => {
+  it("rejects the retired publisher before reading any manifest", async () => {
+    expect(await import("../scripts/release-packages.mjs")).not.toHaveProperty(
+      "publishPreparedRelease",
+    );
+    expect(() =>
+      run(process.execPath, [
+        join(process.cwd(), "scripts", "release-packages.mjs"),
+        "publish",
+        "--manifest",
+        join(tmpdir(), "retired-release-manifest-does-not-exist.json"),
+      ]),
+    ).toThrow("release-packages.mjs publish has been removed");
+  });
+
   it("accepts npm's cross-platform argument separator", () => {
     expect(parseArguments(["--", "--output", ".release"])).toEqual({
       output: ".release",

@@ -117,6 +117,53 @@ jobs:
         run: pnpm run release:check
       - name: Pack and import all public artifacts
         run: pnpm run release:pack -- --output .release/ci-check
+      - name: Validate and independently hash the Node consumer evidence
+        id: consumer
+        env:
+          RELEASE_COMMIT: ${{ needs.identity.outputs.commit }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFile, readFile } from "node:fs/promises";
+          import { createHash } from "node:crypto";
+          import { resolve, join } from "node:path";
+          import { RELEASE_PACKAGES } from "./scripts/release-packages.mjs";
+          import { verifyConsumerReceipt } from "./scripts/release-consumers.mjs";
+          const directory = resolve(".release/ci-check");
+          const manifestBytes = await readFile(join(directory, "package-manifest.json"));
+          const manifest = JSON.parse(manifestBytes);
+          const receiptBytes = await readFile(`${directory}-consumer-verification.json`);
+          if (manifest.gitCommit !== process.env.RELEASE_COMMIT) throw new Error("Consumer manifest source mismatch");
+          await verifyConsumerReceipt(JSON.parse(receiptBytes), {
+            sourceCommit: process.env.RELEASE_COMMIT,
+            records: manifest.packages.map(record => ({ ...record, tarballPath: join(directory, record.tarball) })),
+            inventory: RELEASE_PACKAGES,
+          });
+          const digest = bytes => createHash("sha256").update(bytes).digest("hex");
+          await appendFile(process.env.GITHUB_OUTPUT, `receipt-sha256=${digest(receiptBytes)}\nmanifest-sha256=${digest(manifestBytes)}\n`);
+          NODE
+      - name: Retain the Node consumer evidence separately
+        id: consumer-upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: support-desk-validation-consumer-node${{ matrix.node-version }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .release/ci-check-consumer-verification.json
+            .release/ci-check/package-manifest.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 30
+      - name: Record the Node consumer evidence identity
+        env:
+          SOURCE_TAG: ${{ needs.identity.outputs.tag }}
+          SOURCE_COMMIT: ${{ needs.identity.outputs.commit }}
+          NODE_LANE: ${{ matrix.node-version }}
+          MANIFEST_SHA256: ${{ steps.consumer.outputs.manifest-sha256 }}
+          RECEIPT_SHA256: ${{ steps.consumer.outputs.receipt-sha256 }}
+          CONSUMER_ARTIFACT_ID: ${{ steps.consumer-upload.outputs.artifact-id }}
+          CONSUMER_ARTIFACT_DIGEST: ${{ steps.consumer-upload.outputs.artifact-digest }}
+        run: |
+          printf 'Validation Node lane: %s\n\nSource tag: %s\n\nSource commit: %s\n\nIndependent manifest SHA-256: %s\n\nIndependent consumer receipt SHA-256: %s\n\nConsumer evidence artifact ID: %s\n\nConsumer evidence archive SHA-256: %s\n' \
+            "${NODE_LANE}" "${SOURCE_TAG}" "${SOURCE_COMMIT}" "${MANIFEST_SHA256}" "${RECEIPT_SHA256}" "${CONSUMER_ARTIFACT_ID}" "${CONSUMER_ARTIFACT_DIGEST}" >> "${GITHUB_STEP_SUMMARY}"
 
   prepare:
     name: Prepare immutable signed-tag artifacts
@@ -127,6 +174,9 @@ jobs:
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
       artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
       manifest-sha256: ${{ steps.manifest.outputs.sha256 }}
+      consumer-receipt-sha256: ${{ steps.consumer.outputs.sha256 }}
+      consumer-artifact-id: ${{ steps.consumer-upload.outputs.artifact-id }}
+      consumer-artifact-digest: ${{ steps.consumer-upload.outputs.artifact-digest }}
     env:
       RELEASE_TAG: ${{ needs.identity.outputs.tag }}
       RELEASE_COMMIT: ${{ needs.identity.outputs.commit }}
@@ -185,6 +235,31 @@ jobs:
             await verifyPreparedRelease({ manifest: `${process.env.RUNNER_TEMP}/support-desk-prepared/package-manifest.json`, manifestSha256: process.env.RELEASE_MANIFEST_SHA256, releaseTag: process.env.RELEASE_TAG, expectedReleaseCommit: process.env.RELEASE_COMMIT });
           '
           printf 'sha256=%s\n' "${manifest_sha256}" >> "${GITHUB_OUTPUT}"
+      - name: Validate and independently hash the prepared consumer receipt
+        id: consumer
+        env:
+          MANIFEST_SHA256: ${{ steps.manifest.outputs.sha256 }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFile, readFile } from "node:fs/promises";
+          import { createHash } from "node:crypto";
+          import { join } from "node:path";
+          import { RELEASE_PACKAGES } from "./scripts/release-packages.mjs";
+          import { verifyConsumerReceipt } from "./scripts/release-consumers.mjs";
+          const directory = join(process.env.RUNNER_TEMP, "support-desk-prepared");
+          const manifestBytes = await readFile(join(directory, "package-manifest.json"));
+          const digest = bytes => createHash("sha256").update(bytes).digest("hex");
+          if (digest(manifestBytes) !== process.env.MANIFEST_SHA256) throw new Error("Consumer manifest digest mismatch");
+          const manifest = JSON.parse(manifestBytes);
+          if (manifest.gitCommit !== process.env.RELEASE_COMMIT || manifest.releaseTag !== process.env.RELEASE_TAG) throw new Error("Consumer manifest source mismatch");
+          const receiptBytes = await readFile(`${directory}-consumer-verification.json`);
+          await verifyConsumerReceipt(JSON.parse(receiptBytes), {
+            sourceCommit: process.env.RELEASE_COMMIT,
+            records: manifest.packages.map(record => ({ ...record, tarballPath: join(directory, record.tarball) })),
+            inventory: RELEASE_PACKAGES,
+          });
+          await appendFile(process.env.GITHUB_OUTPUT, `sha256=${digest(receiptBytes)}\n`);
+          NODE
       - name: Upload the immutable original release
         id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -194,14 +269,28 @@ jobs:
           if-no-files-found: error
           overwrite: false
           retention-days: 30
+      # Retain detailed migration/AI proof without adding an unauthenticated
+      # seventh file to the original strict release artifact.
+      - name: Retain the prepared consumer receipt separately
+        id: consumer-upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: support-desk-consumer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/support-desk-prepared-consumer-verification.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 30
       - name: Record independent identity for approval and recovery
         env:
           ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
           ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
           MANIFEST_SHA256: ${{ steps.manifest.outputs.sha256 }}
+          RECEIPT_SHA256: ${{ steps.consumer.outputs.sha256 }}
+          CONSUMER_ARTIFACT_ID: ${{ steps.consumer-upload.outputs.artifact-id }}
+          CONSUMER_ARTIFACT_DIGEST: ${{ steps.consumer-upload.outputs.artifact-digest }}
         run: |
-          printf 'Source tag: %s\n\nSource commit: %s\n\nPrepared artifact ID: %s\n\nArtifact SHA-256: %s\n\nIndependent manifest SHA-256: %s\n' \
-            "${RELEASE_TAG}" "${RELEASE_COMMIT}" "${ARTIFACT_ID}" "${ARTIFACT_DIGEST}" "${MANIFEST_SHA256}" >> "${GITHUB_STEP_SUMMARY}"
+          printf 'Source tag: %s\n\nSource commit: %s\n\nPrepared artifact ID: %s\n\nArtifact SHA-256: %s\n\nIndependent manifest SHA-256: %s\n\nIndependent consumer receipt SHA-256: %s\n\nConsumer evidence artifact ID: %s\n\nConsumer evidence archive SHA-256: %s\n' \
+            "${RELEASE_TAG}" "${RELEASE_COMMIT}" "${ARTIFACT_ID}" "${ARTIFACT_DIGEST}" "${MANIFEST_SHA256}" "${RECEIPT_SHA256}" "${CONSUMER_ARTIFACT_ID}" "${CONSUMER_ARTIFACT_DIGEST}" >> "${GITHUB_STEP_SUMMARY}"
 
   publish:
     name: Publish exact prepared artifacts

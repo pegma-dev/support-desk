@@ -33,10 +33,50 @@ const temporaryPrefix = "pegma-support-release-";
 const maximumTarball = 32 * 1024 * 1024;
 const maximumArchive = 128 * 1024 * 1024;
 const sourceRoot = fileURLToPath(new URL("../", import.meta.url));
+const controlledFailures = new WeakSet();
 
-function fail(message) {
-  // Native, registry, environment and package contents can contain credentials.
-  throw new Error(`Release verification: ${message}`);
+function failureStage(message) {
+  if (/argument|expected preflight/u.test(message)) return "arguments";
+  if (/OIDC|publishing requires/u.test(message)) return "publisher";
+  if (/npm CLI|npm command|Node 22/u.test(message)) return "npm";
+  if (/provenance|signatures or/u.test(message)) return "provenance";
+  if (/consumer/u.test(message)) return "consumer";
+  if (/registry/u.test(message)) return "registry";
+  if (/reviewed source|dependencies|public.*export/u.test(message))
+    return "source";
+  if (/archive|tarball/u.test(message)) return "archive";
+  return "prepared";
+}
+function fail(
+  message,
+  stage = failureStage(message),
+  code = message
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "_")
+    .replace(/_$/u, ""),
+) {
+  // Only internal calls with static messages create branded failures. Never
+  // promote an external exception's message/stdout to a diagnostic or code.
+  const error = new Error(`Release verification: ${message}`);
+  Object.defineProperties(error, {
+    name: { value: "ReleaseVerificationError" },
+    stage: { value: stage, enumerable: true },
+    code: { value: code, enumerable: true },
+  });
+  controlledFailures.add(error);
+  throw Object.freeze(error);
+}
+export function describeReleaseFailure(error) {
+  return Object.freeze(
+    controlledFailures.has(error)
+      ? { stage: error.stage, code: error.code, message: error.message }
+      : {
+          stage: "release",
+          code: "unexpected_failure",
+          message:
+            "Release verification failed at an external or unavailable boundary.",
+        },
+  );
 }
 function hash(bytes, algorithm = "sha256", encoding = "hex") {
   return createHash(algorithm).update(bytes).digest(encoding);
@@ -227,7 +267,8 @@ export function inspectReleaseTarball(input) {
       packageJson,
       files: files.sort((left, right) => left.path.localeCompare(right.path)),
     };
-  } catch {
+  } catch (error) {
+    if (controlledFailures.has(error)) throw error;
     fail("invalid or unsupported release tarball");
   }
 }
@@ -281,7 +322,11 @@ export async function verifyPreparedRelease(options = {}) {
     }
     const bytes = await boundedFile(manifestPath, directory, 4 * 1024 * 1024);
     if (!equal(hash(bytes), options.manifestSha256))
-      fail("independent prepared manifest digest does not match");
+      fail(
+        "independent prepared manifest digest does not match",
+        "prepared",
+        "manifest_digest_mismatch",
+      );
     const manifest = JSON.parse(bytes.toString("utf8"));
     if (
       !exactKeys(manifest, [
@@ -441,9 +486,12 @@ export async function verifyPreparedRelease(options = {}) {
       manifestSha256: options.manifestSha256,
       packages,
     });
-  } catch {
+  } catch (error) {
+    if (controlledFailures.has(error)) throw error;
     fail(
       "original prepared release failed digest, source, inventory or archive verification",
+      "prepared",
+      "prepared_verification_failed",
     );
   }
 }
@@ -569,6 +617,50 @@ export async function preflightRegistry(verified, ports = {}) {
     });
   }
   return decisions;
+}
+
+async function observeDistTags(record, fetch_) {
+  const response = await request(
+    `${registry}${encodeURIComponent(record.name)}`,
+    fetch_,
+  );
+  if (response.status !== 200)
+    fail("official registry dist-tag request failed");
+  let metadata;
+  try {
+    metadata = JSON.parse(
+      (await responseBytes(response, 2 * 1024 * 1024)).toString("utf8"),
+    );
+  } catch (error) {
+    if (controlledFailures.has(error)) throw error;
+    fail("official registry dist-tag metadata is invalid");
+  }
+  const tags = metadata?.["dist-tags"];
+  if (
+    metadata?.name !== record.name ||
+    !object(tags) ||
+    Object.keys(tags).length > 32 ||
+    Object.entries(tags).some(
+      ([name, version]) =>
+        !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(name) ||
+        typeof version !== "string" ||
+        version.length === 0 ||
+        version.length > 200 ||
+        /[\u0000-\u0020\u007f-\u009f]/u.test(version),
+    )
+  ) {
+    fail("official registry dist-tags exceed their shape or size bound");
+  }
+  // Tags are mutable observations, not proof of the immutable release version.
+  // A later legitimate release may own latest; never retag or demand otherwise.
+  return {
+    name: record.name,
+    version: record.version,
+    observedAt: new Date().toISOString(),
+    tags: Object.fromEntries(
+      Object.entries(tags).sort(([left], [right]) => left.localeCompare(right)),
+    ),
+  };
 }
 
 export function assertTrustedPublishingEnvironment(env, identity) {
@@ -987,11 +1079,17 @@ export async function verifyRegistryRelease(options = {}, ports = {}) {
   const verified = await verifyPreparedRelease(options);
   for (const record of verified.packages) await confirmRegistry(record, ports);
   await registryConsumer(verified, options, ports);
+  const distTags = [];
+  for (const record of verified.packages)
+    distTags.push(
+      await observeDistTags(record, ports.fetch ?? globalThis.fetch),
+    );
   return {
     verified: true,
     identity: verified.identity,
     manifestSha256: verified.manifestSha256,
     packages: verified.packages.map((record) => record.name),
+    distTags,
   };
 }
 export async function publishRegistryRelease(options = {}, ports = {}) {
@@ -1075,9 +1173,14 @@ if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  main(process.argv.slice(2)).catch(() => {
+  main(process.argv.slice(2)).catch((error) => {
     console.error(
-      "Release verification failed; retain the original artifact and inspect the failed gate before retrying unchanged-tag jobs.",
+      JSON.stringify({
+        error: "release_verification_failed",
+        ...describeReleaseFailure(error),
+        recovery:
+          "Retain the original artifact and diagnose this stage before retrying unchanged-tag failed jobs.",
+      }),
     );
     process.exitCode = 1;
   });
