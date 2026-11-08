@@ -254,6 +254,107 @@ for (const [name, createStore] of learningStores) {
       ).toBe(terminal.ticket.revision);
     });
 
+    it("treats a different stable staff verification reference as new proof and invalidates the prior exact review", async () => {
+      const f = resolutionLearningFixture(createStore());
+      const terminal = await f.terminal();
+      const command: SubmitResolutionEvidenceCommand = {
+        ...f.command("first-stable-staff-proof"),
+        expectedRevision: terminal.ticket.revision,
+        resolutionCycle: terminal.source.resolutionCycle,
+        evidence: {
+          kind: "staff_verified_fix",
+          solutionMessageId: terminal.solutionMessageId,
+          verificationReference: "staging/export-verification-1",
+        },
+      };
+      await f.app.submitResolutionEvidence(staff, command);
+      const reviewed = await f.prepareReviewedTarget();
+      const approved = await f.source();
+      const reviewBinding = {
+        ticketId: "ticket",
+        target: reviewed.target,
+        policyVersion: reviewed.policyVersion,
+      };
+      expect(
+        await f.app.confirmResolutionLearningTargetReview(
+          service,
+          reviewBinding,
+        ),
+      ).toBe(true);
+      f.advance();
+      await f.app.submitResolutionEvidence(staff, {
+        ...command,
+        ...f.command("same-stable-staff-proof"),
+      });
+      expect(await f.source()).toEqual(approved);
+      expect(
+        await f.app.confirmResolutionLearningTargetReview(
+          service,
+          reviewBinding,
+        ),
+      ).toBe(true);
+      const changed: SubmitResolutionEvidenceCommand = {
+        ...command,
+        ...f.command("different-stable-staff-proof"),
+        evidence: {
+          kind: "staff_verified_fix",
+          solutionMessageId: terminal.solutionMessageId,
+          verificationReference: "staging/export-verification-2",
+        },
+      };
+      await f.app.submitResolutionEvidence(staff, changed);
+      const current = await f.source();
+      expect(current).toMatchObject({
+        state: "eligible",
+        resolutionCycle: approved.resolutionCycle,
+        sourceGeneration: approved.sourceGeneration + 1,
+        generationCount: approved.generationCount + 1,
+        productContextFingerprint: approved.productContextFingerprint,
+      });
+      expect(current.evidenceFingerprint).not.toBe(
+        approved.evidenceFingerprint,
+      );
+      expect(current.sourceBindingHash).not.toBe(approved.sourceBindingHash);
+      expect(current.evidence).toMatchObject({
+        verificationReference: "staging/export-verification-2",
+      });
+      expect(
+        (await f.rows()).filter(
+          (row) => row.kind === "resolution_learning_work",
+        ),
+      ).toHaveLength(2);
+      expect(await f.work()).toMatchObject({
+        status: "pending",
+        evidence: { verificationReference: "staging/export-verification-2" },
+      });
+      expect(await f.work("ticket", approved.sourceGeneration)).toMatchObject({
+        evidence: { verificationReference: "staging/export-verification-1" },
+      });
+      expect(
+        await f.app.confirmResolutionLearningSource(
+          service,
+          reviewed.sourceFence,
+        ),
+      ).toBe(false);
+      expect(
+        await f.app.confirmResolutionLearningTargetReview(
+          service,
+          reviewBinding,
+        ),
+      ).toBe(false);
+      expect(
+        (await f.rows()).filter(
+          (row) => row.kind === "resolution_learning_review",
+        ),
+      ).toHaveLength(1);
+      expect(
+        (await f.app.readStaffTicket(staff, "ticket")).ticket.revision,
+      ).toBe(terminal.ticket.revision);
+      const rows = await f.rows();
+      await f.app.submitResolutionEvidence(staff, changed);
+      expect(await f.rows()).toEqual(rows);
+    });
+
     it("accepts only a host-verified relevant execution bound to actor, revision, cycle and exact build", async () => {
       const f = resolutionLearningFixture(createStore());
       const terminal = await f.terminal();
@@ -513,6 +614,87 @@ for (const [name, createStore] of learningStores) {
         ),
       ).toEqual([]);
       expect(f.trust.productCalls).toEqual([]);
+    });
+
+    it("accepts a fresh scoped customer confirmation after enrollment without reinterpreting an old unscoped receipt", async () => {
+      const f = resolutionLearningFixture(createStore());
+      const legacy = f.freshApplication({ resolutionLearning: undefined });
+      await legacy.createCustomerTicket(customer, f.createInput(false));
+      const historicalCommand = {
+        ...f.command("pre-enrollment-confirmation"),
+        lastSeenVisibleMessageId: "initial-ticket",
+      };
+      await legacy.confirmCustomerSuccess(customer, historicalCommand);
+      const historicalRows = await f.rows();
+      const historicalProof = historicalRows.find(
+        (row) => row.kind === "customer_success",
+      );
+      expect(historicalProof).not.toHaveProperty("resolutionCycle");
+      const ticket = (await f.app.readStaffTicket(staff, "ticket")).ticket;
+      await f.app.enrollResolutionLearning(staff, {
+        ...f.command("enroll-after-confirmation"),
+        expectedRevision: ticket.revision,
+      });
+      const enrolledRows = await f.rows();
+      await f.app.confirmCustomerSuccess(customer, historicalCommand);
+      expect(await f.rows()).toEqual(enrolledRows);
+      expect(await f.source()).toMatchObject({
+        state: "unverified",
+        sourceGeneration: 0,
+        resolutionCycle: 1,
+      });
+      expect(f.trust.productCalls).toEqual([]);
+      const freshCommand = {
+        ...f.command("fresh-scoped-confirmation"),
+        lastSeenVisibleMessageId: "initial-ticket",
+      };
+      await f.app.confirmCustomerSuccess(customer, freshCommand);
+      const accepted = await f.source();
+      expect(accepted).toMatchObject({
+        state: "eligible",
+        sourceGeneration: 1,
+        resolutionCycle: 1,
+        generationCount: 1,
+        product: { buildId: "build-verified-230" },
+        evidence: {
+          kind: "customer_confirmation",
+          actorId: customer.principalId,
+          lastVisibleMessageId: "initial-ticket",
+        },
+      });
+      expect(f.trust.productCalls).toHaveLength(1);
+      expect(f.trust.productCalls[0]).toMatchObject({
+        ticketRevision: accepted.acceptedTicketRevision,
+        resolutionCycle: 1,
+        actorId: customer.principalId,
+      });
+      const proofs = (await f.rows()).filter(
+        (row) => row.kind === "customer_success",
+      );
+      expect(proofs).toHaveLength(2);
+      expect(proofs).toEqual(
+        expect.arrayContaining([
+          historicalProof,
+          expect.objectContaining({
+            commandId: freshCommand.commandId,
+            resolutionCycle: 1,
+          }),
+        ]),
+      );
+      expect(
+        (await f.rows()).filter(
+          (row) => row.kind === "resolution_learning_work",
+        ),
+      ).toHaveLength(1);
+      const rows = await f.rows();
+      await f.app.confirmCustomerSuccess(customer, freshCommand);
+      await f.app.confirmCustomerSuccess(customer, {
+        ...freshCommand,
+        ...f.command("same-scoped-proof-new-command"),
+      });
+      expect(await f.rows()).toEqual(rows);
+      expect(await f.source()).toEqual(accepted);
+      expect(f.trust.productCalls).toHaveLength(1);
     });
 
     it("records new verified facts while processing is disabled and retains existing facts without trust ports", async () => {

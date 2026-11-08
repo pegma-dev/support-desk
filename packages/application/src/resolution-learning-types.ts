@@ -73,6 +73,7 @@ export type ResolutionEvidence =
       readonly kind: "staff_verified_fix";
       readonly actorId: PrincipalId;
       readonly solutionMessageId: string;
+      /** Stable explicit proof identity; refreshable product receipts are separate. */
       readonly verificationReference: string;
     }
   | {
@@ -164,6 +165,7 @@ export interface SubmitResolutionEvidenceCommand extends ResolutionLearningComma
     | {
         readonly kind: "staff_verified_fix";
         readonly solutionMessageId: string;
+        /** Stable explicit proof ID; a different verification is new evidence. */
         readonly verificationReference: string;
       }
     | {
@@ -203,7 +205,7 @@ export interface ResolutionLearningClaim {
   readonly messages: readonly {
     readonly messageId: string;
     readonly ordinal: number;
-    readonly speaker: "customer" | "support" | "assistant";
+    readonly speaker: "customer" | "support" | "assistant" | "notification";
     readonly body: string;
   }[];
   readonly workingSolutionMessageIds: readonly string[];

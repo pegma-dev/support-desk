@@ -792,6 +792,65 @@ for (const [name, createStore] of learningStores) {
       expect(observer.calls).toHaveLength(scans);
     });
 
+    it.each(["source invalidation", "work deadline"] as const)(
+      "omits work after %s while retaining physical scan progress and reconciliation hints",
+      async (invalidation) => {
+        const observer = observeAssistantScans(createStore());
+        const f = resolutionLearningFixture(observer.store);
+        await eligible(f);
+        const delivery = await prepareDelivery(f);
+        const prepared = await f.app.prepareResolutionLearningStep(
+          service,
+          delivery.command,
+        );
+        await f.app.finishResolutionLearningWork(service, {
+          ...delivery.owner.fence,
+          stepId: prepared.stepId,
+          requestHash: prepared.requestHash,
+          disposition: "unknown",
+          reason: "remote acceptance still needs reconciliation",
+        });
+        if (invalidation === "source invalidation")
+          await f.app.reopenTicket(
+            staff,
+            f.command("source-invalid-before-candidate-scan"),
+          );
+        else f.advance(300_001);
+        const retained = await f.rows();
+        const candidates: { ticketId: string; sourceGeneration: number }[] = [];
+        const reconciliation: string[] = [];
+        let physicalRows = 0;
+        let cursor: string | undefined;
+        for (
+          let pageNumber = 0;
+          pageNumber < retained.length + 1;
+          pageNumber += 1
+        ) {
+          const page = await f.app.scanResolutionLearningCandidates(service, {
+            limit: 2,
+            ...(cursor === undefined ? {} : { cursor }),
+          });
+          expect(page.physicalRows).toBeLessThanOrEqual(2);
+          expect(page.pages).toBe(1);
+          expect(observer.calls.at(-1)?.cursor).toBe(cursor);
+          candidates.push(...page.candidates);
+          reconciliation.push(...page.reconciliationSources);
+          physicalRows += page.physicalRows;
+          if (page.nextCursor === null) break;
+          cursor = page.nextCursor;
+        }
+        expect(candidates).toEqual([]);
+        expect(physicalRows).toBe(retained.length);
+        expect(reconciliation).toEqual(["ticket"]);
+        expect((await f.source()).reconciliationPending).toBe(true);
+        expect(
+          (await f.work("ticket", delivery.owner.fence.sourceGeneration))
+            .exactRequest,
+        ).toEqual(delivery.exactRequest);
+        expect(await f.rows()).toEqual(retained);
+      },
+    );
+
     it("rejects an adapter candidate whose physical key disagrees with its authoritative ticket identity", async () => {
       const observer = observeAssistantScans(createStore());
       const f = resolutionLearningFixture(observer.store);

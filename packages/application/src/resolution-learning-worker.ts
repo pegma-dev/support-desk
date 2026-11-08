@@ -23,6 +23,7 @@ import {
   assertResolutionLearningRecord,
   maximumResolutionLearningSourceBytes,
   resolutionLearningReviewKey,
+  resolutionLearningSourceKey,
   resolutionLearningWorkKey,
   validateResolutionCandidate,
   validateResolutionRequest,
@@ -379,7 +380,9 @@ export function createResolutionLearningWorkerServices(
                 ? ("customer" as const)
                 : row.message.authorKind === "assistant"
                   ? ("assistant" as const)
-                  : ("support" as const),
+                  : row.message.authorKind === "system"
+                    ? ("notification" as const)
+                    : ("support" as const),
             body: row.message.body,
           },
         ];
@@ -413,25 +416,53 @@ export function createResolutionLearningWorkerServices(
           ? {}
           : { cursor: bounds.cursor as string }),
       });
+      const now = timestamp(clock.now(), "now");
+      const sources = new Map<
+        string,
+        Promise<ResolutionLearningSourceRecord | null>
+      >();
+      const candidates: {
+        readonly ticketId: string;
+        readonly sourceGeneration: number;
+      }[] = [];
+      for (const row of page.records) {
+        if (row.value.kind !== "resolution_learning_work") continue;
+        const work = row.value;
+        if (row.key.partition !== work.ticketId || row.key.id !== work.id)
+          throw new TypeError("Learning scan identity mismatch");
+        if (
+          ["completed", "superseded"].includes(work.status) ||
+          timestamp(work.deadline, "work.deadline") <= now
+        )
+          continue;
+        let pending = sources.get(work.ticketId);
+        if (pending === undefined) {
+          pending = records
+            .get(resolutionLearningSourceKey(work.ticketId))
+            .then((value) => {
+              if (value === null) return null;
+              if (value.kind !== "resolution_learning_source")
+                throw new SupportDeskConflictError(
+                  "Learning source key contains another record",
+                );
+              return value;
+            });
+          sources.set(work.ticketId, pending);
+        }
+        const source = await pending;
+        if (
+          source?.state === "eligible" &&
+          source.sourceGeneration === work.sourceGeneration &&
+          source.resolutionCycle === work.resolutionCycle &&
+          source.sourceBindingHash === work.sourceBindingHash
+        )
+          candidates.push({
+            ticketId: work.ticketId,
+            sourceGeneration: work.sourceGeneration,
+          });
+      }
       return {
-        candidates: page.records
-          .filter(
-            (row) =>
-              row.value.kind === "resolution_learning_work" &&
-              !["completed", "superseded"].includes(row.value.status),
-          )
-          .map((row) => {
-            if (
-              row.value.kind !== "resolution_learning_work" ||
-              row.key.partition !== row.value.ticketId ||
-              row.key.id !== row.value.id
-            )
-              throw new TypeError("Learning scan identity mismatch");
-            return {
-              ticketId: row.key.partition,
-              sourceGeneration: row.value.sourceGeneration,
-            };
-          }),
+        candidates,
         reconciliationSources: page.records.flatMap((row) => {
           if (
             row.value.kind !== "resolution_learning_source" ||
@@ -1046,6 +1077,17 @@ export function createResolutionLearningWorkerServices(
       ) as unknown as typeof input;
       validateFence(command);
       if (
+        (command.stepId === undefined) !==
+        (command.requestHash === undefined)
+      )
+        throw new TypeError(
+          "Learning finish requires both stepId and requestHash",
+        );
+      if (command.stepId !== undefined) {
+        text(command.stepId, "stepId");
+        text(command.requestHash, "requestHash");
+      }
+      if (
         !["retry", "held", "unknown", "superseded"].includes(
           command.disposition,
         )
@@ -1077,6 +1119,17 @@ export function createResolutionLearningWorkerServices(
             command.requestHash !== work.requestHash)
         )
           throw new SupportDeskConflictError("Learning finish step changed");
+        if (
+          command.stepId === undefined &&
+          (work.exactRequest !== undefined ||
+            work.modelAttempts.some(
+              (entry) =>
+                entry.preparedClaimGeneration === command.claimGeneration,
+            ))
+        )
+          throw new SupportDeskConflictError(
+            "Prepared learning work requires its exact step fence",
+          );
         const status = current(loaded, work) ? command.disposition : "held";
         if (
           command.retryAt !== undefined &&

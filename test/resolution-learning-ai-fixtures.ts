@@ -81,9 +81,18 @@ function configuration(now: string): VerifiedLearningConfiguration {
 }
 
 /** Only host/provider ports are fake; every learning row belongs to the real app. */
-export async function resolutionLearningAiFixture(backing: Store) {
+export async function resolutionLearningAiFixture(
+  backing: Store,
+  options: { readonly notificationBody?: string } = {},
+) {
   const support = resolutionLearningFixture(backing);
   const terminal = await support.terminal();
+  if (options.notificationBody !== undefined)
+    await support.app.closeTicket(learningStaff, {
+      ...support.command("close-with-learning-notification"),
+      messageId: "learning-lifecycle-notification",
+      body: options.notificationBody,
+    });
   await support.app.addNote(learningStaff, {
     ...support.command("private-learning-note"),
     messageId: "private-learning-note",

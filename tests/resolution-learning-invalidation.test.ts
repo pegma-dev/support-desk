@@ -651,5 +651,70 @@ for (const [name, createStore] of learningStores) {
         expect(await f.rows()).toEqual(rows);
       },
     );
+
+    it.each([
+      "privacy_withdrawal",
+      "source_access_revoked",
+      "source_deleted",
+    ] as const)(
+      "preserves the permanent %s reason through reopening, customer reply, and fresh resolution",
+      async (reason) => {
+        const f = resolutionLearningFixture(createStore());
+        await f.terminal();
+        await f.confirm();
+        const original = await f.source();
+        await f.app.withdrawResolutionLearningSource(staff, {
+          ...f.command("withdraw-before-later-human-work"),
+          reason,
+        });
+        const withdrawn = await f.source();
+        const remainsWithdrawn = async () => {
+          const source = await f.source();
+          expect(source).toMatchObject({
+            state: "withdrawn",
+            heldReason: reason,
+          });
+          expect(source.evidence).toBeUndefined();
+          expect(source.product).toBeUndefined();
+          expect(source.proofIdentity).toBeUndefined();
+          expect(source.sourceBindingHash).toBeUndefined();
+          expect(
+            await f.app.confirmResolutionLearningSource(
+              service,
+              sourceFence(original),
+            ),
+          ).toBe(false);
+        };
+        await f.app.reopenTicket(staff, f.command("reopen-withdrawn-source"));
+        await remainsWithdrawn();
+        await f.app.resolveTicket(staff, f.command("resolve-withdrawn-source"));
+        await remainsWithdrawn();
+        await f.app.replyToCustomerTicket(customer, {
+          ...f.command("reply-to-withdrawn-resolution"),
+          messageId: "withdrawn-customer-reply",
+          body: "A human still needs to help with the export.",
+        });
+        await remainsWithdrawn();
+        await f.app.resolveTicket(
+          staff,
+          f.command("resolve-withdrawn-source-again"),
+        );
+        await remainsWithdrawn();
+        await f.confirm();
+        await remainsWithdrawn();
+        expect(await f.source()).toMatchObject({
+          resolutionCycle: withdrawn.resolutionCycle + 2,
+          sourceGeneration: withdrawn.sourceGeneration + 2,
+        });
+        expect(
+          (await f.rows()).filter(
+            (row) => row.kind === "resolution_learning_work",
+          ),
+        ).toHaveLength(1);
+        expect(
+          (await f.app.readCustomerTicket(customer, "ticket")).ticket.status,
+        ).toBe("resolved");
+      },
+    );
   });
 }

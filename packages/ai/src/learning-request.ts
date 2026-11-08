@@ -154,7 +154,9 @@ export function learningInputManifest(
     if (
       ids.has(message.messageId) ||
       message.ordinal <= previous ||
-      !["customer", "support", "assistant"].includes(message.speaker)
+      !["customer", "support", "assistant", "notification"].includes(
+        message.speaker,
+      )
     )
       throw new AssistantBoundaryError("invalid_conversation");
     previous = message.ordinal;

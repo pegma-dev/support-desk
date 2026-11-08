@@ -421,8 +421,17 @@ export function validateResolutionCandidate(
     "solution",
     "validationRequirements",
   ]);
-  text(candidate.problem, "candidate.problem", 4_000);
-  text(candidate.solution, "candidate.solution", 8_000);
+  const contentText = (entry: unknown, name: string, maximum: number): void => {
+    if (
+      typeof entry !== "string" ||
+      entry.trim().length === 0 ||
+      entry.length > maximum ||
+      /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(entry)
+    )
+      throw new TypeError(`${name} must be bounded nonempty content text`);
+  };
+  contentText(candidate.problem, "candidate.problem", 4_000);
+  contentText(candidate.solution, "candidate.solution", 8_000);
   const applicability = fields(
     candidate.applicability,
     "candidate applicability",
@@ -432,7 +441,7 @@ export function validateResolutionCandidate(
     text(applicability[key], `candidate.${key}`);
   for (const key of ["steps", "validationRequirements"])
     for (const item of dataArray(candidate[key], `candidate.${key}`, 16))
-      text(item, `candidate.${key} item`, 2_000);
+      contentText(item, `candidate.${key} item`, 2_000);
   if (encodedBytes(value) > resolutionLearningCandidateBytes)
     throw new TypeError("candidate exceeds 16000 serialized bytes");
 }
@@ -472,7 +481,13 @@ export function validateResolutionRequest(
   for (const key of ["articleId", "collectionId", "commandId", "correlationId"])
     text(request[key], `request.${key}`);
   text(request.draftPayload, "draftPayload", 24_000);
-  dataObject(JSON.parse(request.draftPayload as string), "draft payload");
+  let draft: unknown;
+  try {
+    draft = JSON.parse(request.draftPayload as string) as unknown;
+  } catch {
+    throw new TypeError("draftPayload must contain valid JSON");
+  }
+  dataObject(draft, "draft payload");
   integer(request.originalExpectedGeneration, "originalExpectedGeneration", 0);
   if (
     request.operation === "create" &&
@@ -606,6 +621,19 @@ export function assertResolutionLearningRecord(
     )
       throw new TypeError("invalid learning source");
     text(row.sourceId, "sourceId");
+    for (const name of [
+      "heldReason",
+      "proofIdentity",
+      "sourceBindingHash",
+      "evidenceFingerprint",
+      "productContextFingerprint",
+    ])
+      if (row[name] !== undefined) text(row[name], name);
+    if (row.pendingProofReference !== undefined)
+      text(row.pendingProofReference, "pendingProofReference", 208);
+    if (row.acceptedTicketRevision !== undefined)
+      integer(row.acceptedTicketRevision, "acceptedTicketRevision", 1);
+    if (row.resolvedAt !== undefined) timestamp(row.resolvedAt, "resolvedAt");
     integer(row.generationCount, "generationCount", 0, 8);
     timestamp(row.updatedAt, "updatedAt");
     integer(row.reviewBindingCount, "reviewBindingCount", 0, 64);
@@ -739,6 +767,38 @@ export function assertResolutionLearningRecord(
     )
       throw new TypeError("invalid learning work");
     text(row.sourceBindingHash, "sourceBindingHash");
+    for (const name of [
+      "heldReason",
+      "stepId",
+      "requestHash",
+      "candidateHash",
+      "verifiedCheckReceipt",
+      "checkPolicyVersion",
+      "targetDecisionHash",
+    ])
+      if (row[name] !== undefined) text(row[name], name);
+    for (const name of ["lastCompletion", "lastFinish"])
+      if (row[name] !== undefined) {
+        const receipt = fields(row[name], name, ["fingerprint"]);
+        text(receipt.fingerprint, `${name}.fingerprint`);
+      }
+    if (row.acknowledgement !== undefined) {
+      const acknowledgement = fields(row.acknowledgement, "acknowledgement", [
+        "id",
+        "generation",
+        "articleRevision",
+        "contentHash",
+        "state",
+      ]);
+      for (const name of ["id", "contentHash", "state"])
+        text(acknowledgement[name], `acknowledgement.${name}`);
+      integer(acknowledgement.generation, "acknowledgement.generation", 1);
+      integer(
+        acknowledgement.articleRevision,
+        "acknowledgement.articleRevision",
+        1,
+      );
+    }
     integer(row.acceptedTicketRevision, "acceptedTicketRevision", 1);
     integer(row.claimGeneration, "claimGeneration", 0);
     timestamp(row.deadline, "deadline");

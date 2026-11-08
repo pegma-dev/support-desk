@@ -51,10 +51,10 @@ been published. Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial
 KB-05 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
 and both producers' final release preparation are merged. The four KB packages
 and `@pegma/agent-access` now have verified trusted `0.1.1` registry releases;
-the KB-05 publication prerequisite for SD-02 is closed. SD-02 is an in-progress
-source candidate adding optional `@pegma/support-desk-ai` coordination and
-bounded ticket-partition turn jobs. It has not passed its current-head
-validation/review gates or been published. PG-01/RG-01 consume exact published
+the KB-05 publication prerequisite for SD-02 is closed. SD-02's optional
+`@pegma/support-desk-ai` coordinator and bounded ticket-partition turn jobs
+are merged in [PR #38](https://github.com/pegma-dev/support-desk/pull/38)
+after review and validation. They remain unpublished. PG-01/RG-01 consume exact published
 producers and still require actual existing-login/Admin consent and
 requested-client proof before activation or pilots. Synthetic SDK/source proof uses no actual customer data
 and does not close host privacy, operations, full-workflow, or pilot gates.
@@ -69,6 +69,12 @@ for merged-source evidence and the remaining release and activation gates.
 The [P-00 handoff](docs/KNOWLEDGE_AI_P00.md) supplies the package baseline,
 synthetic evaluation fixtures, capacity checks, and prerequisites for implementation.
 Passing that harness does not establish a working KB, bot, or host deployment.
+
+SD-03 is an in-progress source candidate for opt-in resolution learning.
+Its ticket-side evidence, exact review, withdrawal, and recovery contracts
+preserve human support and permanent privacy withdrawal capacity. See the
+[resolution learning guide](docs/RESOLUTION_LEARNING.md) for permissions,
+storage reserves, implemented boundaries, and the remaining KB delivery work.
 
 ## How the pieces fit
 
@@ -218,6 +224,7 @@ pnpm run format:check
 - [Declared collections](docs/COLLECTIONS.md)
 - [Host composition](docs/HOST_COMPOSITION.md)
 - [Assistant coordination](docs/ASSISTANT_COORDINATION.md)
+- [Resolution learning](docs/RESOLUTION_LEARNING.md)
 - [Release notes](docs/RELEASE_NOTES.md)
 - [Releasing](docs/RELEASING.md)
 

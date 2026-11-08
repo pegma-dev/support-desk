@@ -181,7 +181,10 @@ export async function planResolutionLearningTicketMutation(
     sourceGeneration: source.value.sourceGeneration + 1,
     workGeneration: source.value.workGeneration + 1,
     state: source.value.state === "withdrawn" ? "withdrawn" : "held",
-    heldReason: "reopened",
+    heldReason:
+      source.value.state === "withdrawn"
+        ? (source.value.heldReason ?? "withdrawn")
+        : "reopened",
     updatedAt: after.updatedAt,
     reconciliationPending: source.value.destinations.length > 0,
     destinations: source.value.destinations.map((entry) => ({
@@ -232,7 +235,8 @@ function heldSource(
         : source.state === "withdrawn"
           ? "withdrawn"
           : "held",
-    heldReason: reason,
+    heldReason:
+      source.state === "withdrawn" ? (source.heldReason ?? reason) : reason,
     updatedAt: now,
     workGeneration: source.workGeneration + 1,
     ...(pending === undefined ? {} : { pendingProofReference: pending }),
@@ -305,6 +309,7 @@ async function evidencePlan(
             kind: evidence.kind,
             actorId: evidence.actorId,
             solutionMessageId: evidence.solutionMessageId,
+            verificationReference: evidence.verificationReference,
           }
         : {
             kind: evidence.kind,

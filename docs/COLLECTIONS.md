@@ -310,8 +310,8 @@ privacy withdrawal: it advances source generation, holds work, and durably
 requests reassessment without privacy scrubbing.
 
 `ResolutionSourceFence` identifies `ticketId`, `resolutionCycle`,
-`sourceGeneration`, `evidenceId`, `evidenceFingerprint`, and
-`productContextFingerprint`. Evidence retains its accepted ticket revision and
+`sourceGeneration`, and `sourceBindingHash`. The hash binds the accepted
+evidence and trusted product fingerprints. Evidence retains its accepted ticket revision and
 resolution time as facts. Current eligibility additionally requires a terminal
 ticket in that same cycle, the exact current source/evidence/product binding,
 and no withdrawal. An unrelated metadata revision does not turn old evidence
@@ -351,11 +351,17 @@ durable learning work pending without preventing human support.
 A genuinely duplicate resolution proof within the same cycle/product binding
 does not advance source generation or create another job. Customer proof
 identity includes the authenticated owner and last-visible-message ID; test
-identity includes the trusted execution receipt. Stable semantic proof identity
+identity includes the trusted execution identity. Stable semantic proof identity
 uses cycle, stable product identity and stable test execution identity; it
 excludes acceptance timestamps and refreshed attestation receipt IDs. It is
 distinct from command identity. Exact command replay continues to return
 the already accepted result, subject to current authorization.
+For a staff-verified fix, `verificationReference` is the stable explicit proof
+ID and participates in semantic identity: the same reference coalesces, while
+a different verification reference creates a new generation. It is separate
+from refreshable product/test attestation receipt IDs. A permanently withdrawn
+source preserves its original privacy/access/deletion reason across reopening,
+re-resolution, and later held confirmation attempts.
 
 #### Records, rows, and the human reserve
 
@@ -443,6 +449,17 @@ transaction callback:
 | `confirmResolutionLearningTargetReview`                                          | Service-only exact keyed target/policy review confirmation plus current source authority; independent of processing switches.                                                                                                     |
 | `readResolutionLearningReconciliation`, `recordResolutionLearningReconciliation` | Service-only least-data destination view and in-place closed reconciliation result under source-generation/work-generation and destination step/hash fences; work remains usable after deletion of the ticket body.               |
 
+Candidate scans omit expired work deadlines and work whose authoritative source
+is missing, ineligible, or no longer matches its generation/cycle/binding. A
+per-call cache reads at most one current source key per ticket represented by
+work on the physical page; cache entries and extra source reads cannot exceed
+that page's physical row count. Every adapter row still counts before filtering,
+and the original opaque continuation is preserved. Current claimed/prepared
+work remains a hint subject to authoritative claim checks. Omitted historical
+work and unknown writes remain stored; filtering invents no terminal receipt.
+Separate `reconciliationSources` discovery remains available for pending
+destination work after generation expiry or source withdrawal.
+
 The common work key is `{ ticketId, sourceGeneration }`.
 `ResolutionLearningClaimFence` adds worker ID, claim ID, and monotonic claim
 generation. Server-returned claim metadata binds the cycle/source fingerprint,
@@ -459,6 +476,10 @@ fingerprint; unknown model accounting and unknown KB acceptance remain distinct.
 Finishing work before a step was prepared updates no earlier attempt's
 accounting. An explicit step/hash can affect only its owning invocation's
 processing data; a replacement claim cannot overwrite previously known usage.
+Step ID and request hash must be supplied together. A step-less finish cannot
+cancel a model preparation owned by that same live claim or any exact prepared
+KB delivery; a later claim with only an older model attempt may still finish
+its own pre-preparation budget/failure path without altering that old attempt.
 External calls occur outside Store retry loops. Current permission checks also
 protect historical receipt replay.
 
@@ -492,7 +513,10 @@ inheritance, Agent Access scope, or local-agent publication authority is added.
 Source references, evidence, customer identity, reviewer details, and remote
 reconciliation metadata remain private. The learning model receives only the
 bounded customer-visible conversation and relevant visible solution content;
-internal notes and private provenance/evidence metadata are excluded. Learning
+internal notes and private provenance/evidence metadata are excluded.
+Customer-visible system-authored text is labeled `notification` in the
+conversation data, distinct from staff `support` text; it never becomes a
+trusted model system-role instruction. Learning
 processing requires its own current verified data controls and purpose binding;
 the existing `support_answer` request contract is unchanged.
 

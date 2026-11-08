@@ -454,6 +454,50 @@ for (const [name, createStore] of handlingStores) {
       expect(await f.rows()).toEqual(before);
     });
 
+    it("requires the full prepared model step fence when its owning claim finishes", async () => {
+      const f = resolutionLearningFixture(createStore());
+      const owner = await claim(f, await eligible(f));
+      const prepared = await f.app.prepareResolutionLearningStep(service, {
+        ...owner.fence,
+        step: "model",
+        binding: f.modelBinding(owner),
+      });
+      const command = {
+        ...owner.fence,
+        disposition: "retry" as const,
+        accounting: "not_called" as const,
+        retryAt: f.clock.now(),
+      };
+      const before = await f.rows();
+      for (const incompleteFence of [
+        {},
+        { stepId: prepared.stepId },
+        { requestHash: prepared.requestHash },
+      ]) {
+        await expect(
+          f.app.finishResolutionLearningWork(service, {
+            ...command,
+            ...incompleteFence,
+          }),
+        ).rejects.toThrow();
+        expect(await f.rows()).toEqual(before);
+      }
+      await f.app.finishResolutionLearningWork(service, {
+        ...command,
+        ...stepFence(prepared),
+      });
+      const work = await f.work();
+      expect(work.status).toBe("retry");
+      expect(work.claim).toBeUndefined();
+      expect(work.modelAttempts).toEqual([
+        expect.objectContaining({
+          stepId: prepared.stepId,
+          requestHash: prepared.requestHash,
+          accounting: "not_called",
+        }),
+      ]);
+    });
+
     it("keeps earlier accounted model work intact when a later exhausted claim finishes without a step", async () => {
       const f = resolutionLearningFixture(createStore(), {
         resolutionLearning: { maxModelAttempts: 1 },
@@ -640,6 +684,22 @@ for (const [name, createStore] of handlingStores) {
       expect(second.work.stepId).toBe(delivery.prepared.stepId);
       expect(second.work.requestHash).toBe(delivery.prepared.requestHash);
       expect(second.work.modelAttempts).toHaveLength(1);
+      const reclaimed = await f.rows();
+      for (const incompleteFence of [
+        {},
+        { stepId: delivery.prepared.stepId },
+        { requestHash: delivery.prepared.requestHash },
+      ]) {
+        await expect(
+          f.app.finishResolutionLearningWork(service, {
+            ...second.fence,
+            ...incompleteFence,
+            disposition: "unknown",
+            reason: "replacement claim must name the prepared KB operation",
+          }),
+        ).rejects.toThrow();
+        expect(await f.rows()).toEqual(reclaimed);
+      }
       expect(
         await f.app.prepareResolutionLearningStep(service, {
           ...delivery.command,

@@ -3,10 +3,12 @@ import type { Store } from "@pegma/storage-core";
 import { createHash } from "node:crypto";
 import {
   createSupportDeskApplication,
+  resolutionLearningDeliveryBinding,
   supportPermissions,
   type ResolutionLearningCandidate,
   type ResolutionLearningChecksBinding,
   type ResolutionLearningClaim,
+  type ResolutionLearningDeliveryRequest,
   type ResolutionLearningModelBinding,
   type ResolutionLearningOptions,
   type ResolutionLearningTarget,
@@ -427,6 +429,100 @@ export function resolutionLearningFixture(
         candidate,
         work,
         candidateHash: acknowledgement.candidateHash!,
+      };
+    },
+    async prepareReviewedTarget() {
+      const proposal = await this.prepareCandidate();
+      const owner = await this.claim("review-delivery-claim");
+      const currentSource = await source();
+      const exactRequest: ResolutionLearningDeliveryRequest = {
+        operation: "create",
+        articleId: "synthetic-reviewed-export",
+        collectionId: "synthetic-customer-help",
+        draftPayload: JSON.stringify(proposal.candidate),
+        sourceReferences: [
+          {
+            id: currentSource.sourceId,
+            system: "pegma.support-desk",
+            resourceId: "ticket",
+            version: owner.sourceFence.sourceBindingHash,
+          },
+        ],
+        originalExpectedGeneration: 0,
+        commandId: "synthetic-reviewed-target-create",
+        correlationId: "synthetic-reviewed-target",
+      };
+      const targetDecisionHash = "d".repeat(64);
+      const binding = await resolutionLearningDeliveryBinding({
+        candidateHash: proposal.candidateHash,
+        sourceBindingHash: owner.sourceFence.sourceBindingHash,
+        policyVersion: currentPolicyVersion,
+        targetDecisionHash,
+        applicability: proposal.candidate.applicability,
+        exactRequest,
+      });
+      const verifiedCheckReceipt = "synthetic-reviewed-target-checks";
+      this.trust.issueChecks(verifiedCheckReceipt, binding);
+      const prepared = await f.app.prepareResolutionLearningStep(
+        learningService,
+        {
+          ...owner.fence,
+          step: "kb_delivery",
+          candidateHash: proposal.candidateHash,
+          verifiedCheckReceipt,
+          policyVersion: currentPolicyVersion,
+          targetDecisionHash,
+          exactRequest,
+        },
+      );
+      const referencesHash = createHash("sha256")
+        .update(canonicalJson(exactRequest.sourceReferences))
+        .digest("hex");
+      const target: ResolutionLearningTarget = {
+        articleId: exactRequest.articleId,
+        collectionId: exactRequest.collectionId,
+        articleRevision: 1,
+        contentHash: proposal.candidateHash,
+        sourceSnapshotGeneration: 1,
+        sourceSnapshotHash: referencesHash,
+        orderedReferencesHash: referencesHash,
+      };
+      this.trust.setTarget(target);
+      await f.app.completeResolutionLearningStep(
+        learningService,
+        {
+          ...owner.fence,
+          step: "kb_delivery",
+          stepId: prepared.stepId,
+          requestHash: prepared.requestHash,
+          historicalAck: {
+            id: target.articleId,
+            generation: 1,
+            articleRevision: target.articleRevision,
+            contentHash: target.contentHash,
+            state: "draft",
+          },
+          currentTargetBinding: target,
+        },
+        this.trust.targetGuard(target),
+      );
+      const work = await this.work();
+      await f.app.reviewResolutionLearningProposal(
+        learningStaff,
+        {
+          ...f.command("review-target"),
+          sourceGeneration: owner.fence.sourceGeneration,
+          expectedWorkGeneration: work.workGeneration,
+          target,
+          decision: "approve",
+          policyVersion: currentPolicyVersion,
+        },
+        this.trust.targetGuard(target),
+      );
+      return {
+        target,
+        policyVersion: currentPolicyVersion,
+        sourceFence: owner.sourceFence,
       };
     },
   };

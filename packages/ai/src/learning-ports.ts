@@ -112,7 +112,8 @@ export interface LearningCheckPolicyPort {
 export interface LearningModelInput {
   readonly trustedInstructions: string;
   readonly messages: readonly {
-    readonly speaker: "customer" | "support" | "assistant";
+    /** Labels untrusted data; notification is never a provider system role. */
+    readonly speaker: "customer" | "support" | "assistant" | "notification";
     readonly text: string;
   }[];
   readonly workingSolution: readonly string[];
