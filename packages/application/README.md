@@ -12,7 +12,7 @@ without model generation or a KB dependency; source review/tests determine
 completion. Host adoption requires the later synchronized SD-06 release and
 activation gates, not a source checkout or overwritten registry version.
 
-SD-02's in-progress source candidate adds opt-in `assistantTurns` and the
+SD-02's merged source adds opt-in `assistantTurns` and the
 `AssistantTurnApplication` methods `scanAssistantTurnCandidates`,
 `claimAssistantTurn`, `prepareAssistantTurnAttempt`, `completeAssistantTurn`,
 and `finishAssistantTurnAttempt`. These keep bounded causal turn work beside
@@ -24,6 +24,15 @@ ambiguous commits, and request-person/takeover remain provider-independent.
 See the [layout checkpoint](../../docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
 and [coordination guide](../../docs/ASSISTANT_COORDINATION.md). Current-head
 tests/review and future verified SD-06 publication remain required.
+
+SD-03's in-progress source adds opt-in `resolutionLearning` and fixed evidence,
+work, exact staff review, withdrawal, and reconciliation operations. The
+[resolution learning guide](../../docs/RESOLUTION_LEARNING.md) documents the
+`support.learning.*` permissions, trusted evidence ports, 13-row human reserve
+plus two withdrawal rows, and source retention requirements. The public AI
+learning coordinator and KB delivery integration live in the optional AI
+package. Current-head validation and review remain required. This application
+package still has no KB or model-provider dependency.
 
 Customer create uses `support.ticket.create`; list and read both use the
 documented `support.ticket.read.own` permission and then confirm authoritative

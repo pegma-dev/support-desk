@@ -3,13 +3,21 @@
 Optional, provider-neutral coordination for signed-in web Support Desk answers.
 This source candidate is `0.1.1`; it has not been published. A synchronized
 Support Desk release is required before host adoption. Its KB dependencies are
-the exact published `0.1.1` application and contracts packages.
+the exact verified published `0.1.2` application and contracts packages.
 
 The base Support Desk application works without this package, a KB, or a model.
 Customer request-person and staff takeover remain deterministic application
 commands during provider outages. Email remains human support. This package
-only answers or escalates; it cannot resolve tickets, change accounts, publish
-knowledge, execute tools, or route engineering work.
+provides separate answer and resolution-learning coordinators. Answering only
+replies or escalates. Learning prepares private KB drafts and reconciles source
+withdrawal through separate retirement authority. Neither coordinator resolves
+tickets, changes accounts, publishes knowledge, or routes engineering work.
+
+`createSupportDeskLearning` and `createSupportDeskLearningSourceVerifier` are
+the SD-03 source candidate. See the
+[resolution learning guide](../../docs/RESOLUTION_LEARNING.md) for exact proof,
+permission, draft, review, privacy, and recovery boundaries. Current-head
+validation and review still precede completion; host adoption requires SD-06.
 
 ## Composition
 

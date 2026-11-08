@@ -270,6 +270,469 @@ memory/Azurite tests with the actual KB and a fake model, current-head Node
 22/24 gates, and code/security review remain pending while implementation is
 in progress. No source result closes host privacy, Task 12, or pilot gates.
 
+### SD-03 resolution-learning layout and API checkpoint
+
+This checkpoint records the agreed design before SD-03 production changes.
+It is not implementation, validation, publication, or host activation evidence.
+SD-03 extends this ticket partition and the optional AI coordinator; the base
+application acquires no KB or provider dependency. KB's merged `0.1.2` producer
+work became consumable after its exact public artifacts, signatures,
+provenance, and clean consumer were verified in
+[release run 42436081951](https://github.com/pegma-dev/knowledge-base/actions/runs/42436081951).
+The optional delivery adapter now pins the verified public `0.1.2` producers;
+current Support Desk integration validation and review remain separate gates.
+
+#### Enrollment, source authority, and evidence
+
+Learning is a separate host opt-in from assistant answering. An enrolled ticket
+has exactly one `learning-source` row (`resolution_learning_source`). A
+learning-enabled create preallocates this row with the ticket, quota, first
+message, Audit, and receipt. An existing ticket requires an explicit authorized
+enrollment command under ordinary admission; configuration does not reinterpret
+old success receipts or silently enroll historical tickets. No historical
+confirmation becomes eligible merely because learning was enabled later.
+
+The source row owns its resolution cycle, monotonic source generation, current
+eligibility, current evidence binding, and bounded destination/reconciliation
+metadata. It begins at cycle one. A resolved/closed-to-active transition advances
+the cycle and source generation, invalidates the prior proof, and holds derived
+work. Closing retains the cycle; assignment, priority, tags, and internal notes
+do not create a new cycle. New accepted evidence, a changed trusted product
+binding, and withdrawal advance source generation. Worker leases, attempts,
+receipts, and review metadata never advance Ticket domain revision.
+
+Assistant/learning kill switches and provider/configuration outages control new
+processing, not the truth of already accepted working facts or approved KB
+guidance. Source eligibility is governed by source facts, explicit invalidation,
+withdrawal, exact review, and current resource authority independently of those
+switches. Product/test receipt validity authenticates acceptance as of the proof
+time; historical working facts do not silently expire just because the receipt
+is now old. An explicit `invalidateResolutionEvidence` command distinguishes
+`evidence_revoked`, `product_binding_revoked`, and `check_policy_revoked` from
+privacy withdrawal: it advances source generation, holds work, and durably
+requests reassessment without privacy scrubbing.
+
+`ResolutionSourceFence` identifies `ticketId`, `resolutionCycle`,
+`sourceGeneration`, and `sourceBindingHash`. The hash binds the accepted
+evidence and trusted product fingerprints. Evidence retains its accepted ticket revision and
+resolution time as facts. Current eligibility additionally requires a terminal
+ticket in that same cycle, the exact current source/evidence/product binding,
+and no withdrawal. An unrelated metadata revision does not turn old evidence
+into new evidence or invalidate an otherwise unchanged cycle.
+
+`ResolutionEvidence` is a closed union:
+
+- Authenticated customer confirmation: the application derives the owner,
+  accepted revision/time, and exact last-visible-message proof through the
+  existing owned confirmation command.
+- Staff-verified fix: a currently authorized staff principal explicitly
+  verifies a solution bound to immutable customer-visible solution message
+  references and the current resolution/product fence.
+- Successful relevant test: an opaque execution receipt is verified by the
+  trusted host against the submitting actor, runner, relevant test, result,
+  execution time, current resolution fence, and exact product/version/build.
+
+Resolved status, inactivity, model assertions, a customer's claimed build, and
+a submitted `passed` string are insufficient. `ResolutionProductContextPort`
+supplies trusted product ID, version, build ID, context version, verification
+receipt, and validity times bound to the exact ticket revision/cycle. The
+separate `ResolutionTestReceiptPort` verifies test execution; it does not run
+arbitrary code or fetch submitted URLs. Both ports receive content-free bound
+facts and opaque references, have bounded waits, and are safe to call again.
+
+Missing/unavailable product or test trust, disabled learning, and saturated
+learning capacity must preserve customer confirmation, ordinary resolution,
+replies, and human handoff. The causal human transaction still records its
+normal proof, Audit, and receipt. An existing source row records a compact held
+reason and current proof reference, without partially accepting eligible
+evidence or inserting a partial job. A later eligibility decision requires
+fresh current-cycle verification and its own atomic evidence/work/Audit/receipt
+transaction. It cannot infer a historical product build from current settings
+or promote an old-cycle confirmation. Provider or KB outages leave accepted
+durable learning work pending without preventing human support.
+
+A genuinely duplicate resolution proof within the same cycle/product binding
+does not advance source generation or create another job. Customer proof
+identity includes the authenticated owner and last-visible-message ID; test
+identity includes the trusted execution identity. Stable semantic proof identity
+uses cycle, stable product identity and stable test execution identity; it
+excludes acceptance timestamps and refreshed attestation receipt IDs. It is
+distinct from command identity. Exact command replay continues to return
+the already accepted result, subject to current authorization.
+For a staff-verified fix, `verificationReference` is the stable explicit proof
+ID and participates in semantic identity: the same reference coalesces, while
+a different verification reference creates a new generation. It is separate
+from refreshable product/test attestation receipt IDs. A permanently withdrawn
+source preserves its original privacy/access/deletion reason across reopening,
+re-resolution, and later held confirmation attempts.
+
+#### Records, rows, and the human reserve
+
+| Record                                                                | Durable contents and boundary                                                                                                                                                                                                                                            |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `learning-source`                                                     | Constant versioned authority row; current cycle/generation/evidence/product fence, held/withdrawn state, bounded target article registry/review-binding counter, and minimal pending reconciliation. No conversation body.                                               |
+| `resolution-learning:<sourceGeneration>` (`resolution_learning_work`) | One evidence plus durable learning job for a genuinely new eligible generation. Immutable source fence, structured proof, compact input manifest, bounded model attempts, unapproved generalized candidate, fixed KB delivery request/receipt states, and fenced claims. |
+| Existing `success:<commandId>`                                        | Preserved customer confirmation proof and compatibility read behavior. Learning does not replace it or expose its private fields to customers.                                                                                                                           |
+| Audit and command receipt                                             | Evidence acceptance, enrollment, withdrawal, and staff review commit their causal Audit/receipt in the same ticket partition. Existing human changes keep their causal Audit/receipt.                                                                                    |
+| `learning-review:<bindingHash>`                                       | Authoritative latest staff decision for an exact source generation/binding, actual KB target binding, and policy. Historical publication approvals survive separate reviews of newer unpublished drafts.                                                                 |
+
+Accepted eligibility, its one generation job, source update, Audit, and receipt
+share one transaction. The source is read with `getVersioned` on every conflict
+attempt; a `list` value is insufficient for its conditional replacement.
+Standalone evidence/worker transactions conditionally rewrite the unchanged
+ticket where needed to serialize with lifecycle changes, without inventing a
+domain transition or increasing its revision. Job/claim changes use the source
+and work versions for their own fencing.
+
+The preallocated source adds one physical row to create admission. With durable
+assistant turns and learning enabled, creation needs at least eight rows plus
+the reserve without mail, or nine plus the reserve with mail. Legacy enrollment
+adds source, Audit, and receipt under ordinary admission. An eligible customer
+confirmation now adds four rows: existing success proof, generation work,
+Audit, and receipt. A held confirmation adds the existing three and changes its
+source in place. Standalone eligible evidence adds work, Audit, and receipt.
+
+For enrolled assistant-managed tickets, the reserve is explicitly re-budgeted
+to **13 physical rows and one human message** before the first staff response:
+handoff three, takeover two, eligible confirmation four, first human reply with
+delivery four. Handling controls must preserve the four-row/one-message reply
+tail. Unenrolled assistant tickets retain the existing 12-row reserve. This
+changes neither the host's configured partition cap nor its allowed maximum
+(current default 512, configurable maximum 2,000). Every physical row counts
+before filtering. Additional cycles remain finite and can exhaust the ordinary
+documented capacity limits; learning cannot consume the reserved human tail.
+
+Every enrolled, nonwithdrawn source additionally retains **two separate rows**
+for permanent privacy/access/deletion withdrawal's Audit and receipt. Ordinary,
+learning, handling, and first-human-reply admission preserve these rows;
+permanent withdrawal consumes them. An enrolled assistant create therefore
+needs at least 8 + 13 + 2 = 23 rows without mail, or 9 + 13 + 2 = 24 with mail.
+A nonassistant enrolled create also preserves the withdrawal reserve. Already
+withdrawn sources cannot silently re-enroll/reactivate, and repeated/no-op
+withdrawal adds no rows. Nonprivacy evidence/policy invalidations use ordinary
+finite capacity and can explicitly fail; a failed command has not revoked the
+source. There is no partial revocation claim.
+
+One private ticket-mutation planner owns the single ticket CAS plus any source
+invalidation actions and reports exact net added rows. Admission occurs after
+the final updated ticket is known, using that total. All five executors use the
+same terminal-before/active-after predicate:
+
+1. Handling changes, including request-person on a terminal ticket.
+2. Customer web reply, after any second `human_escalated` transition.
+3. Staff public reply.
+4. Staff lifecycle changes, including explicit reopen.
+5. Inbound email append.
+
+Each storage retry reloads and recomputes the plan. No executor adds a second
+action for the ticket or source key. Inbound admission failures retain their
+existing typed limit-to-rejection mapping. Invalidation changes the existing
+source row in place, so reopening/replying does not need a new learning row.
+
+#### Fixed application API and private DTOs
+
+`ResolutionLearningApplication` extends the existing application through fixed
+operations; it accepts neither caller-supplied Store actions nor a generic
+transaction callback:
+
+| Operation                                                                        | Required binding and result                                                                                                                                                                                                       |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enrollResolutionLearning`                                                       | Command/correlation/ticket identity and current staff revision; creates the constant source under ordinary admission.                                                                                                             |
+| `submitResolutionEvidence`                                                       | Exact current ticket revision/cycle, structured staff proof or opaque trusted test receipt; accepts one source generation atomically or returns a held outcome.                                                                   |
+| `readResolutionLearningSource`, `readResolutionLearningWork`                     | Current authorized staff access; private source, proof, reviewer, candidate/check, and reconciliation DTOs.                                                                                                                       |
+| `withdrawResolutionLearningSource`                                               | Stable command identity and privacy-withdrawal/access-revocation/deletion reason; immediately denies source eligibility, holds work, and schedules durable reconciliation.                                                        |
+| `invalidateResolutionEvidence`                                                   | Explicit evidence/product-binding/check-policy revocation; advances source generation and holds/reassesses work without privacy scrubbing.                                                                                        |
+| `scanResolutionLearningCandidates`                                               | One bounded physical scan page, physical row count, opaque continuation, work candidates, and separate `reconciliationSources` ticket IDs from source rows. All candidates are hints.                                             |
+| `claimResolutionLearningWork`                                                    | Ticket/generation/work identity, fresh worker/claim ID and bounded lease; returns the current source fence and stage, or no claim.                                                                                                |
+| `prepareResolutionLearningStep`                                                  | Exact claim/source fence and `step: "model"` or `step: "kb_delivery"`. Persists the immutable request identity and bounded state before external work.                                                                            |
+| `completeResolutionLearningStep`                                                 | Exact prepared step ID/fingerprint and corresponding closed step result, with a read-only final authority/source/check guard. Stores the candidate or exact remote acknowledgement; cannot publish.                               |
+| `finishResolutionLearningWork`                                                   | Exact claim/step fence and bounded retry, held, unknown, or superseded disposition/accounting.                                                                                                                                    |
+| `reviewResolutionLearningProposal`                                               | Current staff decision bound to the exact actual KB draft revision/content and full source snapshot, source/evidence/product fence, policy/check versions, and reasons before KB review/publication. Cannot approve a later edit. |
+| `confirmResolutionLearningSource`                                                | Service-only exact opaque source/version confirmation for the KB's current-source and publication callbacks; returns no source body.                                                                                              |
+| `confirmResolutionLearningTargetReview`                                          | Service-only exact keyed target/policy review confirmation plus current source authority; independent of processing switches.                                                                                                     |
+| `readResolutionLearningReconciliation`, `recordResolutionLearningReconciliation` | Service-only least-data destination view and in-place closed reconciliation result under source-generation/work-generation and destination step/hash fences; work remains usable after deletion of the ticket body.               |
+
+Candidate scans omit expired work deadlines and work whose authoritative source
+is missing, ineligible, or no longer matches its generation/cycle/binding. A
+per-call cache reads at most one current source key per ticket represented by
+work on the physical page; cache entries and extra source reads cannot exceed
+that page's physical row count. Every adapter row still counts before filtering,
+and the original opaque continuation is preserved. Current claimed/prepared
+work remains a hint subject to authoritative claim checks. Omitted historical
+work and unknown writes remain stored; filtering invents no terminal receipt.
+Separate `reconciliationSources` discovery remains available for pending
+destination work after generation expiry or source withdrawal.
+
+The common work key is `{ ticketId, sourceGeneration }`.
+`ResolutionLearningClaimFence` adds worker ID, claim ID, and monotonic claim
+generation. Server-returned claim metadata binds the cycle/source fingerprint,
+work generation, stage, lease, and deadline. Each physical coordinator
+invocation creates a fresh cryptographic claim ID;
+duplicate deliveries cannot borrow another live claim. Preparation is
+idempotent only for the same fence and exact input. Expired claims cannot
+complete, and a replacement claim retains prepared/unknown external work.
+Prepared `stepId` is independent of claim identity. A new model attempt is
+counted only when preparing a new provider request; claiming a prepared KB
+delivery reuses its original step, command, and expected generation instead of
+regenerating the model request. Complete/finish commands bind that step ID and
+fingerprint; unknown model accounting and unknown KB acceptance remain distinct.
+Finishing work before a step was prepared updates no earlier attempt's
+accounting. An explicit step/hash can affect only its owning invocation's
+processing data; a replacement claim cannot overwrite previously known usage.
+Step ID and request hash must be supplied together. A step-less finish cannot
+cancel a model preparation owned by that same live claim or any exact prepared
+KB delivery; a later claim with only an older model attempt may still finish
+its own pre-preparation budget/failure path without altering that old attempt.
+External calls occur outside Store retry loops. Current permission checks also
+protect historical receipt replay.
+
+A model preparation binds input fingerprint/manifest hash, configuration,
+prompt, model and check-policy versions, budget hash, predetermined usage
+reservation, and deadline. Its compact manifest binds immutable visible-message
+IDs/ordinals, working-solution references, and product context; the complete
+input is rebuilt and fingerprint-checked before a call. A model completion
+stores the structured candidate and bounded processing/accounting metadata;
+the application computes the candidate hash. Its manifest durably includes
+visible message IDs/ordinals, authoritative working-solution IDs, and stable
+product fields. Preparation returns a 16,000-byte conservative UTF-16 JSON
+candidate allowance and constructively reserves that complete later candidate.
+Completion/finish return bounded key/step/hash/status acknowledgements; their
+durable receipts never copy candidate bodies. A KB preparation binds candidate
+hash, independently verified check receipt, and the complete canonical
+create/update request. A KB completion
+records request hash, historical acknowledgement (article ID, generation,
+article revision, content hash, state), and the separately observed current
+target binding. A historical acknowledgement is recovery evidence, never
+current authority; disagreement holds work.
+
+The dedicated application registry permissions are `learningRead`,
+`learningEvidenceSubmit`, `learningProcess`, `learningReview`, and
+`learningWithdraw`, under the `support.learning.*` namespace. Staff private
+reads/review/evidence/withdrawal also require current queue access; processing
+authority is separate from assistant answering. Existing owner confirmation
+keeps its existing permission and resource ownership check. No role, Admin
+inheritance, Agent Access scope, or local-agent publication authority is added.
+
+Source references, evidence, customer identity, reviewer details, and remote
+reconciliation metadata remain private. The learning model receives only the
+bounded customer-visible conversation and relevant visible solution content;
+internal notes and private provenance/evidence metadata are excluded.
+Customer-visible system-authored text is labeled `notification` in the
+conversation data, distinct from staff `support` text; it never becomes a
+trusted model system-role instruction. Learning
+processing requires its own current verified data controls and purpose binding;
+the existing `support_answer` request contract is unchanged.
+
+#### Independent checks before transfer and exact staff publication review
+
+Model completion stores an **unapproved** generalized candidate only in Support
+Desk. The candidate contains generalized problem, applicability, steps,
+solution, and validation requirements. Its structural validity or model-declared
+privacy result cannot approve it. Before any candidate body transfers to KB,
+independent verified privacy, factual, applicability, and duplication checks
+must be bound to that exact candidate hash/revision, source/evidence/product
+fence, current policy, and proposed create/update target. Missing, failed,
+unavailable, or stale checks hold the proposal in Support Desk.
+
+The optional coordinator obtains a receipt from the host's independent check
+pipeline (`LearningChecksPort.check` can accept the generalized candidate,
+safe working solution, and target comparison). The application receives only
+the trusted read-only verification capability. Check execution and external
+calls run outside storage retry loops; verification repeats before each
+affected CAS.
+
+`LearningChecksPort.verify` is the independent pre-transfer gate. It verifies an
+opaque receipt against exact candidate/source/policy/applicability and target
+decision/request hashes, including the original target base generation/content/
+provenance binding. It returns verified privacy/factual/applicability/duplication
+results, verifier receipt identity, and expiry. All four checks must pass.
+Unverified, mismatched, unknown, failed, or expired checks hold the candidate
+privately in Support Desk. The processing worker cannot manufacture a positive
+receipt or treat the model's own assessment as independent verification.
+
+Successful independently verified checks allow automatic private KB draft
+creation/update; there is no mandatory human pre-transfer review. Held cases
+can receive staff remediation. A changed candidate, source/evidence binding,
+target, applicability, inherited references, original expected generation,
+policy, or check version requires fresh exact checks. Human `learningReview`
+authority applies to the actual resulting KB draft before KB review/publication.
+
+Delivery records the deterministic article ID, create/update choice, collection,
+exact candidate payload/hash, full ordered private-source reference set,
+original expected KB generation, and stable per-step command IDs before a KB
+call. These parts form one canonical replayable request; the body is stored
+once, never duplicated into prompts, manifests, or receipts. An update replaces
+this ticket's stable source reference at its existing position and preserves
+every other source reference and its order. Missing/unverifiable other-source
+provenance holds the update instead of dropping references.
+
+The verified KB `0.1.2` contract must atomically bind that **complete** source
+reference list with both create and update in the article transaction. Its
+dedicated provenance-write permission and per-reference current read checks
+apply on every CAS/replay/postcommit path. Learning never splits delivery into
+a draft write followed by `setProvenance`. `getProvenance` remains the authorized
+read for full current and published inherited-source comparison.
+
+KB publication remains a separate current staff approval of the exact actual
+KB revision/hash, collection/audience, evidence/check versions, and all current
+source bindings. Before KB review submission,
+`reviewResolutionLearningProposal` records command/correlation identity,
+expected work generation, approve/reject with reasons, actual article
+ID/revision/content hash/collection, full source snapshot and its
+generation/hash/ordered-reference hash, and current review/check-policy version.
+The staff decision reviews privacy/factual/applicability/duplication for that
+actual draft. A mandatory read-only target-confirmation guard checks
+generation-consistent KB draft/full provenance and every source's current
+eligibility before each review CAS. Transfer-time candidate hash and automated
+receipt remain historical bindings; they cannot prevent staff from reviewing a
+later local-agent edit of the actual draft. It intentionally does not bind a
+lasting approval to KB's
+aggregate generation or `KBReviewSnapshot`: evidence/governance changes remain
+KB's own review responsibility. Its source callback receives the actual article
+revision and source snapshot. Local draft edits need a fresh target review;
+KB evidence changes independently invalidate KB approval.
+
+Each exact review is stored at a deterministic `learning-review:<bindingHash>`
+key, including source generation/binding, target revision/content/collection,
+source snapshot hashes/generation/order, and policy. The source owns a bounded
+review-binding count. A new exact binding adds review, Audit, and receipt
+(three rows); changing approve/reject on an existing exact binding conditionally
+updates it with Audit/receipt (two new rows). All use ordinary admission and
+preserve both reserves. Review rows are never evicted because newer unpublished
+drafts were reviewed. Confirmation reads the one exact key and current source
+authority. A published revision one's approval remains valid while revisions
+two and three receive separate reviews; a new source generation invalidates
+every old review key. The source stores only the bounded review count; exact
+keyed rows hold all review authority.
+The KB integration must fail closed for an unbound intermediate draft
+and recheck every source at review/publication; Support's worker cannot grant
+publication by writing an empty provenance list or approving its own output.
+
+#### Physical, request, attempt, and history bounds
+
+| Bound                                    | Default / hard maximum or invariant                                                                                          |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Complete source or work record           | 60,000 conservative serialized UTF-16 JSON bytes, including all wrappers and escaping.                                       |
+| Complete model candidate                 | 16,000 serialized UTF-16 JSON bytes; reserved before paid model work.                                                        |
+| Retained generation work rows per ticket | Four / eight; exhausting this budget holds new learning without dropping a trigger or blocking the human command.            |
+| Retained target articles per source      | Two / four, coalescing generations only after exact unresolved requests remain safely retained in their work rows.           |
+| Exact review bindings per source         | Sixteen / 64, enforced by a constant source counter; no automatic eviction of potentially live publication approvals.        |
+| Model attempts per generation            | Two / four, retained inline; no per-attempt physical rows.                                                                   |
+| Claim lease                              | 60,000 / 300,000 milliseconds; actual invocation and final commit must fit the requested lease.                              |
+| Worker lifetime                          | 300,000 / 3,600,000 milliseconds for active generation; expiry holds work, and never discards ambiguous external acceptance. |
+| Physical scan page                       | At most Storage Core's `MAX_SCAN_PAGE_SIZE`; all adapter rows count before filtering.                                        |
+| Transaction                              | At most 100 actions and exactly one action per physical key, within the configured ticket row cap.                           |
+| Conflict attempts                        | Existing application setting: default four, hard maximum 20.                                                                 |
+
+KB delivery performs one fixed create/update with atomic complete source
+binding. Distinct reconciliation/retirement operations handle invalidation.
+There is no separate provenance-write step, arbitrary command sequence, or
+unbounded retry history.
+Known/unknown acceptance and the original exact request survive a new worker
+claim; an absent read does not reset the sequence or authorize a new create.
+At the maximum eight generation rows and 64 review bindings, one withdrawal
+scrubs those 72 rows plus ticket/source/Audit/receipt in at most 76 actions.
+
+Preparation uses the actual complete record encoder and constructs the largest
+legal subsequent completion, finish/receipt, and replacement-claim states,
+including maximum JSON-escaped Unicode, IDs, timestamps, metadata, and already
+retained attempts. Paid model or outbound KB work is inadmissible unless every
+reachable state remains within 60,000 bytes. This is stronger than checking the
+current row alone. Model candidate/finish/replacement envelopes are constructed
+separately from KB acknowledgement/target envelopes: the candidate has already
+been replaced by the exact KB payload at delivery preparation. Source registry
+entries keep minimal destination/step/acceptance/reconciliation identities;
+complete accepted target/acknowledgement bindings remain on their work row.
+A legal KB request can include 32 source references and
+still exceed Support's tighter record envelope; oversized proposals hold
+without truncating references/text or raising the cap. The implementation must
+mechanize this admission before source completion can be claimed.
+
+#### Unknown acceptance, withdrawal, and retention
+
+A known accepted KB operation records its original request fingerprint,
+stable command identity, actual article/revision/content hash, source snapshot,
+and bounded acknowledgement. After uncertain acceptance, recovery reads or
+replays the **identical** prepared operation with its original expected
+generation; it never recalculates that generation against newer KB state and
+silently overwrites another writer. A read-only absence is not proof that a
+timed-out write cannot arrive later. New generation/target admission cannot
+evict an unresolved or live binding to make room.
+Preparing a new generation for an article with an older ambiguous write holds
+until that write has a terminal receipt, cancellation, or revision-fence proof;
+it cannot replace the registry entry and erase the late-write fence. Replaying
+the already prepared identical request under its own eligible generation is
+the separate recovery path.
+
+Reopen immediately makes prior source versions ineligible through authoritative
+callbacks while durable work converges pending drafts to held and creates
+reassessment work for published guidance. Current staff permission can still
+authorize reading a historical private reference; it does not make that
+reference current validation. KB source IDs are stable per ticket and carry
+opaque version tokens bound to cycle/generation/evidence/product. They are not
+capabilities and expose no copied conversation or credential.
+
+Any source ineligibility fences further derivation model calls and KB draft
+writes, including identical write replay after reopen or evidence revocation.
+Prepared unknown writes instead retain their destination and enter read-only
+reconciliation/targeted retirement; a new claim cannot resume obsolete derivation.
+
+The host must invoke withdrawal before deleting source records or revoking
+source access. The accepted transaction immediately tombstones source
+eligibility, clears readable private source/evidence/candidate bodies, and
+retains only the opaque source identity, minimal destination/request bindings,
+withdrawal reason/time, and unresolved reconciliation state. It must not delete
+the source/destination tombstone while a possible late write or dependent
+published revision remains unresolved. No new outbound draft-write replay is
+permitted after withdrawal; recovery is reconciliation, holding, and retirement.
+
+Privacy withdrawal retires affected published revisions and invalidates
+retrieval hints through KB's authoritative retirement flow. Reconciliation
+obtains generation-consistent draft/provenance observations and checks the
+**published** source snapshot: an invalid source in only a pending draft must
+not retire an independently sourced published revision. Missing or unreadable
+complete provenance blocks targeted cleanup and retains its mapping. Any decision to
+retain independently generalized guidance requires explicit documented host
+review. Source deletion/access revocation triggers the corresponding private
+reference/evidence reassessment. No copied deleted ticket bodies are retained
+to simplify recovery. Unknown work remains retainable until an authoritative
+terminal receipt, effective cancellation/fence, or trusted reconciliation proves
+that no later write can arrive; it is never cleared solely by age or absence.
+
+Reconciliation records only `blocked`, `retired`, `unaffected_publication`, or
+`write_rejected`. Every nonblocked result requires a trusted terminal receipt,
+revision fence, or cancellation binding and a mandatory read-only guard over
+current generation-consistent full provenance/published membership and late
+write safety. There is no absent/aged-out success disposition. A compact latest
+result fingerprint stays inline at the existing destination; source CAS fences
+concurrent invalidation or replacement. Unknown write bodies are never replayed
+after source ineligibility. Privacy withdrawal retains body-free request
+identity and usage tombstones while scrubbing candidate/evidence/product copies
+and private review reasons.
+
+The reconciliation read projects each destination's minimal `requestIdentity`
+from its retained prepared/withdrawn work row: exact `operation`, `commandId`,
+`articleId`, and `originalExpectedGeneration`. It reads at most four work keys
+per source pass, confirms the work's physical key, source generation, step,
+request hash, and article identity, then rechecks the source version before
+returning. A concurrent source change retries within the configured bound.
+Missing or mismatched work returns an unavailable identity and requires blocked
+reconciliation; no body, source-reference list, or candidate is exposed and no
+identity is guessed. This path does not require the deleted ticket row.
+
+The source's constructive future envelope reserves the longest reachable
+destination acceptance/reconciliation literals (`accepted`, `confirmed`) and
+the longer top-level `reconciliationPending: false` spelling, alongside maximal
+receipt proof and withdrawal metadata. Earlier destination objects stay intact.
+
+There is no cross-store atomicity. KB has no reverse-source catalog, so Support
+must retain every necessary bounded destination mapping and repeat durable
+reconciliation scans. A required producer operation that cannot preserve other
+sources, fence an unbound intermediate draft, or safely reconcile withdrawal is
+an explicit integration gap to close before enabling delivery. Source tests,
+fake providers, and this checkpoint do not close host privacy, release,
+full-workflow, or pilot gates.
+
 ## Ticket numbers
 
 `support-desk.ticket-numbers.v1` holds one `{ lastIssued }` counter at
