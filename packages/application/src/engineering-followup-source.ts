@@ -698,6 +698,11 @@ export async function planEngineeringFollowupContextChange(
       stored.value,
       negative ? "release_reassessment_required" : "release_context_changed",
     );
+    if (
+      canonical({ ...next, workGeneration: stored.value.workGeneration }) ===
+      canonical(stored.value)
+    )
+      continue;
     checkEngineeringFollowupRecordCapacity(next);
     nextWorkRows.push(next);
     actions.push({
@@ -765,6 +770,10 @@ export async function engineeringFollowupPlanHeads(
       : await fingerprint(context.mapping);
   const next: EngineeringFollowupHeadRecord = {
     ...clean,
+    ...(head.heldReason === "followup_context_capacity" &&
+    (head.associationHeads.length >= 4 || head.deploymentContexts.length >= 8)
+      ? { heldReason: "followup_context_capacity" }
+      : {}),
     headGeneration: head.headGeneration + 1,
     updatedAt: now,
     associationHeads:
@@ -1454,7 +1463,9 @@ export function createEngineeringFollowupSourceServices(
           proof.context.deploymentHead.state !== "deployed" ||
           proof.context.mapping === undefined;
         const unchanged =
-          !planned.capacity &&
+          (oldHead.heldReason === planned.head.heldReason ||
+            planned.head.heldReason === undefined) &&
+          oldHead.withdrawn === planned.head.withdrawn &&
           canonical(oldHead.associationHeads) ===
             canonical(planned.head.associationHeads) &&
           canonical(oldHead.deploymentContexts) ===
@@ -1483,14 +1494,6 @@ export function createEngineeringFollowupSourceServices(
           semanticWorkId !== undefined &&
           semanticWork === null &&
           oldHead.workCount < options.maxWorksets;
-        if (unchanged && !missingWorkCanQueue) {
-          authorize();
-          return {
-            ticketId: command.ticketId,
-            headGeneration: oldHead.headGeneration,
-            outcome: "unchanged",
-          };
-        }
         const cohort = await planEngineeringFollowupContextChange(records, {
           rows: loaded.rows,
           context: proof.context,
@@ -1498,6 +1501,25 @@ export function createEngineeringFollowupSourceServices(
           nextHead: planned.head,
           capacity: planned.capacity,
         });
+        if (unchanged && !missingWorkCanQueue && cohort.actions.length === 0) {
+          if (
+            !(await engineeringFollowupVersionsCurrent(
+              deps,
+              loaded,
+              undefined,
+              associated.engineeringWork,
+            ))
+          )
+            continue;
+          authorize();
+          if (now() >= timestamp(proof.attestation.validUntil, "validUntil"))
+            throw new SupportDeskConflictError("Follow-up observation expired");
+          return {
+            ticketId: command.ticketId,
+            headGeneration: oldHead.headGeneration,
+            outcome: "unchanged",
+          };
+        }
         const actions: EngineeringAction[] = [...cohort.actions];
         const nextWorkRows: EngineeringFollowupWorkRecord[] = [
           ...cohort.nextWorkRows,

@@ -125,7 +125,7 @@ async function eightCurrentContexts(f: Fixture) {
 for (const [name, createStore] of engineeringFollowupStores) {
   describe(`engineering follow-up observation ordering (${name})`, () => {
     it.each(["ordinary capacity", "full partition"] as const)(
-      "preserves eight current funded contexts when a ninth context exceeds the head bound at %s",
+      "coalesces repeated ninth-context hints without spending existing reservations at %s, while retaining genuine issue invalidation",
       async (capacity) => {
         const probe = await engineeringFollowupFixture(createStore(), {
           followup: { maxWorksets: 8 },
@@ -174,6 +174,83 @@ for (const [name, createStore] of engineeringFollowupStores) {
         else expect(observation.value.outcome).toBe("held");
         if (capacity === "full partition")
           expect(await f.rows()).toEqual(beforeRows);
+        const afterFirstOverflow = await f.rows();
+        expect([0, 2]).toContain(afterFirstOverflow.length - beforeRows.length);
+        const headAfterFirstOverflow = await f.head();
+        for (let delivery = 0; delivery < 3; delivery += 1) {
+          f.state.context = numberedDeploymentContext(original, 1);
+          f.advance(1);
+          const trackedRefresh = f.proof();
+          f.trust.setCurrent(trackedRefresh);
+          const trackedInputReference = await f.issueInput(
+            `tracked-context-A-refresh-between-overflows-${delivery}`,
+            trackedRefresh,
+          );
+          expect(
+            (await f.observe({ inputReference: trackedInputReference }))
+              .outcome,
+          ).toBe("unchanged");
+          const afterTrackedRefresh = await f.rows();
+          expect(afterTrackedRefresh).toHaveLength(afterFirstOverflow.length);
+          expect(
+            afterTrackedRefresh.filter(
+              (row) => !afterFirstOverflow.some((old) => old.id === row.id),
+            ),
+          ).toEqual([]);
+          if (capacity === "full partition")
+            expect(afterTrackedRefresh).toEqual(beforeRows);
+          const trackedHead = await f.head();
+          expect(trackedHead.heldReason).toBe(
+            headAfterFirstOverflow.heldReason,
+          );
+          expect(trackedHead.associationHeads).toEqual(
+            headAfterFirstOverflow.associationHeads,
+          );
+          expect(trackedHead.deploymentContexts).toEqual(
+            headAfterFirstOverflow.deploymentContexts,
+          );
+          expect(await Promise.all(keys.map((key) => f.work(key)))).toEqual(
+            before,
+          );
+          for (const key of keys) await expectCurrent(f, key);
+
+          f.state.context = numberedDeploymentContext(original, 9);
+          f.advance(1);
+          const refreshed = f.proof();
+          f.trust.setCurrent(refreshed);
+          const inputReference = await f.issueInput(
+            `repeated-ninth-context-delivery-${delivery}`,
+            refreshed,
+          );
+          const repeated = await f.observe({ inputReference }).then(
+            (value) => ({ value }),
+            (error: unknown) => ({ error }),
+          );
+          if ("error" in repeated)
+            expect(repeated.error).toMatchObject({
+              name: "SupportDeskLimitError",
+            });
+          else expect(["held", "unchanged"]).toContain(repeated.value.outcome);
+          const rows = await f.rows();
+          expect(rows).toHaveLength(afterFirstOverflow.length);
+          expect(
+            rows.filter(
+              (row) => !afterFirstOverflow.some((old) => old.id === row.id),
+            ),
+          ).toEqual([]);
+          if (capacity === "full partition") expect(rows).toEqual(beforeRows);
+          const semanticHead = await f.head();
+          expect(semanticHead.heldReason).toBe(
+            headAfterFirstOverflow.heldReason,
+          );
+          expect(semanticHead.associationHeads).toEqual(
+            headAfterFirstOverflow.associationHeads,
+          );
+          expect(semanticHead.deploymentContexts).toEqual(
+            headAfterFirstOverflow.deploymentContexts,
+          );
+          expect(semanticHead.workCount).toBe(8);
+        }
         expect(await Promise.all(keys.map((key) => f.work(key)))).toEqual(
           before,
         );
@@ -185,6 +262,70 @@ for (const [name, createStore] of engineeringFollowupStores) {
         );
         expect(retainedHead.workCount).toBe(8);
         for (const key of keys) await expectCurrent(f, key);
+
+        const changedIssue = {
+          ...original.issueHead,
+          generation: original.issueHead.generation + 1,
+          hash: "shared-issue-reopened-during-overflow",
+          state: "open" as const,
+        };
+        updateContext(f, { issue: changedIssue });
+        f.trust.setCurrent(f.proof());
+        for (let number = 1; number <= 8; number += 1) {
+          const context = numberedDeploymentContext(original, number);
+          f.trust.setCurrent(
+            f.proof({
+              context: {
+                ...context,
+                issueHead: changedIssue,
+                mapping: {
+                  ...context.mapping!,
+                  issueHeadHash: changedIssue.hash,
+                },
+              },
+            }),
+          );
+        }
+        expect((await f.observe()).outcome).toBe("held");
+        const held = await Promise.all(keys.map((key) => f.work(key)));
+        for (const work of held)
+          expect(work).toMatchObject({
+            status: "held",
+            completionRows: 0,
+            messageSlots: 0,
+          });
+        const afterIssueChange = await f.rows();
+        const headAfterIssueChange = await f.head();
+        for (let delivery = 0; delivery < 3; delivery += 1) {
+          f.advance(1);
+          const refreshed = f.proof();
+          f.trust.setCurrent(refreshed);
+          const inputReference = await f.issueInput(
+            `repeated-reopened-issue-at-overflow-${delivery}`,
+            refreshed,
+          );
+          expect(["held", "unchanged"]).toContain(
+            (await f.observe({ inputReference })).outcome,
+          );
+          const rows = await f.rows();
+          expect(rows).toHaveLength(afterIssueChange.length);
+          expect(
+            rows.filter(
+              (row) => !afterIssueChange.some((old) => old.id === row.id),
+            ),
+          ).toEqual([]);
+          expect(await Promise.all(keys.map((key) => f.work(key)))).toEqual(
+            held,
+          );
+          const semanticHead = await f.head();
+          expect(semanticHead.associationHeads).toEqual(
+            headAfterIssueChange.associationHeads,
+          );
+          expect(semanticHead.deploymentContexts).toEqual(
+            headAfterIssueChange.deploymentContexts,
+          );
+          expect(semanticHead.workCount).toBe(8);
+        }
         expect(f.support.generate).toHaveBeenCalledOnce();
         expect(f.support.createIssue).toHaveBeenCalledOnce();
       },
