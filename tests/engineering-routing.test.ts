@@ -671,6 +671,107 @@ for (const [name, createStore] of engineeringStores) {
       },
     );
 
+    it.each(["withdraw-source", "visible-reply"] as const)(
+      "suppresses POST after %s commits while the post-permit final policy resolver holds an enabled snapshot",
+      async (change) => {
+        const f = await engineeringAiFixture(createStore());
+        await f.prepareProposal();
+        await f.approve();
+        const barrier = engineeringBarrier();
+        let permitReturned = false;
+        let metadataAfterPermit = false;
+        let capturedPolicy = false;
+        const begin = vi.fn<typeof f.app.beginEngineeringDispatch>(
+          async (...args) => {
+            const permit = await f.app.beginEngineeringDispatch(...args);
+            if (permit !== null) permitReturned = true;
+            return permit;
+          },
+        );
+        const engineering = createSupportDeskEngineering({
+          ...f.baseOptions,
+          application: { ...f.app, beginEngineeringDispatch: begin },
+          github: {
+            ...f.baseOptions.github,
+            async getMetadata(...args) {
+              const metadata = await f.baseOptions.github.getMetadata(...args);
+              if (permitReturned) metadataAfterPermit = true;
+              return metadata;
+            },
+          },
+          policy: {
+            async resolve(access) {
+              const policy = await f.baseOptions.policy.resolve(access);
+              if (metadataAfterPermit && !capturedPolicy) {
+                capturedPolicy = true;
+                expect(policy.policy.enabled).toBe(true);
+                expect((await f.work()).dispatch).toBeDefined();
+                await barrier.wait();
+              }
+              return policy;
+            },
+          },
+        });
+        const pending = engineering.processWork(await f.nextCommand(), {
+          signal: AbortSignal.timeout(10_000),
+        });
+        try {
+          await Promise.race([
+            barrier.reached,
+            pending.then((result) => {
+              throw new Error(
+                `Post-permit final policy hook was not reached: ${JSON.stringify(result)}`,
+              );
+            }),
+          ]);
+          if (change === "withdraw-source")
+            await f.app.withdrawEngineeringSource(engineeringStaff, {
+              ...f.command("withdraw-during-post-permit-policy"),
+              reason: "privacy_withdrawal",
+            });
+          else
+            await f.app.replyToCustomerTicket(engineeringCustomer, {
+              ...f.command("visible-change-during-post-permit-policy"),
+              messageId: "changed-after-dispatch-permit",
+              body: "A newer build has different reproduction details.",
+            });
+          const source = await f.source();
+          expect(source.state).not.toBe("eligible");
+          expect(source.sourceGeneration).toBeGreaterThan(
+            f.key.sourceGeneration,
+          );
+          expect((await f.policy()).policy.enabled).toBe(true);
+        } finally {
+          barrier.release();
+        }
+        expect((await pending).outcome).toBe("pending");
+        expect(permitReturned).toBe(true);
+        expect(capturedPolicy).toBe(true);
+        expect(begin).toHaveBeenCalledOnce();
+        expect(f.createIssue).not.toHaveBeenCalled();
+        const work = await f.app.readEngineeringWork(engineeringStaff, f.key);
+        expect(work.dispatch).toBeDefined();
+        expect(work.acknowledgement).toBeUndefined();
+        expect(["unknown", "dispatch_started"]).toContain(work.status);
+        const dispatchId = work.dispatch!.dispatchId;
+
+        expect(await engineering.reconcileSource("ticket")).toMatchObject({
+          outcome: "pending",
+        });
+        await engineering.processWork(await f.nextCommand());
+        expect(f.githubReconcile).toHaveBeenCalled();
+        expect(f.createIssue).not.toHaveBeenCalled();
+        expect(f.generate).toHaveBeenCalledOnce();
+        expect(f.reserve).toHaveBeenCalledOnce();
+        const retained = await f.app.readEngineeringWork(
+          engineeringStaff,
+          f.key,
+        );
+        expect(retained.dispatch?.dispatchId).toBe(dispatchId);
+        expect(retained.acknowledgement).toBeUndefined();
+      },
+    );
+
     it("holds a proposal when no trusted duplicate-discovery query is available", async () => {
       const f = await engineeringAiFixture(createStore());
       await assess(f);

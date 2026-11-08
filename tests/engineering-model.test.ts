@@ -656,6 +656,93 @@ for (const [name, createStore] of engineeringStores) {
       },
     );
 
+    it.each(["withdraw-source", "visible-reply"] as const)(
+      "rejects %s committed while the final provider policy resolver holds an enabled snapshot",
+      async (change) => {
+        const f = await engineeringAiFixture(createStore());
+        const barrier = engineeringBarrier();
+        let reserved = false;
+        let finalConfigurationRead = false;
+        let capturedPolicy = false;
+        f.reserve.mockImplementation(async (context) => {
+          reserved = true;
+          return {
+            outcome: "reserved",
+            usageReservationId: context.usageReservationId,
+          };
+        });
+        const engineering = createSupportDeskEngineering({
+          ...f.baseOptions,
+          configuration: {
+            async resolve(expected, signal) {
+              const result = await f.baseOptions.configuration.resolve(
+                expected,
+                signal,
+              );
+              if (reserved) finalConfigurationRead = true;
+              return result;
+            },
+          },
+          policy: {
+            async resolve(access) {
+              const policy = await f.baseOptions.policy.resolve(access);
+              if (finalConfigurationRead && !capturedPolicy) {
+                capturedPolicy = true;
+                expect(policy.policy.enabled).toBe(true);
+                expect((await f.work()).status).toBe("prepared");
+                await barrier.wait();
+              }
+              return policy;
+            },
+          },
+        });
+        const pending = engineering.processWork(await f.nextCommand(), {
+          signal: AbortSignal.timeout(10_000),
+        });
+        try {
+          await Promise.race([
+            barrier.reached,
+            pending.then((result) => {
+              throw new Error(
+                `Final provider policy hook was not reached: ${JSON.stringify(result)}`,
+              );
+            }),
+          ]);
+          if (change === "withdraw-source")
+            await f.app.withdrawEngineeringSource(engineeringStaff, {
+              ...f.command("withdraw-during-final-provider-policy"),
+              reason: "privacy_withdrawal",
+            });
+          else
+            await f.app.replyToCustomerTicket(engineeringCustomer, {
+              ...f.command("visible-change-during-final-provider-policy"),
+              messageId: "changed-before-provider-admission",
+              body: "A newer build has different reproduction details.",
+            });
+          const source = await f.source();
+          expect(source.state).not.toBe("eligible");
+          expect(source.sourceGeneration).toBeGreaterThan(
+            f.key.sourceGeneration,
+          );
+          expect((await f.policy()).policy.enabled).toBe(true);
+        } finally {
+          barrier.release();
+        }
+        expect(["held", "pending"]).toContain((await pending).outcome);
+        expect(capturedPolicy).toBe(true);
+        expect(f.reserve).toHaveBeenCalledOnce();
+        expect(f.generate).not.toHaveBeenCalled();
+        expect(f.createIssue).not.toHaveBeenCalled();
+        expect(f.reconcile).toHaveBeenCalledWith(expect.anything(), {
+          state: "not_called",
+        });
+        const work = await f.app.readEngineeringWork(engineeringStaff, f.key);
+        expect(work.candidate).toBeUndefined();
+        expect(work.proposal).toBeUndefined();
+        expect(work.dispatch).toBeUndefined();
+      },
+    );
+
     it.each(["input", "output", "context", "cost", "currency"] as const)(
       "settles actual known usage when the provider exceeds its %s budget",
       async (variant) => {

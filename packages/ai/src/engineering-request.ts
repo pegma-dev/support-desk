@@ -186,7 +186,7 @@ export async function engineeringPolicy(
   }
 }
 
-/** Final authoritative source/work/policy observations follow all remote proof reads. */
+/** Policy/authority awaits precede the final authoritative source and work reads. */
 export async function engineeringCurrentFacts(
   options: SupportDeskEngineeringOptions,
   fence: EngineeringSourceFence,
@@ -194,6 +194,9 @@ export async function engineeringCurrentFacts(
   runtime: LearningRuntime,
   deadline = runtime.deadline,
 ) {
+  const policy = await engineeringPolicy(options, authority, runtime, deadline);
+  // engineeringSource refreshes the original processing authority before its
+  // keyed read. No remote proof await follows the final source/work observations.
   const source = await engineeringSource(
     options,
     fence,
@@ -219,7 +222,6 @@ export async function engineeringCurrentFacts(
     throw new AssistantBoundaryError("source_changed");
   if (work.security !== "ordinary" || work.status === "restricted")
     throw new AssistantBoundaryError("security_restricted");
-  const policy = await engineeringPolicy(options, authority, runtime, deadline);
   runtime.ensure(deadline);
   return { source, work, policy };
 }
