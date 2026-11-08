@@ -6,10 +6,10 @@
 A composable, open-source support queue for web and email.
 
 > [!IMPORTANT]
-> Support Desk is in early `0.x` development. The synchronized `0.2.0` source
-> candidate includes the optional AI workflows and awaits verified publication.
-> Hosts must consume published
-> versions and cannot substitute Git branches, copied source, or local paths.
+> Support Desk is in early `0.x` development. The synchronized `0.2.0` release
+> includes the optional AI workflows and is published and strictly verified.
+> Hosts must consume published versions and satisfy their own activation gates;
+> Git branches, copied source, or local paths are not release substitutes.
 
 Implemented in source today: the customer-facing and staff application
 services, the repairable staff queue projection, declared collections,
@@ -21,7 +21,7 @@ tags, host-computed response targets and milestones, and revision collision hint
 (Buildout Task 13), with all new metadata limited to staff views. Durable host
 deployments, customer UI, staff UI, inbound provider adapters, and production
 hardening remain later buildout tasks. Task 12 stays pending on host durable-store
-evidence; the source release candidate is `0.2.0`.
+evidence; the current verified package release is `0.2.0`.
 
 ## What it will do
 
@@ -46,8 +46,8 @@ It records the agreed scope and task sequence. SD-01 is implemented in source
 via [PR #34](https://github.com/pegma-dev/support-desk/pull/34): optional web
 assistant handling, explicit attribution and completion fences, deterministic
 human controls and atomic handoff work, private customer success evidence,
-and human queue separation. It includes no model or KB integration and has not
-been published. Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial
+and human queue separation. That source slice includes no model or KB integration
+and shipped in `0.2.0`. Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial
 KB-05 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
 and both producers' final release preparation are merged. The four KB packages
 have verified trusted `0.1.2` registry releases, and `@pegma/agent-access` has
@@ -55,18 +55,19 @@ a verified trusted `0.1.1` release;
 the KB-05 publication prerequisite for SD-02 is closed. SD-02's optional
 `@pegma/support-desk-ai` coordinator and bounded ticket-partition turn jobs
 are merged in [PR #38](https://github.com/pegma-dev/support-desk/pull/38)
-after review and validation. They remain unpublished. PG-01/RG-01 consume exact published
+after review and validation and shipped in `0.2.0`. PG-01/RG-01 consume exact published
 producers and still require actual existing-login/Admin consent and
 requested-client proof before activation or pilots. Synthetic SDK/source proof uses no actual customer data
 and does not close host privacy, operations, full-workflow, or pilot gates.
 See the [producer evidence and bootstrap handoff](docs/HOST_COMPOSITION.md#kb-authoring-producers).
 The [assistant coordination guide](docs/ASSISTANT_COORDINATION.md) and
 [layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
-describe the source candidate. The base application works without AI; only
-the optional coordinator depends on KB. Future SD-06 verified publication
-still precedes host adoption of new Support Desk behavior.
+describe the SDK contracts. The base application works without AI; only
+the optional coordinator depends on KB. The
+[verified SD-06 publication receipt](docs/RELEASING.md#verified-sd-06-publication-2026-11-08)
+records the exact release; host adoption retains its own acceptance gates.
 Use the [implementation ledger](docs/KNOWLEDGE_AI_PLAN.md#status-and-reading-order)
-for merged-source evidence and the remaining release and activation gates.
+for source/release evidence and the remaining activation gates.
 The [P-00 handoff](docs/KNOWLEDGE_AI_P00.md) supplies the package baseline,
 synthetic evaluation fixtures, capacity checks, and prerequisites for implementation.
 Passing that harness does not establish a working KB, bot, or host deployment.
@@ -81,8 +82,8 @@ storage reserves, composition, implemented boundaries, and current validation ga
 SD-04's verified bug evidence, admin repository policy, calibrated routing,
 exact staff-approved export and reconciliation source merged in
 [PR #40](https://github.com/pegma-dev/support-desk/pull/40).
-See the [engineering export guide](docs/ENGINEERING_EXPORT.md). These source
-capabilities still require the synchronized SD-06 release before host adoption.
+See the [engineering export guide](docs/ENGINEERING_EXPORT.md). These capabilities
+shipped in `0.2.0`; host activation remains separate.
 
 SD-05 merged in [PR #41](https://github.com/pegma-dev/support-desk/pull/41),
 adding confirmed-deployment follow-up, private KB change/retest proposals
@@ -152,12 +153,12 @@ The organization profile is at
 | `@pegma/support-desk-templates`   | Safe versioned templates and optional host-branded packs                |
 | `@pegma/support-desk-ai`          | Optional answers, resolution learning, engineering export and follow-up |
 
-The four base packages have published `0.1.1` versions under the `@pegma` scope.
-All five source packages are synchronized at the unpublished `0.2.0` candidate.
-The optional AI package first needs a separate registration bootstrap;
-neither that bootstrap nor local tarballs close the stable release gate.
-Verified SD-06 publication is required before enhancement adoption. Follow
-[docs/RELEASING.md](docs/RELEASING.md) for releases. There is
+All five packages are published under the `@pegma` scope at verified
+[`0.2.0`](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.0), with
+`latest` pointing to that synchronized release. The optional AI package's
+registration-only `bootstrap` remains `0.1.1`; earlier registry versions are
+immutable history. The [publication receipt](docs/RELEASING.md#verified-sd-06-publication-2026-11-08)
+records the original artifacts and strict verification. There is
 deliberately no storage package and no access package. Inbound mail processing
 is implemented (Buildout Task 11); host adapters, production hardening, and the
 host activation remain later work. See the

@@ -4,3 +4,5 @@ pnpm-lock.yaml
 .release/
 /.release-consumer-verification.json
 .example-dist/
+# Original CI manifest: preserve its independently recorded byte digest.
+/docs/releases/v0.2.0/package-manifest.json

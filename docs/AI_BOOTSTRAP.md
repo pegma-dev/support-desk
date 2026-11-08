@@ -1,11 +1,14 @@
 # AI package name registration
 
-This is a one-time npm name registration for `@pegma/support-desk-ai@0.1.1`,
+This records the completed one-time npm name registration for `@pegma/support-desk-ai@0.1.1`,
 not a supported host installation or the synchronized release. The immutable
 registry application `0.1.1` lacks exports required by this newer AI source.
 Importing five local source tarballs proves only that isolated assembly.
-Hosts wait for the separately verified five-package `0.2.0` release described
-in [RELEASING.md](RELEASING.md).
+Hosts use the separately verified published five-package `0.2.0` release;
+see its [publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+AI's `bootstrap: 0.1.1` is retained as immutable registration history while
+`latest: 0.2.0` supplies the synchronized release. Do not repeat registration
+or replace the bootstrap artifact to repair its registry dependency tree.
 
 ## Fixed identity and limited authority
 

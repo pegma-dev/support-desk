@@ -6,11 +6,12 @@ and a trusted Authorization Core access context.
 The host server supplies `correlationId` on commands; the application validates
 and propagates it and never generates it.
 
-The synchronized source candidate is `0.2.0` and includes changes beyond the
-published `0.1.1` artifacts. SD-01 adds handling/handoff foundations
-without model generation or a KB dependency; source review/tests determine
-completion. Host adoption requires the later synchronized SD-06 release and
-activation gates, not a source checkout or overwritten registry version.
+The verified published synchronized release is `0.2.0` and includes changes
+beyond the immutable `0.1.1` artifacts. SD-01 adds handling/handoff foundations
+without model generation or a KB dependency. See the
+[publication receipt](../../docs/RELEASING.md#verified-sd-06-publication-2026-11-08).
+Host adoption retains its own activation gates; source checkouts and
+overwritten registry versions are not release substitutes.
 
 SD-02's merged source adds opt-in `assistantTurns` and the
 `AssistantTurnApplication` methods `scanAssistantTurnCandidates`,
@@ -22,8 +23,8 @@ the optional `@pegma/support-desk-ai` coordinator owns those integrations.
 Lease/preparation/retry metadata do not bump Ticket revision, exact receipts recover
 ambiguous commits, and request-person/takeover remain provider-independent.
 See the [layout checkpoint](../../docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
-and [coordination guide](../../docs/ASSISTANT_COORDINATION.md). Current-head
-tests/review and future verified SD-06 publication remain required.
+and [coordination guide](../../docs/ASSISTANT_COORDINATION.md). SDK validation
+and publication do not establish host activation.
 
 SD-03's merged source adds opt-in `resolutionLearning` and fixed evidence,
 work, exact staff review, withdrawal, and reconciliation operations. The
@@ -40,8 +41,8 @@ declared collection and atomic Audit/receipts. Engineering source/work records
 share the ticket partition, with independent withdrawal and terminal-result
 capacity reserved before external dispatch. The optional AI package supplies
 model and GitHub coordination through host ports. See the
-[engineering guide](../../docs/ENGINEERING_EXPORT.md). Host adoption still
-requires the synchronized SD-06 release and its activation gates.
+[engineering guide](../../docs/ENGINEERING_EXPORT.md). Host adoption retains
+its own activation gates after verified SDK publication.
 
 SD-05's merged source adds optional `engineeringFollowup` services
 through `EngineeringFollowupApplication`. Signed allowlisted input and current
@@ -80,7 +81,8 @@ operation's current grants. Zero-row stale/unchanged/unavailable observations
 are live reevaluated reads, with no persisted command receipt.
 See the [release follow-up guide](../../docs/ENGINEERING_FOLLOWUP.md) for trusted
 ports, explicit retry/reassessment, private KB/retest handoffs, and capacity rules.
-Current-head validation/review, publication, and host acceptance remain separate.
+SDK validation and publication are recorded in the receipt above; host
+acceptance remains separate.
 
 Customer create uses `support.ticket.create`; list and read both use the
 documented `support.ticket.read.own` permission and then confirm authoritative

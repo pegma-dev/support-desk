@@ -1,0 +1,20 @@
+{
+  "id": 13622923209,
+  "node_id": "MDg6QXJ0aWZhY3QxMzYyMjkyMzIwOQ==",
+  "name": "support-desk-release-42494797076-1",
+  "size_in_bytes": 478270,
+  "url": "https://api.github.com/repos/pegma-dev/support-desk/actions/artifacts/13622923209",
+  "archive_download_url": "https://api.github.com/repos/pegma-dev/support-desk/actions/artifacts/13622923209/zip",
+  "expired": false,
+  "digest": "sha256:95d87a72bcc5167331a51521173312d959394f1629a019798dd49d0401b81cdd",
+  "created_at": "2026-11-08T15:30:29Z",
+  "updated_at": "2026-11-08T15:30:29Z",
+  "expires_at": "2026-12-08T15:30:28Z",
+  "workflow_run": {
+    "id": 42494797076,
+    "repository_id": 1312942188,
+    "head_repository_id": 1312942188,
+    "head_branch": "v0.2.0",
+    "head_sha": "efc9d733b3d305d24cf4197444e1d76c99bdb777"
+  }
+}

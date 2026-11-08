@@ -10,15 +10,16 @@ See also the runnable example at
 
 ## Public packages
 
-This guide describes the synchronized `0.2.0` source candidate, including
-SD-01 through SD-05. It is unpublished and differs from the four published
-base `0.1.1` packages. The [P-00 baseline](KNOWLEDGE_AI_P00.md) separates
-source and registry snapshots. Hosts adopting new Support Desk behavior must
-wait for a new synchronized release under SD-06; never overwrite an existing
-registry version. The KB-only host path has its own publication gates below.
-See [release operations](RELEASING.md).
+This guide describes the verified published synchronized `0.2.0` release,
+including SD-01 through SD-05; see the
+[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+The older base `0.1.1` packages remain immutable history. The
+[P-00 baseline](KNOWLEDGE_AI_P00.md) preserves earlier source and registry
+snapshots. Hosts must consume exact released packages and complete their own
+acceptance; never overwrite an existing registry version. The KB-only host
+path has its own producer receipts below.
 
-Current source manifests use these exact ecosystem pins:
+Released manifests use these exact ecosystem pins:
 
 - `@pegma/spine@0.1.2`
 - `@pegma/storage-core@0.4.0`
@@ -71,12 +72,12 @@ The completed manual bootstrap has no OIDC provenance; the separate trusted
 current KB protocol proof composes four packed KB packages with registry
 `@pegma/agent-access@0.1.1`.
 
-The KB-05 publication prerequisite for SD-02 is closed. Its optional AI source
-candidate now uses exact KB `0.1.2` dependencies, while the base application has no
+The KB-05 publication prerequisite for SD-02 is closed. The optional AI package
+uses exact KB `0.1.2` dependencies, while the base application has no
 KB or provider dependency. SD-02 source passed validation/review and merged in
 [PR #38](https://github.com/pegma-dev/support-desk/pull/38);
-new Support Desk behavior still requires a future synchronized verified SD-06
-release before host adoption. Do not substitute branches, copied source,
+that behavior shipped in the verified synchronized `0.2.0` release recorded
+above. Host acceptance remains required. Do not substitute branches, copied source,
 local paths, or unpublished tarballs for production dependencies.
 
 SD-03's atomic-provenance prerequisite is the verified trusted
@@ -328,13 +329,14 @@ SD-01 includes no AI provider, knowledge retrieval, learning, or publication.
 Keep model activation disabled until the host gates pass. All four KB packages
 have strictly verified trusted `0.1.2` releases and Agent Access has verified `0.1.1`, closing SD-02's
 producer publication prerequisite. SD-02's optional coordinator source is
-merged after validation/review, as are SD-03 through SD-05. The synchronized
-SD-06 publication remains open. Actual two-host login/client, privacy, operations, Task 12,
+merged after validation/review, as are SD-03 through SD-05. They shipped in the
+verified synchronized `0.2.0` release recorded above. Actual two-host
+login/client, privacy, operations, Task 12,
 full-workflow, and pilot evidence remain separate gates.
 
 ## Optional assistant coordination (SD-02)
 
-The candidate `createSupportDeskAssistant` from `@pegma/support-desk-ai`
+`createSupportDeskAssistant` from `@pegma/support-desk-ai`
 composes the five public `AssistantTurnApplication` operations with the actual
 KB `retrieveAnswerSources`/`confirmAnswerSources` surface and host-owned model,
 configuration, customer-authority, usage, tokenizer, and escalation ports.

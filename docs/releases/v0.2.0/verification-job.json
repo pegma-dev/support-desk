@@ -1,0 +1,98 @@
+{
+  "id": 128785494994,
+  "run_id": 42494797076,
+  "workflow_name": "Publish",
+  "head_branch": "v0.2.0",
+  "run_url": "https://api.github.com/repos/pegma-dev/support-desk/actions/runs/42494797076",
+  "run_attempt": 2,
+  "node_id": "CR_kwDOTkHobM8AAAAd_Daz0g",
+  "head_sha": "efc9d733b3d305d24cf4197444e1d76c99bdb777",
+  "url": "https://api.github.com/repos/pegma-dev/support-desk/actions/jobs/128785494994",
+  "html_url": "https://github.com/pegma-dev/support-desk/actions/runs/42494797076/job/128785494994",
+  "status": "completed",
+  "conclusion": "success",
+  "created_at": "2026-11-08T16:08:29Z",
+  "started_at": "2026-11-08T16:08:31Z",
+  "completed_at": "2026-11-08T16:08:46Z",
+  "name": "Verify registry signatures, source provenance and consumer",
+  "steps": [
+    {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 1,
+      "started_at": "2026-11-08T16:08:32Z",
+      "completed_at": "2026-11-08T16:08:32Z"
+    },
+    {
+      "name": "Check out the exact verified source",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 2,
+      "started_at": "2026-11-08T16:08:32Z",
+      "completed_at": "2026-11-08T16:08:34Z"
+    },
+    {
+      "name": "Set up Node.js without package-manager configuration",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 3,
+      "started_at": "2026-11-08T16:08:34Z",
+      "completed_at": "2026-11-08T16:08:37Z"
+    },
+    {
+      "name": "Verify and extract the reviewed npm CLI",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 4,
+      "started_at": "2026-11-08T16:08:37Z",
+      "completed_at": "2026-11-08T16:08:38Z"
+    },
+    {
+      "name": "Download the same original immutable preparation artifact",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 5,
+      "started_at": "2026-11-08T16:08:38Z",
+      "completed_at": "2026-11-08T16:08:38Z"
+    },
+    {
+      "name": "Verify registry bytes, provenance and clean public imports",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 6,
+      "started_at": "2026-11-08T16:08:38Z",
+      "completed_at": "2026-11-08T16:08:44Z"
+    },
+    {
+      "name": "Post Set up Node.js without package-manager configuration",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 11,
+      "started_at": "2026-11-08T16:08:44Z",
+      "completed_at": "2026-11-08T16:08:44Z"
+    },
+    {
+      "name": "Post Check out the exact verified source",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 12,
+      "started_at": "2026-11-08T16:08:44Z",
+      "completed_at": "2026-11-08T16:08:44Z"
+    },
+    {
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 13,
+      "started_at": "2026-11-08T16:08:44Z",
+      "completed_at": "2026-11-08T16:08:45Z"
+    }
+  ],
+  "check_run_url": "https://api.github.com/repos/pegma-dev/support-desk/check-runs/128785494994",
+  "labels": ["ubuntu-latest"],
+  "runner_id": 1000003956,
+  "runner_name": "GitHub Actions 1000003956",
+  "runner_group_id": 0,
+  "runner_group_name": "GitHub Actions"
+}

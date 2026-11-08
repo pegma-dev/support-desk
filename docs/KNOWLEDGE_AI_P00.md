@@ -1,5 +1,18 @@
 # P-00: baseline and implementation handoff
 
+## Publication update: 2026-11-08
+
+All five Support Desk packages are now published and strictly verified at
+synchronized `0.2.0`; see the
+[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+The frozen 2026-11-06 baseline and dated 2026-11-07 inventory/checkpoints below
+retain their original source, registry and readiness observations. Their
+references to an unpublished candidate or future SD-06 release describe those
+earlier checkpoints, not the current publication state. The baseline JSON,
+dependency tuples, numeric oracles and capacity envelope are unchanged.
+Actual two-host login/client, provider/ZDR, staging, operations and pilot
+acceptance remain separate gates.
+
 ## What this task establishes
 
 Snapshot date: 2026-11-06. The [approved plan](KNOWLEDGE_AI_PLAN.md) owns
@@ -90,6 +103,9 @@ Create each package only when its implementation starts. The optional
 `@pegma/support-desk-ai` name is likewise unpublished; SD-02 owns its creation.
 
 ## Post-baseline dependency inventory (2026-11-07)
+
+This inventory is historical; its source/publication labels are observations
+from that checkpoint. The publication update above records the later release.
 
 This dated inventory adds the approved producers after the 2026-11-06 snapshot.
 It does not refresh or modify `test/knowledge-ai/baseline.json`, whose source,
@@ -413,9 +429,10 @@ dependencies, are recorded in the plan's
 AUTH-01 lifecycle source, synthetic SDK proof, KB-04 transport source exit,
 and both producers' release preparation are merged. Current verified producer
 versions are the four KB packages at `0.1.2` and Agent Access at `0.1.1`, closing
-SD-02's producer prerequisite. Support Desk remains an unpublished synchronized
-`0.2.0` source candidate requiring current-head release gates/review. PG-01/RG-01
-consume both exact verified registry producers. Retained KB-04 real two-host
+SD-02's producer prerequisite. Support Desk's synchronized `0.2.0` release is
+also published and strictly verified; see the
+[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+PG-01/RG-01 consume exact verified registry dependencies. Retained KB-04 real two-host
 acceptance under P00-CREDENTIAL/P00-MCP and
 PG-01/RG-01, and the named host/ZDR, production-operation, deployment-mapping,
 and pilot gates remain open. Source/SDK evidence does not close host activation.

@@ -1,0 +1,986 @@
+{
+  "schemaVersion": 1,
+  "gitCommit": "efc9d733b3d305d24cf4197444e1d76c99bdb777",
+  "releaseTag": "v0.2.0",
+  "packages": [
+    {
+      "name": "@pegma/support-desk-contracts",
+      "version": "0.2.0",
+      "directory": "contracts",
+      "tarball": "pegma-support-desk-contracts-0.2.0.tgz",
+      "integrity": "sha512-mwzL/odYt0yvrFKEfzJWIZlXhmPbVwvEFgEGK/1jI/fTKDRKBdFP8yzXCFzfRiwkXNYlElN5iS/9srHsXkwYVw==",
+      "shasum": "dc92bc022ea974b0569c56a1bac8f02f23250627",
+      "publish": true,
+      "files": [
+        {
+          "path": "dist/index.d.ts",
+          "size": 8270
+        },
+        {
+          "path": "dist/index.d.ts.map",
+          "size": 5364
+        },
+        {
+          "path": "dist/index.js",
+          "size": 44
+        },
+        {
+          "path": "dist/index.js.map",
+          "size": 102
+        },
+        {
+          "path": "LICENSE",
+          "size": 1075
+        },
+        {
+          "path": "package.json",
+          "size": 861
+        },
+        {
+          "path": "README.md",
+          "size": 2665
+        }
+      ]
+    },
+    {
+      "name": "@pegma/support-desk-core",
+      "version": "0.2.0",
+      "directory": "core",
+      "tarball": "pegma-support-desk-core-0.2.0.tgz",
+      "integrity": "sha512-guakhYvLfpUwbT/9DrfbcplldrlK+HcyTqfK7vvXoH/Q3zk32suI0/1xT6IkYDh5jLrps30ilcv0arbeF0Tk9A==",
+      "shasum": "a90aeb6d141287d3d7b095ae061e456354d046cc",
+      "publish": true,
+      "files": [
+        {
+          "path": "dist/index.d.ts",
+          "size": 1582
+        },
+        {
+          "path": "dist/index.d.ts.map",
+          "size": 740
+        },
+        {
+          "path": "dist/index.js",
+          "size": 15412
+        },
+        {
+          "path": "dist/index.js.map",
+          "size": 12544
+        },
+        {
+          "path": "LICENSE",
+          "size": 1075
+        },
+        {
+          "path": "package.json",
+          "size": 868
+        },
+        {
+          "path": "README.md",
+          "size": 3235
+        }
+      ]
+    },
+    {
+      "name": "@pegma/support-desk-templates",
+      "version": "0.2.0",
+      "directory": "templates",
+      "tarball": "pegma-support-desk-templates-0.2.0.tgz",
+      "integrity": "sha512-AIX03LEU2wJn7mT3BFsPXH74KLPvE8jdFgPQk+D8v25XqTEpineMpXfJ85m/4WW7Fp88hndFb5l3DdsdZpNDyA==",
+      "shasum": "65d56e8ec395e90014f1a10bc00cd8017027b2d3",
+      "publish": true,
+      "files": [
+        {
+          "path": "dist/index.d.ts",
+          "size": 842
+        },
+        {
+          "path": "dist/index.d.ts.map",
+          "size": 801
+        },
+        {
+          "path": "dist/index.js",
+          "size": 10589
+        },
+        {
+          "path": "dist/index.js.map",
+          "size": 10124
+        },
+        {
+          "path": "dist/retiregolden.d.ts",
+          "size": 209
+        },
+        {
+          "path": "dist/retiregolden.d.ts.map",
+          "size": 164
+        },
+        {
+          "path": "dist/retiregolden.js",
+          "size": 666
+        },
+        {
+          "path": "dist/retiregolden.js.map",
+          "size": 400
+        },
+        {
+          "path": "LICENSE",
+          "size": 1075
+        },
+        {
+          "path": "package.json",
+          "size": 916
+        },
+        {
+          "path": "README.md",
+          "size": 1085
+        }
+      ]
+    },
+    {
+      "name": "@pegma/support-desk-application",
+      "version": "0.2.0",
+      "directory": "application",
+      "tarball": "pegma-support-desk-application-0.2.0.tgz",
+      "integrity": "sha512-0Ihqjn6RunIbDivVRBYn+vOhK9OmS4irN02ZCwiklpGcn+C3+s/hzHXZjF2bcd8+CveigVcN6t266olsdC9m5g==",
+      "shasum": "27295e24a33db1a338c460aaa82d0ce1fab5f193",
+      "publish": true,
+      "files": [
+        {
+          "path": "dist/assistant-turn-capacity.d.ts",
+          "size": 757
+        },
+        {
+          "path": "dist/assistant-turn-capacity.d.ts.map",
+          "size": 268
+        },
+        {
+          "path": "dist/assistant-turn-capacity.js",
+          "size": 4278
+        },
+        {
+          "path": "dist/assistant-turn-capacity.js.map",
+          "size": 2915
+        },
+        {
+          "path": "dist/assistant-turn-records.d.ts",
+          "size": 4373
+        },
+        {
+          "path": "dist/assistant-turn-records.d.ts.map",
+          "size": 3634
+        },
+        {
+          "path": "dist/assistant-turn-records.js",
+          "size": 17689
+        },
+        {
+          "path": "dist/assistant-turn-records.js.map",
+          "size": 15918
+        },
+        {
+          "path": "dist/assistant-turn-types.d.ts",
+          "size": 5674
+        },
+        {
+          "path": "dist/assistant-turn-types.d.ts.map",
+          "size": 4739
+        },
+        {
+          "path": "dist/assistant-turn-types.js",
+          "size": 59
+        },
+        {
+          "path": "dist/assistant-turn-types.js.map",
+          "size": 132
+        },
+        {
+          "path": "dist/assistant-turns.d.ts",
+          "size": 2278
+        },
+        {
+          "path": "dist/assistant-turns.d.ts.map",
+          "size": 1945
+        },
+        {
+          "path": "dist/assistant-turns.js",
+          "size": 32172
+        },
+        {
+          "path": "dist/assistant-turns.js.map",
+          "size": 24992
+        },
+        {
+          "path": "dist/engineering-evidence.d.ts",
+          "size": 1394
+        },
+        {
+          "path": "dist/engineering-evidence.d.ts.map",
+          "size": 1097
+        },
+        {
+          "path": "dist/engineering-evidence.js",
+          "size": 44883
+        },
+        {
+          "path": "dist/engineering-evidence.js.map",
+          "size": 35117
+        },
+        {
+          "path": "dist/engineering-followup-internal.d.ts",
+          "size": 2853
+        },
+        {
+          "path": "dist/engineering-followup-internal.d.ts.map",
+          "size": 2256
+        },
+        {
+          "path": "dist/engineering-followup-internal.js",
+          "size": 68
+        },
+        {
+          "path": "dist/engineering-followup-internal.js.map",
+          "size": 150
+        },
+        {
+          "path": "dist/engineering-followup-records.d.ts",
+          "size": 12108
+        },
+        {
+          "path": "dist/engineering-followup-records.d.ts.map",
+          "size": 9087
+        },
+        {
+          "path": "dist/engineering-followup-records.js",
+          "size": 55420
+        },
+        {
+          "path": "dist/engineering-followup-records.js.map",
+          "size": 46058
+        },
+        {
+          "path": "dist/engineering-followup-source.d.ts",
+          "size": 9682
+        },
+        {
+          "path": "dist/engineering-followup-source.d.ts.map",
+          "size": 4056
+        },
+        {
+          "path": "dist/engineering-followup-source.js",
+          "size": 57375
+        },
+        {
+          "path": "dist/engineering-followup-source.js.map",
+          "size": 45940
+        },
+        {
+          "path": "dist/engineering-followup-types.d.ts",
+          "size": 16312
+        },
+        {
+          "path": "dist/engineering-followup-types.d.ts.map",
+          "size": 13079
+        },
+        {
+          "path": "dist/engineering-followup-types.js",
+          "size": 65
+        },
+        {
+          "path": "dist/engineering-followup-types.js.map",
+          "size": 144
+        },
+        {
+          "path": "dist/engineering-followup-work.d.ts",
+          "size": 4180
+        },
+        {
+          "path": "dist/engineering-followup-work.d.ts.map",
+          "size": 632
+        },
+        {
+          "path": "dist/engineering-followup-work.js",
+          "size": 60978
+        },
+        {
+          "path": "dist/engineering-followup-work.js.map",
+          "size": 45620
+        },
+        {
+          "path": "dist/engineering-internal.d.ts",
+          "size": 2593
+        },
+        {
+          "path": "dist/engineering-internal.d.ts.map",
+          "size": 2147
+        },
+        {
+          "path": "dist/engineering-internal.js",
+          "size": 480
+        },
+        {
+          "path": "dist/engineering-internal.js.map",
+          "size": 628
+        },
+        {
+          "path": "dist/engineering-policy.d.ts",
+          "size": 2115
+        },
+        {
+          "path": "dist/engineering-policy.d.ts.map",
+          "size": 1604
+        },
+        {
+          "path": "dist/engineering-policy.js",
+          "size": 25941
+        },
+        {
+          "path": "dist/engineering-policy.js.map",
+          "size": 22027
+        },
+        {
+          "path": "dist/engineering-reconciliation.d.ts",
+          "size": 466
+        },
+        {
+          "path": "dist/engineering-reconciliation.d.ts.map",
+          "size": 396
+        },
+        {
+          "path": "dist/engineering-reconciliation.js",
+          "size": 22531
+        },
+        {
+          "path": "dist/engineering-reconciliation.js.map",
+          "size": 17628
+        },
+        {
+          "path": "dist/engineering-records.d.ts",
+          "size": 11797
+        },
+        {
+          "path": "dist/engineering-records.d.ts.map",
+          "size": 9799
+        },
+        {
+          "path": "dist/engineering-records.js",
+          "size": 50107
+        },
+        {
+          "path": "dist/engineering-records.js.map",
+          "size": 39426
+        },
+        {
+          "path": "dist/engineering-types.d.ts",
+          "size": 21400
+        },
+        {
+          "path": "dist/engineering-types.d.ts.map",
+          "size": 18023
+        },
+        {
+          "path": "dist/engineering-types.js",
+          "size": 56
+        },
+        {
+          "path": "dist/engineering-types.js.map",
+          "size": 126
+        },
+        {
+          "path": "dist/engineering-work.d.ts",
+          "size": 2125
+        },
+        {
+          "path": "dist/engineering-work.d.ts.map",
+          "size": 1659
+        },
+        {
+          "path": "dist/engineering-work.js",
+          "size": 88710
+        },
+        {
+          "path": "dist/engineering-work.js.map",
+          "size": 66346
+        },
+        {
+          "path": "dist/index.d.ts",
+          "size": 55267
+        },
+        {
+          "path": "dist/index.d.ts.map",
+          "size": 31700
+        },
+        {
+          "path": "dist/index.js",
+          "size": 305671
+        },
+        {
+          "path": "dist/index.js.map",
+          "size": 237780
+        },
+        {
+          "path": "dist/resolution-learning-records.d.ts",
+          "size": 7670
+        },
+        {
+          "path": "dist/resolution-learning-records.d.ts.map",
+          "size": 6482
+        },
+        {
+          "path": "dist/resolution-learning-records.js",
+          "size": 26940
+        },
+        {
+          "path": "dist/resolution-learning-records.js.map",
+          "size": 20994
+        },
+        {
+          "path": "dist/resolution-learning-types.d.ts",
+          "size": 15589
+        },
+        {
+          "path": "dist/resolution-learning-types.d.ts.map",
+          "size": 12809
+        },
+        {
+          "path": "dist/resolution-learning-types.js",
+          "size": 64
+        },
+        {
+          "path": "dist/resolution-learning-types.js.map",
+          "size": 142
+        },
+        {
+          "path": "dist/resolution-learning-worker.d.ts",
+          "size": 1444
+        },
+        {
+          "path": "dist/resolution-learning-worker.d.ts.map",
+          "size": 1107
+        },
+        {
+          "path": "dist/resolution-learning-worker.js",
+          "size": 51073
+        },
+        {
+          "path": "dist/resolution-learning-worker.js.map",
+          "size": 37772
+        },
+        {
+          "path": "dist/resolution-learning.d.ts",
+          "size": 2483
+        },
+        {
+          "path": "dist/resolution-learning.d.ts.map",
+          "size": 2195
+        },
+        {
+          "path": "dist/resolution-learning.js",
+          "size": 40899
+        },
+        {
+          "path": "dist/resolution-learning.js.map",
+          "size": 33161
+        },
+        {
+          "path": "LICENSE",
+          "size": 1075
+        },
+        {
+          "path": "package.json",
+          "size": 1123
+        },
+        {
+          "path": "README.md",
+          "size": 24410
+        }
+      ]
+    },
+    {
+      "name": "@pegma/support-desk-ai",
+      "version": "0.2.0",
+      "directory": "ai",
+      "tarball": "pegma-support-desk-ai-0.2.0.tgz",
+      "integrity": "sha512-jWDhT++knlzICOxDsZJrI137vaWy/vQVF8slFt2aep36LHQ7cuO9dmWZbyxf+2vGsgnEDVraADDmvrnJf515IA==",
+      "shasum": "f062740d7295c5afa15488867d5384d16d111f2e",
+      "publish": true,
+      "files": [
+        {
+          "path": "dist/boundary.d.ts",
+          "size": 1092
+        },
+        {
+          "path": "dist/boundary.d.ts.map",
+          "size": 894
+        },
+        {
+          "path": "dist/boundary.js",
+          "size": 5433
+        },
+        {
+          "path": "dist/boundary.js.map",
+          "size": 5208
+        },
+        {
+          "path": "dist/coordinator.d.ts",
+          "size": 324
+        },
+        {
+          "path": "dist/coordinator.d.ts.map",
+          "size": 254
+        },
+        {
+          "path": "dist/coordinator.js",
+          "size": 22597
+        },
+        {
+          "path": "dist/coordinator.js.map",
+          "size": 15641
+        },
+        {
+          "path": "dist/engineering-coordinator.d.ts",
+          "size": 357
+        },
+        {
+          "path": "dist/engineering-coordinator.d.ts.map",
+          "size": 279
+        },
+        {
+          "path": "dist/engineering-coordinator.js",
+          "size": 8552
+        },
+        {
+          "path": "dist/engineering-coordinator.js.map",
+          "size": 6311
+        },
+        {
+          "path": "dist/engineering-export.d.ts",
+          "size": 1812
+        },
+        {
+          "path": "dist/engineering-export.d.ts.map",
+          "size": 1175
+        },
+        {
+          "path": "dist/engineering-export.js",
+          "size": 37057
+        },
+        {
+          "path": "dist/engineering-export.js.map",
+          "size": 31581
+        },
+        {
+          "path": "dist/engineering-model.d.ts",
+          "size": 568
+        },
+        {
+          "path": "dist/engineering-model.d.ts.map",
+          "size": 426
+        },
+        {
+          "path": "dist/engineering-model.js",
+          "size": 17783
+        },
+        {
+          "path": "dist/engineering-model.js.map",
+          "size": 14690
+        },
+        {
+          "path": "dist/engineering-output.d.ts",
+          "size": 1091
+        },
+        {
+          "path": "dist/engineering-output.d.ts.map",
+          "size": 746
+        },
+        {
+          "path": "dist/engineering-output.js",
+          "size": 5426
+        },
+        {
+          "path": "dist/engineering-output.js.map",
+          "size": 4978
+        },
+        {
+          "path": "dist/engineering-ports.d.ts",
+          "size": 13501
+        },
+        {
+          "path": "dist/engineering-ports.d.ts.map",
+          "size": 10512
+        },
+        {
+          "path": "dist/engineering-ports.js",
+          "size": 56
+        },
+        {
+          "path": "dist/engineering-ports.js.map",
+          "size": 126
+        },
+        {
+          "path": "dist/engineering-request.d.ts",
+          "size": 3670
+        },
+        {
+          "path": "dist/engineering-request.d.ts.map",
+          "size": 2323
+        },
+        {
+          "path": "dist/engineering-request.js",
+          "size": 16761
+        },
+        {
+          "path": "dist/engineering-request.js.map",
+          "size": 14764
+        },
+        {
+          "path": "dist/index.d.ts",
+          "size": 701
+        },
+        {
+          "path": "dist/index.d.ts.map",
+          "size": 495
+        },
+        {
+          "path": "dist/index.js",
+          "size": 475
+        },
+        {
+          "path": "dist/index.js.map",
+          "size": 370
+        },
+        {
+          "path": "dist/learning-bindings.d.ts",
+          "size": 1390
+        },
+        {
+          "path": "dist/learning-bindings.d.ts.map",
+          "size": 834
+        },
+        {
+          "path": "dist/learning-bindings.js",
+          "size": 4069
+        },
+        {
+          "path": "dist/learning-bindings.js.map",
+          "size": 3822
+        },
+        {
+          "path": "dist/learning-coordinator.d.ts",
+          "size": 346
+        },
+        {
+          "path": "dist/learning-coordinator.d.ts.map",
+          "size": 273
+        },
+        {
+          "path": "dist/learning-coordinator.js",
+          "size": 8173
+        },
+        {
+          "path": "dist/learning-coordinator.js.map",
+          "size": 6518
+        },
+        {
+          "path": "dist/learning-integration-types.d.ts",
+          "size": 8599
+        },
+        {
+          "path": "dist/learning-integration-types.d.ts.map",
+          "size": 4924
+        },
+        {
+          "path": "dist/learning-integration-types.js",
+          "size": 65
+        },
+        {
+          "path": "dist/learning-integration-types.js.map",
+          "size": 144
+        },
+        {
+          "path": "dist/learning-kb.d.ts",
+          "size": 1833
+        },
+        {
+          "path": "dist/learning-kb.d.ts.map",
+          "size": 1211
+        },
+        {
+          "path": "dist/learning-kb.js",
+          "size": 36879
+        },
+        {
+          "path": "dist/learning-kb.js.map",
+          "size": 31408
+        },
+        {
+          "path": "dist/learning-model.d.ts",
+          "size": 350
+        },
+        {
+          "path": "dist/learning-model.d.ts.map",
+          "size": 262
+        },
+        {
+          "path": "dist/learning-model.js",
+          "size": 23123
+        },
+        {
+          "path": "dist/learning-model.js.map",
+          "size": 16418
+        },
+        {
+          "path": "dist/learning-output.d.ts",
+          "size": 1277
+        },
+        {
+          "path": "dist/learning-output.d.ts.map",
+          "size": 790
+        },
+        {
+          "path": "dist/learning-output.js",
+          "size": 3771
+        },
+        {
+          "path": "dist/learning-output.js.map",
+          "size": 3638
+        },
+        {
+          "path": "dist/learning-ports.d.ts",
+          "size": 9179
+        },
+        {
+          "path": "dist/learning-ports.d.ts.map",
+          "size": 7119
+        },
+        {
+          "path": "dist/learning-ports.js",
+          "size": 53
+        },
+        {
+          "path": "dist/learning-ports.js.map",
+          "size": 120
+        },
+        {
+          "path": "dist/learning-request.d.ts",
+          "size": 1075
+        },
+        {
+          "path": "dist/learning-request.d.ts.map",
+          "size": 722
+        },
+        {
+          "path": "dist/learning-request.js",
+          "size": 7639
+        },
+        {
+          "path": "dist/learning-request.js.map",
+          "size": 7026
+        },
+        {
+          "path": "dist/learning-retirement.d.ts",
+          "size": 522
+        },
+        {
+          "path": "dist/learning-retirement.d.ts.map",
+          "size": 289
+        },
+        {
+          "path": "dist/learning-retirement.js",
+          "size": 19430
+        },
+        {
+          "path": "dist/learning-retirement.js.map",
+          "size": 13722
+        },
+        {
+          "path": "dist/learning-runtime.d.ts",
+          "size": 1232
+        },
+        {
+          "path": "dist/learning-runtime.d.ts.map",
+          "size": 1111
+        },
+        {
+          "path": "dist/learning-runtime.js",
+          "size": 3833
+        },
+        {
+          "path": "dist/learning-runtime.js.map",
+          "size": 3800
+        },
+        {
+          "path": "dist/learning-sources.d.ts",
+          "size": 531
+        },
+        {
+          "path": "dist/learning-sources.d.ts.map",
+          "size": 301
+        },
+        {
+          "path": "dist/learning-sources.js",
+          "size": 12663
+        },
+        {
+          "path": "dist/learning-sources.js.map",
+          "size": 10026
+        },
+        {
+          "path": "dist/output.d.ts",
+          "size": 1737
+        },
+        {
+          "path": "dist/output.d.ts.map",
+          "size": 1276
+        },
+        {
+          "path": "dist/output.js",
+          "size": 4715
+        },
+        {
+          "path": "dist/output.js.map",
+          "size": 4786
+        },
+        {
+          "path": "dist/ports.d.ts",
+          "size": 8698
+        },
+        {
+          "path": "dist/ports.d.ts.map",
+          "size": 6434
+        },
+        {
+          "path": "dist/ports.js",
+          "size": 44
+        },
+        {
+          "path": "dist/ports.js.map",
+          "size": 102
+        },
+        {
+          "path": "dist/release-followup-coordinator.d.ts",
+          "size": 405
+        },
+        {
+          "path": "dist/release-followup-coordinator.d.ts.map",
+          "size": 289
+        },
+        {
+          "path": "dist/release-followup-coordinator.js",
+          "size": 18479
+        },
+        {
+          "path": "dist/release-followup-coordinator.js.map",
+          "size": 14042
+        },
+        {
+          "path": "dist/release-followup-model.d.ts",
+          "size": 594
+        },
+        {
+          "path": "dist/release-followup-model.d.ts.map",
+          "size": 435
+        },
+        {
+          "path": "dist/release-followup-model.js",
+          "size": 15966
+        },
+        {
+          "path": "dist/release-followup-model.js.map",
+          "size": 13055
+        },
+        {
+          "path": "dist/release-followup-output.d.ts",
+          "size": 1277
+        },
+        {
+          "path": "dist/release-followup-output.d.ts.map",
+          "size": 772
+        },
+        {
+          "path": "dist/release-followup-output.js",
+          "size": 3783
+        },
+        {
+          "path": "dist/release-followup-output.js.map",
+          "size": 3654
+        },
+        {
+          "path": "dist/release-followup-ports.d.ts",
+          "size": 10637
+        },
+        {
+          "path": "dist/release-followup-ports.d.ts.map",
+          "size": 7460
+        },
+        {
+          "path": "dist/release-followup-ports.js",
+          "size": 61
+        },
+        {
+          "path": "dist/release-followup-ports.js.map",
+          "size": 136
+        },
+        {
+          "path": "dist/release-followup-request.d.ts",
+          "size": 3426
+        },
+        {
+          "path": "dist/release-followup-request.d.ts.map",
+          "size": 2084
+        },
+        {
+          "path": "dist/release-followup-request.js",
+          "size": 14141
+        },
+        {
+          "path": "dist/release-followup-request.js.map",
+          "size": 12663
+        },
+        {
+          "path": "dist/release-followup-review.d.ts",
+          "size": 1561
+        },
+        {
+          "path": "dist/release-followup-review.d.ts.map",
+          "size": 893
+        },
+        {
+          "path": "dist/release-followup-review.js",
+          "size": 12875
+        },
+        {
+          "path": "dist/release-followup-review.js.map",
+          "size": 11439
+        },
+        {
+          "path": "dist/request.d.ts",
+          "size": 1171
+        },
+        {
+          "path": "dist/request.d.ts.map",
+          "size": 858
+        },
+        {
+          "path": "dist/request.js",
+          "size": 8272
+        },
+        {
+          "path": "dist/request.js.map",
+          "size": 8051
+        },
+        {
+          "path": "LICENSE",
+          "size": 1074
+        },
+        {
+          "path": "package.json",
+          "size": 1039
+        },
+        {
+          "path": "README.md",
+          "size": 15078
+        }
+      ]
+    }
+  ]
+}
