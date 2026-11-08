@@ -583,6 +583,79 @@ for (const [name, createStore] of engineeringStores) {
       expect(work.dispatch).toBeUndefined();
     });
 
+    it.each(["configuration", "calibration", "authority"] as const)(
+      "rechecks source and policy after the final awaited %s before provider admission",
+      async (phase) => {
+        for (const change of ["withdraw-source", "disable-policy"] as const) {
+          const f = await engineeringAiFixture(createStore());
+          let reserved = false;
+          let finalConfigurationRead = false;
+          let changed = false;
+          const mutate = async () => {
+            if (changed) return;
+            changed = true;
+            if (change === "withdraw-source")
+              await f.app.withdrawEngineeringSource(engineeringStaff, {
+                ...f.command("withdraw-in-final-provider-check"),
+                reason: "privacy_withdrawal",
+              });
+            else await f.putPolicy({ enabled: false });
+          };
+          f.reserve.mockImplementation(async (context) => {
+            reserved = true;
+            return {
+              outcome: "reserved",
+              usageReservationId: context.usageReservationId,
+            };
+          });
+          const engineering = createSupportDeskEngineering({
+            ...f.baseOptions,
+            configuration: {
+              async resolve(expected, signal) {
+                const result = await f.baseOptions.configuration.resolve(
+                  expected,
+                  signal,
+                );
+                if (reserved) {
+                  finalConfigurationRead = true;
+                  if (phase === "configuration") await mutate();
+                }
+                return result;
+              },
+            },
+            routing: {
+              ...f.baseOptions.routing,
+              async resolve(signal) {
+                const result = await f.baseOptions.routing.resolve(signal);
+                if (reserved && phase === "calibration") await mutate();
+                return result;
+              },
+            },
+            serviceAccess: {
+              async resolve(signal) {
+                const result =
+                  await f.baseOptions.serviceAccess.resolve(signal);
+                if (finalConfigurationRead && phase === "authority")
+                  await mutate();
+                return result;
+              },
+            },
+          });
+          await engineering.processWork(await f.nextCommand());
+          expect(changed).toBe(true);
+          expect(f.reserve).toHaveBeenCalledOnce();
+          expect(f.generate).not.toHaveBeenCalled();
+          expect(f.createIssue).not.toHaveBeenCalled();
+          expect(f.reconcile).toHaveBeenCalledWith(expect.anything(), {
+            state: "not_called",
+          });
+          const work = await f.app.readEngineeringWork(engineeringStaff, f.key);
+          expect(work.candidate).toBeUndefined();
+          expect(work.proposal).toBeUndefined();
+        }
+      },
+    );
+
     it.each(["input", "output", "context", "cost", "currency"] as const)(
       "settles actual known usage when the provider exceeds its %s budget",
       async (variant) => {

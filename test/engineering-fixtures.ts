@@ -11,6 +11,9 @@ import {
   type EngineeringExportRequest,
   type EngineeringFailedTest,
   type EngineeringModelBinding,
+  type EngineeringMismatch,
+  type EngineeringIssueAcknowledgement,
+  type PrepareEngineeringProposalCommand,
   type EngineeringOptions,
   type EngineeringProductContext,
   type EngineeringRepositoryDescriptor,
@@ -119,6 +122,7 @@ type FixtureOptions = Omit<Configuration, "engineering"> & {
   readonly initialBody?: string;
   readonly notificationBody?: string;
   readonly privateNote?: string;
+  readonly report?: Partial<EngineeringMismatch>;
 };
 type TestContext = Parameters<
   NonNullable<EngineeringOptions["testReceipts"]>["verify"]
@@ -151,6 +155,7 @@ function configure(
     initialBody: _body,
     notificationBody: _notification,
     privateNote: _note,
+    report: _report,
     ...rest
   } = options;
   const effective = Object.hasOwn(options, "engineering")
@@ -312,6 +317,7 @@ export function engineeringFixture(
   };
   const configuration = configure({ engineering: engineeringOptions }, options);
   const f = handlingFixture(backing, configuration);
+  const proposalCommands: PrepareEngineeringProposalCommand[] = [];
   const policyCommand = (label: string, expectedGeneration = 0) => {
     const { ticketId: _ticketId, ...command } = f.command(label);
     return { ...command, expectedGeneration };
@@ -328,6 +334,7 @@ export function engineeringFixture(
   return {
     ...f,
     engineeringOptions,
+    proposalCommands,
     policyCommand,
     createInput,
     create(managed = false, ticketId = "ticket") {
@@ -393,6 +400,7 @@ export function engineeringFixture(
         ],
         visibleMessageIds: visible.messages.map((message) => message.id),
         verificationReference: "PRIVATE_ENGINEERING_VERIFICATION_REFERENCE",
+        ...options.report,
       };
     },
     async eligible(
@@ -585,9 +593,12 @@ export function engineeringFixture(
       return {
         title: "Workspace export produces an empty file",
         summary: "A synthetic workspace export omits its rows.",
-        expectedBehavior: "The exported file includes the workspace rows.",
-        actualBehavior: "The file contains no rows.",
-        reproductionSteps: [
+        expectedBehavior:
+          options.report?.expectedBehavior ??
+          "The exported file includes the workspace rows.",
+        actualBehavior:
+          options.report?.actualBehavior ?? "The file contains no rows.",
+        reproductionSteps: options.report?.reproductionSteps ?? [
           "Create a synthetic workspace with two rows.",
           "Choose Export and inspect the downloaded file.",
         ],
@@ -646,13 +657,16 @@ export function engineeringFixture(
         ...overrides,
       };
     },
-    async prepareCandidate(owner?: EngineeringClaim) {
+    async prepareCandidate(
+      owner?: EngineeringClaim,
+      candidateOverride?: EngineeringCandidate,
+    ) {
       const claim = owner ?? (await this.claim());
       const prepared = await f.app.prepareEngineeringModel(engineeringService, {
         ...claim.fence,
         binding: await this.modelBinding(claim),
       });
-      const candidate = this.candidate();
+      const candidate = candidateOverride ?? this.candidate();
       const result = await f.app.completeEngineeringModel(
         engineeringService,
         {
@@ -769,17 +783,19 @@ export function engineeringFixture(
             : "not_applicable",
         ...options.checksOverrides,
       });
+      const command: PrepareEngineeringProposalCommand = {
+        ...owner.fence,
+        candidateHash: model.candidateHash,
+        routingReceipt,
+        checksReceipt,
+        exactRequest: request,
+        policyGeneration: owner.policy.generation,
+        policyHash: owner.policy.policyHash,
+      };
+      proposalCommands.push(structuredClone(command));
       const prepared = await f.app.prepareEngineeringProposal(
         engineeringService,
-        {
-          ...owner.fence,
-          candidateHash: model.candidateHash,
-          routingReceipt,
-          checksReceipt,
-          exactRequest: request,
-          policyGeneration: owner.policy.generation,
-          policyHash: owner.policy.policyHash,
-        },
+        command,
         async () => {},
       );
       const actual = await this.work(
@@ -799,6 +815,7 @@ export function engineeringFixture(
         checksReceipt,
         routingBinding,
         checksBinding,
+        command,
       };
     },
     async approve(ticketId = "ticket") {
@@ -1142,7 +1159,7 @@ export async function engineeringAiFixture(
   const remoteProofs = new Map<string, EngineeringDispatchProofBinding>();
   const acceptIssue = async (
     request: Extract<EngineeringExportRequest, { operation: "create_issue" }>,
-    acknowledgement = {
+    acknowledgement: EngineeringIssueAcknowledgement = {
       repositoryId: request.repository.repositoryId,
       issueId: `synthetic-issue-${acceptedIssues.size + 1}`,
       issueNumber: acceptedIssues.size + 1,
@@ -1272,22 +1289,46 @@ export async function engineeringAiFixture(
     async (input) => {
       if (state.proposalOutcome !== "prepared")
         return { outcome: state.proposalOutcome };
-      const bundle = {
-        title: input.candidate.title,
-        body: [
-          input.candidate.summary,
-          `Expected: ${input.candidate.expectedBehavior}`,
-          `Actual: ${input.candidate.actualBehavior}`,
-          ...input.candidate.reproductionSteps,
-          `Export marker: ${input.exportMarker}`,
-        ].join("\n\n"),
-        labels: input.descriptor.allowedLabels.includes("bug") ? ["bug"] : [],
-        ...(input.descriptor.allowedTemplates[0] === undefined
-          ? {}
-          : { templateId: input.descriptor.allowedTemplates[0] }),
-        evidenceReferences: ["synthetic-verified-reproduction"],
-        exportMarker: input.exportMarker,
-      };
+      let bundle: EngineeringExportRequest["bundle"];
+      if (input.previousRequest !== undefined) {
+        const previous = input.previousRequest.bundle;
+        const { templateId: previousTemplate, ...retained } = previous;
+        const templateId =
+          previousTemplate !== undefined &&
+          input.descriptor.allowedTemplates.includes(previousTemplate)
+            ? previousTemplate
+            : input.descriptor.allowedTemplates[0];
+        bundle = {
+          ...retained,
+          body: previous.body.replaceAll(
+            previous.exportMarker,
+            input.exportMarker,
+          ),
+          labels: previous.labels.filter((label) =>
+            input.descriptor.allowedLabels.includes(label),
+          ),
+          ...(templateId === undefined ? {} : { templateId }),
+          evidenceReferences: [...previous.evidenceReferences],
+          exportMarker: input.exportMarker,
+        };
+      } else {
+        bundle = {
+          title: input.candidate.title,
+          body: [
+            input.candidate.summary,
+            `Expected: ${input.candidate.expectedBehavior}`,
+            `Actual: ${input.candidate.actualBehavior}`,
+            ...input.candidate.reproductionSteps,
+            `Export marker: ${input.exportMarker}`,
+          ].join("\n\n"),
+          labels: input.descriptor.allowedLabels.includes("bug") ? ["bug"] : [],
+          ...(input.descriptor.allowedTemplates[0] === undefined
+            ? {}
+            : { templateId: input.descriptor.allowedTemplates[0] }),
+          evidenceReferences: ["synthetic-verified-reproduction"],
+          exportMarker: input.exportMarker,
+        };
+      }
       const duplicate = state.linkExisting ? input.duplicates[0] : undefined;
       return {
         outcome: "prepared",
@@ -1334,8 +1375,17 @@ export async function engineeringAiFixture(
     workerId: "engineering-ai-worker",
     leaseMilliseconds: 30_000,
   });
+  // This coordinator processes the accepted job even when later source epochs
+  // classify or invalidate it without creating a replacement job.
+  const work = (ticketId = key.ticketId, sourceGeneration?: number) =>
+    f.work(
+      ticketId,
+      sourceGeneration ??
+        (ticketId === key.ticketId ? key.sourceGeneration : undefined),
+    );
   return {
     ...f,
+    work,
     engineering,
     baseOptions,
     state,
@@ -1382,8 +1432,8 @@ export async function engineeringAiFixture(
         if (result.outcome === "prepared")
           return {
             result,
-            work: await f.work(),
-            request: (await f.work()).proposal!.request,
+            work: await work(),
+            request: (await work()).proposal!.request,
           };
         if (result.outcome !== "candidate")
           throw new Error(
@@ -1393,14 +1443,14 @@ export async function engineeringAiFixture(
       throw new Error("Engineering proposal exceeded three bounded stages");
     },
     async approve() {
-      const work = await f.work();
-      if (work.proposal === undefined)
+      const currentWork = await work();
+      if (currentWork.proposal === undefined)
         throw new Error("Engineering proposal is not prepared");
       return engineering.reviewProposal(engineeringStaff, {
         ...f.command("approve-engineering-proposal"),
         sourceGeneration: key.sourceGeneration,
-        expectedWorkGeneration: work.workGeneration,
-        proposalHash: work.proposal.proposalHash,
+        expectedWorkGeneration: currentWork.workGeneration,
+        proposalHash: currentWork.proposal.proposalHash,
         decision: "approve",
       });
     },

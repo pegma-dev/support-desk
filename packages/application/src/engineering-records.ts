@@ -188,6 +188,8 @@ export interface EngineeringWorkRecord {
   readonly candidateHash?: string;
   readonly staffSelection?: EngineeringStaffSelection;
   readonly proposal?: EngineeringPreparedProposal;
+  /** One prior exact body retained only to rebuild against a new staff target. */
+  readonly proposalNeedsRebuild?: boolean;
   readonly approval?: EngineeringApproval;
   readonly dispatch?: EngineeringDispatch;
   readonly acknowledgement?: EngineeringIssueAcknowledgement;
@@ -212,6 +214,10 @@ export interface EngineeringWorkRecord {
   readonly lastCompletion?: { readonly fingerprint: string };
   readonly lastFinish?: { readonly fingerprint: string };
   readonly lastDispatchResult?: { readonly fingerprint: string };
+  readonly lastProposalPreparation?: {
+    readonly fingerprint: string;
+    readonly result: EngineeringStepResult;
+  };
 }
 export interface EngineeringReceiptRecord {
   readonly kind: "engineering_receipt";
@@ -706,6 +712,60 @@ export function validateEngineeringAcknowledgement(
   integer(ack.issueNumber, "issueNumber", 1);
   if (ack.url !== undefined) text(ack.url, "url");
 }
+export function validateEngineeringStepResult(
+  value: unknown,
+): asserts value is EngineeringStepResult {
+  const result = fields(
+    value,
+    "engineering step result",
+    ["ticketId", "sourceGeneration", "workGeneration", "status"],
+    [
+      "stepId",
+      "requestHash",
+      "candidateHash",
+      "proposalHash",
+      "dispatchId",
+      "acknowledgement",
+    ],
+  );
+  text(result.ticketId, "ticketId");
+  integer(result.sourceGeneration, "sourceGeneration", 1);
+  integer(result.workGeneration, "workGeneration", 1);
+  literals(result.status, "status", [
+    "pending",
+    "claimed",
+    "retry",
+    "candidate",
+    "prepared",
+    "approved",
+    "dispatch_started",
+    "accepted",
+    "confirmed_rejected",
+    "unknown",
+    "held",
+    "restricted",
+    "superseded",
+  ]);
+  optionalText(result, [
+    "stepId",
+    "requestHash",
+    "candidateHash",
+    "proposalHash",
+    "dispatchId",
+  ]);
+  if ((result.stepId === undefined) !== (result.requestHash === undefined))
+    throw new TypeError(
+      "Engineering step result must retain its complete step fence",
+    );
+  if (result.acknowledgement !== undefined) {
+    fields(result.acknowledgement, "opaque engineering acknowledgement", [
+      "repositoryId",
+      "issueId",
+      "issueNumber",
+    ]);
+    validateEngineeringAcknowledgement(result.acknowledgement);
+  }
+}
 
 export function resolveEngineeringOptions(
   input: EngineeringOptions | undefined,
@@ -1111,6 +1171,7 @@ function validateWork(value: Record<string, unknown>): void {
       "candidateHash",
       "staffSelection",
       "proposal",
+      "proposalNeedsRebuild",
       "approval",
       "dispatch",
       "acknowledgement",
@@ -1121,6 +1182,7 @@ function validateWork(value: Record<string, unknown>): void {
       "lastCompletion",
       "lastFinish",
       "lastDispatchResult",
+      "lastProposalPreparation",
     ],
   );
   if (
@@ -1395,6 +1457,28 @@ function validateWork(value: Record<string, unknown>): void {
       const receipt = fields(value[key], key, ["fingerprint"]);
       text(receipt.fingerprint, "fingerprint");
     }
+  if (
+    value.proposalNeedsRebuild !== undefined &&
+    typeof value.proposalNeedsRebuild !== "boolean"
+  )
+    throw new TypeError("Engineering proposal rebuild marker must be boolean");
+  if (value.lastProposalPreparation !== undefined) {
+    const prepared = fields(
+      value.lastProposalPreparation,
+      "engineering proposal preparation receipt",
+      ["fingerprint", "result"],
+    );
+    text(prepared.fingerprint, "fingerprint");
+    validateEngineeringStepResult(prepared.result);
+    if (
+      prepared.result.ticketId !== value.ticketId ||
+      prepared.result.sourceGeneration !== value.sourceGeneration ||
+      prepared.result.workGeneration > (value.workGeneration as number)
+    )
+      throw new TypeError(
+        "Engineering proposal preparation receipt differs from its work",
+      );
+  }
   validateWorkRelationships(value);
 }
 function validateWorkRelationships(value: Record<string, unknown>): void {
@@ -1439,7 +1523,9 @@ function validateWorkRelationships(value: Record<string, unknown>): void {
       "candidateHash",
       "staffSelection",
       "proposal",
+      "proposalNeedsRebuild",
       "approval",
+      "lastProposalPreparation",
     ])
       if (value[key] !== undefined)
         throw new TypeError(
@@ -1488,6 +1574,18 @@ function validateWorkRelationships(value: Record<string, unknown>): void {
       );
   }
   const proposal = work.proposal;
+  if (
+    work.proposalNeedsRebuild === true &&
+    (proposal === undefined ||
+      work.staffSelection === undefined ||
+      work.approval !== undefined ||
+      work.dispatch !== undefined ||
+      work.candidate !== undefined ||
+      work.stage !== "proposal")
+  )
+    throw new TypeError(
+      "Engineering proposal rebuild lacks its retained prior body or staff target",
+    );
   if (proposal !== undefined) {
     if (
       proposal.stepId !== work.stepId ||
@@ -1530,7 +1628,8 @@ function validateWorkRelationships(value: Record<string, unknown>): void {
   const approval = work.approval;
   if (
     approval !== undefined &&
-    (proposal === undefined ||
+    (work.proposalNeedsRebuild === true ||
+      proposal === undefined ||
       approval.proposalHash !== proposal.proposalHash ||
       approval.requestHash !== proposal.requestHash ||
       approval.sourceBindingHash !== work.sourceBindingHash ||
@@ -1680,46 +1779,7 @@ export function assertEngineeringRecord(
         "uncertain",
       ]);
       optionalText(outcome, ["heldReason"]);
-    } else {
-      fields(
-        outcome,
-        "engineering step result",
-        ["ticketId", "sourceGeneration", "workGeneration", "status"],
-        [
-          "stepId",
-          "requestHash",
-          "candidateHash",
-          "proposalHash",
-          "dispatchId",
-          "acknowledgement",
-        ],
-      );
-      integer(outcome.workGeneration, "workGeneration", 1);
-      literals(outcome.status, "status", [
-        "pending",
-        "claimed",
-        "retry",
-        "candidate",
-        "prepared",
-        "approved",
-        "dispatch_started",
-        "accepted",
-        "confirmed_rejected",
-        "unknown",
-        "held",
-        "restricted",
-        "superseded",
-      ]);
-      optionalText(outcome, [
-        "stepId",
-        "requestHash",
-        "candidateHash",
-        "proposalHash",
-        "dispatchId",
-      ]);
-      if (outcome.acknowledgement !== undefined)
-        validateEngineeringAcknowledgement(outcome.acknowledgement);
-    }
+    } else validateEngineeringStepResult(outcome);
   } else {
     integer(row.sourceGeneration, "sourceGeneration", 0);
     integer(row.workGeneration, "workGeneration", 1);

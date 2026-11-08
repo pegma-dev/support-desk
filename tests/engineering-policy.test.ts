@@ -2,6 +2,7 @@ import {
   createSupportDeskApplication,
   supportPermissions,
   type EngineeringRepositoryPolicy,
+  type EngineeringPolicyHistoryPruneResult,
   type PutEngineeringPolicyCommand,
 } from "@pegma/support-desk-application";
 import type { CollectionDefinition, Store } from "@pegma/storage-core";
@@ -16,6 +17,31 @@ import {
   engineeringService as service,
   engineeringStores,
 } from "../test/engineering-fixtures.js";
+
+const POLICY_RETENTION = 30 * 86_400_000;
+async function pruneHistory(
+  f: ReturnType<typeof engineeringFixture>,
+  limit = 1,
+) {
+  const results: EngineeringPolicyHistoryPruneResult[] = [];
+  for (let cycle = 0; cycle < 2; cycle += 1) {
+    let cursor: string | undefined;
+    for (let page = 0; page < 32; page += 1) {
+      const result = await f.app.pruneRepositoryPolicyHistory(admin, {
+        limit,
+        ...(cursor === undefined ? {} : { cursor }),
+      });
+      expect(result.pages).toBe(1);
+      expect(result.physicalRows).toBeLessThanOrEqual(limit);
+      results.push(result);
+      if (result.nextCursor === null) break;
+      if (page === 31)
+        throw new Error("Policy history exceeded its bounded test scan cycle");
+      cursor = result.nextCursor;
+    }
+  }
+  return results;
+}
 
 for (const [name, createStore] of engineeringStores) {
   describe(`repository policy through real Storage Core (${name})`, () => {
@@ -474,5 +500,331 @@ for (const [name, createStore] of engineeringStores) {
         expect(await f.policy()).toEqual(current);
       },
     );
+
+    it("reclaims aged policy history after emergency disable without deleting its head or reviving an old command", async () => {
+      const f = engineeringFixture(createStore(), {
+        engineeringPolicy: { maxRecords: 5 },
+      });
+      const original: PutEngineeringPolicyCommand = {
+        ...f.policyCommand("retained-original-policy"),
+        policy: { enabled: true, repositories: engineeringRepositories },
+      };
+      await f.app.putRepositoryPolicy(admin, original);
+      await f.app.disableEngineeringExports(
+        admin,
+        f.policyCommand("retained-disable", 1),
+      );
+      const disabled = await f.policy();
+      const retained = await f.backing
+        .collection(engineeringPolicyRecords)
+        .list("instance");
+      expect(retained).toHaveLength(5);
+      const fresh = await f.app.pruneRepositoryPolicyHistory(admin, {
+        limit: 64,
+      });
+      expect(fresh).toMatchObject({
+        physicalRows: 5,
+        pages: 1,
+        deletedRows: 0,
+        deletedPairs: 0,
+      });
+      expect(
+        await f.backing.collection(engineeringPolicyRecords).list("instance"),
+      ).toEqual(retained);
+      f.advance(POLICY_RETENTION + 1);
+      const pruned = await pruneHistory(f);
+      expect(pruned.reduce((sum, page) => sum + page.deletedRows, 0)).toBe(4);
+      expect(pruned.reduce((sum, page) => sum + page.deletedPairs, 0)).toBe(2);
+      const remaining = await f.backing
+        .collection(engineeringPolicyRecords)
+        .list("instance");
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0]).toMatchObject({
+        kind: "engineering_policy",
+        id: "policy",
+        generation: disabled.generation,
+      });
+      expect(await f.policy()).toEqual(disabled);
+      await expect(
+        f.app.putRepositoryPolicy(admin, original),
+      ).rejects.toThrow();
+      expect(await f.policy()).toEqual(disabled);
+      await f.putPolicy();
+      const enabled = await f.policy();
+      expect(enabled).toMatchObject({
+        generation: disabled.generation + 1,
+        policy: { enabled: true },
+      });
+      await expect(
+        f.app.putRepositoryPolicy(admin, original),
+      ).rejects.toThrow();
+      expect(await f.policy()).toEqual(enabled);
+      expect(
+        await f.app.pruneRepositoryPolicyHistory(admin, { limit: 1 }),
+      ).toMatchObject({ pages: 1, deletedRows: 0 });
+    });
+
+    it.each(["permission", "principal"] as const)(
+      "rechecks current %s after the actual policy-history scan before deleting any rows",
+      async (change) => {
+        const f = engineeringFixture(createStore());
+        await f.putPolicy();
+        f.advance(POLICY_RETENTION + 1);
+        const before = await f.backing
+          .collection(engineeringPolicyRecords)
+          .list("instance");
+        const gate = engineeringBarrier();
+        let paused = false;
+        const observed: Store = {
+          collection<T>(definition: CollectionDefinition<T>) {
+            const target = f.store.collection(definition);
+            return new Proxy(target, {
+              get(object, property) {
+                if (
+                  definition.name === engineeringPolicyRecords.name &&
+                  property === "scan"
+                )
+                  return async (bounds: Parameters<typeof target.scan>[0]) => {
+                    const page = await object.scan(bounds);
+                    if (!paused) {
+                      paused = true;
+                      await gate.wait();
+                    }
+                    return page;
+                  };
+                const value: unknown = Reflect.get(object, property, object);
+                return typeof value === "function" ? value.bind(object) : value;
+              },
+            });
+          },
+        };
+        const app = createSupportDeskApplication({
+          store: observed,
+          clock: f.clock,
+        });
+        const actor = {
+          ...admin,
+          principalId: admin.principalId,
+          permissions: [...admin.permissions],
+        };
+        const pending = app
+          .pruneRepositoryPolicyHistory(actor, { limit: 64 })
+          .then(
+            (value) => ({ value }),
+            (error: unknown) => ({ error }),
+          );
+        try {
+          await Promise.race([
+            gate.reached,
+            pending.then(() => {
+              throw new Error(
+                "Policy pruning did not reach its real scan barrier",
+              );
+            }),
+          ]);
+          if (change === "permission")
+            actor.permissions.splice(
+              actor.permissions.indexOf(
+                supportPermissions.engineeringPolicyManage,
+              ),
+              1,
+            );
+          else actor.principalId = "changed-history-manager";
+        } finally {
+          gate.release();
+        }
+        expect(await pending).toHaveProperty("error");
+        expect(
+          await f.backing.collection(engineeringPolicyRecords).list("instance"),
+        ).toEqual(before);
+      },
+    );
+
+    it("retains scanned history when an actual policy update changes the captured head version", async () => {
+      const f = engineeringFixture(createStore());
+      await f.putPolicy();
+      f.advance(POLICY_RETENTION + 1);
+      const gate = engineeringBarrier();
+      let paused = false;
+      const observed: Store = {
+        collection<T>(definition: CollectionDefinition<T>) {
+          const target = f.store.collection(definition);
+          return new Proxy(target, {
+            get(object, property) {
+              if (
+                definition.name === engineeringPolicyRecords.name &&
+                property === "getVersioned"
+              )
+                return async (key: {
+                  readonly partition: string;
+                  readonly id: string;
+                }) => {
+                  const value = await object.getVersioned(key);
+                  if (!paused && key.id === "policy") {
+                    paused = true;
+                    await gate.wait();
+                  }
+                  return value;
+                };
+              const value: unknown = Reflect.get(object, property, object);
+              return typeof value === "function" ? value.bind(object) : value;
+            },
+          });
+        },
+      };
+      const app = createSupportDeskApplication({
+        store: observed,
+        clock: f.clock,
+      });
+      const pending = app.pruneRepositoryPolicyHistory(admin, { limit: 64 });
+      let winningRows;
+      try {
+        await Promise.race([
+          gate.reached,
+          pending.then(() => {
+            throw new Error(
+              "Policy pruning did not reach its real head barrier",
+            );
+          }),
+        ]);
+        await f.putPolicy({ repositories: [engineeringRepositories[1]!] });
+        winningRows = await f.backing
+          .collection(engineeringPolicyRecords)
+          .list("instance");
+      } finally {
+        gate.release();
+      }
+      expect(await pending).toMatchObject({
+        deletedRows: 0,
+        incompletePairs: 1,
+      });
+      expect(
+        await f.backing.collection(engineeringPolicyRecords).list("instance"),
+      ).toEqual(winningRows);
+      expect((await f.policy()).generation).toBe(2);
+    });
+
+    it.each(["receipt", "audit"] as const)(
+      "uses real opaque versions when the %s changes immediately before conditional history deletion",
+      async (changed) => {
+        const f = engineeringFixture(createStore());
+        await f.putPolicy();
+        f.advance(POLICY_RETENTION + 1);
+        const rows = await f.backing
+          .collection(engineeringPolicyRecords)
+          .list("instance");
+        const record = rows.find(
+          (row) =>
+            row.kind ===
+            (changed === "receipt" ? "engineering_policy_command" : "audit"),
+        )!;
+        const beforeVersion = await f.backing
+          .collection(engineeringPolicyRecords)
+          .getVersioned({ partition: "instance", id: record.id });
+        let replaced = false;
+        const observed: Store = {
+          collection<T>(definition: CollectionDefinition<T>) {
+            const target = f.store.collection(definition);
+            return new Proxy(target, {
+              get(object, property) {
+                if (
+                  definition.name === engineeringPolicyRecords.name &&
+                  property === "deleteIfUnchanged"
+                )
+                  return async (
+                    key: { readonly partition: string; readonly id: string },
+                    version: Parameters<typeof target.deleteIfUnchanged>[1],
+                  ) => {
+                    if (!replaced && key.id === record.id) {
+                      replaced = true;
+                      const existing = await object.get(key);
+                      if (existing === null)
+                        throw new Error(
+                          "Expected actual app-created policy history",
+                        );
+                      // Re-put the unchanged real row to create an actual adapter
+                      // version conflict; no alternate data store or forged row.
+                      await object.put(existing);
+                    }
+                    return object.deleteIfUnchanged(key, version);
+                  };
+                const value: unknown = Reflect.get(object, property, object);
+                return typeof value === "function" ? value.bind(object) : value;
+              },
+            });
+          },
+        };
+        const app = createSupportDeskApplication({
+          store: observed,
+          clock: f.clock,
+        });
+        const refused = await app.pruneRepositoryPolicyHistory(admin, {
+          limit: 64,
+        });
+        expect(replaced).toBe(true);
+        expect(refused.incompletePairs).toBe(1);
+        expect(refused.deletedPairs).toBe(0);
+        expect(refused.deletedRows).toBe(changed === "receipt" ? 0 : 1);
+        const retained = await f.backing
+          .collection(engineeringPolicyRecords)
+          .getVersioned({ partition: "instance", id: record.id });
+        expect(retained?.value).toEqual(record);
+        expect(retained?.version).not.toBe(beforeVersion?.version);
+        if (changed === "receipt")
+          expect(
+            await f.backing
+              .collection(engineeringPolicyRecords)
+              .list("instance"),
+          ).toHaveLength(3);
+        else
+          expect(
+            await f.backing
+              .collection(engineeringPolicyRecords)
+              .list("instance"),
+          ).toHaveLength(2);
+        await app.pruneRepositoryPolicyHistory(admin, { limit: 64 });
+        expect(
+          await f.backing.collection(engineeringPolicyRecords).list("instance"),
+        ).toEqual([
+          expect.objectContaining({ kind: "engineering_policy", id: "policy" }),
+        ]);
+      },
+    );
+
+    it("rejects a real adapter page exceeding the requested policy-history bound before deletion", async () => {
+      const f = engineeringFixture(createStore());
+      await f.putPolicy();
+      f.advance(POLICY_RETENTION + 1);
+      const before = await f.backing
+        .collection(engineeringPolicyRecords)
+        .list("instance");
+      const observed: Store = {
+        collection<T>(definition: CollectionDefinition<T>) {
+          const target = f.store.collection(definition);
+          return new Proxy(target, {
+            get(object, property) {
+              if (
+                definition.name === engineeringPolicyRecords.name &&
+                property === "scan"
+              )
+                return (bounds: Parameters<typeof target.scan>[0]) =>
+                  object.scan({ ...bounds, limit: 64 });
+              const value: unknown = Reflect.get(object, property, object);
+              return typeof value === "function" ? value.bind(object) : value;
+            },
+          });
+        },
+      };
+      const app = createSupportDeskApplication({
+        store: observed,
+        clock: f.clock,
+      });
+      await expect(
+        app.pruneRepositoryPolicyHistory(admin, { limit: 1 }),
+      ).rejects.toThrow("physical bound");
+      expect(
+        await f.backing.collection(engineeringPolicyRecords).list("instance"),
+      ).toEqual(before);
+    });
   });
 }

@@ -119,8 +119,6 @@ for (const [name, createStore] of engineeringStores) {
           staff,
           {
             ...review,
-            ...f.command("contradictory-second-review"),
-            expectedWorkGeneration: (await f.work()).workGeneration,
             decision: "reject",
           },
           async () => {},
@@ -167,7 +165,7 @@ for (const [name, createStore] of engineeringStores) {
           .catch(() => undefined);
         if (result?.outcome === "candidate") continue;
         if (result?.outcome === "prepared") {
-          const work = await f.work();
+          const work = await f.work("ticket", next.sourceGeneration);
           await f.engineering.reviewProposal(staff, {
             ...f.command("approve-at-target-capacity"),
             sourceGeneration: next.sourceGeneration,

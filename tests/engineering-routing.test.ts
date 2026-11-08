@@ -19,7 +19,12 @@ import {
   fixtureInstances,
 } from "../test/knowledge-ai/corpus.js";
 import { evaluateObservation } from "../test/knowledge-ai/evaluate.js";
-import type { Observation } from "../test/knowledge-ai/types.js";
+import type {
+  Artifact,
+  InstanceId,
+  ModelRequest,
+  Observation,
+} from "../test/knowledge-ai/types.js";
 
 type Fixture = Awaited<ReturnType<typeof engineeringAiFixture>>;
 
@@ -43,6 +48,115 @@ async function noExport(f: Fixture) {
   expect(work.dispatch).toBeUndefined();
   expect(f.createIssue).not.toHaveBeenCalled();
   return work;
+}
+
+async function observationStart(f: Fixture) {
+  return {
+    modelCalls: f.generate.mock.calls.length,
+    issueCalls: f.createIssue.mock.calls.length,
+    proposalStepId: (await f.work()).proposal?.stepId,
+    visibleMessageIds: new Set(
+      (
+        await f.app.readCustomerTicket(engineeringCustomer, "ticket")
+      ).messages.map((message) => message.id),
+    ),
+  };
+}
+
+/** Translate captured real adapter calls and committed state into P00 vocabulary. */
+async function engineeringObservation(
+  f: Fixture,
+  instanceId: InstanceId,
+  start: Awaited<ReturnType<typeof observationStart>>,
+): Promise<Observation> {
+  const work = await f.work();
+  const modelRequests: ModelRequest[] = f.generate.mock.calls
+    .slice(start.modelCalls)
+    .map(([input, context, configuration]) => ({
+      operationId: context.operationId,
+      instanceId,
+      purpose: "bug_assessment",
+      trigger: {
+        ticketId: work.ticketId,
+        revision: work.acceptedTicketRevision,
+        generation: work.sourceGeneration,
+      },
+      promptVersion: context.promptVersion,
+      configurationVersion: context.configurationVersion,
+      providerVerificationRef: configuration.dataControls.configurationBinding,
+      messages: input.messages.map((message) => {
+        if (message.speaker === "notification")
+          throw new Error(
+            "This P00 adapter case did not configure a notification",
+          );
+        return {
+          role: message.speaker === "support" ? "staff" : message.speaker,
+          content: message.text,
+        };
+      }),
+      sources: [],
+      budget: {
+        inputTokens: context.budgets.maxInputTokens,
+        outputTokens: context.budgets.maxOutputTokens,
+        deadlineMilliseconds: context.budgets.maxDurationMilliseconds,
+      },
+      // Retain the complete provider argument for every forbidden-value sink check.
+      providerInput: input,
+    }));
+  const artifacts: Artifact[] = [];
+  if (
+    work.proposal !== undefined &&
+    work.proposal.stepId !== start.proposalStepId
+  )
+    artifacts.push({
+      kind: "draft",
+      instanceId,
+      id: work.proposal.stepId,
+      text: JSON.stringify(work.proposal.request),
+      repositoryId: work.proposal.request.repository.repositoryId,
+    });
+  for (const [request, context] of f.createIssue.mock.calls.slice(
+    start.issueCalls,
+  ))
+    artifacts.push({
+      kind:
+        work.status === "accepted" && work.acknowledgement !== undefined
+          ? "issue"
+          : "job",
+      instanceId,
+      id: context.dispatchId,
+      text: JSON.stringify(request),
+      repositoryId: request.repository.repositoryId,
+    });
+  for (const message of (
+    await f.app.readCustomerTicket(engineeringCustomer, "ticket")
+  ).messages) {
+    if (start.visibleMessageIds.has(message.id)) continue;
+    artifacts.push({
+      kind: message.authorKind === "system" ? "notification" : "message",
+      instanceId,
+      id: message.id,
+      text: message.body,
+    });
+  }
+  const outcome =
+    work.status === "accepted" && work.acknowledgement !== undefined
+      ? "exported"
+      : work.dispatch !== undefined &&
+          ["unknown", "dispatch_started"].includes(work.status)
+        ? "reconciliation_required"
+        : work.status === "restricted"
+          ? "restricted_review"
+          : work.heldReason === "routing_human_required" ||
+              work.candidate?.routing.outcome === "ambiguous" ||
+              work.candidate?.routing.outcome === "out_of_scope"
+            ? "human_review"
+            : work.status === "prepared" && work.proposal !== undefined
+              ? "awaiting_approval"
+              : work.status === "held" || work.status === "superseded"
+                ? "held"
+                : work.status;
+  return { instanceId, outcome, modelRequests, artifacts };
 }
 
 for (const [name, createStore] of engineeringStores) {
@@ -350,6 +464,48 @@ for (const [name, createStore] of engineeringStores) {
       },
     );
 
+    it.each([4, 5] as const)(
+      "accepts four allowed alternatives and rejects an out-of-range count of %i",
+      async (count) => {
+        const repositories = Array.from({ length: count + 1 }, (_, index) => ({
+          ...engineeringRepositories[0]!,
+          repositoryId: `repository-bound-${index}`,
+          name: `workspace-alternative-${index}`,
+        }));
+        const f = await engineeringAiFixture(createStore(), {
+          repositoryPolicy: { repositories },
+        });
+        const alternatives = repositories
+          .slice(1)
+          .map((repository) => repository.repositoryId);
+        f.setModel(async () =>
+          f.answer({
+            outputJson: JSON.stringify(
+              f.assessment({
+                routing: {
+                  outcome: "selected",
+                  repositoryId: repositories[0]!.repositoryId,
+                  alternativeRepositoryIds: alternatives,
+                  rationale:
+                    "The selected repository is independently evaluated against the alternatives.",
+                },
+              }),
+            ),
+          }),
+        );
+        await run(f);
+        const work = await f.work();
+        if (count === 4)
+          expect(work.candidate?.routing.alternativeRepositoryIds).toEqual(
+            alternatives,
+          );
+        else expect(work.candidate).toBeUndefined();
+        expect(work.proposal).toBeUndefined();
+        expect(f.generate).toHaveBeenCalledOnce();
+        expect(f.createIssue).not.toHaveBeenCalled();
+      },
+    );
+
     it.each(["restricted", "uncertain", "unrecognized"] as const)(
       "routes model-declared %s sensitivity into restricted review",
       async (security) => {
@@ -463,6 +619,239 @@ for (const [name, createStore] of engineeringStores) {
       expect(work.acknowledgement).toBeUndefined();
       expect(["unknown", "dispatch_started"]).toContain(work.status);
     });
+
+    it.each(["withdraw-source", "disable-policy"] as const)(
+      "rechecks %s during the metadata await after the real dispatch permit has returned",
+      async (change) => {
+        const f = await engineeringAiFixture(createStore());
+        await f.prepareProposal();
+        await f.approve();
+        let permitReturned = false;
+        let changed = false;
+        const begin = vi.fn<typeof f.app.beginEngineeringDispatch>(
+          async (...args) => {
+            const permit = await f.app.beginEngineeringDispatch(...args);
+            if (permit !== null) permitReturned = true;
+            return permit;
+          },
+        );
+        const metadata = vi.fn<typeof f.baseOptions.github.getMetadata>(
+          async (...args) => {
+            const result = await f.baseOptions.github.getMetadata(...args);
+            if (permitReturned && !changed) {
+              expect(
+                (await f.app.readEngineeringWork(engineeringStaff, f.key))
+                  .dispatch,
+              ).toBeDefined();
+              changed = true;
+              if (change === "withdraw-source")
+                await f.app.withdrawEngineeringSource(engineeringStaff, {
+                  ...f.command("withdraw-after-dispatch-permit"),
+                  reason: "privacy_withdrawal",
+                });
+              else await f.putPolicy({ enabled: false });
+            }
+            return result;
+          },
+        );
+        const engineering = createSupportDeskEngineering({
+          ...f.baseOptions,
+          application: { ...f.app, beginEngineeringDispatch: begin },
+          github: { ...f.baseOptions.github, getMetadata: metadata },
+        });
+        await engineering.processWork(await f.nextCommand());
+        expect(permitReturned).toBe(true);
+        expect(changed).toBe(true);
+        expect(f.createIssue).not.toHaveBeenCalled();
+        expect(f.generate).toHaveBeenCalledOnce();
+        const work = await f.app.readEngineeringWork(engineeringStaff, f.key);
+        expect(work.dispatch).toBeDefined();
+        expect(work.acknowledgement).toBeUndefined();
+        expect(["unknown", "dispatch_started"]).toContain(work.status);
+      },
+    );
+
+    it("holds a proposal when no trusted duplicate-discovery query is available", async () => {
+      const f = await engineeringAiFixture(createStore());
+      await assess(f);
+      f.state.duplicateQuery = null;
+      await run(f);
+      await noExport(f);
+      expect(f.searchDuplicates).not.toHaveBeenCalled();
+      expect(f.prepareExport).not.toHaveBeenCalled();
+      expect(f.createIssue).not.toHaveBeenCalled();
+    });
+
+    it.each(
+      (["workshop", "observatory"] as const).flatMap((instanceId) =>
+        (
+          [
+            "verified-bug",
+            "confident-repository",
+            "ambiguous-repository",
+            "out-of-scope-repository",
+            "public-export",
+            "private-export",
+            "visibility-change",
+            "ambiguous-export-acceptance",
+          ] as const
+        ).map((suffix) => [instanceId, suffix] as const),
+      ),
+    )(
+      "executes the P00 %s/%s workflow against captured real adapters",
+      async (instanceId, suffix) => {
+        const scenario = acceptanceCases.find(
+          (item) => item.id === `${instanceId}/${suffix}`,
+        )!;
+        const profile = fixtureInstances[instanceId];
+        const privateDestination =
+          suffix === "private-export" || suffix === "visibility-change";
+        const kinds = privateDestination
+          ? (["product", "guides"] as const)
+          : (["guides", "product"] as const);
+        const repositories = kinds.map((kind) => ({
+          ...engineeringRepositories[0]!,
+          repositoryId: profile.repositories[kind].id,
+          owner: `p00-${instanceId}`,
+          name: kind,
+          visibility: profile.repositories[kind].visibility,
+          responsibilities:
+            suffix === "ambiguous-repository"
+              ? "Guide rendering, guide export, and related product workflows have overlapping responsibility."
+              : profile.repositories[kind].description,
+          component: kind,
+        }));
+        const report = privateDestination
+          ? {
+              expectedBehavior:
+                "A synthetic product account workflow produces its documented output.",
+              actualBehavior: "The synthetic workflow produces no output.",
+              reproductionSteps: [
+                "Create a fictional account with synthetic inputs.",
+                "Run the product workflow and compare its output with the documented result.",
+              ],
+            }
+          : {
+              expectedBehavior:
+                "The synthetic guide described by fixture-guide-3 exports its rendered content.",
+              actualBehavior: "The guide export contains no rendered content.",
+              reproductionSteps: [
+                "Create a synthetic guide with a heading and paragraph.",
+                "Render and export the guide, then inspect the generated file.",
+              ],
+            };
+        const customerInstruction =
+          typeof scenario.input.customerInstruction === "string"
+            ? scenario.input.customerInstruction
+            : "";
+        const f = await engineeringAiFixture(createStore(), {
+          repositoryPolicy: { repositories },
+          report,
+          initialBody: `${report.actualBehavior} ${profile.customerSentinel} ${customerInstruction}`,
+          privateNote: `${profile.staffSentinel} ${profile.provenanceSentinel} ${profile.privateLink}`,
+        });
+        const selectedId = repositories[0]!.repositoryId;
+        f.setModel(async () =>
+          f.answer({
+            outputJson: JSON.stringify(
+              f.assessment({
+                title: privateDestination
+                  ? "Synthetic account workflow produces no output"
+                  : "Synthetic guide export omits rendered content",
+                summary: privateDestination
+                  ? "A synthetic account workflow does not produce its documented result."
+                  : "A synthetic rendered guide is missing from its exported file.",
+                routing: {
+                  outcome: "selected",
+                  repositoryId:
+                    suffix === "out-of-scope-repository"
+                      ? "repository-not-allowlisted"
+                      : selectedId,
+                  alternativeRepositoryIds:
+                    suffix === "ambiguous-repository"
+                      ? [repositories[1]!.repositoryId]
+                      : [],
+                  rationale:
+                    suffix === "ambiguous-repository"
+                      ? "The configured responsibilities overlap and both destinations remain plausible."
+                      : "The selected configured repository owns the reported workflow.",
+                },
+              }),
+            ),
+          }),
+        );
+        if (suffix === "ambiguous-repository")
+          f.state.routingOutcome = "human_required";
+        const exportPhase = [
+          "public-export",
+          "private-export",
+          "visibility-change",
+          "ambiguous-export-acceptance",
+        ].includes(suffix);
+        if (exportPhase) await f.prepareProposal();
+        // Export corpus cases begin with the reviewable bundle already prepared.
+        const start = await observationStart(f);
+        if (!exportPhase) {
+          await assess(f);
+          await run(f);
+        } else {
+          await f.approve();
+          if (suffix === "visibility-change") {
+            const metadata = f.trust.metadata.get(selectedId)!;
+            expect(metadata.visibility).toBe("private");
+            f.trust.metadata.set(selectedId, {
+              ...metadata,
+              visibility: "public",
+              metadataVersion: "p00-current-public-visibility",
+            });
+          }
+          if (suffix === "ambiguous-export-acceptance") {
+            f.state.githubReconciliationOutcome = "unknown";
+            f.setGitHubCreate(async (request, context) => {
+              await f.acceptIssue(request, undefined, context);
+              throw new Error(
+                "Synthetic timeout after possible remote issue acceptance",
+              );
+            });
+          }
+          await run(f);
+          if (suffix === "ambiguous-export-acceptance") {
+            await run(f);
+            expect(f.createIssue.mock.calls.length - start.issueCalls).toBe(1);
+            expect(f.githubReconcile).toHaveBeenCalled();
+          }
+        }
+        const observation = await engineeringObservation(f, instanceId, start);
+        if (suffix === "visibility-change")
+          expect(f.createIssue.mock.calls.length - start.issueCalls).toBe(0);
+        for (const [input] of f.generate.mock.calls) {
+          expect(
+            new Set(
+              input.repositories.map((repository) => repository.repositoryId),
+            ),
+          ).toEqual(
+            new Set(
+              Object.values(profile.repositories).map(
+                (repository) => repository.id,
+              ),
+            ),
+          );
+          expect(input.report.expected).toBe(report.expectedBehavior);
+          expect(input.report.actual).toBe(report.actualBehavior);
+        }
+        for (const [request] of f.createIssue.mock.calls.slice(
+          start.issueCalls,
+        )) {
+          expect(
+            repositories.map((repository) => repository.repositoryId),
+          ).toContain(request.repository.repositoryId);
+          expect(request.repository.visibility).toBe(
+            suffix === "private-export" ? "private" : "public",
+          );
+        }
+        expect(evaluateObservation(scenario, observation)).toEqual([]);
+      },
+    );
 
     it.each(["workshop", "observatory"] as const)(
       "records actual %s unverified/security observations for the P00 corpus",

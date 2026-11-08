@@ -11,7 +11,11 @@ import {
   timestamp,
 } from "./boundary.js";
 import { hasPermission } from "@pegma/authorization-core";
-import { supportPermissions } from "@pegma/support-desk-application";
+import {
+  SupportDeskAuthorizationError,
+  SupportDeskConflictError,
+  supportPermissions,
+} from "@pegma/support-desk-application";
 import type {
   EngineeringClaim,
   EngineeringEvidence,
@@ -142,6 +146,82 @@ export async function engineeringSource(
     );
   scalar(source.evidenceFingerprint);
   return source;
+}
+
+/** Sanitized diagnostics never imply that an invoked mutation was not committed. */
+export function engineeringFailureCategory(
+  error: unknown,
+  fallback: string,
+): string {
+  if (error instanceof AssistantBoundaryError) return error.category;
+  if (error instanceof SupportDeskAuthorizationError)
+    return "authorization_unavailable";
+  if (error instanceof SupportDeskConflictError) return "current_fence_changed";
+  if (error instanceof TypeError) return "invalid_data";
+  return fallback;
+}
+
+export async function engineeringPolicy(
+  options: Pick<SupportDeskEngineeringOptions, "policy">,
+  authority: EngineeringServiceAuthority,
+  runtime: LearningRuntime,
+  deadline = runtime.deadline,
+): Promise<EngineeringPolicySnapshot> {
+  try {
+    return await engineeringPolicySnapshot(
+      await runtime.within(
+        () => options.policy.resolve(authority.access),
+        deadline,
+      ),
+    );
+  } catch (error) {
+    if (error instanceof AssistantBoundaryError) throw error;
+    throw new AssistantBoundaryError(
+      error instanceof TypeError
+        ? "repository_policy_invalid"
+        : error instanceof SupportDeskAuthorizationError
+          ? "repository_policy_authority_unavailable"
+          : "repository_policy_unavailable",
+    );
+  }
+}
+
+/** Final authoritative source/work/policy observations follow all remote proof reads. */
+export async function engineeringCurrentFacts(
+  options: SupportDeskEngineeringOptions,
+  fence: EngineeringSourceFence,
+  authority: EngineeringServiceAuthority,
+  runtime: LearningRuntime,
+  deadline = runtime.deadline,
+) {
+  const source = await engineeringSource(
+    options,
+    fence,
+    runtime,
+    authority,
+    deadline,
+  );
+  const work = snapshot(
+    await runtime.within(
+      () =>
+        options.application.readEngineeringWork(authority.access, {
+          ticketId: fence.ticketId,
+          sourceGeneration: fence.sourceGeneration,
+        }),
+      deadline,
+    ),
+  );
+  if (
+    work.ticketId !== fence.ticketId ||
+    work.sourceGeneration !== fence.sourceGeneration ||
+    work.sourceBindingHash !== fence.sourceBindingHash
+  )
+    throw new AssistantBoundaryError("source_changed");
+  if (work.security !== "ordinary" || work.status === "restricted")
+    throw new AssistantBoundaryError("security_restricted");
+  const policy = await engineeringPolicy(options, authority, runtime, deadline);
+  runtime.ensure(deadline);
+  return { source, work, policy };
 }
 
 export async function engineeringCheckPolicy(

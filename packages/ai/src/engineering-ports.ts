@@ -226,12 +226,21 @@ export interface EngineeringRoutingPort extends EngineeringRoutingVerifier {
   >;
 }
 
+export type EngineeringProposalContent =
+  | {
+      readonly candidate: EngineeringCandidate;
+      readonly previousRequest?: never;
+    }
+  | {
+      readonly candidate?: never;
+      readonly previousRequest: EngineeringExportRequest;
+    };
+
 export interface EngineeringChecksPort
   extends EngineeringExportChecksVerifier, LearningCheckPolicyPort {
   /** Independently inspect the entire final request, including all hidden text. */
   check(
-    input: {
-      readonly candidate: EngineeringCandidate;
+    input: EngineeringProposalContent & {
       readonly exactRequest: EngineeringExportRequest;
       readonly binding: EngineeringExportChecksBinding;
       readonly checkPolicyVersion: string;
@@ -317,8 +326,7 @@ export interface EngineeringProposalPort {
   ): Promise<string | null>;
   /** Server-local proposal construction; no customer data may be sent externally here. */
   prepare(
-    input: {
-      readonly candidate: EngineeringCandidate;
+    input: EngineeringProposalContent & {
       readonly repository: EngineeringRepositoryObservation;
       readonly descriptor: EngineeringRepositoryDescriptor;
       readonly exportMarker: string;
@@ -362,6 +370,8 @@ export type EngineeringProcessResult =
       readonly outcome: "pending";
       readonly stage:
         "prepare" | "complete" | "finish" | "dispatch" | "reconciliation";
+      /** Current sanitized failure; pending never asserts that a call did not commit. */
+      readonly reason?: string;
     };
 
 export interface SupportDeskEngineering {
@@ -383,5 +393,6 @@ export interface SupportDeskEngineering {
   ): Promise<{
     readonly outcome: "reconciled" | "pending";
     readonly processed: number;
+    readonly reason?: string;
   }>;
 }

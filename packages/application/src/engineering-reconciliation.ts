@@ -51,11 +51,17 @@ type Identity = NonNullable<
 >;
 type Result = RecordEngineeringDispatchResultCommand["result"];
 
-function permission(access: AccessContext, reconciliation: boolean): void {
+function permission(
+  access: AccessContext,
+  reconciliation: boolean,
+  expectedActor?: string,
+): void {
   text(access.principalId, "principalId");
   const name = reconciliation
     ? supportPermissions.engineeringReconcile
     : supportPermissions.engineeringProcess;
+  if (expectedActor !== undefined && access.principalId !== expectedActor)
+    throw new SupportDeskAuthorizationError(name);
   if (
     !hasPermission(access, name) &&
     (reconciliation ||
@@ -63,7 +69,10 @@ function permission(access: AccessContext, reconciliation: boolean): void {
   )
     throw new SupportDeskAuthorizationError(name);
 }
-function outcome(work: EngineeringWorkRecord): EngineeringStepResult {
+function outcome(
+  work: EngineeringWorkRecord,
+  opaque = false,
+): EngineeringStepResult {
   return {
     ticketId: work.ticketId,
     sourceGeneration: work.sourceGeneration,
@@ -84,7 +93,15 @@ function outcome(work: EngineeringWorkRecord): EngineeringStepResult {
       : { dispatchId: work.dispatch.dispatchId }),
     ...(work.acknowledgement === undefined
       ? {}
-      : { acknowledgement: snapshot(work.acknowledgement) }),
+      : {
+          acknowledgement: opaque
+            ? {
+                repositoryId: work.acknowledgement.repositoryId,
+                issueId: work.acknowledgement.issueId,
+                issueNumber: work.acknowledgement.issueNumber,
+              }
+            : snapshot(work.acknowledgement),
+        }),
   };
 }
 function sameAcknowledgement(
@@ -315,6 +332,8 @@ export function createEngineeringReconciliationServices(
     reconciliation: boolean,
     guard?: EngineeringCommitGuard,
   ): Promise<EngineeringStepResult> {
+    const actorId = access.principalId;
+    permission(access, reconciliation, actorId);
     const runStart = timestamp(clock.now(), "now");
     const started = performance.now();
     const now = () =>
@@ -327,7 +346,7 @@ export function createEngineeringReconciliationServices(
       command,
     });
     for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
-      permission(access, reconciliation);
+      permission(access, reconciliation, actorId);
       const source = await sourceAt(command.ticketId);
       const stored = await workAt(command.ticketId, command.sourceGeneration);
       const work = stored?.value;
@@ -354,7 +373,7 @@ export function createEngineeringReconciliationServices(
         destination.lastReconciliation?.fingerprint === hash
       ) {
         if (guard !== undefined) await guard();
-        permission(access, reconciliation);
+        permission(access, reconciliation, actorId);
         return outcome(work);
       }
       if (
@@ -381,7 +400,7 @@ export function createEngineeringReconciliationServices(
             destination.outcome === "confirmed_rejected")
         ) {
           if (guard !== undefined) await guard();
-          permission(access, reconciliation);
+          permission(access, reconciliation, actorId);
           return outcome(work);
         }
         throw new SupportDeskConflictError(
@@ -517,14 +536,14 @@ export function createEngineeringReconciliationServices(
           partition: command.ticketId,
           id: engineeringCommandKey(command.ticketId, causal.commandId).id,
           fingerprint: hash,
-          result: outcome(nextWork),
+          result: outcome(nextWork, true),
         };
         checkEngineeringRecordCapacity(resultReceipt);
         actions.push(
           deps.audit(
             causal,
             ticketFact,
-            access.principalId,
+            actorId,
             clock.now(),
             reconciliation
               ? "support.engineering.reconciled"
@@ -534,7 +553,7 @@ export function createEngineeringReconciliationServices(
         );
       }
       if (guard !== undefined) await guard();
-      permission(access, reconciliation);
+      permission(access, reconciliation, actorId);
       if (proof !== null && now() >= proof.deadline)
         throw new SupportDeskConflictError(
           "Engineering terminal proof expired before commit",
@@ -564,17 +583,20 @@ export function createEngineeringReconciliationServices(
             ...actions,
           ])
         ).committed
-      )
+      ) {
+        permission(access, reconciliation, actorId);
         return outcome(nextWork);
+      }
     }
     throw new SupportDeskConflictError();
   }
   return {
     async readEngineeringReconciliation(access, ticketId) {
       permission(access, true);
+      const actorId = access.principalId;
       text(ticketId, "ticketId");
       const result = await view(ticketId);
-      permission(access, true);
+      permission(access, true, actorId);
       return result;
     },
     async recordEngineeringDispatchResult(access, input) {
@@ -601,6 +623,7 @@ export function createEngineeringReconciliationServices(
     },
     async recordEngineeringReconciliation(access, input, guard) {
       permission(access, true);
+      const actorId = access.principalId;
       if (typeof guard !== "function")
         throw new TypeError(
           "Engineering reconciliation requires a current read-only remote proof guard",
@@ -633,7 +656,7 @@ export function createEngineeringReconciliationServices(
         guard,
       );
       const result = await view(command.ticketId);
-      permission(access, true);
+      permission(access, true, actorId);
       return result;
     },
   };

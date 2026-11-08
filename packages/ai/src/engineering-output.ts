@@ -121,7 +121,7 @@ export function engineeringCandidate(
   ]);
   if (
     !Array.isArray(route.alternativeRepositoryIds) ||
-    route.alternativeRepositoryIds.length > 3
+    route.alternativeRepositoryIds.length > 4
   )
     throw new AssistantBoundaryError("malformed_output");
   const alternatives = route.alternativeRepositoryIds.map((id) => scalar(id));

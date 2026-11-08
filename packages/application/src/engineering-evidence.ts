@@ -176,6 +176,21 @@ function reconciliationAfterSourceChange(
     : "pending";
 }
 
+/** Sensitivity survives workflow-status changes and retained-body transitions. */
+function retainedWorkSecurity(
+  work: EngineeringWorkRecord,
+): EngineeringSecurity {
+  if (
+    work.status === "restricted" ||
+    work.security === "restricted" ||
+    work.candidate?.security === "restricted"
+  )
+    return "restricted";
+  if (work.security === "uncertain" || work.candidate?.security === "uncertain")
+    return "uncertain";
+  return "ordinary";
+}
+
 function invalidatedWork(
   work: EngineeringWorkRecord,
   reason: string,
@@ -189,6 +204,7 @@ function invalidatedWork(
         : "unknown";
   return {
     ...rest,
+    security: retainedWorkSecurity(work),
     status,
     ...(work.dispatch === undefined ? {} : { stage: "reconcile" as const }),
     heldReason: reason,
@@ -298,7 +314,7 @@ function scrubbedWork(
     acceptedTicketRevision: work.acceptedTicketRevision,
     createdAt: work.createdAt,
     deadline: work.deadline,
-    security: work.security,
+    security: retainedWorkSecurity(work),
     status:
       work.status === "accepted" || work.status === "confirmed_rejected"
         ? work.status
@@ -344,20 +360,20 @@ function requiresSecurityReview(
 ): boolean {
   return (
     security === "ordinary" &&
-    source.security !== "ordinary" &&
     (source.state === "restricted" ||
-      source.evidence !== undefined ||
-      source.generationCount > 0)
+      (source.security !== "ordinary" &&
+        (source.evidence !== undefined || source.generationCount > 0)))
   );
 }
 
 function privateRead(
   access: AccessContext,
   security: EngineeringSecurity,
+  actorId: string,
 ): void {
-  permission(access, supportPermissions.engineeringRead);
+  permission(access, supportPermissions.engineeringRead, actorId);
   if (security !== "ordinary")
-    permission(access, supportPermissions.engineeringRestrictedRead);
+    permission(access, supportPermissions.engineeringRestrictedRead, actorId);
 }
 
 export function createEngineeringEvidenceServices(
@@ -453,7 +469,9 @@ export function createEngineeringEvidenceServices(
       InvalidateEngineeringSourceCommand | WithdrawEngineeringSourceCommand,
     privacy: boolean,
   ): Promise<EngineeringSourceResult> {
-    const name = supportPermissions.engineeringWithdraw;
+    const name = privacy
+      ? supportPermissions.engineeringWithdraw
+      : supportPermissions.engineeringEvidenceSubmit;
     permission(access, name);
     const actorId = access.principalId;
     const command = snapshot(
@@ -910,6 +928,8 @@ export function createEngineeringEvidenceServices(
         if (!(
           trusted &&
           ["eligible", "restricted"].includes(source.state) &&
+          source.security === command.security &&
+          !clearing &&
           source.proofIdentity === proofIdentity
         )) {
           const {
@@ -1083,33 +1103,46 @@ export function createEngineeringEvidenceServices(
       invalidate(access, command, true),
 
     async readEngineeringSource(access, ticketId) {
-      permission(access, supportPermissions.engineeringRead);
+      const actorId = access.principalId;
+      permission(access, supportPermissions.engineeringRead, actorId);
       text(ticketId, "ticketId");
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
         const source = await readEngineeringSourceVersion(records, ticketId);
+        permission(access, supportPermissions.engineeringRead, actorId);
         if (source === null) throw new SupportDeskNotFoundError();
-        privateRead(access, source.value.security);
+        privateRead(access, source.value.security, actorId);
         if (source.value.state === "restricted")
-          permission(access, supportPermissions.engineeringRestrictedRead);
+          permission(
+            access,
+            supportPermissions.engineeringRestrictedRead,
+            actorId,
+          );
         if (source.value.state !== "withdrawn") {
           const ticket = await records.get({
             partition: ticketId,
             id: "ticket",
           });
+          permission(access, supportPermissions.engineeringRead, actorId);
           if (ticket?.kind !== "ticket") throw new SupportDeskNotFoundError();
         }
         const latest = await readEngineeringSourceVersion(records, ticketId);
+        permission(access, supportPermissions.engineeringRead, actorId);
         if (latest?.version !== source.version) continue;
-        privateRead(access, source.value.security);
+        privateRead(access, source.value.security, actorId);
         if (source.value.state === "restricted")
-          permission(access, supportPermissions.engineeringRestrictedRead);
+          permission(
+            access,
+            supportPermissions.engineeringRestrictedRead,
+            actorId,
+          );
         return snapshot(source.value);
       }
       throw new SupportDeskConflictError();
     },
 
     async readEngineeringWork(access, key) {
-      permission(access, supportPermissions.engineeringRead);
+      const actorId = access.principalId;
+      permission(access, supportPermissions.engineeringRead, actorId);
       const input = snapshot(
         fields(key, "engineering work key", ["ticketId", "sourceGeneration"]),
       ) as unknown as typeof key;
@@ -1120,49 +1153,69 @@ export function createEngineeringEvidenceServices(
           records,
           input.ticketId,
         );
+        permission(access, supportPermissions.engineeringRead, actorId);
         if (source === null) throw new SupportDeskNotFoundError();
+        privateRead(access, source.value.security, actorId);
+        if (source.value.state === "restricted")
+          permission(
+            access,
+            supportPermissions.engineeringRestrictedRead,
+            actorId,
+          );
         const work = await records.getVersioned(
           engineeringWorkKey(input.ticketId, input.sourceGeneration),
         );
+        permission(access, supportPermissions.engineeringRead, actorId);
         if (work?.value.kind !== "engineering_work")
           throw new SupportDeskNotFoundError();
-        privateRead(access, source.value.security);
-        privateRead(access, work.value.security);
+        privateRead(access, source.value.security, actorId);
+        privateRead(access, work.value.security, actorId);
         if (
           source.value.state === "restricted" ||
           work.value.status === "restricted" ||
           (work.value.candidate !== undefined &&
             work.value.candidate.security !== "ordinary")
         )
-          permission(access, supportPermissions.engineeringRestrictedRead);
+          permission(
+            access,
+            supportPermissions.engineeringRestrictedRead,
+            actorId,
+          );
         if (source.value.state !== "withdrawn") {
           const ticket = await records.get({
             partition: input.ticketId,
             id: "ticket",
           });
+          permission(access, supportPermissions.engineeringRead, actorId);
           if (ticket?.kind !== "ticket") throw new SupportDeskNotFoundError();
         }
         const latest = await readEngineeringSourceVersion(
           records,
           input.ticketId,
         );
+        permission(access, supportPermissions.engineeringRead, actorId);
         const latestWork = await records.getVersioned(
           engineeringWorkKey(input.ticketId, input.sourceGeneration),
         );
+        permission(access, supportPermissions.engineeringRead, actorId);
         if (
           latest?.version !== source.version ||
           latestWork?.version !== work.version
         )
           continue;
-        privateRead(access, source.value.security);
-        privateRead(access, work.value.security);
+        privateRead(access, source.value.security, actorId);
+        privateRead(access, work.value.security, actorId);
         if (
           source.value.state === "restricted" ||
           work.value.status === "restricted" ||
           (work.value.candidate !== undefined &&
             work.value.candidate.security !== "ordinary")
         )
-          permission(access, supportPermissions.engineeringRestrictedRead);
+          permission(
+            access,
+            supportPermissions.engineeringRestrictedRead,
+            actorId,
+          );
         return snapshot(work.value);
       }
       throw new SupportDeskConflictError();

@@ -70,11 +70,17 @@ The [P-00 handoff](docs/KNOWLEDGE_AI_P00.md) supplies the package baseline,
 synthetic evaluation fixtures, capacity checks, and prerequisites for implementation.
 Passing that harness does not establish a working KB, bot, or host deployment.
 
-SD-03 is an in-progress source candidate for opt-in resolution learning.
+SD-03's opt-in resolution-learning source merged in
+[PR #39](https://github.com/pegma-dev/support-desk/pull/39).
 Its ticket-side evidence, exact review, withdrawal, and recovery contracts
 preserve human support and permanent privacy withdrawal capacity. See the
 [resolution learning guide](docs/RESOLUTION_LEARNING.md) for permissions,
 storage reserves, composition, implemented boundaries, and current validation gates.
+
+SD-04 is a source candidate for verified bug evidence, admin repository policy,
+calibrated routing, exact staff-approved issue export, and reconciliation.
+See the [engineering export guide](docs/ENGINEERING_EXPORT.md). These source
+capabilities still require the synchronized SD-06 release before host adoption.
 
 ## How the pieces fit
 
@@ -225,6 +231,7 @@ pnpm run format:check
 - [Host composition](docs/HOST_COMPOSITION.md)
 - [Assistant coordination](docs/ASSISTANT_COORDINATION.md)
 - [Resolution learning](docs/RESOLUTION_LEARNING.md)
+- [Engineering export](docs/ENGINEERING_EXPORT.md)
 - [Release notes](docs/RELEASE_NOTES.md)
 - [Releasing](docs/RELEASING.md)
 

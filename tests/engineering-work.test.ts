@@ -1,5 +1,6 @@
 import { createSupportDeskEngineering } from "@pegma/support-desk-ai";
 import {
+  engineeringExportChecksBinding,
   supportPermissions,
   supportRecords,
   type EngineeringWorkRecord,
@@ -646,6 +647,636 @@ for (const [name, createStore] of engineeringStores) {
       expect((await f.work()).approval).toBeUndefined();
       expect(f.createIssue).not.toHaveBeenCalled();
     });
+
+    it.each(["ambiguous routing", "prepared reselection"] as const)(
+      "takes %s through exact staff selection, a fresh checked proposal, review and one dispatch without another model call",
+      async (mode) => {
+        const f = await engineeringAiFixture(createStore());
+        const source = await f.source();
+        let previousRequest:
+          Awaited<ReturnType<typeof f.prepareProposal>>["request"] | undefined;
+        if (mode === "ambiguous routing") {
+          f.setModel(async () =>
+            f.answer({
+              outputJson: JSON.stringify(
+                f.assessment({
+                  routing: {
+                    outcome: "ambiguous",
+                    alternativeRepositoryIds: [
+                      "repository-101",
+                      "repository-202",
+                    ],
+                    rationale:
+                      "Both allowed repositories plausibly own this verified failure.",
+                  },
+                }),
+              ),
+            }),
+          );
+          await f.engineering.processWork(f.nextCommand());
+          await f.engineering.processWork(f.nextCommand());
+          expect((await f.work()).candidate).toBeDefined();
+          expect((await f.work()).proposal).toBeUndefined();
+        } else {
+          const first = await f.prepareProposal();
+          previousRequest = first.request;
+          expect(first.work.candidate).toBeUndefined();
+        }
+        const work = await f.work();
+        const policy = await f.policy();
+        const selection = {
+          ...f.command("human-select-repository"),
+          sourceGeneration: f.key.sourceGeneration,
+          expectedWorkGeneration: work.workGeneration,
+          repositoryId: "repository-202",
+          policyGeneration: policy.generation,
+          policyHash: policy.policyHash,
+          reason:
+            "Staff verified that the API repository owns this failing path.",
+        };
+        const denied = {
+          ...staff,
+          permissions: staff.permissions.filter(
+            (permission) => permission !== supportPermissions.engineeringReview,
+          ),
+        };
+        const before = await f.rows();
+        await expect(
+          f.app.selectEngineeringRepository(denied, selection),
+        ).rejects.toThrow();
+        expect(await f.rows()).toEqual(before);
+        const selected = await f.app.selectEngineeringRepository(
+          staff,
+          selection,
+        );
+        const accepted = await f.rows();
+        await expect(
+          f.app.selectEngineeringRepository(staff, selection),
+        ).resolves.toEqual(selected);
+        expect(await f.rows()).toEqual(accepted);
+        await expect(
+          f.app.selectEngineeringRepository(denied, selection),
+        ).rejects.toThrow();
+        if (previousRequest !== undefined) {
+          expect((await f.work()).proposal!.request).toEqual(previousRequest);
+          expect((await f.work()).proposalNeedsRebuild).toBe(true);
+          expect((await f.work()).candidate).toBeUndefined();
+        }
+        const rebuilt = await f.prepareProposal();
+        expect(rebuilt.request.repository.repositoryId).toBe("repository-202");
+        expect(rebuilt.request.bundle.body).toContain(f.assessment().summary);
+        expect(rebuilt.request.bundle.body).toContain(
+          rebuilt.request.bundle.exportMarker,
+        );
+        expect(rebuilt.work.proposalNeedsRebuild).not.toBe(true);
+        expect(rebuilt.work.proposal!.routingReceipt).toBeUndefined();
+        expect(f.checksCheck.mock.calls.at(-1)![0].exactRequest).toEqual(
+          rebuilt.request,
+        );
+        if (previousRequest !== undefined) {
+          const input = f.prepareExport.mock.calls.at(-1)![0];
+          expect("previousRequest" in input && input.previousRequest).toEqual(
+            previousRequest,
+          );
+        }
+        await f.approve();
+        await f.engineering.processWork(f.nextCommand());
+        expect(f.generate).toHaveBeenCalledTimes(1);
+        expect(f.createIssue).toHaveBeenCalledTimes(1);
+        expect(f.createIssue.mock.calls[0]![0]).toEqual(rebuilt.request);
+        expect((await f.source()).sourceBindingHash).toBe(
+          source.sourceBindingHash,
+        );
+        expect((await f.work()).acknowledgement!.repositoryId).toBe(
+          "repository-202",
+        );
+      },
+    );
+
+    it("invalidates a human-selected repository after current policy revokes it", async () => {
+      const f = await engineeringAiFixture(createStore());
+      await f.prepareProposal();
+      const work = await f.work();
+      const policy = await f.policy();
+      await f.app.selectEngineeringRepository(staff, {
+        ...f.command("select-before-policy-removal"),
+        sourceGeneration: f.key.sourceGeneration,
+        expectedWorkGeneration: work.workGeneration,
+        repositoryId: "repository-202",
+        policyGeneration: policy.generation,
+        policyHash: policy.policyHash,
+        reason: "Verified staff destination.",
+      });
+      await f.putPolicy({ repositories: engineeringRepositories.slice(0, 1) });
+      await f.engineering.processWork(f.nextCommand());
+      expect((await f.work()).approval).toBeUndefined();
+      expect(f.createIssue).not.toHaveBeenCalled();
+      expect(f.generate).toHaveBeenCalledTimes(1);
+    });
+
+    it("recovers an accepted application proposal after its real storage acknowledgement is lost", async () => {
+      const f = engineeringFixture(createStore());
+      await f.eligible();
+      let lost = false;
+      f.observed.intercept(async (trace, commit) => {
+        const outcome = await commit();
+        if (
+          !lost &&
+          outcome.committed &&
+          trace.actions.some((action) => {
+            if (
+              !("value" in action) ||
+              action.value === null ||
+              typeof action.value !== "object"
+            )
+              return false;
+            const row = action.value as Partial<EngineeringWorkRecord>;
+            return (
+              row.kind === "engineering_work" &&
+              row.stage === "proposal" &&
+              row.status === "prepared" &&
+              row.proposal !== undefined &&
+              row.lastProposalPreparation !== undefined
+            );
+          })
+        ) {
+          lost = true;
+          throw new Error("Synthetic accepted proposal acknowledgement lost");
+        }
+        return outcome;
+      });
+      await expect(f.prepareProposal()).rejects.toThrow("acknowledgement lost");
+      f.observed.intercept(undefined);
+      expect(lost).toBe(true);
+      expect(f.proposalCommands).toHaveLength(1);
+      const command = f.proposalCommands.at(-1)!;
+      const committed = await f.work();
+      expect(committed.claim).toBeUndefined();
+      expect(committed.leaseUntil).toBeUndefined();
+      expect(committed.stage).toBe("proposal");
+      expect(committed.proposal!.candidateHash).toBe(command.candidateHash);
+      expect(committed.lastProposalPreparation).toBeDefined();
+      const before = await f.rows();
+      await expect(
+        f.app.prepareEngineeringProposal(service, command, async () => {}),
+      ).resolves.toEqual(committed.lastProposalPreparation!.result);
+      expect(await f.rows()).toEqual(before);
+      expect((await f.work()).proposalCount).toBe(1);
+      f.advance(10_001);
+      const disabled = f.freshApplication({ engineering: { enabled: false } });
+      await expect(
+        disabled.prepareEngineeringProposal(service, command, async () => {
+          throw new Error(
+            "Historical accepted proposal must not rerun export checks",
+          );
+        }),
+      ).resolves.toEqual(committed.lastProposalPreparation!.result);
+      expect(await f.rows()).toEqual(before);
+      const replacement = await f.claim(
+        "different-proposal-invocation",
+        "different-proposal-worker",
+      );
+      const replaced = await f.rows();
+      await expect(
+        disabled.prepareEngineeringProposal(service, command, async () => {}),
+      ).resolves.toEqual(committed.lastProposalPreparation!.result);
+      expect(await f.rows()).toEqual(replaced);
+      expect((await f.work()).claim).toEqual(replacement.fence);
+    });
+
+    it("replays a distinct identical-content preparation after a later proposal replaces the inline acknowledgement", async () => {
+      const f = engineeringFixture(createStore());
+      await f.eligible();
+      const first = await f.prepareProposal();
+      const secondOwner = await f.claim(
+        "identical-content-C2",
+        "identical-content-worker",
+        "ticket",
+        60_000,
+      );
+      const secondCommand = { ...first.command, ...secondOwner.fence };
+      const beforeSecond = await f.rows();
+      let lost = false;
+      f.observed.intercept(async (trace, commit) => {
+        const outcome = await commit();
+        if (
+          !lost &&
+          outcome.committed &&
+          trace.actions.some((action) => {
+            if (
+              !("value" in action) ||
+              action.value === null ||
+              typeof action.value !== "object"
+            )
+              return false;
+            const row = action.value as Partial<EngineeringWorkRecord>;
+            return (
+              row.kind === "engineering_work" &&
+              row.stage === "proposal" &&
+              row.proposal?.proposalHash === first.proposal.proposalHash &&
+              row.lastProposalPreparation !== undefined &&
+              row.lastProposalPreparation.fingerprint !==
+                first.work.lastProposalPreparation!.fingerprint
+            );
+          })
+        ) {
+          lost = true;
+          throw new Error(
+            "Synthetic distinct identical-content preparation acknowledgement lost",
+          );
+        }
+        return outcome;
+      });
+      await expect(
+        f.app.prepareEngineeringProposal(
+          service,
+          secondCommand,
+          async () => {},
+        ),
+      ).rejects.toThrow("acknowledgement lost");
+      f.observed.intercept(undefined);
+      expect(lost).toBe(true);
+      const second = await f.work();
+      const originalResult = second.lastProposalPreparation!.result;
+      const afterSecond = await f.rows();
+      expect(afterSecond).toHaveLength(beforeSecond.length + 2);
+      expect(
+        afterSecond
+          .filter((row) => !beforeSecond.some((prior) => prior.id === row.id))
+          .map((row) => row.kind)
+          .sort(),
+      ).toEqual(["audit", "engineering_receipt"]);
+      expect(second.proposal).toEqual(first.proposal);
+      expect(second.proposalCount).toBe(1);
+      expect(second.claim).toEqual(secondOwner.fence);
+      await expect(
+        f.app.prepareEngineeringProposal(
+          service,
+          secondCommand,
+          async () => {},
+        ),
+      ).resolves.toEqual(originalResult);
+      expect(await f.rows()).toEqual(afterSecond);
+
+      const thirdRequest = {
+        ...first.request,
+        bundle: {
+          ...first.request.bundle,
+          body: `${first.request.bundle.body}\n\nStaff verified a second synthetic export format.`,
+        },
+      };
+      const thirdChecks = await engineeringExportChecksBinding({
+        sourceBindingHash: first.checksBinding.sourceBindingHash,
+        evidenceFingerprint: first.checksBinding.evidenceFingerprint,
+        candidateHash: first.candidateHash,
+        routingBindingHash: first.proposal.routingBindingHash,
+        exactRequest: thirdRequest,
+        policyGeneration: first.proposal.policyGeneration,
+        policyHash: first.proposal.policyHash,
+      });
+      f.trust.issueChecks("independent-P3-full-request-checks", thirdChecks);
+      await f.app.prepareEngineeringProposal(
+        service,
+        {
+          ...secondCommand,
+          exactRequest: thirdRequest,
+          checksReceipt: "independent-P3-full-request-checks",
+        },
+        async () => {},
+      );
+      const third = await f.work();
+      expect(third.proposal!.request).toEqual(thirdRequest);
+      expect(third.proposal!.proposalHash).not.toBe(
+        first.proposal.proposalHash,
+      );
+      expect(third.proposalCount).toBe(2);
+      expect(third.lastProposalPreparation!.fingerprint).not.toBe(
+        second.lastProposalPreparation!.fingerprint,
+      );
+      const current = await f.claim(
+        "current-P3-invocation",
+        "current-P3-worker",
+      );
+      const beforeReplay = await f.rows();
+      const disabled = f.freshApplication({ engineering: { enabled: false } });
+      await expect(
+        disabled.prepareEngineeringProposal(
+          service,
+          secondCommand,
+          async () => {
+            throw new Error(
+              "Historical F2 replay must not rerun current export guards",
+            );
+          },
+        ),
+      ).resolves.toEqual(originalResult);
+      expect(await f.rows()).toEqual(beforeReplay);
+      expect((await f.work()).claim).toEqual(current.fence);
+      expect((await f.work()).proposal!.request).toEqual(thirdRequest);
+      expect((await f.work()).lastProposalPreparation).toEqual(
+        third.lastProposalPreparation,
+      );
+      const denied = {
+        ...service,
+        permissions: service.permissions.filter(
+          (permission) => permission !== supportPermissions.engineeringProcess,
+        ),
+      };
+      await expect(
+        disabled.prepareEngineeringProposal(
+          denied,
+          secondCommand,
+          async () => {},
+        ),
+      ).rejects.toMatchObject({ name: "SupportDeskAuthorizationError" });
+      expect(await f.rows()).toEqual(beforeReplay);
+      expect((await f.work()).modelAttempts).toHaveLength(1);
+    });
+
+    it("recovers a coordinator proposal acknowledgement without rerendering or charging the model again", async () => {
+      const f = await engineeringAiFixture(createStore());
+      await f.engineering.processWork(f.nextCommand());
+      let lost = false;
+      f.observed.intercept(async (trace, commit) => {
+        const outcome = await commit();
+        if (
+          !lost &&
+          outcome.committed &&
+          trace.actions.some((action) => {
+            if (
+              !("value" in action) ||
+              action.value === null ||
+              typeof action.value !== "object"
+            )
+              return false;
+            const row = action.value as Partial<EngineeringWorkRecord>;
+            return (
+              row.kind === "engineering_work" &&
+              row.stage === "proposal" &&
+              row.status === "prepared" &&
+              row.proposal !== undefined &&
+              row.lastProposalPreparation !== undefined
+            );
+          })
+        ) {
+          lost = true;
+          throw new Error(
+            "Synthetic accepted coordinator proposal acknowledgement lost",
+          );
+        }
+        return outcome;
+      });
+      await expect(
+        f.engineering.processWork(f.nextCommand()),
+      ).resolves.toMatchObject({ outcome: "prepared" });
+      f.observed.intercept(undefined);
+      expect(lost).toBe(true);
+      expect(f.prepareExport).toHaveBeenCalledTimes(1);
+      expect(f.generate).toHaveBeenCalledTimes(1);
+      expect((await f.work()).proposalCount).toBe(1);
+      expect(f.createIssue).not.toHaveBeenCalled();
+    });
+
+    it("replays a lost review acknowledgement across a new coordinator with the original command and old generation", async () => {
+      const f = await engineeringAiFixture(createStore());
+      await f.prepareProposal();
+      const work = await f.work();
+      const command = {
+        ...f.command("historical-review-after-lost-ack"),
+        sourceGeneration: f.key.sourceGeneration,
+        expectedWorkGeneration: work.workGeneration,
+        proposalHash: work.proposal!.proposalHash,
+        decision: "approve" as const,
+      };
+      let lost = false;
+      f.observed.intercept(async (trace, commit) => {
+        const outcome = await commit();
+        if (
+          !lost &&
+          outcome.committed &&
+          trace.actions.some(
+            (action) =>
+              "value" in action &&
+              action.value !== null &&
+              typeof action.value === "object" &&
+              (action.value as Partial<EngineeringWorkRecord>).kind ===
+                "engineering_work" &&
+              (action.value as Partial<EngineeringWorkRecord>).approval
+                ?.decision === "approve",
+          )
+        ) {
+          lost = true;
+          throw new Error(
+            "Synthetic accepted staff review acknowledgement lost",
+          );
+        }
+        return outcome;
+      });
+      const first = createSupportDeskEngineering({
+        ...f.baseOptions,
+        storageCommandAttempts: 1,
+      });
+      await expect(first.reviewProposal(staff, command)).rejects.toThrow();
+      f.observed.intercept(undefined);
+      expect(lost).toBe(true);
+      const before = await f.rows();
+      const receipt = before.find(
+        (row) =>
+          row.kind === "engineering_receipt" &&
+          "status" in row.result &&
+          row.result.status === "approved",
+      );
+      if (
+        receipt?.kind !== "engineering_receipt" ||
+        !("status" in receipt.result)
+      )
+        throw new Error("Expected the actual committed review receipt");
+      f.state.authorityOutcome = "unavailable";
+      f.state.metadataOutcome = "unavailable";
+      f.state.configurationOutcome = "disabled";
+      const restarted = createSupportDeskEngineering(f.baseOptions);
+      await expect(restarted.reviewProposal(staff, command)).resolves.toEqual(
+        receipt.result,
+      );
+      expect(await f.rows()).toEqual(before);
+      const denied = {
+        ...staff,
+        permissions: staff.permissions.filter(
+          (permission) => permission !== supportPermissions.engineeringReview,
+        ),
+      };
+      await expect(restarted.reviewProposal(denied, command)).rejects.toThrow();
+      expect(await f.rows()).toEqual(before);
+      expect(f.createIssue).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      "repository",
+      "policy",
+      "checks",
+      "processing service",
+      "generation configuration",
+    ] as const)(
+      "records an exact staff rejection during a %s outage without consulting export gates",
+      async (outage) => {
+        const f = await engineeringAiFixture(createStore());
+        await f.prepareProposal();
+        const work = await f.work();
+        if (outage === "repository") f.state.installationActive = false;
+        else if (outage === "policy") await f.putPolicy({ enabled: false });
+        else if (outage === "checks")
+          f.trust.revokeChecks(work.proposal!.checksReceipt);
+        else if (outage === "processing service")
+          f.state.authorityOutcome = "unavailable";
+        else f.state.configurationOutcome = "unavailable";
+        const calls = [
+          f.getMetadata.mock.calls.length,
+          f.checksVerify.mock.calls.length,
+          f.resolveAuthority.mock.calls.length,
+        ];
+        await expect(
+          f.engineering.reviewProposal(staff, {
+            ...f.command("reject-during-outage"),
+            sourceGeneration: f.key.sourceGeneration,
+            expectedWorkGeneration: work.workGeneration,
+            proposalHash: work.proposal!.proposalHash,
+            decision: "reject",
+            reason: "Staff rejected this exact private proposal.",
+          }),
+        ).resolves.toMatchObject({ status: "held" });
+        expect((await f.work()).approval!.decision).toBe("reject");
+        expect([
+          f.getMetadata.mock.calls.length,
+          f.checksVerify.mock.calls.length,
+          f.resolveAuthority.mock.calls.length,
+        ]).toEqual(calls);
+        expect(f.createIssue).not.toHaveBeenCalled();
+      },
+    );
+
+    it("discovers a pending staff proposal after restart and renews a bounded dispatch window at minute seven", async () => {
+      const f = await engineeringAiFixture(createStore());
+      await f.prepareProposal();
+      const original = await f.work();
+      const source = await f.source();
+      const productCalls = f.trust.productCalls.length;
+      f.advance(7 * 60_000);
+      expect(Date.parse(original.deadline)).toBeLessThan(
+        Date.parse(f.clock.now()),
+      );
+      const reviewOnly = {
+        ...staff,
+        permissions: [
+          supportPermissions.engineeringReview,
+          supportPermissions.queueRead,
+        ],
+      };
+      const restarted = f.freshApplication();
+      const page = await restarted.scanEngineeringCandidates(reviewOnly, {
+        limit: 1_000,
+      });
+      expect(page.reviewCandidates).toContainEqual(f.key);
+      expect(page.candidates).toEqual([]);
+      expect(page.reconciliationSources).toEqual([]);
+      const proposal = original.proposal!;
+      f.trust.issueRouting(proposal.routingReceipt!, proposal.routingBinding!);
+      f.trust.issueChecks(proposal.checksReceipt, proposal.checksBinding);
+      await f.approve();
+      const approved = await f.work();
+      expect(Date.parse(approved.deadline)).toBeGreaterThan(
+        Date.parse(f.clock.now()),
+      );
+      expect(
+        Date.parse(approved.deadline) - Date.parse(f.clock.now()),
+      ).toBeLessThanOrEqual(
+        Date.parse(original.deadline) - Date.parse(original.createdAt) + 5_000,
+      );
+      expect(approved.modelAttempts).toEqual(original.modelAttempts);
+      expect((await f.source()).sourceBindingHash).toBe(
+        source.sourceBindingHash,
+      );
+      expect(f.trust.productCalls).toHaveLength(productCalls);
+      await f.engineering.processWork(f.nextCommand());
+      expect((await f.work()).status).toBe("accepted");
+      expect(f.generate).toHaveBeenCalledTimes(1);
+      expect(f.createIssue).toHaveBeenCalledTimes(1);
+    });
+
+    it("holds before durable begin and never POSTs when the dispatch proof verifier is missing", async () => {
+      const f = await engineeringAiFixture(createStore(), {
+        engineering: { dispatchResults: undefined },
+      });
+      await f.prepareProposal();
+      await f.approve();
+      const before = (await f.rows()).filter((row) => row.kind === "audit");
+      await f.engineering.processWork(f.nextCommand());
+      expect(f.createIssue).not.toHaveBeenCalled();
+      expect((await f.work()).dispatch).toBeUndefined();
+      expect((await f.work()).terminalReserveRows).toBe(0);
+      expect((await f.rows()).filter((row) => row.kind === "audit")).toEqual(
+        before,
+      );
+    });
+
+    it.each([
+      "accepted before withdrawal",
+      "accepted after withdrawal",
+    ] as const)(
+      "scrubs URL, private body and late reasons from every retained engineering record (%s)",
+      async (timing) => {
+        const f = await engineeringAiFixture(createStore());
+        const prepared = await f.prepareProposal();
+        await f.approve();
+        const privateUrl =
+          "https://github.com/private-destination/private-issue?private-customer=synthetic";
+        f.setGitHubCreate(async (request, context) => {
+          const acknowledgement = await f.acceptIssue(
+            request,
+            {
+              repositoryId: request.repository.repositoryId,
+              issueId: "opaque-private-issue",
+              issueNumber: 44,
+              url: privateUrl,
+            },
+            context,
+          );
+          if (timing === "accepted after withdrawal")
+            throw new Error("Synthetic accepted GitHub response lost");
+          return acknowledgement;
+        });
+        await f.engineering.processWork(f.nextCommand());
+        await f.app.withdrawEngineeringSource(staff, {
+          ...f.command("permanent-withdrawal-with-url-receipts"),
+          reason: "privacy_withdrawal",
+        });
+        if (timing === "accepted after withdrawal") {
+          f.githubReconcile.mockResolvedValueOnce({
+            outcome: "unknown",
+            reason: "PRIVATE_LATE_RECONCILIATION_REASON",
+          });
+          await f.engineering.reconcileSource("ticket");
+          await f.engineering.reconcileSource("ticket");
+        }
+        const retained = (await f.rows()).filter((row) =>
+          [
+            "engineering_source",
+            "engineering_work",
+            "engineering_receipt",
+          ].includes(row.kind),
+        );
+        const encoded = JSON.stringify(retained);
+        expect(encoded).not.toContain(privateUrl);
+        expect(encoded).not.toContain(prepared.request.bundle.body);
+        expect(encoded).not.toContain("PRIVATE_LATE_RECONCILIATION_REASON");
+        expect(encoded).not.toContain(
+          "PRIVATE_ENGINEERING_VERIFICATION_REFERENCE",
+        );
+        expect(
+          (await f.work("ticket", f.key.sourceGeneration)).heldReason,
+        ).toBe("privacy_withdrawal");
+        expect(f.createIssue).toHaveBeenCalledTimes(1);
+      },
+    );
 
     it.each(["coordinator", "terminal receipt"] as const)(
       "reconciles retained opaque identity with only reconciliation permission after disable, withdrawal and actual body deletion (%s)",

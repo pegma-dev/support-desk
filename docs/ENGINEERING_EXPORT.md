@@ -88,6 +88,33 @@ when ordinary edits have exhausted admission. Replaying an accepted disable,
 or disabling an already-disabled current head, adds no rows. A disabled policy
 does not erase accepted failure evidence or resolve uncertain remote writes.
 
+Schedule `pruneRepositoryPolicyHistory(access, { limit, cursor? })` with current
+policy-management and queue-read authority. `engineeringPolicy.historyRetentionMilliseconds`
+defaults to 30 days and must be a positive safe integer. Each invocation scans
+one physical page of at most 64 rows, including the head and unrelated history
+before filtering. Persist its unmodified `nextCursor`, and start another cycle
+after it reaches `null`; scans are not snapshots. The result counts physical
+rows, examined pairs, removed rows/pairs, and incomplete cleanup.
+
+Only expired policy Audit/receipt pairs and interrupted cleanup remnants are
+removed, including the latest
+accepted change's history once it reaches the retention horizon. The current
+generation/hash/policy head is never removed. Thus an exhausted partition can
+disable immediately, retain history for the configured interval, then reclaim
+history and re-enable through a fresh expected-generation policy command.
+Receipts are removed before their Audit rows using their opaque storage
+versions, with current head and authorization checks. These two removals are
+not atomic: a conflict or interruption may leave an Audit row for a later
+cycle. New receipts carry their own acceptance timestamp so an expired receipt
+orphan can also be removed; an older receipt without a readable paired Audit
+timestamp is retained.
+
+Policy command replay is guaranteed only while its receipt remains retained.
+After expiry, the original command's older `expectedGeneration` cannot change
+the newer head. Read the current head and use a fresh command ID for a new
+intent. Export historical Audit externally before pruning if a host requires a
+longer record of policy changes; pruning does not supply an archival service.
+
 ## Prepare and review the complete disclosure
 
 `EngineeringGitHubPort.getMetadata` supplies current immutable identity,
@@ -99,9 +126,11 @@ Duplicate searches are outbound disclosures too. The current
 `EngineeringProposalPort.duplicateQuery` receives the configured repository
 descriptor and returns trusted configured query text. Do not substitute raw
 ticket text, failure reports, or unchecked candidates. Any sanitized-query
-extension needs an independent disclosure check before search. Search results
-and physical counts are bounded; an empty result is neither exhaustive duplicate
-proof nor evidence that an earlier create was rejected.
+extension needs an independent disclosure check before search. A missing trusted
+query holds preparation as `duplicate_query_unavailable`; it does not stand in
+for an empty search result. Search results and physical counts are bounded; an
+empty result is neither exhaustive duplicate proof nor evidence that an earlier
+create was rejected.
 
 Proposal construction is server-local. `prepareEngineeringProposal` persists
 the exact sanitized operation, repository observation, title/body, labels,
@@ -135,6 +164,12 @@ Each physical worker invocation uses a fresh claim identity. A replacement
 worker that finds possible dispatch performs reconciliation only; a lost begin
 acknowledgement is not permission to create based on a later read.
 
+A crash or failed final authority check can consume the durable start without
+making a POST. That dispatch may remain unresolved until authoritative
+no-acceptance proof becomes available. Replacements preserve this uncertainty
+and its destination capacity; the service promises at most one physical POST,
+not eventual filing.
+
 The export marker correlates acceptance; it does not make GitHub idempotent.
 After any potentially accepted error, preserve the exact repository, dispatch
 identity, request hash, and marker. `EngineeringGitHubPort.reconcile` and
@@ -160,6 +195,8 @@ revocation invalidate the persisted engineering source even when a later host
 configuration omits engineering. Notes and administrative metadata do not become
 new failure evidence. Claims, attempts, and receipts do not advance the Ticket's
 domain revision. New evidence never silently revives an old approval.
+Automatic invalidation commits with the triggering ticket command's Audit and
+replay receipt; its source/work updates share that same transaction.
 
 Call `withdrawEngineeringSource` before deleting ticket bodies or revoking
 source access, and withdraw other enrolled derivation workflows independently.
@@ -188,7 +225,18 @@ holds new derivation rather than silently raising the ticket cap or removing
 uncertain work.
 
 The host owns durable scan cursors and scheduler retries. `scanEngineeringCandidates`
-returns one bounded physical page, its unmodified continuation, candidate hints,
-and reconciliation-source hints. Count every adapter-returned row before
-filtering, and confirm current source/work authority after discovery. There is
-no cross-host queue, hidden collection query, or event-bus delivery guarantee.
+returns one bounded physical page and its unmodified continuation. `candidates`
+identify processing work; `reviewSources` identify sources needing attention,
+including missing-evidence and restricted cases with no processable work.
+`reviewCandidates` supplies exact work keys for human routing, proposal review,
+and restricted review. `reconciliationSources` identifies possible remote writes.
+Count every adapter-returned row before filtering. Confirm hints through
+`readEngineeringSource` and `readEngineeringWork`; discovery grants no authority.
+
+Restricted review hints require current `engineeringRestrictedRead`, `engineeringReview`,
+and `queueRead` permissions. Revoking any of them hides those hints. Restriction
+can advance the source generation while its retained binding still identifies
+the older classified work key. Fresh security-reviewed ordinary evidence changes
+that binding and removes the old case from current review attention; retained
+old work still requires restricted read authority. These are bounded discovery
+hints, with no new queue collection, hidden query, or event-bus delivery guarantee.

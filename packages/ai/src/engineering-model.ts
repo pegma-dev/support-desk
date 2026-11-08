@@ -29,8 +29,10 @@ import {
   engineeringCalibration,
   engineeringCheckPolicy,
   engineeringConfiguration,
+  engineeringCurrentFacts,
+  engineeringFailureCategory,
   engineeringModelRequest,
-  engineeringPolicySnapshot,
+  engineeringPolicy,
   engineeringProcessingAuthority,
   engineeringSource,
 } from "./engineering-request.js";
@@ -187,9 +189,7 @@ export async function processEngineeringModel(
       canonical(product) !== canonical(source.product)
     )
       throw new AssistantBoundaryError("source_changed");
-    const policy = await engineeringPolicySnapshot(
-      await runtime.within(() => options.policy.resolve(authority.access)),
-    );
+    const policy = await engineeringPolicy(options, authority, runtime);
     if (canonical(policy) !== canonical(claim.policy))
       throw new AssistantBoundaryError("repository_policy_changed");
     const config = await engineeringConfiguration(
@@ -289,33 +289,16 @@ export async function processEngineeringModel(
         throw new AssistantBoundaryError("preparation_mismatch");
       return snapshot(value);
     };
-    const verifyCurrent = async (phase: number): Promise<void> => {
-      const current = await engineeringProcessingAuthority(
+    const verifyCurrent = async (
+      phase: number,
+      beforeCall = false,
+    ): Promise<void> => {
+      await engineeringProcessingAuthority(
         options.serviceAccess,
         runtime,
         authority,
         phase,
       );
-      const currentSource = await engineeringSource(
-        options,
-        claim.sourceFence,
-        runtime,
-        current,
-        phase,
-      );
-      if (
-        currentSource.evidenceFingerprint !== source.evidenceFingerprint ||
-        canonical(currentSource.product) !== canonical(product)
-      )
-        throw new AssistantBoundaryError("source_changed");
-      const currentPolicy = await engineeringPolicySnapshot(
-        await runtime.within(
-          () => options.policy.resolve(current.access),
-          phase,
-        ),
-      );
-      if (canonical(currentPolicy) !== canonical(policy))
-        throw new AssistantBoundaryError("repository_policy_changed");
       if (
         canonical(
           await engineeringCheckPolicy(
@@ -352,12 +335,49 @@ export async function processEngineeringModel(
       );
       if (canonical(currentConfig) !== canonical(config))
         throw new AssistantBoundaryError("configuration_changed");
-      await engineeringProcessingAuthority(
+      const finalAuthority = await engineeringProcessingAuthority(
         options.serviceAccess,
         runtime,
         authority,
         phase,
       );
+      const facts = await engineeringCurrentFacts(
+        options,
+        claim.sourceFence,
+        finalAuthority,
+        runtime,
+        phase,
+      );
+      if (
+        facts.source.evidenceFingerprint !== source.evidenceFingerprint ||
+        canonical(facts.source.product) !== canonical(product)
+      )
+        throw new AssistantBoundaryError("source_changed");
+      if (canonical(facts.policy) !== canonical(policy))
+        throw new AssistantBoundaryError("repository_policy_changed");
+      const storedAttempt = facts.work.modelAttempts.find(
+        (entry) =>
+          entry.stepId === prepared?.stepId &&
+          entry.requestHash === requestHash,
+      );
+      if (
+        storedAttempt === undefined ||
+        canonical(storedAttempt.binding) !== canonical(command.binding)
+      )
+        throw new AssistantBoundaryError("preparation_mismatch");
+      if (
+        beforeCall &&
+        (facts.work.claim === undefined ||
+          canonical(facts.work.claim) !== canonical(claim.fence) ||
+          facts.work.status !== "prepared" ||
+          facts.work.stage !== "model" ||
+          facts.work.stepId !== prepared?.stepId ||
+          facts.work.requestHash !== requestHash ||
+          facts.work.candidate !== undefined ||
+          facts.work.dispatch !== undefined ||
+          facts.work.leaseUntil === undefined)
+      )
+        throw new AssistantBoundaryError("preparation_mismatch");
       runtime.ensure(phase);
     };
     for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -439,7 +459,7 @@ export async function processEngineeringModel(
       ) !== canonical(prepared)
     )
       throw new AssistantBoundaryError("preparation_mismatch");
-    await verifyCurrent(providerDeadline);
+    await verifyCurrent(providerDeadline, true);
     runtime.ensure(providerDeadline);
     observation = { state: "unknown" };
     accounting = "unknown";
@@ -451,7 +471,9 @@ export async function processEngineeringModel(
       );
     } catch (error) {
       provider.abort();
-      throw error;
+      throw error instanceof AssistantBoundaryError
+        ? error
+        : new AssistantBoundaryError("provider_unavailable");
     }
     const usage = engineeringUsage(result);
     observation = { state: "known", usage };
@@ -548,10 +570,10 @@ export async function processEngineeringModel(
     return { outcome: "pending", stage: "complete" };
   } catch (error) {
     await reconcile();
-    const reason =
-      error instanceof AssistantBoundaryError
-        ? error.category
-        : "provider_unavailable";
+    const reason = engineeringFailureCategory(
+      error,
+      "engineering_processing_unavailable",
+    );
     return await finish(
       reason,
       ["security_restricted", "malformed_output"].includes(reason)

@@ -1,6 +1,9 @@
+import type { AccessContext } from "@pegma/authorization-core";
+import type { CollectionDefinition, Store } from "@pegma/storage-core";
 import {
   createInboundMailProcessor,
   supportPermissions,
+  supportRecords,
   type EngineeringEvidenceInput,
   type EngineeringTrustContext,
   type SubmitEngineeringEvidenceCommand,
@@ -10,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   engineeringBarrier,
   engineeringCustomer as customer,
+  engineeringAiFixture,
   engineeringFixture,
   engineeringService as service,
   engineeringStaff as staff,
@@ -17,8 +21,95 @@ import {
 } from "../test/engineering-fixtures.js";
 
 type Fixture = ReturnType<typeof engineeringFixture>;
+type EngineeringScanPage = Awaited<
+  ReturnType<Fixture["app"]["scanEngineeringCandidates"]>
+>;
+const reviewer: AccessContext = {
+  ...staff,
+  permissions: [
+    supportPermissions.queueRead,
+    supportPermissions.engineeringReview,
+  ],
+};
+
+async function scanEngineering(
+  f: Pick<Fixture, "app">,
+  access: AccessContext,
+  limit = 2,
+) {
+  const pages: EngineeringScanPage[] = [];
+  const cursors = new Set<string>();
+  let cursor: string | undefined;
+  for (let pageNumber = 0; pageNumber < 128; pageNumber += 1) {
+    const page = await f.app.scanEngineeringCandidates(access, {
+      limit,
+      ...(cursor === undefined ? {} : { cursor }),
+    });
+    expect(page.pages).toBe(1);
+    expect(page.physicalRows).toBeLessThanOrEqual(limit);
+    expect(Object.keys(page).sort()).toEqual([
+      "candidates",
+      "nextCursor",
+      "pages",
+      "physicalRows",
+      "reconciliationSources",
+      "reviewCandidates",
+      "reviewSources",
+    ]);
+    for (const key of [...page.candidates, ...page.reviewCandidates])
+      expect(Object.keys(key).sort()).toEqual(["sourceGeneration", "ticketId"]);
+    for (const ticketId of page.reviewSources)
+      expect(typeof ticketId).toBe("string");
+    pages.push(page);
+    if (page.nextCursor === null)
+      return {
+        pages,
+        candidates: pages.flatMap((entry) => entry.candidates),
+        reviewCandidates: pages.flatMap((entry) => entry.reviewCandidates),
+        reviewSources: pages.flatMap((entry) => entry.reviewSources),
+      };
+    expect(cursors.has(page.nextCursor)).toBe(false);
+    cursors.add(page.nextCursor);
+    cursor = page.nextCursor;
+  }
+  throw new Error(
+    "Engineering discovery exceeded its bounded cursor traversal",
+  );
+}
+
+/** Observe a delegated real source read without storing any authoritative data. */
+function observeEngineeringSourceReads(backing: Store) {
+  let hook: ((ticketId: string) => Promise<void>) | undefined;
+  const store: Store = {
+    collection<T>(definition: CollectionDefinition<T>) {
+      const target = backing.collection(definition);
+      return new Proxy(target, {
+        get(object, property) {
+          if (
+            definition.name === supportRecords.name &&
+            (property === "get" || property === "getVersioned")
+          )
+            return async (key: Parameters<typeof object.get>[0]) => {
+              const result = await object[property](key);
+              if (key.id === "engineering-source") await hook?.(key.partition);
+              return result;
+            };
+          const value: unknown = Reflect.get(object, property, object);
+          return typeof value === "function" ? value.bind(object) : value;
+        },
+      });
+    },
+  };
+  return {
+    store,
+    onSourceRead(callback: typeof hook) {
+      hook = callback;
+    },
+  };
+}
+
 async function staffCommand(
-  f: Fixture,
+  f: Pick<Fixture, "app" | "command" | "reportInput">,
   label = "verified-failure",
 ): Promise<SubmitEngineeringEvidenceCommand> {
   const ticket = (await f.app.readStaffTicket(staff, "ticket")).ticket;
@@ -168,6 +259,217 @@ for (const [name, createStore] of engineeringStores) {
       expect(JSON.stringify(claim.messages)).not.toContain(
         "PRIVATE_ENGINEERING_VERIFICATION_REFERENCE",
       );
+    });
+
+    it.each(["unverified", "held"] as const)(
+      "discovers a %s source needing staff evidence through bounded cursor traversal",
+      async (state) => {
+        const f = engineeringFixture(createStore(), {
+          engineering: {
+            productContext: {
+              async resolve() {
+                return null;
+              },
+            },
+          },
+        });
+        await f.create();
+        if (state === "held")
+          await f.app.submitEngineeringEvidence(staff, await staffCommand(f));
+        expect(await f.source()).toMatchObject({
+          state,
+          security: state === "unverified" ? "uncertain" : "ordinary",
+        });
+        expect((await f.source()).evidence).toBeUndefined();
+        const currentReviewer =
+          state === "unverified"
+            ? {
+                ...reviewer,
+                permissions: [
+                  ...reviewer.permissions,
+                  supportPermissions.engineeringRestrictedRead,
+                ],
+              }
+            : reviewer;
+        const staffDiscovery = await scanEngineering(f, currentReviewer, 1);
+        expect(staffDiscovery.pages.length).toBeGreaterThan(1);
+        expect(staffDiscovery.reviewSources).toContain("ticket");
+        expect(staffDiscovery.reviewCandidates).toEqual([]);
+        expect(staffDiscovery.candidates).toEqual([]);
+        if (state === "unverified") {
+          const ordinaryDiscovery = await scanEngineering(f, reviewer, 1);
+          expect(ordinaryDiscovery.reviewSources).not.toContain("ticket");
+          expect(ordinaryDiscovery.reviewCandidates).toEqual([]);
+          expect(ordinaryDiscovery.candidates).toEqual([]);
+        }
+        const workerDiscovery = await scanEngineering(f, service, 1);
+        expect(workerDiscovery.reviewSources).toEqual([]);
+        expect(workerDiscovery.reviewCandidates).toEqual([]);
+        expect(workerDiscovery.candidates).toEqual([]);
+        expect(
+          (await f.rows()).filter((row) => row.kind === "engineering_work"),
+        ).toEqual([]);
+      },
+    );
+
+    it.each(["ambiguous", "out_of_scope"] as const)(
+      "discovers the exact %s candidate for staff selection before any proposal exists",
+      async (outcome) => {
+        const f = await engineeringAiFixture(createStore());
+        f.setModel(async () =>
+          f.answer({
+            outputJson: JSON.stringify(
+              f.assessment({
+                routing: {
+                  outcome,
+                  alternativeRepositoryIds:
+                    outcome === "ambiguous"
+                      ? ["repository-101", "repository-202"]
+                      : [],
+                  rationale:
+                    "Staff must select the repository responsible for this verified failure.",
+                },
+              }),
+            ),
+          }),
+        );
+        expect((await f.engineering.processWork(f.nextCommand())).outcome).toBe(
+          "candidate",
+        );
+        expect((await f.engineering.processWork(f.nextCommand())).outcome).toBe(
+          "held",
+        );
+        const work = await f.work();
+        expect(work).toMatchObject({
+          status: "held",
+          candidate: { routing: { outcome } },
+        });
+        expect(work.proposal).toBeUndefined();
+        const discovery = await scanEngineering(f, reviewer, 1);
+        expect(discovery.pages.length).toBeGreaterThan(1);
+        expect(discovery.reviewCandidates).toContainEqual(f.key);
+        expect(discovery.candidates).toEqual([]);
+        expect(f.createIssue).not.toHaveBeenCalled();
+      },
+    );
+
+    it("discovers restricted source and matching historical work only with current restricted review authority", async () => {
+      const f = await engineeringAiFixture(createStore());
+      expect((await f.engineering.processWork(f.nextCommand())).outcome).toBe(
+        "candidate",
+      );
+      f.state.checkOutcome = "restricted";
+      expect((await f.engineering.processWork(f.nextCommand())).outcome).toBe(
+        "restricted",
+      );
+      const source = await f.source();
+      const restricted = await f.work();
+      expect(source.sourceGeneration).toBeGreaterThan(
+        restricted.sourceGeneration,
+      );
+      expect(source.sourceBindingHash).toBe(restricted.sourceBindingHash);
+      const restrictedReviewer = {
+        ...reviewer,
+        permissions: [
+          ...reviewer.permissions,
+          supportPermissions.engineeringRestrictedRead,
+        ],
+      };
+      const discovery = await scanEngineering(f, restrictedReviewer, 1);
+      expect(discovery.reviewSources).toContain("ticket");
+      expect(discovery.reviewCandidates).toContainEqual(f.key);
+      expect(discovery.candidates).toEqual([]);
+      for (const actor of [reviewer, service]) {
+        const ordinaryDiscovery = await scanEngineering(f, actor, 1);
+        expect(ordinaryDiscovery.reviewSources).not.toContain("ticket");
+        expect(ordinaryDiscovery.reviewCandidates).not.toContainEqual(f.key);
+        expect(ordinaryDiscovery.candidates).toEqual([]);
+      }
+      const ordinaryRead = {
+        ...staff,
+        permissions: [
+          supportPermissions.queueRead,
+          supportPermissions.engineeringRead,
+        ],
+      };
+      await expect(
+        f.app.readEngineeringWork(ordinaryRead, f.key),
+      ).rejects.toMatchObject({
+        permission: supportPermissions.engineeringRestrictedRead,
+      });
+      await f.app.submitEngineeringEvidence(
+        staff,
+        await staffCommand(f, "new-security-reviewed-proof-for-discovery"),
+      );
+      const cleared = await f.source();
+      expect(cleared).toMatchObject({
+        state: "eligible",
+        security: "ordinary",
+      });
+      expect(cleared.sourceBindingHash).not.toBe(restricted.sourceBindingHash);
+      const afterClearance = await scanEngineering(f, restrictedReviewer, 1);
+      expect(afterClearance.reviewCandidates).not.toContainEqual(f.key);
+      expect(await f.work()).toEqual(restricted);
+      await expect(
+        f.app.readEngineeringWork(ordinaryRead, f.key),
+      ).rejects.toMatchObject({
+        permission: supportPermissions.engineeringRestrictedRead,
+      });
+      expect(f.createIssue).not.toHaveBeenCalled();
+    });
+
+    it("drops previously accumulated restricted discovery hints when permission is revoked during an authoritative source read", async () => {
+      const observed = observeEngineeringSourceReads(createStore());
+      const f = await engineeringAiFixture(observed.store);
+      expect((await f.engineering.processWork(f.nextCommand())).outcome).toBe(
+        "candidate",
+      );
+      f.state.checkOutcome = "restricted";
+      expect((await f.engineering.processWork(f.nextCommand())).outcome).toBe(
+        "restricted",
+      );
+      await f.eligible("staff_verified_failure", "second-ticket", "restricted");
+      const permissions = [
+        ...reviewer.permissions,
+        supportPermissions.engineeringRestrictedRead,
+      ];
+      const actor = { ...reviewer, permissions };
+      const baseline = await scanEngineering(f, actor);
+      expect(baseline.reviewSources).toEqual(
+        expect.arrayContaining(["ticket", "second-ticket"]),
+      );
+      expect(baseline.reviewCandidates).toContainEqual(f.key);
+      const gate = engineeringBarrier();
+      const sourceTickets = new Set<string>();
+      observed.onSourceRead(async (ticketId) => {
+        sourceTickets.add(ticketId);
+        if (sourceTickets.size === 2) await gate.wait();
+      });
+      const pending = f.app.scanEngineeringCandidates(actor, { limit: 64 });
+      try {
+        await Promise.race([
+          gate.reached,
+          pending.then(() => {
+            throw new Error(
+              "Engineering discovery did not reach its second source-read barrier",
+            );
+          }),
+        ]);
+        permissions.splice(
+          permissions.indexOf(supportPermissions.engineeringRestrictedRead),
+          1,
+        );
+      } finally {
+        gate.release();
+      }
+      const page = await pending;
+      expect(sourceTickets.size).toBe(2);
+      expect(page.pages).toBe(1);
+      expect(page.physicalRows).toBeLessThanOrEqual(64);
+      expect(page.reviewSources).toEqual([]);
+      expect(page.reviewCandidates).toEqual([]);
+      expect(page.candidates).toEqual([]);
+      expect(f.createIssue).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -417,6 +719,276 @@ for (const [name, createStore] of engineeringStores) {
       });
       expect(await f.rows()).toEqual(before);
       expect((await f.source()).state).toBe("restricted");
+    });
+
+    it.each(["visible reply", "reopen", "explicit invalidation"] as const)(
+      "preserves independently restricted sensitivity through %s and fresh security clearance",
+      async (change) => {
+        const f = await engineeringAiFixture(createStore());
+        expect((await f.engineering.processWork(f.nextCommand())).outcome).toBe(
+          "candidate",
+        );
+        f.state.checkOutcome = "restricted";
+        expect((await f.engineering.processWork(f.nextCommand())).outcome).toBe(
+          "restricted",
+        );
+        const restricted = await f.work();
+        expect(restricted).toMatchObject({
+          status: "restricted",
+          security: "restricted",
+          candidate: { security: "ordinary" },
+        });
+        const classifiedSource = await f.source();
+        expect(classifiedSource.security).toBe("restricted");
+        expect(classifiedSource.sourceGeneration).toBeGreaterThan(
+          restricted.sourceGeneration,
+        );
+        const ordinaryRead = {
+          ...staff,
+          permissions: [
+            supportPermissions.queueRead,
+            supportPermissions.engineeringRead,
+          ],
+        };
+        const ordinaryEvidence = {
+          ...staff,
+          permissions: [
+            supportPermissions.queueRead,
+            supportPermissions.engineeringEvidenceSubmit,
+          ],
+        };
+        const oldKey = {
+          ticketId: "ticket",
+          sourceGeneration: restricted.sourceGeneration,
+        };
+        await expect(
+          f.app.readEngineeringWork(ordinaryRead, oldKey),
+        ).rejects.toMatchObject({
+          permission: supportPermissions.engineeringRestrictedRead,
+        });
+        if (change === "visible reply")
+          await f.app.replyToCustomerTicket(customer, {
+            ...f.command("restricted-visible-change"),
+            messageId: "restricted-visible-change",
+            body: "There is another reproduction detail.",
+          });
+        else if (change === "reopen") {
+          await f.app.resolveTicket(staff, f.command("restricted-terminal"));
+          await f.app.reopenTicket(staff, f.command("restricted-reopen"));
+        } else
+          await f.app.invalidateEngineeringSource(staff, {
+            ...f.command("restricted-explicit-invalidation"),
+            reason: "evidence_revoked",
+          });
+        const retained = await f.work("ticket", restricted.sourceGeneration);
+        expect(retained).toMatchObject({
+          status:
+            change === "explicit invalidation" ? "superseded" : "restricted",
+          security: "restricted",
+        });
+        const invalidatedSource = await f.source();
+        expect(invalidatedSource.security).toBe("restricted");
+        expect(invalidatedSource.sourceGeneration).toBeGreaterThan(
+          classifiedSource.sourceGeneration,
+        );
+        expect(await f.engineering.processWork(f.nextCommand())).toEqual({
+          outcome: "not_claimed",
+        });
+        await expect(
+          f.app.readEngineeringWork(ordinaryRead, oldKey),
+        ).rejects.toMatchObject({
+          permission: supportPermissions.engineeringRestrictedRead,
+        });
+        const beforeClear = await f.rows();
+        const clear = await staffCommand(f, "fresh-security-reviewed-proof");
+        await expect(
+          f.app.submitEngineeringEvidence(ordinaryEvidence, clear),
+        ).rejects.toMatchObject({
+          permission: supportPermissions.engineeringSecurityReview,
+        });
+        expect(await f.rows()).toEqual(beforeClear);
+        await f.app.submitEngineeringEvidence(staff, clear);
+        const cleared = await f.source();
+        expect(cleared).toMatchObject({
+          state: "eligible",
+          security: "ordinary",
+        });
+        expect(cleared.sourceGeneration).toBeGreaterThan(
+          restricted.sourceGeneration,
+        );
+        expect(
+          await f.app.readEngineeringWork(ordinaryRead, {
+            ticketId: "ticket",
+            sourceGeneration: cleared.sourceGeneration,
+          }),
+        ).toMatchObject({ status: "pending", security: "ordinary" });
+        await expect(
+          f.app.readEngineeringWork(ordinaryRead, oldKey),
+        ).rejects.toMatchObject({
+          permission: supportPermissions.engineeringRestrictedRead,
+        });
+        expect(await f.engineering.processWork(f.nextCommand())).toEqual({
+          outcome: "not_claimed",
+        });
+        expect(await f.work("ticket", restricted.sourceGeneration)).toEqual(
+          retained,
+        );
+        expect(await f.source()).toEqual(cleared);
+        expect(f.generate).toHaveBeenCalledTimes(1);
+        expect(f.createIssue).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["visible reply", "explicit invalidation"] as const)(
+      "restricts an old candidate when independent checks return after %s without changing newer ordinary proof",
+      async (change) => {
+        const f = await engineeringAiFixture(createStore());
+        expect((await f.engineering.processWork(f.nextCommand())).outcome).toBe(
+          "candidate",
+        );
+        const candidateWork = await f.work();
+        const oldKey = {
+          ticketId: "ticket",
+          sourceGeneration: candidateWork.sourceGeneration,
+        };
+        const gate = engineeringBarrier();
+        const check = f.checksCheck.getMockImplementation()!;
+        f.state.checkOutcome = "restricted";
+        f.checksCheck.mockImplementation(async (...args) => {
+          const result = await check(...args);
+          await gate.wait();
+          return result;
+        });
+        const pending = f.engineering.processWork(f.nextCommand());
+        let superseded!: Awaited<ReturnType<typeof f.work>>;
+        let newerSource!: Awaited<ReturnType<typeof f.source>>;
+        let newerWork!: Awaited<ReturnType<typeof f.work>>;
+        try {
+          await Promise.race([
+            gate.reached,
+            pending.then(() => {
+              throw new Error(
+                "Engineering work did not reach its independent-check barrier",
+              );
+            }),
+          ]);
+          if (change === "visible reply")
+            await f.app.replyToCustomerTicket(customer, {
+              ...f.command("late-check-visible-change"),
+              messageId: "late-check-visible-change",
+              body: "The export also fails with a second workspace.",
+            });
+          else
+            await f.app.invalidateEngineeringSource(staff, {
+              ...f.command("late-check-explicit-invalidation"),
+              reason: "evidence_revoked",
+            });
+          superseded = await f.work("ticket", oldKey.sourceGeneration);
+          expect(superseded).toMatchObject({
+            status: "superseded",
+            security: "ordinary",
+            candidate: candidateWork.candidate,
+          });
+          const fresh = await staffCommand(f, "new-proof-before-late-check");
+          await f.app.submitEngineeringEvidence(staff, {
+            ...fresh,
+            evidence: {
+              ...(await f.reportInput()),
+              verificationReference:
+                "fresh-independent-verification-after-invalidation",
+            },
+          });
+          newerSource = await f.source();
+          newerWork = await f.work("ticket", newerSource.sourceGeneration);
+          expect(newerSource).toMatchObject({
+            state: "eligible",
+            security: "ordinary",
+          });
+          expect(newerSource.sourceGeneration).toBeGreaterThan(
+            oldKey.sourceGeneration,
+          );
+        } finally {
+          gate.release();
+        }
+        expect((await pending).outcome).not.toBe("dispatched");
+        const classified = await f.work("ticket", oldKey.sourceGeneration);
+        expect(classified).toMatchObject({
+          status: "superseded",
+          security: "restricted",
+          candidateHash: candidateWork.candidateHash,
+          candidate: candidateWork.candidate,
+          modelAttempts: superseded.modelAttempts,
+          terminalReserveRows: superseded.terminalReserveRows,
+        });
+        expect(classified.claim).toBeUndefined();
+        expect(classified.leaseUntil).toBeUndefined();
+        expect(classified.approval).toBeUndefined();
+        const ordinaryRead = {
+          ...staff,
+          permissions: [
+            supportPermissions.queueRead,
+            supportPermissions.engineeringRead,
+          ],
+        };
+        await expect(
+          f.app.readEngineeringWork(ordinaryRead, oldKey),
+        ).rejects.toMatchObject({
+          permission: supportPermissions.engineeringRestrictedRead,
+        });
+        expect(await f.source()).toEqual(newerSource);
+        expect(await f.work("ticket", newerSource.sourceGeneration)).toEqual(
+          newerWork,
+        );
+        expect(f.generate).toHaveBeenCalledTimes(1);
+        expect(f.createIssue).not.toHaveBeenCalled();
+      },
+    );
+
+    it("separates evidence invalidation from permanent withdrawal permissions", async () => {
+      const f = engineeringFixture(createStore());
+      await f.eligible();
+      const evidenceReviewer = {
+        ...staff,
+        principalId: "limited-evidence-reviewer",
+        permissions: [
+          supportPermissions.queueRead,
+          supportPermissions.engineeringEvidenceSubmit,
+        ],
+      };
+      const withdrawalReviewer = {
+        ...staff,
+        principalId: "limited-withdrawal-reviewer",
+        permissions: [
+          supportPermissions.queueRead,
+          supportPermissions.engineeringWithdraw,
+        ],
+      };
+      await expect(
+        f.app.withdrawEngineeringSource(evidenceReviewer, {
+          ...f.command("evidence-reviewer-cannot-withdraw"),
+          reason: "privacy_withdrawal",
+        }),
+      ).rejects.toMatchObject({
+        permission: supportPermissions.engineeringWithdraw,
+      });
+      await f.app.invalidateEngineeringSource(evidenceReviewer, {
+        ...f.command("evidence-reviewer-invalidates"),
+        reason: "evidence_revoked",
+      });
+      expect((await f.source()).state).toBe("held");
+      await expect(
+        f.app.invalidateEngineeringSource(withdrawalReviewer, {
+          ...f.command("withdrawal-reviewer-cannot-invalidate"),
+          reason: "check_policy_revoked",
+        }),
+      ).rejects.toMatchObject({
+        permission: supportPermissions.engineeringEvidenceSubmit,
+      });
+      await f.app.withdrawEngineeringSource(withdrawalReviewer, {
+        ...f.command("withdrawal-reviewer-withdraws"),
+        reason: "privacy_withdrawal",
+      });
+      expect((await f.source()).state).toBe("withdrawn");
     });
 
     it("retains accepted bug facts after proof attestation age and when generation configuration is omitted", async () => {

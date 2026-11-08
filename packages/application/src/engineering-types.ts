@@ -103,6 +103,19 @@ export interface EngineeringPolicyCommand {
 export interface PutEngineeringPolicyCommand extends EngineeringPolicyCommand {
   readonly policy: EngineeringRepositoryPolicy;
 }
+export interface EngineeringPolicyHistoryPruneBounds {
+  readonly limit: number;
+  readonly cursor?: string;
+}
+export interface EngineeringPolicyHistoryPruneResult {
+  readonly physicalRows: number;
+  readonly pages: 1;
+  readonly nextCursor: string | null;
+  readonly examinedPairs: number;
+  readonly deletedRows: number;
+  readonly deletedPairs: number;
+  readonly incompletePairs: number;
+}
 export interface EngineeringPolicyApplication {
   readRepositoryPolicy(
     access: AccessContext,
@@ -115,6 +128,10 @@ export interface EngineeringPolicyApplication {
     access: AccessContext,
     command: EngineeringPolicyCommand,
   ): Promise<EngineeringPolicyResult>;
+  pruneRepositoryPolicyHistory(
+    access: AccessContext,
+    bounds: EngineeringPolicyHistoryPruneBounds,
+  ): Promise<EngineeringPolicyHistoryPruneResult>;
 }
 export interface EngineeringPolicyPort {
   /** Fresh authoritative head, independent of model/worker enablement. */
@@ -387,6 +404,8 @@ export interface CompleteEngineeringModelCommand extends EngineeringClaimFence {
 export interface FinishEngineeringWorkCommand extends EngineeringClaimFence {
   readonly stepId?: string;
   readonly requestHash?: string;
+  /** Exact stored candidate for a restriction-only late classification. */
+  readonly classificationCandidateHash?: string;
   readonly disposition:
     "retry" | "held" | "restricted" | "unknown" | "superseded";
   readonly accounting?: "not_called" | "accounted" | "unknown";
@@ -454,8 +473,13 @@ export interface EngineeringStepResult extends EngineeringKey {
   readonly candidateHash?: string;
   readonly proposalHash?: string;
   readonly dispatchId?: string;
-  readonly acknowledgement?: EngineeringIssueAcknowledgement;
+  /** Durable acknowledgements retain only opaque destination identity. */
+  readonly acknowledgement?: EngineeringOpaqueIssueAcknowledgement;
 }
+export type EngineeringOpaqueIssueAcknowledgement = Pick<
+  EngineeringIssueAcknowledgement,
+  "repositoryId" | "issueId" | "issueNumber"
+>;
 export interface EngineeringReconciliationView extends EngineeringKey {
   readonly sourceWorkGeneration: number;
   readonly state: EngineeringSourceRecord["state"];
@@ -515,6 +539,8 @@ export interface EngineeringApplication {
     bounds: { readonly limit: number; readonly cursor?: string },
   ): Promise<{
     readonly candidates: readonly EngineeringKey[];
+    readonly reviewCandidates: readonly EngineeringKey[];
+    readonly reviewSources: readonly TicketId[];
     readonly reconciliationSources: readonly TicketId[];
     readonly physicalRows: number;
     readonly pages: 1;
@@ -549,7 +575,7 @@ export interface EngineeringApplication {
   reviewEngineeringProposal(
     access: AccessContext,
     command: ReviewEngineeringProposalCommand,
-    guard: EngineeringCommitGuard,
+    guard?: EngineeringCommitGuard,
   ): Promise<EngineeringStepResult>;
   beginEngineeringDispatch(
     access: AccessContext,

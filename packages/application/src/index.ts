@@ -3721,6 +3721,7 @@ export function createSupportDeskApplication(options: {
   readonly engineeringPolicy?: {
     readonly maxRepositories?: number;
     readonly maxRecords?: number;
+    readonly historyRetentionMilliseconds?: number;
   };
 }): SupportDeskApplication {
   const source = boundaryObject(options, "application options");
@@ -3869,13 +3870,18 @@ export function createSupportDeskApplication(options: {
   const engineeringPolicyOverrides: {
     maxRepositories?: number;
     maxRecords?: number;
+    historyRetentionMilliseconds?: number;
   } = {};
   if (rawEngineeringPolicy !== undefined) {
     const policyOptions = boundaryObject(
       rawEngineeringPolicy,
       "engineeringPolicy options",
     );
-    for (const field of ["maxRepositories", "maxRecords"] as const) {
+    for (const field of [
+      "maxRepositories",
+      "maxRecords",
+      "historyRetentionMilliseconds",
+    ] as const) {
       const value = ownDataProperty(
         policyOptions,
         field,

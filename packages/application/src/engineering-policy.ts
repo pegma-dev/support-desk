@@ -42,6 +42,7 @@ import type {
 export interface EngineeringPolicyOptions {
   readonly maxRepositories?: number;
   readonly maxRecords?: number;
+  readonly historyRetentionMilliseconds?: number;
 }
 export interface EngineeringPolicyServiceOptions extends EngineeringPolicyOptions {
   readonly store: Store;
@@ -60,6 +61,7 @@ interface PolicyCommandRecord {
   readonly id: string;
   readonly fingerprint: string;
   readonly result: EngineeringPolicyResult;
+  readonly occurredAt?: AuditEvent["occurredAt"];
 }
 interface PolicyAuditRecord {
   readonly kind: "audit";
@@ -80,6 +82,7 @@ const headKey: EntityKey = Object.freeze({ partition, id: "policy" });
 const emergencyRows = 2;
 const maximumRecordBytes = 60_000;
 const hardMaximumRepositories = 20;
+const maximumHistoryPage = 64;
 
 function boolean(value: unknown, field: string): boolean {
   if (typeof value !== "boolean")
@@ -201,7 +204,15 @@ function record(value: unknown): EngineeringPolicyRecord {
     value,
     "engineering policy record",
     ["kind", "partition", "id"],
-    ["generation", "policyHash", "policy", "fingerprint", "result", "event"],
+    [
+      "generation",
+      "policyHash",
+      "policy",
+      "fingerprint",
+      "result",
+      "event",
+      "occurredAt",
+    ],
   );
   if (envelope.partition !== partition)
     throw new TypeError("Engineering policy must use the instance partition");
@@ -231,24 +242,28 @@ function record(value: unknown): EngineeringPolicyRecord {
     });
   }
   if (envelope.kind === "engineering_policy_command") {
-    fields(value, "engineering policy receipt", [
-      "kind",
-      "partition",
-      "id",
-      "fingerprint",
-      "result",
-    ]);
+    fields(
+      value,
+      "engineering policy receipt",
+      ["kind", "partition", "id", "fingerprint", "result"],
+      ["occurredAt"],
+    );
     if (!(envelope.id as string).startsWith("command:"))
       throw new TypeError("Engineering policy receipt key mismatch");
     text((envelope.id as string).slice("command:".length), "stored commandId");
     const accepted = result(envelope.result);
     integer(accepted.generation, "stored engineering policy generation", 1);
+    if (envelope.occurredAt !== undefined)
+      timestamp(envelope.occurredAt, "stored receipt occurredAt");
     return Object.freeze({
       kind: "engineering_policy_command",
       partition,
       id: envelope.id as string,
       fingerprint: hash(envelope.fingerprint, "command fingerprint"),
       result: accepted,
+      ...(envelope.occurredAt === undefined
+        ? {}
+        : { occurredAt: envelope.occurredAt as AuditEvent["occurredAt"] }),
     });
   }
   if (envelope.kind === "audit") {
@@ -415,6 +430,11 @@ export function createEngineeringPolicyServices(
     1,
     20,
   );
+  const historyRetentionMilliseconds = integer(
+    options.historyRetentionMilliseconds ?? 2_592_000_000,
+    "engineeringPolicy.historyRetentionMilliseconds",
+    1,
+  );
   const authorizeRead = (access: AccessContext, actorId?: string): void => {
     const currentActor = text(access.principalId, "principalId");
     if (actorId !== undefined && currentActor !== actorId)
@@ -559,6 +579,7 @@ export function createEngineeringPolicyServices(
         id: `command:${input.commandId}`,
         fingerprint: requestHash,
         result: accepted,
+        occurredAt: now,
       };
       const audit = engineeringPolicyAudit.action({
         id: input.commandId,
@@ -614,10 +635,175 @@ export function createEngineeringPolicyServices(
     authorizeRead(access, actorId);
     return current;
   };
+  const prune: EngineeringPolicyApplication["pruneRepositoryPolicyHistory"] =
+    async (access, raw) => {
+      const actorId = text(access.principalId, "principalId");
+      authorizeManage(access, actorId);
+      const bounds = fields(
+        raw,
+        "engineering policy history bounds",
+        ["limit"],
+        ["cursor"],
+      );
+      const limit = integer(
+        bounds.limit,
+        "engineering policy history limit",
+        1,
+        maximumHistoryPage,
+      );
+      if (bounds.cursor !== undefined && typeof bounds.cursor !== "string")
+        throw new TypeError(
+          "Engineering policy history cursor must be a string",
+        );
+      const now = timestamp(
+        options.clock.now(),
+        "engineering policy history now",
+      );
+      const page = await records.scan({
+        limit,
+        ...(bounds.cursor === undefined
+          ? {}
+          : { cursor: bounds.cursor as string }),
+      });
+      authorizeManage(access, actorId);
+      if (page.records.length > limit)
+        throw new TypeError(
+          "Engineering policy history scan exceeded its physical bound",
+        );
+      const head = await readHead();
+      authorizeManage(access, actorId);
+      let examinedPairs = 0;
+      let deletedRows = 0;
+      let deletedPairs = 0;
+      let incompletePairs = 0;
+      const visited = new Set<string>();
+      const oldEnough = (occurredAt: AuditEvent["occurredAt"]): boolean =>
+        now - timestamp(occurredAt, "engineering policy history occurredAt") >=
+        historyRetentionMilliseconds;
+      const currentHead = async (): Promise<boolean> => {
+        authorizeManage(access, actorId);
+        const current = await readHead();
+        authorizeManage(access, actorId);
+        return (
+          head !== null && current !== null && current.version === head.version
+        );
+      };
+      for (const entry of page.records) {
+        if (head === null || entry.value.kind === "engineering_policy")
+          continue;
+        if (
+          entry.key.partition !== partition ||
+          entry.key.id !== entry.value.id
+        )
+          continue;
+        const id =
+          entry.value.kind === "audit"
+            ? entry.value.event.id
+            : entry.value.id.slice("command:".length);
+        if (visited.has(id)) continue;
+        visited.add(id);
+        examinedPairs += 1;
+        const receiptKey = { partition, id: `command:${id}` };
+        const auditKey = { partition, id: auditRecordId(id) };
+        authorizeManage(access, actorId);
+        const receipt = await records.getVersioned(receiptKey);
+        authorizeManage(access, actorId);
+        const audit = await records.getVersioned(auditKey);
+        authorizeManage(access, actorId);
+        const scanned = entry.value.kind === "audit" ? audit : receipt;
+        const receiptRecord = receipt?.value;
+        const auditRecord = audit?.value;
+        if (
+          scanned?.version !== entry.version ||
+          (receiptRecord !== undefined &&
+            receiptRecord.kind !== "engineering_policy_command") ||
+          (auditRecord !== undefined && auditRecord.kind !== "audit")
+        ) {
+          incompletePairs += 1;
+          continue;
+        }
+        const auditAccepted =
+          auditRecord === undefined
+            ? undefined
+            : result({
+                generation: auditRecord.event.sequence,
+                policyHash: auditRecord.event.details?.policyHash,
+                enabled: auditRecord.event.details?.enabled,
+              });
+        const accepted = receiptRecord?.result ?? auditAccepted;
+        const occurredAt =
+          auditRecord?.event.occurredAt ?? receiptRecord?.occurredAt;
+        if (
+          accepted === undefined ||
+          occurredAt === undefined ||
+          accepted.generation > head.value.generation ||
+          (accepted.generation === head.value.generation &&
+            (accepted.policyHash !== head.value.policyHash ||
+              accepted.enabled !== head.value.policy.enabled)) ||
+          (receiptRecord !== undefined &&
+            auditRecord !== undefined &&
+            (receiptRecord.result.generation !== auditAccepted?.generation ||
+              receiptRecord.result.policyHash !== auditAccepted?.policyHash ||
+              receiptRecord.result.enabled !== auditAccepted?.enabled ||
+              (receiptRecord.occurredAt !== undefined &&
+                receiptRecord.occurredAt !== auditRecord.event.occurredAt)))
+        ) {
+          incompletePairs += 1;
+          continue;
+        }
+        if (!oldEnough(occurredAt)) continue;
+        if (!(await currentHead())) {
+          incompletePairs += 1;
+          break;
+        }
+        // Receipt first: its surviving Audit insert prevents legitimate ID
+        // reuse until cleanup finishes. The two removals are not atomic.
+        if (receipt !== null) {
+          const removed = await records.deleteIfUnchanged(
+            receiptKey,
+            receipt.version,
+          );
+          authorizeManage(access, actorId);
+          if (!removed) {
+            incompletePairs += 1;
+            continue;
+          }
+          deletedRows += 1;
+        }
+        if (audit !== null) {
+          if (!(await currentHead())) {
+            incompletePairs += 1;
+            break;
+          }
+          const removed = await records.deleteIfUnchanged(
+            auditKey,
+            audit.version,
+          );
+          authorizeManage(access, actorId);
+          if (!removed) {
+            incompletePairs += 1;
+            continue;
+          }
+          deletedRows += 1;
+          if (receipt !== null) deletedPairs += 1;
+        }
+      }
+      authorizeManage(access, actorId);
+      return Object.freeze({
+        physicalRows: page.records.length,
+        pages: 1 as const,
+        nextCursor: page.nextCursor,
+        examinedPairs,
+        deletedRows,
+        deletedPairs,
+        incompletePairs,
+      });
+    };
   const application = Object.freeze<EngineeringPolicyApplication>({
     readRepositoryPolicy: read,
     putRepositoryPolicy: (access, input) => mutate(access, input, false),
     disableEngineeringExports: (access, input) => mutate(access, input, true),
+    pruneRepositoryPolicyHistory: prune,
   });
   return Object.freeze({ application, resolve: read });
 }

@@ -6,6 +6,7 @@ import type {
 } from "@pegma/support-desk-application";
 import type {
   EngineeringProcessResult,
+  EngineeringServiceAuthority,
   SupportDeskEngineering,
   SupportDeskEngineeringOptions,
 } from "./engineering-ports.js";
@@ -20,6 +21,7 @@ import { learningAuthoritySnapshot } from "./learning-request.js";
 import { createLearningRuntime } from "./learning-runtime.js";
 import {
   engineeringAuthority,
+  engineeringFailureCategory,
   engineeringProcessingAuthority,
 } from "./engineering-request.js";
 import { processEngineeringModel } from "./engineering-model.js";
@@ -31,6 +33,11 @@ import {
 } from "./engineering-export.js";
 
 class EngineeringReviewGuardFailure extends AssistantBoundaryError {}
+class EngineeringReviewAcknowledgementError extends AssistantBoundaryError {
+  constructor(readonly failureCategory: string) {
+    super("review_acknowledgement_unknown");
+  }
+}
 
 /** Optional composition only: public application services own all durable state. */
 export function createSupportDeskEngineering(
@@ -133,9 +140,10 @@ export function createSupportDeskEngineering(
           () => processEngineeringModel(options, claim!, runtime),
           deadline,
         );
-      } catch {
+      } catch (error) {
         return {
           outcome: "pending",
+          reason: engineeringFailureCategory(error, "engineering_unavailable"),
           stage:
             claim?.reconciliationOnly || claim?.work.dispatch !== undefined
               ? "reconciliation"
@@ -171,31 +179,32 @@ export function createSupportDeskEngineering(
         };
         const command = snapshot(input);
         ensureStaffCurrent();
-        const work = snapshot(
-          await runtime.within(() =>
-            options.application.readEngineeringWork(access, {
-              ticketId: command.ticketId,
-              sourceGeneration: command.sourceGeneration,
-            }),
-          ),
-        );
-        ensureStaffCurrent();
-        const proposal = work.proposal;
-        if (
-          proposal === undefined ||
-          proposal.proposalHash !== command.proposalHash ||
-          work.workGeneration !== command.expectedWorkGeneration
-        )
-          throw new AssistantBoundaryError("proposal_changed");
-        const processingAuthority = await engineeringProcessingAuthority(
-          options.serviceAccess,
-          runtime,
-        );
+        let processingAuthority: EngineeringServiceAuthority | undefined;
         // No generation configuration is consulted here: current source,
         // repository and independent approval gates govern this staff decision.
         const guard = async (): Promise<void> => {
           try {
             ensureStaffCurrent();
+            const work = snapshot(
+              await runtime.within(() =>
+                options.application.readEngineeringWork(access, {
+                  ticketId: command.ticketId,
+                  sourceGeneration: command.sourceGeneration,
+                }),
+              ),
+            );
+            ensureStaffCurrent();
+            const proposal = work.proposal;
+            if (
+              proposal === undefined ||
+              proposal.proposalHash !== command.proposalHash ||
+              work.workGeneration !== command.expectedWorkGeneration
+            )
+              throw new AssistantBoundaryError("proposal_changed");
+            processingAuthority ??= await engineeringProcessingAuthority(
+              options.serviceAccess,
+              runtime,
+            );
             await engineeringProposalGuard(
               options,
               work,
@@ -213,8 +222,8 @@ export function createSupportDeskEngineering(
             );
           }
         };
-        await guard();
         let uncertain = false;
+        let failureCategory = "review_unavailable";
         for (let attempt = 0; attempt < attempts; attempt += 1) {
           try {
             ensureStaffCurrent();
@@ -222,7 +231,7 @@ export function createSupportDeskEngineering(
               options.application.reviewEngineeringProposal(
                 access,
                 command,
-                guard,
+                command.decision === "approve" ? guard : undefined,
               ),
             );
             ensureStaffCurrent();
@@ -230,10 +239,14 @@ export function createSupportDeskEngineering(
           } catch (error) {
             if (error instanceof EngineeringReviewGuardFailure && !uncertain)
               throw error;
+            failureCategory = engineeringFailureCategory(
+              error,
+              "review_unavailable",
+            );
             uncertain = true;
           }
         }
-        throw new AssistantBoundaryError("review_acknowledgement_unknown");
+        throw new EngineeringReviewAcknowledgementError(failureCategory);
       } finally {
         runtime.close();
       }
@@ -246,8 +259,15 @@ export function createSupportDeskEngineering(
       const runtime = createLearningRuntime(options, run);
       try {
         return await reconcileEngineeringSource(options, ticketId, runtime);
-      } catch {
-        return { outcome: "pending" as const, processed: 0 };
+      } catch (error) {
+        return {
+          outcome: "pending" as const,
+          processed: 0,
+          reason: engineeringFailureCategory(
+            error,
+            "reconciliation_unavailable",
+          ),
+        };
       } finally {
         runtime.close();
       }

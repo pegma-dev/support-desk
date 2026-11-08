@@ -20,6 +20,7 @@ import type {
   EngineeringExternalContext,
   EngineeringGitHubMetadata,
   EngineeringProcessResult,
+  EngineeringProposalContent,
   EngineeringServiceAuthority,
   SupportDeskEngineeringOptions,
 } from "./engineering-ports.js";
@@ -39,7 +40,9 @@ import {
   engineeringCalibration,
   engineeringCheckPolicy,
   engineeringConfiguration,
-  engineeringPolicySnapshot,
+  engineeringCurrentFacts,
+  engineeringFailureCategory,
+  engineeringPolicy,
   engineeringProcessingAuthority,
   engineeringSource,
 } from "./engineering-request.js";
@@ -95,6 +98,7 @@ export async function engineeringRepository(
   if (observed === null)
     throw new AssistantBoundaryError("repository_unavailable");
   exactKeys(observed, ["repository", "authority"]);
+  exactKeys(observed.authority, ["active", "binding", "validUntil"]);
   const repository = observed.repository;
   exactKeys(repository, [
     "repositoryId",
@@ -235,9 +239,7 @@ export async function engineeringProposalGuard(
     authority,
     phase,
   );
-  const policy = await engineeringPolicySnapshot(
-    await runtime.within(() => options.policy.resolve(authority.access), phase),
-  );
+  const policy = await engineeringPolicy(options, authority, runtime, phase);
   if (
     policy.generation !== proposal.policyGeneration ||
     policy.policyHash !== proposal.policyHash ||
@@ -364,12 +366,40 @@ export async function engineeringProposalGuard(
   if (canonical(metadata.repository) !== canonical(proposal.request.repository))
     throw new AssistantBoundaryError("repository_metadata_changed");
   deadline = Math.min(deadline, timestamp(metadata.authority.validUntil));
-  await engineeringProcessingAuthority(
+  const finalAuthority = await engineeringProcessingAuthority(
     options.serviceAccess,
     runtime,
     authority,
     deadline,
   );
+  const facts = await engineeringCurrentFacts(
+    options,
+    sourceFence(work),
+    finalAuthority,
+    runtime,
+    deadline,
+  );
+  if (
+    facts.source.evidenceFingerprint !==
+      proposal.checksBinding.evidenceFingerprint ||
+    facts.policy.generation !== proposal.policyGeneration ||
+    facts.policy.policyHash !== proposal.policyHash ||
+    facts.work.candidateHash !== proposal.candidateHash
+  )
+    throw new AssistantBoundaryError("proposal_changed");
+  if (
+    work.claim !== undefined &&
+    (facts.work.claim === undefined ||
+      canonical(facts.work.claim) !== canonical(work.claim))
+  )
+    throw new AssistantBoundaryError("current_fence_changed");
+  if (
+    proposal.proposalHash !== "uncommitted" &&
+    (facts.work.proposalNeedsRebuild === true ||
+      facts.work.proposal?.proposalHash !== proposal.proposalHash ||
+      facts.work.proposal?.requestHash !== proposal.requestHash)
+  )
+    throw new AssistantBoundaryError("proposal_changed");
   runtime.ensure(deadline);
   return deadline;
 }
@@ -412,6 +442,7 @@ export async function dispatchEngineeringExport(
   const record = async (
     result: RecordEngineeringDispatchResultCommand["result"],
   ): Promise<EngineeringProcessResult> => {
+    let failureCategory: string | undefined;
     const command: RecordEngineeringDispatchResultCommand = snapshot({
       ticketId: claim.fence.ticketId,
       sourceGeneration: claim.fence.sourceGeneration,
@@ -436,11 +467,20 @@ export async function dispatchEngineeringExport(
           : result.outcome === "unknown"
             ? { outcome: "pending", stage: "dispatch" }
             : { outcome: "held", result: recorded };
-      } catch {
+      } catch (error) {
+        const category = engineeringFailureCategory(
+          error,
+          "acknowledgement_unknown",
+        );
+        if (category !== "acknowledgement_unknown") failureCategory = category;
         /* A conclusive result keeps its exact immutable acknowledgement. */
       }
     }
-    return { outcome: "pending", stage: "complete" };
+    return {
+      outcome: "pending",
+      stage: "complete",
+      ...(failureCategory === undefined ? {} : { reason: failureCategory }),
+    };
   };
   try {
     const processingAuthority = await engineeringProcessingAuthority(
@@ -460,6 +500,7 @@ export async function dispatchEngineeringExport(
       );
     };
     await guard();
+    let beginFailure: string | undefined;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
         const current = await engineeringProcessingAuthority(
@@ -491,12 +532,21 @@ export async function dispatchEngineeringExport(
         permit = snapshot(value);
         started = true;
         break;
-      } catch {
+      } catch (error) {
+        const category = engineeringFailureCategory(
+          error,
+          "acknowledgement_unknown",
+        );
+        if (category !== "acknowledgement_unknown") beginFailure = category;
         /* Unknown begin ACK: repeat exactly, with no POST before a permit. */
       }
     }
     if (permit === undefined || permit === null)
-      return { outcome: "pending", stage: "dispatch" };
+      return {
+        outcome: "pending",
+        stage: "dispatch",
+        ...(beginFailure === undefined ? {} : { reason: beginFailure }),
+      };
     const guardedDeadline = await engineeringProposalGuard(
       options,
       claim.work,
@@ -575,10 +625,7 @@ export async function dispatchEngineeringExport(
         : { outcome: "unknown", reason: "issue_identity_unavailable" },
     );
   } catch (error) {
-    const reason =
-      error instanceof AssistantBoundaryError
-        ? error.category
-        : "dispatch_unavailable";
+    const reason = engineeringFailureCategory(error, "dispatch_unavailable");
     return started
       ? record({ outcome: "unknown", reason })
       : finish(options, claim, runtime, reason, proposal);
@@ -608,7 +655,7 @@ export async function reconcileEngineeringSource(
       ),
     ),
   );
-  count(view.destinations.length, 8);
+  count(view.destinations.length, 4);
   for (const destination of view.destinations) {
     if (
       destination.reconciliation === "confirmed" ||
@@ -751,12 +798,27 @@ async function finish(
   reason: string,
   proposal?: EngineeringPreparedProposal,
 ): Promise<EngineeringProcessResult> {
+  const disposition = reason === "security_restricted" ? "restricted" : "held";
+  const classificationCandidateHash =
+    disposition === "restricted" ? claim.work.candidateHash : undefined;
+  const boundStep =
+    proposal ??
+    (classificationCandidateHash !== undefined &&
+    claim.work.stepId !== undefined &&
+    claim.work.requestHash !== undefined
+      ? { stepId: claim.work.stepId, requestHash: claim.work.requestHash }
+      : undefined);
+  if (classificationCandidateHash !== undefined && boundStep === undefined)
+    throw new AssistantBoundaryError("preparation_mismatch");
   const command: FinishEngineeringWorkCommand = snapshot({
     ...claim.fence,
-    ...(proposal === undefined
+    ...(boundStep === undefined
       ? {}
-      : { stepId: proposal.stepId, requestHash: proposal.requestHash }),
-    disposition: reason === "security_restricted" ? "restricted" : "held",
+      : { stepId: boundStep.stepId, requestHash: boundStep.requestHash }),
+    ...(classificationCandidateHash === undefined
+      ? {}
+      : { classificationCandidateHash }),
+    disposition,
     reason,
   });
   for (
@@ -790,7 +852,10 @@ export async function prepareEngineeringExport(
   runtime: LearningRuntime,
 ): Promise<EngineeringProcessResult> {
   try {
-    if (claim.work.proposal !== undefined) {
+    if (
+      claim.work.proposal !== undefined &&
+      claim.work.proposalNeedsRebuild !== true
+    ) {
       const held = await finish(
         options,
         claim,
@@ -803,13 +868,23 @@ export async function prepareEngineeringExport(
         : held;
     }
     const candidate = claim.work.candidate;
+    const previousRequest =
+      claim.work.proposalNeedsRebuild === true
+        ? claim.work.proposal?.request
+        : undefined;
     if (
-      candidate === undefined ||
-      claim.work.candidateHash !== (await fingerprint(candidate))
+      claim.work.candidateHash === undefined ||
+      (candidate === undefined && previousRequest === undefined) ||
+      (candidate !== undefined &&
+        claim.work.candidateHash !== (await fingerprint(candidate)))
     )
       throw new AssistantBoundaryError("candidate_changed");
-    if (candidate.security !== "ordinary")
+    if (candidate !== undefined && candidate.security !== "ordinary")
       throw new AssistantBoundaryError("security_restricted");
+    const content: EngineeringProposalContent =
+      candidate === undefined
+        ? { previousRequest: previousRequest! }
+        : { candidate };
     const authority = await engineeringProcessingAuthority(
       options.serviceAccess,
       runtime,
@@ -820,9 +895,7 @@ export async function prepareEngineeringExport(
       runtime,
       authority,
     );
-    const policy = await engineeringPolicySnapshot(
-      await runtime.within(() => options.policy.resolve(authority.access)),
-    );
+    const policy = await engineeringPolicy(options, authority, runtime);
     const config = await engineeringConfiguration(
       options.configuration,
       runtime,
@@ -844,7 +917,7 @@ export async function prepareEngineeringExport(
       throw new AssistantBoundaryError("model_binding_missing");
     const selectedId =
       claim.work.staffSelection?.repositoryId ??
-      (candidate.routing.outcome === "selected"
+      (candidate?.routing.outcome === "selected"
         ? candidate.routing.repositoryId
         : undefined);
     if (selectedId === undefined)
@@ -863,6 +936,8 @@ export async function prepareEngineeringExport(
         claim.work.staffSelection,
       );
     } else {
+      if (candidate === undefined)
+        throw new AssistantBoundaryError("routing_human_required");
       if (
         lastModel.binding.inputManifest.policyGeneration !==
           policy.generation ||
@@ -930,23 +1005,22 @@ export async function prepareEngineeringExport(
       () => options.proposals.duplicateQuery(allowed, context(runtime, phase)),
       phase,
     );
-    const duplicates =
-      query === null
-        ? { issues: [], physicalResults: 0 }
-        : snapshot(
-            await runtime.within(
-              () =>
-                options.github.searchDuplicates(
-                  {
-                    repositoryId: selectedId,
-                    query: scalar(query, 256),
-                    limit: 5,
-                  },
-                  context(runtime, phase),
-                ),
-              phase,
-            ),
-          );
+    if (query === null)
+      throw new AssistantBoundaryError("duplicate_query_unavailable");
+    const duplicates = snapshot(
+      await runtime.within(
+        () =>
+          options.github.searchDuplicates(
+            {
+              repositoryId: selectedId,
+              query: scalar(query, 256),
+              limit: 5,
+            },
+            context(runtime, phase),
+          ),
+        phase,
+      ),
+    );
     count(duplicates.physicalResults, 5);
     if (
       !Array.isArray(duplicates.issues) ||
@@ -969,7 +1043,7 @@ export async function prepareEngineeringExport(
       () =>
         options.proposals.prepare(
           {
-            candidate,
+            ...content,
             repository: metadata.repository,
             descriptor: allowed,
             exportMarker: marker,
@@ -1013,7 +1087,7 @@ export async function prepareEngineeringExport(
       () =>
         options.checks.check(
           {
-            candidate,
+            ...content,
             exactRequest: request,
             binding,
             checkPolicyVersion: checkPolicy.version,
@@ -1122,9 +1196,8 @@ export async function prepareEngineeringExport(
       options,
       claim,
       runtime,
-      error instanceof AssistantBoundaryError
-        ? error.category
-        : "proposal_unavailable",
+      engineeringFailureCategory(error, "proposal_unavailable"),
+      claim.work.proposal,
     );
   }
 }

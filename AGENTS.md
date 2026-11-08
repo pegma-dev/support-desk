@@ -187,14 +187,19 @@ registry `0.1.1`; do not overwrite it or install a source substitute. A future
 synchronized SD-06 release precedes adoption of new Support Desk behavior.
 Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
 preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
-both producers' final release preparation are merged. All four KB packages and
-Agent Access now have verified trusted `0.1.1` registry releases. Their manual
+both producers' final release preparation are merged. All four KB packages have
+verified trusted `0.1.2` registry releases; Agent Access has verified trusted
+`0.1.1`. Their manual
 `0.1.0` bootstrap receipts remain historical and have no OIDC provenance;
-the separate trusted releases close the producer publication gates. SD-02 is
-an in-progress source candidate adding optional `@pegma/support-desk-ai` and
-bounded turn work to the existing ticket partition. Its current-head tests,
-code/security review, and release remain open. The base application has no KB
-or provider dependency; actual KB `0.1.1` dependencies belong only to the
+the separate trusted releases close the producer publication gates. SD-02
+merged in [PR #38](https://github.com/pegma-dev/support-desk/pull/38), adding
+optional `@pegma/support-desk-ai` and bounded turn work to the existing ticket
+partition. SD-03 merged in [PR #39](https://github.com/pegma-dev/support-desk/pull/39),
+adding verified resolution learning and KB draft delivery. SD-04's engineering
+workflow is the current source candidate; see [its guide](docs/ENGINEERING_EXPORT.md).
+Current-head review/validation and the future synchronized release remain
+required. The base application has no KB or provider dependency; actual KB
+`0.1.2` dependencies belong only to the
 optional AI package. See [assistant coordination](docs/ASSISTANT_COORDINATION.md)
 and its [layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint).
 PG-01/RG-01 consume exact verified published producers and still require actual

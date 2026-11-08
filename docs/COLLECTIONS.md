@@ -48,6 +48,14 @@ host-owned. No initial automatic-filing mode is enabled. The policy partition
 has a finite row budget and reserves two rows for an emergency disable action.
 Its own transaction cannot atomically commit with a ticket transaction.
 
+Policy history has a configurable retention horizon (30 days by default).
+Authorized `pruneRepositoryPolicyHistory` reads at most 64 physical records per
+page, confirms immutable Audit/receipt pairs and the policy head, and removes
+expired records with opaque version-conditional deletes. Cleanup can be partial
+and is repeated with host-owned cursors. It never removes the authoritative
+head. Expired command receipts are not an indefinite replay guarantee; expected
+policy generations still prevent an old command from changing a newer head.
+
 The optional AI package uses a separate assessment purpose and bounded current
 allowlisted descriptors. A trusted independently verifiable calibration gate
 binds normalized routing decisions to versioned evaluated model/prompt/parser
