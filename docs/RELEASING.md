@@ -41,6 +41,13 @@ it does not certify host durable migration or live-provider behavior.
 | Preparation ZIP SHA-256    | `95d87a72bcc5167331a51521173312d959394f1629a019798dd49d0401b81cdd` |
 | Canonical manifest SHA-256 | `7c5ccec571711df2f3003d4ea97a19a6a60cba584de05a0ab72636e55ab9e06d` |
 
+The repository retains the [original CI manifest](releases/v0.2.0/package-manifest.json)
+without reformatting, plus actual GitHub API snapshots for the
+[preparation artifact](releases/v0.2.0/prepared-artifact.json) and
+[successful verification job](releases/v0.2.0/verification-job.json).
+These corroborate the source, run/job/artifact identifiers and digests above;
+they are evidence snapshots, not newly generated release artifacts.
+
 The [preserved original preparation ZIP](https://github.com/pegma-dev/support-desk/releases/download/v0.2.0/sd06-v0.2.0-artifact-13622923209.zip)
 is retained on the existing `v0.2.0` release as asset `724580443` (478,270
 bytes). It is the unchanged original Actions archive, not a repack or a new
