@@ -1,135 +1,248 @@
 # Release operations
 
-The historically published Support Desk set contains four packages. SD-02's
-current source release inventory contains five, in dependency order:
+The SD-06 synchronized release candidate is **0.2.0** for all five public
+packages, in dependency order:
 
 1. `@pegma/support-desk-contracts`
 2. `@pegma/support-desk-core`
 3. `@pegma/support-desk-templates`
 4. `@pegma/support-desk-application`
-5. `@pegma/support-desk-ai` — new, optional, unpublished source candidate
+5. Optional `@pegma/support-desk-ai`
 
-Every release goes through the environment-protected GitHub OIDC workflow on
-a signed annotated `vX.Y.Z` tag. The one-time manual bootstrap that first
-created the original four package names is complete (see the historical record
-below) and must not be repeated. The new AI package has its own first-name
-bootstrap and trusted-publisher activation prerequisites before a future
-advertised release; it is not covered by that historical completion.
+This is release preparation, not a publication receipt. The original four
+package names have published `0.1.0`/`0.1.1` artifacts. Pre-SD-06 source also
+used `0.1.1` while accumulating SD-01 through SD-05 behavior; those additions
+now form the `0.2.0` candidate and must not overwrite existing registry
+versions. The new AI name has a separate registration-only
+[0.1.1 bootstrap](AI_BOOTSTRAP.md); that artifact is not host-usable and is not
+the first advertised synchronized release.
 
-Merging a pull request never publishes. The publish workflow has no token
-fallback and no `workflow_dispatch` path.
+Merging a PR, preparing tarballs, or creating a tag does not establish a
+verified release. Host adoption waits for exact published artifacts, strict
+verification, and each host's own acceptance. See [release notes](RELEASE_NOTES.md),
+[upgrading](UPGRADING.md), and [AI operations](AI_OPERATIONS.md).
 
-Current source remains `0.1.1` and includes unreleased lifecycle, SD-01
-handling/handoff, merged SD-02 coordination, and the SD-03 learning candidate beyond the
-published artifacts at that version. SD-02 adds the optional AI package to
-`RELEASE_PACKAGES` and pack checks; this is source inventory, not publication
-or release authority. The enhancement needs a future reviewed synchronized
-version under SD-06, with verified registry artifacts, before host adoption; never replace
-the existing `0.1.1` registry artifacts. Source dependency pins and registry
-baselines are recorded separately in [P-00](KNOWLEDGE_AI_P00.md).
-The optional AI package consumes exact verified KB `0.1.2` dependencies;
-[producer receipts](HOST_COMPOSITION.md#kb-authoring-producers) close that
-prerequisite only. Current-head SD-03 gates and review remain required; SD-02's
-source passed its gates before merging in PR #38.
+## Two distinct release paths
 
-## Standing external configuration
+| Path                            | Authority and artifact                                                                                                                                                                                                          |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AI name registration            | Manual maintainer 2FA publication of only the prepared AI `0.1.1` tarball from signed `v0.1.1-ai-bootstrap` at frozen SD-05 commit `eddd3526f8bec3a1a80cc7aacd3a4cdcdb950cfe`. No GitHub release or bootstrap OIDC publish job. |
+| Advertised synchronized `0.2.0` | All five exact artifacts from reviewed main, protected signed annotated `v0.2.0`, and the environment-protected GitHub OIDC workflow, followed by strict registry verification.                                                 |
 
-The following is configured and must stay in place for OIDC releases to work:
+The bootstrap's other four local tarballs are import-test context only. They
+are never eligible for manual publication. The existing four names do not
+need another manual bootstrap. Do not use bootstrap as a token/manual fallback
+for the stable release.
 
-- each of the original four public packages on npm has the GitHub Actions trusted publisher for
-  organization `pegma-dev`, repository `support-desk`, workflow `publish.yml`,
-  environment `npm-publish`, and allowed action `npm publish`;
-- the GitHub `npm-publish` environment exists and requires the release
-  maintainer's approval before the publish job runs;
-- the Actions variable `RELEASE_ALLOWED_SIGNERS` holds the reviewed Git SSH
-  allowed-signers entry for the maintainer's release key; and
-- the active "Protect release tags" ruleset targeting `v*` prevents tag
-  updates and deletions and limits tag creation to the release maintainer.
+## Required configuration and evidence
 
-Do not add `NODE_AUTH_TOKEN`, an npm automation token, or another credential
-to this repository.
+The release owner must verify the actual current configuration, rather than
+relying on historical setup:
 
-For the new `@pegma/support-desk-ai` name, the release owner must separately
-review npm ownership, the exact immutable bootstrap version/artifact, manual
-maintainer 2FA publication, and trusted-publisher configuration. The bootstrap
-must remain distinct from the first advertised trusted release and supplies
-no OIDC provenance. Confirm the new package's publisher entry and the existing
-protected environment, signer, and immutable-tag rules for its advertised
-release, then verify the full synchronized set's registry bytes, exact
-dependencies, provenance, and clean consumers. This source PR authorizes none
-of those external publishing actions and assigns no future tag or version.
+- all five npm packages have the intended GitHub trusted publisher for
+  `pegma-dev/support-desk`, `publish.yml`, environment `npm-publish`, and the
+  allowed publish operation;
+- `npm-publish` has the required maintainer approval protection;
+- `RELEASE_ALLOWED_SIGNERS` contains the reviewed SSH allowed-signers entries;
+- active `v*` tag rules cover creation, updates, deletion, and non-fast-forward
+  changes, with only the expected configured maintainer bypass authority;
+- npm ownership, publication policy, and actual dist-tags are correct,
+  including after the new AI name registration.
 
-## Common source requirements
+The stable workflow uses npm trusted-publisher OIDC only. Do not add
+`NODE_AUTH_TOKEN`, an automation token, or another credential fallback.
+The single manual AI registration is documented separately and supplies no
+OIDC provenance.
 
-Every published artifact comes from a protected, signed, annotated `vX.Y.Z`
-tag whose commit is already contained in `origin/main`.
-
-Run `pnpm run format:check`, `pnpm run check`, and `pnpm test` on Node 22 and 24.
-Additionally:
+Anonymous ruleset responses may omit `bypass_actors`. Public preparation
+checks cannot establish the full bypass policy; an omitted field remains
+unknown. The release owner must independently read the complete current
+policy through existing authenticated GitHub CLI access outside the build
+before tag creation/preparation dispatch and again before the manual AI
+registration. For the configured ruleset:
 
 ```sh
+gh api repos/pegma-dev/support-desk/rulesets/20011989
+```
+
+Confirm the active tag scope, required rules, and expected maintainer bypass
+actors. Retain the full readback privately with the activation/2FA handoff.
+Do not pass an authenticated token or a stale policy receipt into unprivileged
+preparation; that workflow never publishes and does not verify omitted bypass
+actors. Stable publication retains its separate protected OIDC workflow gates.
+
+The registration-only bootstrap intentionally pins the configured ruleset and
+expected maintainer bypass actor/type/mode in `verifyPublicTagRules` within
+`scripts/ai-bootstrap.mjs`. Authority or ruleset rotation requires reviewed
+code and policy-fixture/test changes together with the live policy update;
+updating `RELEASE_ALLOWED_SIGNERS` alone is insufficient. Keep the independent
+authenticated policy readback even when the visible policy matches that pin.
+
+Before a release is advertised, the current head must pass format, type,
+runtime, real-store integration, and release checks on Node 22 and 24, plus
+required code/security review. The source commands include:
+
+```sh
+pnpm run format:check
+pnpm run check
+pnpm test
 pnpm run release:check
+pnpm run release:pack -- --require-clean --output .release/candidate
+pnpm run ai:example
 ```
 
-The packer builds once, runs `npm pack` for every public workspace, verifies
-that tarballs contain only `package.json`, `README.md`, `LICENSE`, and `dist/**`,
-checks npm's SHA-1 and SHA-512 values, and imports every public export from a
-clean consumer install of those tarballs.
-The current source check includes all five candidates, including optional AI.
-It does not prove that AI is on the registry or authorize host installation.
+The packer builds the exact five packages, checks file/export/dependency
+inventory and tarball hashes, and imports the prepared set in a clean consumer.
+The separate `<output>-consumer-verification.json` receipt (by default
+`.release-consumer-verification.json`) records synthetic base/forward-migration
+scenarios from the actual published `0.1.1` application with AI options omitted
+and disabled, plus the optional AI public composition's type/runtime checks.
+It explicitly records that reverse rollback is unproven. Keep this receipt
+outside the strict artifact directory, which contains only the canonical
+manifest and five tarballs. The receipt binds the source repository/commit,
+each actual candidate archive's name/size/SHA-256/SHA-1/SHA-512 integrity,
+the genuine previous installation's registry URL and lockfile integrity,
+resolved dependencies, actual Node/V8/platform/architecture, and the explicit
+nondurable Storage Core memory adapter. The migration scope is old web records
+only; inbound email is candidate-only. Historical SD-05 results do not certify
+SD-06, and a clean memory consumer does not certify a host's durable migration.
 
-Never unpublish and reuse a version.
+## Stable tag and workflow
 
-## Completed `0.1.0` bootstrap (historical record)
+After the reviewed release PR is merged and every current-head gate is green,
+the authorized maintainer creates the protected signed annotated stable tag at
+the exact `origin/main` commit, pushes it, and creates its verified GitHub
+release. For the selected candidate, the release identity is `v0.2.0`.
+Do not create a GitHub release for `v0.1.1-ai-bootstrap`.
 
-Brand-new package names cannot use trusted publishing until the package
-exists (https://github.com/npm/cli/issues/8544), so the first synchronized
-`0.1.0` set was published manually by the release maintainer on 2026-07-29
-from tarballs prepared with `npm run release:pack -- -- --require-clean` at
-the `0.1.0` release-candidate commit (`6f1d539`).
+`.github/workflows/publish.yml` prepares from the exact stable release identity.
+It verifies signer/tag/main ancestry and release-event commit, runs its gates,
+and uploads the immutable prepared inventory. Preserve the artifact ID/digest,
+independently recorded manifest SHA-256, workflow run/attempt, source commit,
+and reviewed tool/workflow identity. An expected digest must not come only
+from the same untrusted downloaded manifest it is supposed to authenticate.
 
-The signed annotated tag `v0.1.0` and its GitHub release were then created at
-that same commit. The resulting publish workflow run verified the tag
-signature against the approved signers, ran the complete gate, confirmed
-every registry tarball's `dist.integrity` matched the freshly prepared
-tarballs, and skipped re-publishing all four packages. That run exercised
-signed-tag verification, the gate, artifact preparation, integrity
-comparison, and the skip-on-identical-integrity path. At that historical
-checkpoint it did not perform a live trusted-publisher publication; the first
-OIDC `npm publish` with provenance was still to be exercised by a later release.
+Consumer evidence is retained separately for 30 days in
+`support-desk-consumer-<run_id>-<run_attempt>`. Before uploading it, the prepare
+job independently hashes the receipt's actual bytes and validates its source,
+archive, runtime, and Store bindings against that preparation. Its outputs are
+`consumer-receipt-sha256`, `consumer-artifact-id`, and
+`consumer-artifact-digest`. The job summary records those values beside the
+original release artifact ID/archive SHA-256, independent manifest SHA-256,
+and source tag/commit. Record these independent values before environment
+approval; a digest copied only from a downloaded receipt does not authenticate
+that receipt.
 
-No further manual `npm publish` is needed for the existing four package
-names. Only a brand-new package name added to the set requires a bootstrap:
-one manual 2FA publish of the prepared tarball, then configure trusted
-publishing for it before the next tagged release.
+Each Node validation lane also retains its own manifest and receipt for 30
+days in `support-desk-validation-consumer-node<node-version>-<run_id>-<run_attempt>`,
+with the source identity, independent manifest/receipt hashes, and upload
+artifact ID/digest in its summary. Those lane reports supplement the original
+prepare evidence; they do not replace its exact five tarballs. Download the
+separate artifacts by their immutable IDs and check the independently recorded
+archive and file digests before matching receipt bindings to the selected
+commit and archives. Preserve the release evidence under the owner's retention
+policy before Actions retention expires. Missing or mismatched evidence blocks
+approval; an unchanged version string cannot substitute for it.
 
-## OIDC releases (`0.1.1` and beyond)
+The unprivileged `registry-preflight` job runs after `identity` and `prepare`,
+without a protected environment or OIDC authority. It downloads the original
+prepared artifact and uses the pinned npm CLI to authenticate the complete
+already-present candidate subset before further uploads. The subset must be
+dependency-closed. A fresh registry installation with scripts disabled performs
+the actual npm signature/Sigstore and source-provenance checks, without
+importing those packages. If all five versions are absent, the receipt records
+that no audit occurred (`npmVersion: null`); absence is not authenticated
+publication evidence.
 
-Update package versions, internal exact pins, `pnpm-lock.yaml`, and
-[RELEASE_NOTES.md](RELEASE_NOTES.md) through a reviewed pull request. After
-merge:
+The common independent CLI bindings are:
 
-```sh
-# at the exact origin/main commit
-git tag --sign vX.Y.Z -m "Support Desk vX.Y.Z"
-git push origin vX.Y.Z
-gh release create vX.Y.Z --verify-tag
+```text
+node scripts/release-verification.mjs <preflight|publish|verify> --manifest .release/package-manifest.json --manifest-sha256 SHA256 --release-tag v0.2.0 --expected-release-commit COMMIT
 ```
 
-The preparation job verifies the signer, tag, release-event commit, main
-ancestry, complete gate, package inventory, and tarball integrity. The run
-then pauses at the `npm-publish` environment until the release maintainer
-approves the deployment on the run page. Only the final `npm-publish` job
-receives `id-token: write`; it installs no dependencies, does not download
-pnpm, and publishes the exact prepared tarballs with provenance in
-dependency order by invoking `node scripts/release-packages.mjs publish`.
+Both `preflight` and `publish` also require
+`--prepared-artifact-id ORIGINAL_ID --prepared-artifact-sha256 ORIGINAL_ZIP_SHA`.
+These bind the original preparation's immutable upload ID/archive digest from
+trusted `needs.prepare` outputs. The receipt's `preparedArtifact: { id, sha256 }`
+must match those independently supplied values; it cannot authenticate itself.
 
-## Partial-publish recovery
+`preflight` emits its authenticated observation as JSON. The workflow retains
+`registry-preflight.json` for 30 days in the separate immutable artifact
+`support-desk-registry-preflight-<run_id>-<run_attempt>`. Its outputs are
+`receipt-sha256`, `artifact-id`, and `artifact-digest`. The summary binds those
+independent values to the source tag/commit, original manifest SHA-256, and
+original prepared artifact ID/archive digest. Keep this evidence outside the
+strict six-file directory.
 
-The workflow is globally serialized. Re-run failed release jobs against the
-same unchanged tag:
+`publish` additionally requires the downloaded receipt and its independently
+recorded file digest:
 
-- an absent version is published;
-- an existing version with identical `dist.integrity` is verified and skipped;
-- a different integrity, or any registry error other than `E404`, stops before
-  later packages publish.
+```text
+node scripts/release-verification.mjs publish --manifest .release/package-manifest.json --manifest-sha256 SHA256 --release-tag v0.2.0 --expected-release-commit COMMIT --prepared-artifact-id ORIGINAL_ID --prepared-artifact-sha256 ORIGINAL_ZIP_SHA --preflight-receipt PREFLIGHT_DOWNLOAD/registry-preflight.json --preflight-receipt-sha256 TRUSTED_PREFLIGHT_SHA256
+```
+
+The package scripts `release:preflight`, `release:publish`, and `release:verify`
+select the corresponding subcommand. The workflow supplies the exact manifest
+digest/tag/commit and the reviewed npm runtime through `RELEASE_NPM_CLI` and
+`RELEASE_NPM_VERSION` (`11.18.0`). Do not substitute pnpm's `npm_execpath` or an
+unreviewed npm executable.
+
+`publish` is for the trusted GitHub release runtime and protected environment,
+not a local manual stable-release command. Only its minimal publish job receives
+`id-token: write`; it publishes the prepared bytes in dependency order after
+the separate unprivileged registry preflight succeeds. It authenticates the
+separately downloaded receipt against the trusted file digest and original
+release/artifact identity. The receipt's `authenticatedAt` is canonical
+observation metadata, not an age-based expiry gate. Staleness means a mismatch
+in source, tag, commit, manifest, original artifact, or existing registry subset.
+Before each upload, fresh whole-five-package checks allow only the authenticated
+existing subset plus this invocation's own confirmed writes. An unverifiable
+or newly present package, or any binding/subset drift, blocks further uploads
+and requires fresh preflight; newly present packages are not silently skipped.
+The receipt's own upload ID/archive digest and independent file SHA-256 remain
+external trusted bindings, never self-embedded proof.
+No source rebuild, dependency installation, signature audit, provider credential,
+or token fallback belongs in the privileged publish job. The unprivileged `verify` operation still binds
+the expected repository, workflow, tag, and commit; lack of publish authority
+does not weaken artifact/provenance verification.
+
+Strict verification must establish all five exact registry versions, bytes,
+file inventory, dependency tuples, cryptographic signatures, and source/workflow
+provenance, then exercise clean consumers. Record actual dist-tags as observed.
+The release is not complete because a package page exists or npm returned a
+successful publish response. Keep the canonical manifest and strict verification
+receipt with the release handoff before changing host pins.
+
+## Partial publication and recovery
+
+Keep the release tag, commit, manifest, and tarballs unchanged, retaining the
+original prepare outputs and both the release and consumer-evidence artifacts.
+For a publication failure or uncertain upload, re-run the unprivileged
+`registry-preflight` job and its publication/verification dependents against
+that original preparation. Re-running only the failed publish job can reuse an
+obsolete observation; refresh preflight rather than treating it as recovery. Do not
+re-run `prepare`, re-run all jobs, repack, or create another tag for recovery:
+
+- a genuinely absent exact version may be published;
+- an existing identical artifact is authenticated in the fresh unprivileged
+  preflight and skipped only while its receipt's exact set still matches;
+- mismatched bytes/dependencies, unverifiable provenance, or a registry error
+  other than the recognized absent-version case stops recovery.
+
+Never unpublish/reuse a version, move a tag, rebuild a different artifact under
+the same identity, or manually fill a stable-release gap. A failed final verify
+leaves the release unverified even if some packages were accepted. Preserve
+receipts and diagnose the actual failed stage before another attempt.
+If publication succeeded and only final registry verification failed, re-run
+`verify` alone with the original preparation; no further uploads are authorized.
+
+## Historical original-name bootstrap
+
+The first four names were manually registered at `0.1.0` on 2026-07-29 from
+prepared tarballs at release-candidate commit `6f1d539`. Signed `v0.1.0` and its
+GitHub release then exercised signature/gate/preparation and registry-integrity
+skip behavior. That historical bootstrap had no OIDC provenance and did not
+prove a live trusted-publisher upload. It must not be repeated for those names.
+
+Their later published `0.1.1` artifacts remain immutable historical releases.
+The new five-package `0.2.0` verification and host adoption gates are separate.

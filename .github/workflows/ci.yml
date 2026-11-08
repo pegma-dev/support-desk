@@ -54,8 +54,43 @@ jobs:
       - name: Run synthetic composition
         run: pnpm example
 
+      - name: Run optional AI composition
+        run: pnpm run ai:example
+
       - name: Check release metadata
         run: pnpm run release:check
 
       - name: Pack and import public artifacts
         run: pnpm run release:pack -- --output .release/ci-check
+
+      - name: Independently pin consumer evidence
+        id: consumer-evidence
+        run: |
+          node --input-type=module -e '
+            import {createHash} from "node:crypto";
+            import {readFileSync,appendFileSync} from "node:fs";
+            const digest=createHash("sha256").update(readFileSync(".release/ci-check-consumer-verification.json")).digest("hex");
+            appendFileSync(process.env.GITHUB_OUTPUT,"sha256="+digest+"\n");
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY,"Development consumer receipt SHA-256: `"+digest+"`\n\nSource checkout: `"+process.env.GITHUB_SHA+"`\n");
+          '
+
+      - name: Retain development consumer evidence
+        id: consumer-upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: support-desk-consumer-node-${{ matrix.node-version }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .release/ci-check-consumer-verification.json
+            .release/ci-check/package-manifest.json
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+
+      - name: Record retained consumer evidence identity
+        env:
+          RECEIPT_SHA256: ${{ steps.consumer-evidence.outputs.sha256 }}
+          ARTIFACT_ID: ${{ steps.consumer-upload.outputs.artifact-id }}
+          ARTIFACT_SHA256: ${{ steps.consumer-upload.outputs.artifact-digest }}
+        run: |
+          printf 'Consumer receipt SHA-256: %s\n\nDiagnostic artifact ID: %s\n\nDiagnostic artifact SHA-256: %s\n' \
+            "${RECEIPT_SHA256}" "${ARTIFACT_ID}" "${ARTIFACT_SHA256}" >> "${GITHUB_STEP_SUMMARY}"

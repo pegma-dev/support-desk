@@ -43,5 +43,5 @@ Contracts define vocabulary, not authorization or persistence. The application
 checks permissions/ownership and current visible-message proof, commits
 Audit/receipts/work, and keeps private handling generations and evidence out
 of customer DTOs. Core performs pure transitions and validates its handling
-inputs. SD-01 source remains unreleased despite the `0.1.1` source label; it
-adds no model or KB dependency.
+inputs. These changes are included in the unpublished synchronized `0.2.0`
+candidate and add no model or KB dependency.

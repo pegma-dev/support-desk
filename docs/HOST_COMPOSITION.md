@@ -10,9 +10,9 @@ See also the runnable example at
 
 ## Public packages
 
-This guide describes current source APIs. Source packages remain `0.1.1`, but
-their newer dependencies and lifecycle/SD-01 changes are not equivalent to the
-published `0.1.1` artifacts. The [P-00 baseline](KNOWLEDGE_AI_P00.md) separates
+This guide describes the synchronized `0.2.0` source candidate, including
+SD-01 through SD-05. It is unpublished and differs from the four published
+base `0.1.1` packages. The [P-00 baseline](KNOWLEDGE_AI_P00.md) separates
 source and registry snapshots. Hosts adopting new Support Desk behavior must
 wait for a new synchronized release under SD-06; never overwrite an existing
 registry version. The KB-only host path has its own publication gates below.
@@ -49,10 +49,10 @@ actual customer data was used, and it does not establish an operational host.
 | KB-05 release preparation [Knowledge Base PR #6](https://github.com/pegma-dev/knowledge-base/pull/6), [`7f5eee6`](https://github.com/pegma-dev/knowledge-base/commit/7f5eee68be692b5489de3965f3f5ede7ef7a812d)        | 372 runtime + 128 release tests (500 total) on each of Node 22 and 24, zero Linux CI skips; SDK composition proves all four KB packages plus Agent Access. The [final round-3 code review](https://github.com/pegma-dev/knowledge-base/pull/6#pullrequestreview-5814111477) was clean with zero open actionable findings; the [security receipt](https://github.com/pegma-dev/knowledge-base/pull/6#issuecomment-6710997171) reported no findings. |
 | Agent Access release preparation [PR #2](https://github.com/pegma-dev/agent-access/pull/2), [`eddddd5`](https://github.com/pegma-dev/agent-access/commit/eddddd5e333ce16b6a4a8233b84656b3ac784947)                    | 123 runtime + 136 release tests (259 total) on each of Node 22 and 24, zero Linux CI skips; both code-review lanes clean, zero open actionable ledger findings, security review found no issues.                                                                                                                                                                                                                                                   |
 
-All four KB packages (`@pegma/knowledge-base-contracts`,
+Historical `0.1.1` publication receipts for the four KB packages (`@pegma/knowledge-base-contracts`,
 `@pegma/knowledge-base-core`, `@pegma/knowledge-base-application`, and
-`@pegma/knowledge-base-mcp`) and `@pegma/agent-access` now have verified trusted
-`0.1.1` registry releases:
+`@pegma/knowledge-base-mcp`) and `@pegma/agent-access` are retained below.
+Current selection is KB `0.1.2` and Agent Access `0.1.1`.
 
 | Producer                          | Signed `v0.1.1` source                                                                                                                                                | Strict registry and clean-consumer verification                                                                                                                                                                                     |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -66,7 +66,7 @@ and clean consumers. Canonical artifact identities and historical manual
 [KB release handoff](https://github.com/pegma-dev/knowledge-base/blob/main/docs/BOOTSTRAP.md)
 and [Agent Access release handoff](https://github.com/pegma-dev/agent-access/blob/main/docs/BOOTSTRAP.md).
 The completed manual bootstrap has no OIDC provenance; the separate trusted
-`0.1.1` releases supply the required verified producer evidence. Earlier npm
+`0.1.1` receipts supply historical verified producer evidence. Earlier npm
 404 observations and the `a444e21` source fixture are historical only. The
 current KB protocol proof composes four packed KB packages with registry
 `@pegma/agent-access@0.1.1`.
@@ -325,11 +325,11 @@ human ticket immediately. Future/nonpositive/malformed/inactive hints are
 refused; missing or inactive hints can still leave a temporary repair gap.
 
 SD-01 includes no AI provider, knowledge retrieval, learning, or publication.
-Keep model activation disabled until the host gates pass. Both KB and Agent
-Access now have strictly verified trusted `0.1.1` releases, closing SD-02's
+Keep model activation disabled until the host gates pass. All four KB packages
+have strictly verified trusted `0.1.2` releases and Agent Access has verified `0.1.1`, closing SD-02's
 producer publication prerequisite. SD-02's optional coordinator source is
-merged after validation/review. SD-03 learning validation/review and future
-SD-06 publication remain open. Actual two-host login/client, privacy, operations, Task 12,
+merged after validation/review, as are SD-03 through SD-05. The synchronized
+SD-06 publication remains open. Actual two-host login/client, privacy, operations, Task 12,
 full-workflow, and pilot evidence remain separate gates.
 
 ## Optional assistant coordination (SD-02)
@@ -343,6 +343,13 @@ without that option it creates no turn jobs and still works without AI.
 See [the coordination guide](ASSISTANT_COORDINATION.md) and
 [the layout checkpoint](COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
 for actual types, bounds, replay, and required validation.
+
+The runnable [optional AI composition](../examples/ai/README.md) exercises
+the public SDKs with synthetic provider ports. Its memory/Azurite checks and
+clean-consumer checks are source validation; they do not prove a host's login,
+provider, deployment, or pilot readiness. Follow [upgrading](UPGRADING.md)
+and [AI operations](AI_OPERATIONS.md) for forward migration, independent
+worker cursors, disabling new work, and privacy withdrawal.
 
 Hosts persist scan continuations, repeat bounded physical scan cycles, claim
 with a deadline-compatible lease, and keep per-instance durable usage

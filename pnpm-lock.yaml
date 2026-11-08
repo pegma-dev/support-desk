@@ -36,13 +36,13 @@ importers:
         specifier: 0.4.0
         version: 0.4.0
       '@pegma/support-desk-ai':
-        specifier: 0.1.1
+        specifier: 0.2.0
         version: link:packages/ai
       '@pegma/support-desk-application':
-        specifier: 0.1.1
+        specifier: 0.2.0
         version: link:packages/application
       '@pegma/support-desk-templates':
-        specifier: 0.1.1
+        specifier: 0.2.0
         version: link:packages/templates
       '@types/node':
         specifier: ^26.6.6
@@ -75,7 +75,7 @@ importers:
         specifier: 0.1.2
         version: 0.1.2
       '@pegma/support-desk-application':
-        specifier: 0.1.1
+        specifier: 0.2.0
         version: link:../application
 
   packages/application:
@@ -96,10 +96,10 @@ importers:
         specifier: 0.4.0
         version: 0.4.0
       '@pegma/support-desk-contracts':
-        specifier: 0.1.1
+        specifier: 0.2.0
         version: link:../contracts
       '@pegma/support-desk-core':
-        specifier: 0.1.1
+        specifier: 0.2.0
         version: link:../core
 
   packages/contracts:
@@ -111,7 +111,7 @@ importers:
   packages/core:
     dependencies:
       '@pegma/support-desk-contracts':
-        specifier: 0.1.1
+        specifier: 0.2.0
         version: link:../contracts
 
   packages/templates: {}

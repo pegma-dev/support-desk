@@ -53,6 +53,20 @@ function runNpm(arguments_: string[], cwd = process.cwd()): string {
 }
 
 describe("release package metadata", () => {
+  it("rejects the retired publisher before reading any manifest", async () => {
+    expect(await import("../scripts/release-packages.mjs")).not.toHaveProperty(
+      "publishPreparedRelease",
+    );
+    expect(() =>
+      run(process.execPath, [
+        join(process.cwd(), "scripts", "release-packages.mjs"),
+        "publish",
+        "--manifest",
+        join(tmpdir(), "retired-release-manifest-does-not-exist.json"),
+      ]),
+    ).toThrow("release-packages.mjs publish has been removed");
+  });
+
   it("accepts npm's cross-platform argument separator", () => {
     expect(parseArguments(["--", "--output", ".release"])).toEqual({
       output: ".release",
@@ -69,7 +83,7 @@ describe("release package metadata", () => {
     ]);
   });
 
-  it("ships the synchronized 0.1.1 package set with exact internal pins", () => {
+  it("ships the synchronized 0.2.0 package set with exact internal pins", () => {
     const manifests = RELEASE_PACKAGES.map(({ directory }) =>
       JSON.parse(
         readFileSync(
@@ -84,24 +98,24 @@ describe("release package metadata", () => {
     }>;
 
     expect(manifests.map(({ name, version }) => ({ name, version }))).toEqual([
-      { name: "@pegma/support-desk-contracts", version: "0.1.1" },
-      { name: "@pegma/support-desk-core", version: "0.1.1" },
-      { name: "@pegma/support-desk-templates", version: "0.1.1" },
-      { name: "@pegma/support-desk-application", version: "0.1.1" },
-      { name: "@pegma/support-desk-ai", version: "0.1.1" },
+      { name: "@pegma/support-desk-contracts", version: "0.2.0" },
+      { name: "@pegma/support-desk-core", version: "0.2.0" },
+      { name: "@pegma/support-desk-templates", version: "0.2.0" },
+      { name: "@pegma/support-desk-application", version: "0.2.0" },
+      { name: "@pegma/support-desk-ai", version: "0.2.0" },
     ]);
     expect(manifests[1]?.dependencies?.["@pegma/support-desk-contracts"]).toBe(
-      "0.1.1",
+      "0.2.0",
     );
     expect(manifests[3]?.dependencies?.["@pegma/support-desk-contracts"]).toBe(
-      "0.1.1",
+      "0.2.0",
     );
     expect(manifests[3]?.dependencies?.["@pegma/support-desk-core"]).toBe(
-      "0.1.1",
+      "0.2.0",
     );
     expect(
       manifests[4]?.dependencies?.["@pegma/support-desk-application"],
-    ).toBe("0.1.1");
+    ).toBe("0.2.0");
     expect(
       manifests[4]?.dependencies?.["@pegma/support-desk-contracts"],
     ).toBeUndefined();
@@ -165,7 +179,7 @@ packages:
         "@pegma/support-desk-contracts"
       ],
     ).toEqual({
-      specifier: "0.1.1",
+      specifier: "0.2.0",
       version: "link:../contracts",
     });
     expect(
@@ -408,22 +422,36 @@ describe("release source authentication", () => {
     const jobs = workflow.slice(jobsIndex + jobsMarker.length);
     const prepareStart = jobs.indexOf("  prepare:");
     const publishStart = jobs.indexOf("\n  publish:");
+    const verifyStart = jobs.indexOf("\n  verify:");
     expect(header).not.toContain("id-token: write");
     expect(prepareStart).toBeGreaterThanOrEqual(0);
     expect(publishStart).toBeGreaterThan(prepareStart);
+    expect(verifyStart).toBeGreaterThan(publishStart);
     const prepare = jobs.slice(prepareStart, publishStart);
-    const publish = jobs.slice(publishStart);
+    const publish = jobs.slice(publishStart, verifyStart);
+    const verify = jobs.slice(verifyStart);
     expect(prepare).not.toContain("id-token: write");
     expect(publish).toContain("id-token: write");
     expect(publish).not.toContain("npm ci");
     expect(publish).not.toContain("pnpm install");
-    // Publish may pin the reviewed npm release globally, but must not install
-    // package dependencies in the OIDC job.
-    expect(publish).not.toMatch(/\bnpm (?:ci|install)(?! --global)/u);
-    expect(publish).toContain("npm install --global npm@11.18.0");
-    expect(publish).toContain("node scripts/release-packages.mjs publish");
+    expect(publish).not.toMatch(/\bnpm (?:ci|install)/u);
+    expect(publish).toContain("NPM_VERSION: 11.18.0");
+    expect(publish).toContain(
+      "NPM_TARBALL_SHA256: 73f6155215ebabf4ed96dca1f567c2372cc713c33af2e5b9b62fde4e92373e2e",
+    );
+    expect(publish).toContain("node scripts/release-verification.mjs publish");
+    expect(publish).not.toContain("node scripts/release-packages.mjs publish");
+    expect(publish).toContain("--manifest-sha256");
+    expect(publish).toContain(
+      "artifact-ids: ${{ needs.prepare.outputs.artifact-id }}",
+    );
     expect(publish).not.toContain("corepack");
     expect(publish).not.toContain("pnpm");
+    expect(verify).not.toContain("id-token: write");
+    expect(verify).toContain("node scripts/release-verification.mjs verify");
+    expect(verify).toContain(
+      "artifact-ids: ${{ needs.prepare.outputs.artifact-id }}",
+    );
     expect(workflow).not.toContain("workflow_dispatch");
     expect(workflow).toContain("retention-days: 30");
   });

@@ -13,8 +13,8 @@ and `packages/ai/src/ports.ts` when changing this boundary.
 
 The optional `@pegma/support-desk-ai` package owns coordination and exact KB
 `0.1.2` dependencies after SD-03's verified KB producer update. The base application remains usable without AI and
-contains no KB or model-provider dependency. Support Desk source remains
-`0.1.1` with unreleased behavior; a future synchronized, verified SD-06 release
+contains no KB or model-provider dependency. Support Desk source is the
+unpublished synchronized `0.2.0` candidate; a verified SD-06 release
 must precede host adoption. Existing registry versions remain immutable.
 
 ## One ticket transaction around external work

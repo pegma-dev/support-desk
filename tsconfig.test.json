@@ -12,6 +12,7 @@
     "test/**/*.ts",
     "tests/**/*.test.ts",
     "examples/composition/composition.ts",
+    "examples/ai/**/*.ts",
     "scripts/**/*.d.mts",
     "vitest.config.ts"
   ]

@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "types": ["node"],
+    "rootDir": "./examples/ai",
+    "outDir": "./.example-dist/ai"
+  },
+  "include": ["examples/ai/**/*.ts"]
+}

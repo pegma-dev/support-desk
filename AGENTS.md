@@ -168,8 +168,10 @@ collision hints. Customer DTOs and automatic customer mail omit these fields.
 Calendars and presence stay host-owned. Task 12 remains pending on both hosts'
 durable-store production evidence. Source work does not publish a package.
 
-The first `0.1.0` package set is published. Source packages remain at exact
-`0.1.1`; follow `docs/RELEASING.md` for a future synchronized release. Customer services return safe DTOs; staff
+The four base packages have published `0.1.1` versions. All five source
+packages are synchronized at the unpublished `0.2.0` candidate; follow
+`docs/RELEASING.md` for the verified release and the new AI name's separate
+registration bootstrap. Customer services return safe DTOs; staff
 services return the authoritative ticket for authorized staff only, and the
 staff queue scans a confirmed projection that is never authorization evidence.
 Authorization Core is pinned to exact `0.4.0` and accepted-change history uses
@@ -182,8 +184,8 @@ defaults legacy tickets to human support, explicitly attributes assistant
 messages with exact completion fences, and adds deterministic owned
 request-person, staff takeover, private success evidence, human queue
 selection, and bounded atomic handoff work. It adds no model, KB dependency,
-or package and has not been published. Source `0.1.1` is not equivalent to
-registry `0.1.1`; do not overwrite it or install a source substitute. A future
+or package and has not been published. Source `0.2.0` is a new candidate;
+do not overwrite registry `0.1.1` or install a source substitute. A future
 synchronized SD-06 release precedes adoption of new Support Desk behavior.
 Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
 preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
@@ -198,10 +200,13 @@ partition. SD-03 merged in [PR #39](https://github.com/pegma-dev/support-desk/pu
 adding verified resolution learning and KB draft delivery. SD-04 merged in
 [PR #40](https://github.com/pegma-dev/support-desk/pull/40), adding verified
 engineering export and reconciliation; see [its guide](docs/ENGINEERING_EXPORT.md).
-SD-05's release follow-up is the current source candidate; see
+SD-05 merged in [PR #41](https://github.com/pegma-dev/support-desk/pull/41),
+adding confirmed-deployment release follow-up; see
 [its guide](docs/ENGINEERING_FOLLOWUP.md).
 Current-head review/validation and the future synchronized release remain
-required. The base application has no KB or provider dependency; actual KB
+required for SD-06. Its public composition example lives in `examples/ai`;
+the migration and operations handbooks are `docs/UPGRADING.md` and
+`docs/AI_OPERATIONS.md`. The base application has no KB or provider dependency; actual KB
 `0.1.2` dependencies belong only to the
 optional AI package. See [assistant coordination](docs/ASSISTANT_COORDINATION.md)
 and its [layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint).

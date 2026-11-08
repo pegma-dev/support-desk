@@ -5,9 +5,10 @@
 Approved product decisions: 2026-11-06; scoped-agent-access decision added
 2026-11-07. The ten entries in the ledger below are merged source, including
 AUTH-01, KB-04's transport source exit, and both producers' release preparation.
-Both producers subsequently completed strictly verified trusted `0.1.1`
-publication, closing SD-02's KB-05 prerequisite. SD-02 is an in-progress source
-candidate, not a merged or validated ledger entry. Current-head source
+The current verified producer versions are KB `0.1.2` for all four packages
+and Agent Access `0.1.1`, closing SD-02's KB-05 prerequisite. The dated ledger
+below is historical; Support Desk source is now the unpublished synchronized
+`0.2.0` candidate. Current-head release
 gates/review, future Support Desk publication, actual two-host authenticated
 authoring, model activation, and pilots remain separate gates.
 Use the [P-00 handoff](KNOWLEDGE_AI_P00.md) for the frozen package baseline,
@@ -66,7 +67,7 @@ reported no findings. Source, emulator, and synthetic SDK results do not prove
 actual host login/client compatibility, production performance, deployment,
 model calls, or pilots.
 
-**Verified producer releases: 2026-11-07.** Agent Access
+**Historical verified producer releases: 2026-11-07.** Agent Access
 [PR #4](https://github.com/pegma-dev/agent-access/pull/4) merged
 [`ffe4d86`](https://github.com/pegma-dev/agent-access/commit/ffe4d8616632ce9d057caaf65124746f03d4d349)
 and signed `v0.1.1`; its [strict verify job](https://github.com/pegma-dev/agent-access/actions/runs/42420302775/job/128549453970)
@@ -84,18 +85,22 @@ Manual bootstrap had no OIDC provenance; the later trusted releases close the
 publication gates. Earlier registry 404s and the `a444e21` source fixture are
 historical. Current KB protocol proof uses four packed KB packages plus
 registry `@pegma/agent-access@0.1.1`. The frozen P-00 snapshot remains unchanged.
+The current four-package KB producer is the verified trusted
+[`0.1.2` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.2),
+source `004044bfa836b74a61fb5defa49d5ebab1fe37dd`, with strict
+[registry/consumer verification](https://github.com/pegma-dev/knowledge-base/actions/runs/42436081951/job/128617897564).
+The dated `0.1.1` receipts above are retained history, not current KB pins.
 
-**Current candidate and next gates:** SD-02 implementation is authorized after
-verified KB-05 publication. The optional `@pegma/support-desk-ai` candidate uses
-exact KB `0.1.1` runtime dependencies; the base application remains independent
+**Current version facts and next gates:** The synchronized Support Desk source
+candidate is `0.2.0`, unpublished. Its optional `@pegma/support-desk-ai` package uses
+exact KB `0.1.2` runtime dependencies; the base application remains independent
 of KB and providers. The [coordination design](ASSISTANT_COORDINATION.md) and
 [layout checkpoint](COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
 record its five public application operations, bounded same-partition turns,
 authority/data controls, and replay contract. Public-entry memory/Azurite tests
 with the actual KB and a fake provider, current-head Node 22/24 gates, and
-code/security review remain pending while the candidate is being built.
-Current Support Desk source remains `0.1.1` with unreleased behavior; future
-synchronized verified SD-06 publication precedes adoption and must never
+code/security review are required for release. Verified synchronized SD-06
+publication precedes adoption and must never
 overwrite an existing registry version. PG-01/RG-01 use both exact verified
 published producers. Actual existing-login/current-Admin consent and every
 requested client/mode on both hosts remain unproven activation gates tracked
@@ -157,7 +162,7 @@ educational decision-support boundaries.
 The MIT [knowledge-base repository](https://github.com/pegma-dev/knowledge-base)
 now contains `@pegma/knowledge-base-contracts`, `@pegma/knowledge-base-core`,
 `@pegma/knowledge-base-application`, and optional `@pegma/knowledge-base-mcp`
-source. All four have verified trusted `0.1.1` registry releases; KB-04's
+source. All four have verified trusted `0.1.2` registry releases; KB-04's
 transport source exit and KB-05 release preparation remain historical source
 evidence. Any future package is created only
 when its implementation begins, with its own README, LICENSE, build-on-pack
@@ -218,10 +223,11 @@ Record unsupported or unavailable client flows as open acceptance gaps.
 ### Support Desk and optional integrations
 
 Keep ticket workflow and queue semantics in the existing contracts/core/
-application packages. SD-02's in-progress coordinator lives in the optional
+application packages. SD-02's merged coordinator lives in the optional
 `@pegma/support-desk-ai` package in this repository. It composes public Support
 Desk and KB APIs and host model, configuration, authority, and usage ports.
-GitHub/release ports belong to later tasks. Read the
+Engineering and release coordination are merged SD-04/SD-05 source;
+live adapters remain host work. Read the
 [coordination guide](ASSISTANT_COORDINATION.md) before changing it.
 The ticket application must continue to work without that optional package,
 a KB, an LLM, or GitHub. Provider SDKs and framework types stay out of domain
@@ -654,9 +660,10 @@ is too large, preserving the dependency and exit criteria.
 
 The merged-source ledger above records completed source slices, including
 AUTH-01, SD-01, KB-04's transport source exit, and both producers' release
-preparation. The producer publication gates are now closed by both strictly
-verified trusted `0.1.1` releases. SD-02 is the in-progress source candidate;
-its source gates and review remain open. PG-01 and RG-01 consume those published dependencies and prove actual
+preparation. The current producer publication gates are closed by strictly
+verified trusted KB `0.1.2` and Agent Access `0.1.1`. Support Desk remains an
+unpublished synchronized `0.2.0` candidate requiring current-head release
+gates and review. PG-01 and RG-01 consume those published dependencies and prove actual
 existing-login and requested-client draft/evidence flows. KB-04's merged source
 exit closes only its source slice; retained actual two-host acceptance remains pending in P-00,
 PG-01/RG-01, and A-01 until those real runs pass. Source/SDK success cannot close

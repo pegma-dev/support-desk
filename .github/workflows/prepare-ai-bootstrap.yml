@@ -1,0 +1,126 @@
+# Registration-only preparation. This workflow cannot publish or obtain OIDC.
+# Full bypass-policy readback is a separate release-owner gate; anonymous public
+# ruleset metadata may omit the actors and cannot establish that full policy.
+name: Prepare AI registration bootstrap
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-bootstrap-prepare
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'pegma-dev/support-desk' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      manifest-sha256: ${{ steps.prepare.outputs.manifest-sha256 }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-sha256: ${{ steps.upload.outputs.artifact-digest }}
+      tool-commit: ${{ github.sha }}
+      workflow-commit: ${{ github.workflow_sha }}
+      source-commit: eddd3526f8bec3a1a80cc7aacd3a4cdcdb950cfe
+    steps:
+      - name: Check out reviewed main tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out the distinct bootstrap source ref
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/v0.1.1-ai-bootstrap
+          path: bootstrap-source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+
+      - name: Configure approved public signers and protected main ancestry
+        env:
+          RELEASE_ALLOWED_SIGNERS: ${{ vars.RELEASE_ALLOWED_SIGNERS }}
+        shell: bash
+        run: |
+          if [[ -z "${RELEASE_ALLOWED_SIGNERS}" ]]; then
+            echo "::error::The reviewed release allowed-signers entry is required"
+            exit 1
+          fi
+          signer_file="${RUNNER_TEMP}/ai-bootstrap-allowed-signers"
+          umask 077
+          printf '%s\n' "${RELEASE_ALLOWED_SIGNERS}" > "${signer_file}"
+          for checkout in tooling bootstrap-source; do
+            git -C "${GITHUB_WORKSPACE}/${checkout}" fetch --no-tags origin main:refs/remotes/origin/main
+            git -C "${GITHUB_WORKSPACE}/${checkout}" config --local gpg.format ssh
+            git -C "${GITHUB_WORKSPACE}/${checkout}" config --local gpg.ssh.allowedSignersFile "${signer_file}"
+          done
+
+      - name: Verify frozen source before executing its build or install scripts
+        run: >-
+          node tooling/scripts/ai-bootstrap.mjs verify-source
+          --tool-root "${GITHUB_WORKSPACE}/tooling"
+          --source-root "${GITHUB_WORKSPACE}/bootstrap-source"
+
+      - name: Install reviewed pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10.34.5
+          run_install: false
+
+      - name: Use reviewed npm for local candidate packing
+        run: npm install --global npm@11.18.0
+
+      - name: Install the verified source dependencies
+        working-directory: bootstrap-source
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare all five local candidates and the AI-only handoff
+        id: prepare
+        shell: bash
+        run: |
+          node tooling/scripts/ai-bootstrap.mjs prepare \
+            --tool-root "${GITHUB_WORKSPACE}/tooling" \
+            --source-root "${GITHUB_WORKSPACE}/bootstrap-source" \
+            --output "${RUNNER_TEMP}/support-desk-ai-bootstrap" \
+            > "${RUNNER_TEMP}/ai-bootstrap-preparation.json"
+          node --input-type=module -e '
+            import {readFileSync,appendFileSync} from "node:fs";
+            const receipt=JSON.parse(readFileSync(process.env.RUNNER_TEMP+"/ai-bootstrap-preparation.json","utf8"));
+            if(!/^[a-f0-9]{64}$/.test(receipt.manifestSha256)) throw Error("Invalid preparation digest");
+            appendFileSync(process.env.GITHUB_OUTPUT,"manifest-sha256="+receipt.manifestSha256+"\n");
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY,"Registration-only bootstrap manifest SHA-256: `"+receipt.manifestSha256+"`\n\nFull local candidate manifest SHA-256: `"+receipt.manifest.context.manifestSha256+"`\n\n"+receipt.manifest.warning+"\n");
+          '
+
+      - name: Upload the immutable registration handoff
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: support-desk-ai-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/support-desk-ai-bootstrap/
+          if-no-files-found: error
+          include-hidden-files: true
+          overwrite: false
+          retention-days: 30
+
+      - name: Record independent artifact identity for maintainer review
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+          MANIFEST_SHA256: ${{ steps.prepare.outputs.manifest-sha256 }}
+        shell: bash
+        run: |
+          node --input-type=module -e '
+            import {appendFileSync} from "node:fs";
+            if(!/^[a-f0-9]{64}$/.test(process.env.ARTIFACT_SHA256)||!/^[a-f0-9]{64}$/.test(process.env.MANIFEST_SHA256)) throw Error("Missing independent artifact binding");
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY,"\nArtifact ID: `"+process.env.ARTIFACT_ID+"`\n\nDownloaded ZIP SHA-256: `"+process.env.ARTIFACT_SHA256+"`\n\nTool commit: `"+process.env.GITHUB_SHA+"`\n\nWorkflow commit: `"+process.env.GITHUB_WORKFLOW_SHA+"`\n\nSource: `eddd3526f8bec3a1a80cc7aacd3a4cdcdb950cfe`, signed ref `v0.1.1-ai-bootstrap`.\n\nRetain this digest independently from the downloaded archive. Full current bypass-policy readback is a release-owner gate outside this unprivileged preparation: before tag creation/dispatch and again before manual publication. Anonymous public rules do not verify hidden bypass actors. No publication, OIDC provenance, or host-use approval is supplied.\n");
+          '

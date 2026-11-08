@@ -21,8 +21,11 @@
     "knowledge-ai:baseline": "node scripts/knowledge-ai-baseline.mjs",
     "release:check": "node scripts/release-packages.mjs check",
     "release:pack": "node scripts/release-packages.mjs pack",
-    "release:publish": "node scripts/release-packages.mjs publish",
-    "example": "pnpm run build && node --experimental-strip-types examples/composition/run.ts"
+    "release:publish": "node scripts/release-verification.mjs publish",
+    "example": "pnpm run build && node --experimental-strip-types examples/composition/run.ts",
+    "ai:example": "pnpm run build && tsc -p tsconfig.ai-example.json --pretty false && node .example-dist/ai/run.js",
+    "release:verify": "node scripts/release-verification.mjs verify",
+    "release:preflight": "node scripts/release-verification.mjs preflight"
   },
   "devDependencies": {
     "@azure/data-tables": "^13.3.2",
@@ -34,9 +37,9 @@
     "@pegma/spine": "0.1.2",
     "@pegma/storage-azure-tables": "0.4.0",
     "@pegma/storage-core": "0.4.0",
-    "@pegma/support-desk-ai": "0.1.1",
-    "@pegma/support-desk-application": "0.1.1",
-    "@pegma/support-desk-templates": "0.1.1",
+    "@pegma/support-desk-ai": "0.2.0",
+    "@pegma/support-desk-application": "0.2.0",
+    "@pegma/support-desk-templates": "0.2.0",
     "@types/node": "^26.6.6",
     "azurite": "^3.37.0",
     "prettier": "^3.9.10",
