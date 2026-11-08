@@ -2,17 +2,17 @@
 
 ## Candidate status and reading order
 
-SD-02 is an in-progress source candidate after the verified KB `0.1.1`
-publication prerequisite closed. This document records the coordination design
-before implementation and validation finish. It claims no current-head test,
-review, deployment, provider, or pilot result. Follow
+SD-02's source is merged in
+[PR #38](https://github.com/pegma-dev/support-desk/pull/38) after review and
+validation. This document records the coordination boundary; it claims no
+deployment, live-provider, or pilot result. Follow
 [the implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order),
 [the durable layout checkpoint](COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint),
 and the actual public types in `packages/application/src/assistant-turn-types.ts`
 and `packages/ai/src/ports.ts` when changing this boundary.
 
 The optional `@pegma/support-desk-ai` package owns coordination and exact KB
-`0.1.1` dependencies. The base application remains usable without AI and
+`0.1.2` dependencies after SD-03's verified KB producer update. The base application remains usable without AI and
 contains no KB or model-provider dependency. Support Desk source remains
 `0.1.1` with unreleased behavior; a future synchronized, verified SD-06 release
 must precede host adoption. Existing registry versions remain immutable.

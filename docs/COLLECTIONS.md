@@ -276,8 +276,11 @@ This checkpoint records the agreed design before SD-03 production changes.
 It is not implementation, validation, publication, or host activation evidence.
 SD-03 extends this ticket partition and the optional AI coordinator; the base
 application acquires no KB or provider dependency. KB's merged `0.1.2` producer
-work is not a consumable release until its exact public artifacts and
-provenance are verified. The delivery adapter waits for that verification.
+work became consumable after its exact public artifacts, signatures,
+provenance, and clean consumer were verified in
+[release run 42436081951](https://github.com/pegma-dev/knowledge-base/actions/runs/42436081951).
+The optional delivery adapter now pins the verified public `0.1.2` producers;
+current Support Desk integration validation and review remain separate gates.
 
 #### Enrollment, source authority, and evidence
 

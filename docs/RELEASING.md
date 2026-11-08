@@ -20,16 +20,17 @@ Merging a pull request never publishes. The publish workflow has no token
 fallback and no `workflow_dispatch` path.
 
 Current source remains `0.1.1` and includes unreleased lifecycle, SD-01
-handling/handoff, and the in-progress SD-02 coordination candidate beyond the
+handling/handoff, merged SD-02 coordination, and the SD-03 learning candidate beyond the
 published artifacts at that version. SD-02 adds the optional AI package to
 `RELEASE_PACKAGES` and pack checks; this is source inventory, not publication
 or release authority. The enhancement needs a future reviewed synchronized
 version under SD-06, with verified registry artifacts, before host adoption; never replace
 the existing `0.1.1` registry artifacts. Source dependency pins and registry
 baselines are recorded separately in [P-00](KNOWLEDGE_AI_P00.md).
-The optional AI package consumes exact verified KB `0.1.1` dependencies;
+The optional AI package consumes exact verified KB `0.1.2` dependencies;
 [producer receipts](HOST_COMPOSITION.md#kb-authoring-producers) close that
-prerequisite only. Current-head SD-02 gates and review remain required.
+prerequisite only. Current-head SD-03 gates and review remain required; SD-02's
+source passed its gates before merging in PR #38.
 
 ## Standing external configuration
 

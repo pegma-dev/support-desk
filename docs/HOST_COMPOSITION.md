@@ -72,11 +72,23 @@ current KB protocol proof composes four packed KB packages with registry
 `@pegma/agent-access@0.1.1`.
 
 The KB-05 publication prerequisite for SD-02 is closed. Its optional AI source
-candidate uses exact KB `0.1.1` dependencies, while the base application has no
-KB or provider dependency. Current-head SD-02 validation/review is pending;
+candidate now uses exact KB `0.1.2` dependencies, while the base application has no
+KB or provider dependency. SD-02 source passed validation/review and merged in
+[PR #38](https://github.com/pegma-dev/support-desk/pull/38);
 new Support Desk behavior still requires a future synchronized verified SD-06
 release before host adoption. Do not substitute branches, copied source,
 local paths, or unpublished tarballs for production dependencies.
+
+SD-03's atomic-provenance prerequisite is the verified trusted
+[KB `0.1.2` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.2),
+source commit `004044bfa836b74a61fb5defa49d5ebab1fe37dd`. Both Node lanes passed
+439 runtime and 128 release tests. Release run
+[42436081951](https://github.com/pegma-dev/knowledge-base/actions/runs/42436081951)
+verified all four exact registry artifacts, signatures/provenance, and a clean
+consumer. The earlier SDK and `0.1.1` receipts above remain historical evidence.
+The optional learning integration is documented in
+[resolution learning](RESOLUTION_LEARNING.md); its current-head source and
+host activation gates are separate from producer publication.
 
 PG-01/RG-01 consume both exact verified published producers, then prove
 existing-login/current-Admin consent and actual draft/evidence flows through
@@ -315,9 +327,9 @@ refused; missing or inactive hints can still leave a temporary repair gap.
 SD-01 includes no AI provider, knowledge retrieval, learning, or publication.
 Keep model activation disabled until the host gates pass. Both KB and Agent
 Access now have strictly verified trusted `0.1.1` releases, closing SD-02's
-producer publication prerequisite. SD-02 adds an in-progress optional
-coordinator source candidate; its tests/review and future SD-06 publication
-remain open. Actual two-host login/client, privacy, operations, Task 12,
+producer publication prerequisite. SD-02's optional coordinator source is
+merged after validation/review. SD-03 learning validation/review and future
+SD-06 publication remain open. Actual two-host login/client, privacy, operations, Task 12,
 full-workflow, and pilot evidence remain separate gates.
 
 ## Optional assistant coordination (SD-02)

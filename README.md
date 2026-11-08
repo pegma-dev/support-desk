@@ -74,7 +74,7 @@ SD-03 is an in-progress source candidate for opt-in resolution learning.
 Its ticket-side evidence, exact review, withdrawal, and recovery contracts
 preserve human support and permanent privacy withdrawal capacity. See the
 [resolution learning guide](docs/RESOLUTION_LEARNING.md) for permissions,
-storage reserves, implemented boundaries, and the remaining KB delivery work.
+storage reserves, composition, implemented boundaries, and current validation gates.
 
 ## How the pieces fit
 

@@ -1,12 +1,15 @@
 # Resolution learning: SD-03 source contracts
 
-SD-03 is partially implemented in draft [PR #39](https://github.com/pegma-dev/support-desk/pull/39).
+SD-03 is a source candidate in draft [PR #39](https://github.com/pegma-dev/support-desk/pull/39).
 The ticket application implements enrollment, structured resolution evidence,
 durable work, exact staff review, invalidation, withdrawal, and reconciliation
-records. The optional AI package contains an internal claimed-model-stage
-executor. The KB delivery coordinator and the public AI learning entry point
-remain open. KB `0.1.2` is prepared but has no verified public release for this
-integration to consume. No host has activated this behavior.
+records. The optional AI package adds bounded model processing, KB draft
+delivery, exact staff review, and source retirement/reconciliation through
+`createSupportDeskLearning`, with read-only callbacks from
+`createSupportDeskLearningSourceVerifier`. It consumes the verified published
+[KB `0.1.2` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.2).
+Current-head integration validation and review remain required. No host has
+activated this behavior.
 
 This document describes the implemented source boundary, not a released host
 integration. The approved scope remains in
@@ -189,8 +192,9 @@ record bounds.
 The internal `createLearningModelExecutor` in
 [learning-model.ts](../packages/ai/src/learning-model.ts) accepts an already
 authoritative claim. It is not exported from the package's public index and
-does not scan, claim, deliver to KB, or publish. Public coordinator composition
-remains unfinished.
+does not itself scan, claim, deliver to KB, or publish. The public
+`createSupportDeskLearning` coordinator owns those bounded stages and creates
+the fresh physical claim for every `processWork` invocation.
 
 Each physical invocation needs a fresh cryptographic claim ID. Preparation
 persists the exact visible-message/ordinal manifest, authoritative working
@@ -243,8 +247,27 @@ request: article, collection, draft payload, complete ordered source references,
 original expected generation, and stable command/correlation identities. The
 candidate body is replaced rather than duplicated into that delivery state.
 Completion records a historical acknowledgement separately from the observed
-current target; disagreement holds work. The actual KB delivery coordinator
-still requires the verified published producer and remains open.
+current target; disagreement holds work. Prepared recovery repeats the original
+request, expected generation, reference order, and command identity while the
+source remains eligible. An invoked error can follow acceptance, so recovery
+does not regenerate a request or infer rejection from the exception.
+
+Discovery uses a trusted configured scope/query, never private candidate or
+ticket text. It reads at most five approved published matches and five explicit
+authorized draft IDs. Bounded search is not exhaustive duplicate detection;
+uncertain target or duplicate decisions hold. An update requires an exact
+merged draft from the target port. A newer unpublished draft must have been
+explicitly supplied to selection; it cannot be silently replaced. Current and
+published provenance must be fully readable, and other contributors remain
+intact in their original order. An older published snapshot may be stale while
+its corrected draft is being prepared; readability does not assert eligibility.
+
+Independent checks receive the exact rendered request as server-only data and
+must assess every field that will cross into KB. Their provider-visible content
+must exclude source references, identities, and operational context. Advisory
+model validation requirements do not replace KB's actual guide requirements.
+Check-receipt and source-publication policy expiry also count elapsed time from
+the start of the invocation, including time spent awaiting verification ports.
 
 Successful independent checks permit private draft transfer without routine
 human pre-transfer approval. Staff approval applies to the **actual KB draft**
@@ -260,7 +283,38 @@ Support approval cannot publish. KB retains its own current collection/audience,
 evidence, governance, review, and publication gates. An old transfer receipt,
 candidate hash, or historical KB acknowledgement is not current publication
 authority. The exact-target and recovery contracts are exercised in
-[the work suite](../tests/resolution-learning-work.test.ts).
+[the work suite](../tests/resolution-learning-work.test.ts) and the
+[released-KB integration suite](../tests/resolution-learning-kb.test.ts).
+
+## Composition and worker entry points
+
+Construct the read-only source verifier over the Support application first.
+Supply it to KB's `privateSources` option and pass the same verifier as the
+learning coordinator's `sources`. Its callbacks do not call KB, so publication
+and retrieval cannot recurse through the bridge. Unknown source namespaces
+fail closed unless an explicit additional verifier checks the full unchanged
+context. Mixed-source publication requires every contributor current and at
+least one exact Support aggregate review; a foreign approval cannot substitute.
+
+The host supplies current Support processing authority, separate KB draft and
+retirement authority, trusted target scope/selection, independent checks,
+model configuration, usage accounting, tokenizer, and clock. Permission ports
+grant nothing themselves. Source truth and publication policy stay independent
+of the model processing switch and provider configuration.
+
+- `scanCandidates` returns one physical page and reconciliation hints. The host
+  persists and repeats the cursor loop.
+- `processWork` creates a fresh claim and performs one model or KB delivery
+  stage. It never accepts a reusable caller claim ID.
+- `reviewProposal` verifies the actual draft/provenance and records Support's
+  exact staff decision. The host separately invokes KB's existing evidence,
+  submit, review, and publish commands with current staff authority.
+- `reconcileSource` uses the separate retirement authority and durable
+  destinations to reconcile source invalidation. It cannot publish guidance.
+
+Use `learningTargetBinding` with actual KB draft and provenance reads when
+building the expected staff-review target. Source-verifier behavior is tested
+in [the source suite](../tests/resolution-learning-sources.test.ts).
 
 ## Permanent withdrawal and reconciliation after deletion
 
@@ -300,9 +354,14 @@ absent/aged-out success result.
 Cleanup must inspect the **published** source snapshot. An invalid ticket
 reference in only a pending draft does not justify retiring an independently
 sourced publication. Unreadable complete provenance blocks cleanup and retains
-the destination. The future KB coordinator must perform the authoritative KB
-retirement/retrieval invalidation and durably record its proof; these local
-contracts do not claim that cross-component cleanup has run.
+the destination. `reconcileSource` performs conditional KB retirement and
+records an established proof through the Support application. Its command
+identity binds the durable destination, observed KB generation, and source
+snapshot hash. Equal observations repeat the same conditional request; a newer
+generation fences older requests and requires fresh published-provenance
+inspection. This is convergent conditional recovery, not an exactly-once claim.
+It does not retire an unrelated draft or publication merely to force a
+generation advance.
 
 [The work suite](../tests/resolution-learning-work.test.ts) covers retained
 unknown destinations, permanent nonreactivation, body scrubbing, and the minimal

@@ -243,56 +243,78 @@ function reserveReachable(row: ResolutionLearningWorkRecord): void {
     claimId: escaped,
     claimGeneration: Number.MAX_SAFE_INTEGER,
   };
-  const attempts = row.modelAttempts.map((attempt, index) =>
-    row.stage === "model" && index === row.modelAttempts.length - 1
-      ? { ...attempt, accounting: "unknown" as const, processing }
-      : attempt,
-  );
+  const attempts = (accounting: "accounted" | "not_called") =>
+    row.modelAttempts.map((attempt, index) =>
+      index === row.modelAttempts.length - 1
+        ? { ...attempt, accounting, processing }
+        : attempt,
+    );
   const base = {
     ...withoutLease(row),
-    modelAttempts: attempts,
-    lastCompletion: { fingerprint: "f".repeat(64) },
-    lastFinish: { fingerprint: "f".repeat(64) },
-    ...(row.stage === "model"
-      ? { candidate: "\ud800".repeat(Math.ceil(16_000 / 12)) }
-      : {
-          acknowledgement: {
-            id: escaped,
-            generation: Number.MAX_SAFE_INTEGER,
-            articleRevision: Number.MAX_SAFE_INTEGER,
-            contentHash: escaped,
-            state: escaped,
-          },
-          target: {
-            articleId: escaped,
-            collectionId: escaped,
-            articleRevision: Number.MAX_SAFE_INTEGER,
-            contentHash: escaped,
-            sourceSnapshotGeneration: Number.MAX_SAFE_INTEGER,
-            sourceSnapshotHash: escaped,
-            orderedReferencesHash: escaped,
-          },
-        }),
+    workGeneration: Number.MAX_SAFE_INTEGER,
   };
-  const completion = {
-    ...base,
-    status: row.stage === "model" ? "candidate" : "completed",
+  const timestampEnvelope = "+275760-09-13T00:00:00.000Z";
+  const finishStates = (future: object): readonly object[] => {
+    const finished = {
+      ...future,
+      status: "superseded",
+      heldReason: escaped,
+      retryAt: timestampEnvelope,
+      lastFinish: { fingerprint: "f".repeat(64) },
+    };
+    return [
+      finished,
+      {
+        ...finished,
+        status: "claimed",
+        claim: fence,
+        claimGeneration: Number.MAX_SAFE_INTEGER,
+        leaseUntil: timestampEnvelope,
+      },
+    ];
   };
-  const finish = {
-    ...base,
-    status: "retry",
-    heldReason: escaped,
-    retryAt: "9999-12-31T23:59:59.999Z",
-  };
-  const replacement = {
-    ...finish,
-    status: "claimed",
-    claim: fence,
-    claimGeneration: Number.MAX_SAFE_INTEGER,
-    leaseUntil: "9999-12-31T23:59:59.999Z",
-  };
-  for (const reachable of [completion, finish, replacement])
-    if (encodedBytes(reachable) > 60_000)
+  const reachable: object[] = [];
+  if (row.stage === "model") {
+    const completion = {
+      ...base,
+      status: "candidate",
+      modelAttempts: attempts("accounted"),
+      candidate: "\ud800".repeat(Math.ceil(16_000 / 12)),
+      candidateHash: "f".repeat(64),
+      lastCompletion: { fingerprint: "f".repeat(64) },
+    };
+    // Completion permits accounted/unknown; only a finish before a candidate
+    // can introduce the longer not_called disposition for this attempt.
+    reachable.push(completion, ...finishStates(completion));
+    reachable.push(
+      ...finishStates({ ...base, modelAttempts: attempts("not_called") }),
+    );
+  } else {
+    const completion = {
+      ...base,
+      status: "completed",
+      lastCompletion: { fingerprint: "f".repeat(64) },
+      acknowledgement: {
+        id: escaped,
+        generation: Number.MAX_SAFE_INTEGER,
+        articleRevision: Number.MAX_SAFE_INTEGER,
+        contentHash: escaped,
+        state: escaped,
+      },
+      target: {
+        articleId: escaped,
+        collectionId: escaped,
+        articleRevision: Number.MAX_SAFE_INTEGER,
+        contentHash: escaped,
+        sourceSnapshotGeneration: Number.MAX_SAFE_INTEGER,
+        sourceSnapshotHash: escaped,
+        orderedReferencesHash: escaped,
+      },
+    };
+    reachable.push(completion, ...finishStates(completion));
+  }
+  for (const future of reachable)
+    if (encodedBytes(future) > 60_000)
       throw new SupportDeskLimitError("serialized_record", 60_000);
   checkRow(row);
 }

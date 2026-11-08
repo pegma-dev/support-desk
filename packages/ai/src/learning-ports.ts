@@ -6,6 +6,7 @@ import type {
   ResolutionLearningChecksBinding,
   ResolutionLearningClaim,
   ResolutionLearningClaimFence,
+  ResolutionLearningDeliveryRequest,
   ResolutionLearningModelBinding,
   ResolutionLearningStepResult,
   ResolutionSourceFence,
@@ -202,6 +203,8 @@ export interface LearningTokenCounter {
 
 export interface LearningCheckInput {
   readonly candidate: ResolutionLearningCandidate;
+  /** Server-only exact outbound request; never forward source refs or IDs to a model. */
+  readonly exactRequest: ResolutionLearningDeliveryRequest;
   readonly workingSolution: readonly string[];
   readonly targetComparison: {
     readonly operation: "create" | "update";

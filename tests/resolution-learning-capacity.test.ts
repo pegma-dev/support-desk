@@ -3,7 +3,11 @@ import {
   resolutionLearningDeliveryBinding,
   supportPermissions,
   type NotificationInput,
+  type ResolutionLearningCandidate,
+  type ResolutionLearningClaim,
   type ResolutionLearningDeliveryRequest,
+  type ResolutionLearningModelBinding,
+  type ResolutionLearningPreparedStep,
   type ResolutionLearningProcessing,
 } from "@pegma/support-desk-application";
 import { describe, expect, it } from "vitest";
@@ -693,6 +697,214 @@ for (const [name, createStore] of learningStores) {
         messageId: "staff-byte-hold",
         body: "A human can continue this ticket.",
       });
+    });
+
+    it("rejects a paid-work boundary that only fits when the candidate hash and accounted usage are omitted", async () => {
+      const escaped = "\ud800".repeat(200);
+      const processing = maximumProcessing();
+      const baseCandidate: ResolutionLearningCandidate = {
+        problem: "Export a workspace.",
+        applicability: {
+          productId: "workspace",
+          version: "2.3.0",
+          buildId: "build-verified-230",
+        },
+        steps: ["Open Workspace."],
+        solution: "Download the export.",
+        validationRequirements: ["Verify the export opens."],
+      };
+      const candidateRoom = 16_000 - bytes(baseCandidate);
+      const candidate: ResolutionLearningCandidate = {
+        ...baseCandidate,
+        solution:
+          baseCandidate.solution +
+          "\ud800".repeat(Math.floor(candidateRoom / 12)) +
+          "x".repeat((candidateRoom % 12) / 2),
+      };
+      expect(bytes(candidate)).toBe(16_000);
+
+      const setup = async (f: Fixture) => {
+        await eligible(f);
+        const first = await f.claim("first-model-claim", "model-worker");
+        const prepared = await f.app.prepareResolutionLearningStep(service, {
+          ...first.fence,
+          step: "model",
+          binding: f.modelBinding(first),
+        });
+        await f.app.finishResolutionLearningWork(service, {
+          ...first.fence,
+          stepId: prepared.stepId,
+          requestHash: prepared.requestHash,
+          disposition: "retry",
+          accounting: "accounted",
+          retryAt: f.clock.now(),
+          processing,
+        });
+        return f.claim("second-model-claim", "model-worker");
+      };
+      const completeAndReclaim = async (
+        f: Fixture,
+        owner: ResolutionLearningClaim,
+        prepared: ResolutionLearningPreparedStep,
+      ) => {
+        const preparedWorkGeneration = (await f.work()).workGeneration;
+        await f.app.completeResolutionLearningStep(
+          service,
+          {
+            ...owner.fence,
+            stepId: prepared.stepId,
+            requestHash: prepared.requestHash,
+            step: "model",
+            candidate,
+            processing,
+            accounting: "accounted",
+          },
+          () => {},
+        );
+        const completed = await f.work();
+        expect(completed.candidateHash).toMatch(/^[a-f0-9]{64}$/);
+        expect(
+          completed.modelAttempts.every(
+            (attempt) => attempt.accounting === "accounted",
+          ),
+        ).toBe(true);
+        expect(bytes(completed)).toBeLessThanOrEqual(60_000);
+        const replacement = await f.claim(escaped, "\ud801".repeat(200));
+        expect(bytes(await f.work())).toBeLessThanOrEqual(60_000);
+        await f.app.finishResolutionLearningWork(service, {
+          ...replacement.fence,
+          disposition: "retry",
+          retryAt: f.clock.now(),
+          reason: escaped,
+        });
+        expect(bytes(await f.work())).toBeLessThanOrEqual(60_000);
+        const reclaimed = await f.claim(
+          "\ud802".repeat(200),
+          "\ud801".repeat(200),
+        );
+        const final = await f.work();
+        expect(final.candidate).toEqual(candidate);
+        expect(final.candidateHash).toBe(completed.candidateHash);
+        expect(final.modelAttempts).toEqual(completed.modelAttempts);
+        expect(final.claim).toEqual(reclaimed.fence);
+        expect(bytes(final)).toBeLessThanOrEqual(60_000);
+        return {
+          preparedWorkGeneration,
+          work: final,
+          finalBytes: bytes(final),
+        };
+      };
+
+      // Measure every wrapper, retained attempt, receipt and escaped claim using
+      // real application writes. Padding a retained binding changes only its
+      // encoded text length: the request, step and completion digests stay 64 hex.
+      const control = resolutionLearningFixture(createStore());
+      const controlOwner = await setup(control);
+      const controlBinding = control.modelBinding(controlOwner);
+      const controlPrepared = await control.app.prepareResolutionLearningStep(
+        service,
+        { ...controlOwner.fence, step: "model", binding: controlBinding },
+      );
+      const measured = await completeAndReclaim(
+        control,
+        controlOwner,
+        controlPrepared,
+      );
+      const unsafeFinalBytes = 60_002;
+      const binding: ResolutionLearningModelBinding = { ...controlBinding };
+      let remaining = (unsafeFinalBytes - measured.finalBytes) / 2;
+      expect(remaining).toBeGreaterThan(0);
+      for (const field of [
+        "configVersion",
+        "promptVersion",
+        "modelVersion",
+        "checkPolicyVersion",
+        "usageReservationId",
+      ] as const) {
+        if (remaining === 0) break;
+        const previous = bytes(binding[field]) / 2 - 2;
+        const target = Math.min(1_200, previous + remaining);
+        const surrogates = Math.floor(target / 6);
+        const ascii = Math.min(200 - surrogates, target - surrogates * 6);
+        const padded = "\ud800".repeat(surrogates) + "x".repeat(ascii);
+        remaining -= bytes(padded) / 2 - 2 - previous;
+        Object.assign(binding, { [field]: padded });
+        expect(padded.length).toBeLessThanOrEqual(200);
+      }
+      expect(remaining).toBe(0);
+      expect(measured.finalBytes + bytes(binding) - bytes(controlBinding)).toBe(
+        unsafeFinalBytes,
+      );
+
+      const hashFieldBytes =
+        bytes({ candidateHash: "f".repeat(64) }) - bytes({}) + 2;
+      const accountedBytes = bytes("accounted") - bytes("unknown");
+      expect(hashFieldBytes).toBe(166);
+      expect(accountedBytes).toBe(4);
+      // Independent byte arithmetic for the old unsafe admission: even its wide
+      // claim counters and string payload allowance did not cover these fields.
+      const wideClaimCounters =
+        2 *
+        (bytes(Number.MAX_SAFE_INTEGER) - bytes(measured.work.claimGeneration));
+      const stringPayloadAllowance =
+        bytes("\ud800".repeat(Math.ceil(bytes(candidate) / 12))) -
+        bytes(candidate);
+      const workCounterDifference =
+        bytes(measured.preparedWorkGeneration) -
+        bytes(measured.work.workGeneration);
+      const oldReservationBytes =
+        unsafeFinalBytes -
+        hashFieldBytes -
+        accountedBytes +
+        wideClaimCounters +
+        stringPayloadAllowance +
+        workCounterDifference;
+      expect(oldReservationBytes).toBeLessThanOrEqual(60_000);
+      expect(unsafeFinalBytes).toBeGreaterThan(60_000);
+
+      const boundary = resolutionLearningFixture(createStore());
+      const owner = await setup(boundary);
+      const normal = boundary.modelBinding(owner);
+      expect(bytes(normal)).toBe(bytes(controlBinding));
+      const request = {
+        ...normal,
+        configVersion: binding.configVersion,
+        promptVersion: binding.promptVersion,
+        modelVersion: binding.modelVersion,
+        checkPolicyVersion: binding.checkPolicyVersion,
+        usageReservationId: binding.usageReservationId,
+      };
+      const before = await boundary.rows();
+      let paidCalls = 0;
+      const admission = await boundary.app
+        .prepareResolutionLearningStep(service, {
+          ...owner.fence,
+          step: "model",
+          binding: request,
+        })
+        .then(
+          (prepared) => ({ prepared }),
+          (error: unknown) => ({ error }),
+        );
+      if ("error" in admission) {
+        expect(admission.error).toMatchObject({
+          name: "SupportDeskLimitError",
+          field: "serialized_record",
+          maximum: 60_000,
+        });
+        expect(paidCalls).toBe(0);
+        expect(await boundary.rows()).toEqual(before);
+        expect((await boundary.work()).claim).toEqual(owner.fence);
+      } else {
+        paidCalls += 1;
+        const completed = await completeAndReclaim(
+          boundary,
+          owner,
+          admission.prepared,
+        );
+        expect(paidCalls).toBe(1);
+        expect(completed.finalBytes).toBe(unsafeFinalBytes);
+      }
     });
 
     it("holds a valid thirty-two-reference KB request that exceeds the full row envelope without truncating it", async () => {

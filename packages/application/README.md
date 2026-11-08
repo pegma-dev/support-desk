@@ -30,7 +30,8 @@ work, exact staff review, withdrawal, and reconciliation operations. The
 [resolution learning guide](../../docs/RESOLUTION_LEARNING.md) documents the
 `support.learning.*` permissions, trusted evidence ports, 13-row human reserve
 plus two withdrawal rows, and source retention requirements. The public AI
-learning coordinator and KB delivery integration remain unfinished. This
+learning coordinator and KB delivery integration live in the optional AI
+package. Current-head validation and review remain required. This application
 package still has no KB or model-provider dependency.
 
 Customer create uses `support.ticket.create`; list and read both use the
