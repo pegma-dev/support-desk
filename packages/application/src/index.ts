@@ -50,6 +50,27 @@ import type {
   ResolutionLearningOptions,
   ResolutionLearningSourceResult,
 } from "./resolution-learning-types.js";
+import type {
+  EngineeringApplication,
+  EngineeringOptions,
+  EngineeringPolicyApplication,
+} from "./engineering-types.js";
+import {
+  createEngineeringEvidenceServices,
+  planEngineeringTicketMutation,
+} from "./engineering-evidence.js";
+import {
+  assertEngineeringRecord,
+  createEngineeringSource,
+  resolveEngineeringOptions,
+  type EngineeringSourceRecord,
+  type EngineeringWorkRecord,
+  type EngineeringReceiptRecord,
+} from "./engineering-records.js";
+import { createEngineeringPolicyServices } from "./engineering-policy.js";
+import { createEngineeringWorkerServices } from "./engineering-work.js";
+import { createEngineeringReconciliationServices } from "./engineering-reconciliation.js";
+import type { EngineeringDependencies } from "./engineering-internal.js";
 import {
   assertResolutionLearningRecord,
   resolveResolutionLearningOptions,
@@ -76,6 +97,30 @@ export type * from "./assistant-turn-types.js";
 export type { AssistantTurnRecord } from "./assistant-turn-records.js";
 
 export type { InboundSenderAuthentication };
+export type * from "./engineering-types.js";
+export type {
+  EngineeringSourceRecord,
+  EngineeringWorkRecord,
+  EngineeringReceiptRecord,
+  EngineeringPreparedProposal,
+} from "./engineering-records.js";
+export {
+  engineeringPolicyRecords,
+  engineeringPolicyAudit,
+  engineeringPolicyAuditActions,
+  createEngineeringPolicyServices,
+} from "./engineering-policy.js";
+export type {
+  EngineeringPolicyOptions,
+  EngineeringPolicyRecord,
+} from "./engineering-policy.js";
+export {
+  engineeringModelManifestHash,
+  engineeringRoutingBinding,
+  engineeringExportChecksBinding,
+  engineeringRoutingBindingHash,
+  engineeringStaffSelectionHash,
+} from "./engineering-work.js";
 
 export const supportPermissions = Object.freeze({
   create: "support.ticket.create",
@@ -99,6 +144,16 @@ export const supportPermissions = Object.freeze({
   learningProcess: "support.learning.process",
   learningReview: "support.learning.review",
   learningWithdraw: "support.learning.withdraw",
+  engineeringRead: "support.engineering.read",
+  engineeringEvidenceSubmit: "support.engineering.evidence.submit",
+  engineeringProcess: "support.engineering.process",
+  engineeringReview: "support.engineering.review",
+  engineeringWithdraw: "support.engineering.withdraw",
+  engineeringRestrictedRead: "support.engineering.restricted.read",
+  engineeringSecurityReview: "support.engineering.security.review",
+  engineeringReconcile: "support.engineering.reconcile",
+  engineeringPolicyRead: "support.engineering.policy.read",
+  engineeringPolicyManage: "support.engineering.policy.manage",
 } as const);
 
 export interface SupportDeskLimits {
@@ -188,6 +243,8 @@ export class SupportDeskLimitError extends Error {
       | "handoff_summary"
       | "serialized_record"
       | "customer_tickets"
+      | "engineering_policy_records"
+      | "engineering_policy_repositories"
       | "ticket_messages"
       | "ticket_partition",
     readonly maximum: number,
@@ -394,6 +451,9 @@ interface TicketReservationRecord {
 }
 
 export type SupportRecord =
+  | EngineeringSourceRecord
+  | EngineeringWorkRecord
+  | EngineeringReceiptRecord
   | ResolutionLearningSourceRecord
   | ResolutionLearningWorkRecord
   | ResolutionLearningReviewRecord
@@ -440,6 +500,16 @@ export const supportTicketAuditActions = Object.freeze({
   learningEvidenceInvalidated: "support.learning.evidence_invalidated",
   learningWithdrawn: "support.learning.withdrawn",
   learningReviewed: "support.learning.reviewed",
+  engineeringEnrolled: "support.engineering.enrolled",
+  engineeringEvidenceRecorded: "support.engineering.evidence_recorded",
+  engineeringEvidenceInvalidated: "support.engineering.evidence_invalidated",
+  engineeringWithdrawn: "support.engineering.withdrawn",
+  engineeringRepositorySelected: "support.engineering.repository_selected",
+  engineeringProposalPrepared: "support.engineering.proposal_prepared",
+  engineeringReviewed: "support.engineering.reviewed",
+  engineeringDispatchStarted: "support.engineering.dispatch_started",
+  engineeringExportRecorded: "support.engineering.export_recorded",
+  engineeringReconciled: "support.engineering.reconciled",
 } as const);
 
 export interface CustomerTicketIndexEntry {
@@ -608,6 +678,17 @@ function jsonCodec<T>(key: (value: T) => EntityKey): Codec<T> {
       const location = key(value);
       if (
         [
+          "engineering_source",
+          "engineering_work",
+          "engineering_receipt",
+        ].includes((value as { kind?: string }).kind ?? "") ||
+        location.id === "engineering-source" ||
+        location.id.startsWith("engineering-work:") ||
+        location.id.startsWith("engineering-command:")
+      )
+        assertEngineeringRecord(value, location);
+      if (
+        [
           "resolution_learning_source",
           "resolution_learning_work",
           "resolution_learning_review",
@@ -633,6 +714,29 @@ function jsonCodec<T>(key: (value: T) => EntityKey): Codec<T> {
         throw new TypeError("stored Support Desk record has no JSON payload");
       }
       const decoded = JSON.parse(record.payload) as T;
+      if (
+        [
+          "engineering_source",
+          "engineering_work",
+          "engineering_receipt",
+        ].includes((decoded as { kind?: string })?.kind ?? "") ||
+        record.id === "engineering-source" ||
+        (typeof record.id === "string" &&
+          (record.id.startsWith("engineering-work:") ||
+            record.id.startsWith("engineering-command:")))
+      ) {
+        if (
+          typeof record.partition !== "string" ||
+          typeof record.id !== "string"
+        )
+          throw new TypeError(
+            "Engineering record has invalid physical envelope",
+          );
+        assertEngineeringRecord(decoded, {
+          partition: record.partition,
+          id: record.id,
+        });
+      }
       if (
         [
           "resolution_learning_source",
@@ -1222,7 +1326,11 @@ export interface QueueInactiveSweepResult {
 }
 
 export interface SupportDeskApplication
-  extends AssistantTurnApplication, ResolutionLearningApplication {
+  extends
+    AssistantTurnApplication,
+    ResolutionLearningApplication,
+    EngineeringApplication,
+    EngineeringPolicyApplication {
   readHandoffWork(
     access: AccessContext,
     ticketId: TicketId,
@@ -2193,19 +2301,74 @@ function enforcePartitionRecordLimit(
 export const assistantHumanReserveRows = 12;
 export const assistantHumanReserveMessages = 1;
 const firstHumanReplyReserveRows = 4;
+async function planTicketDerivationMutation(
+  records: Parameters<typeof planResolutionLearningTicketMutation>[0],
+  before: Parameters<typeof planResolutionLearningTicketMutation>[1],
+  after: Ticket,
+  visibleChange = false,
+) {
+  const learning = await planResolutionLearningTicketMutation(
+    records,
+    before,
+    after,
+  );
+  const engineering = await planEngineeringTicketMutation(
+    records,
+    before,
+    after,
+    {
+      visibleChange,
+    },
+  );
+  return {
+    ...learning,
+    actions: [...learning.actions, ...engineering.actions],
+    additionalRows: learning.additionalRows + engineering.additionalRows,
+  };
+}
+
 function humanReserveRows(rows: readonly SupportRecord[]): number {
   return (
     assistantHumanReserveRows +
     (rows.some((row) => row.kind === "resolution_learning_source") ? 1 : 0)
   );
 }
-function withdrawalReserveRows(rows: readonly SupportRecord[]): number {
-  return rows.some(
-    (row) =>
-      row.kind === "resolution_learning_source" && row.state !== "withdrawn",
-  )
-    ? 2
-    : 0;
+type DerivationReserveConsumption =
+  | false
+  | "learning"
+  | "engineering"
+  | { readonly engineeringTerminalWorkId: string };
+
+function derivationReserveRows(
+  rows: readonly SupportRecord[],
+  consuming: DerivationReserveConsumption = false,
+): number {
+  const learning =
+    consuming !== "learning" &&
+    rows.some(
+      (row) =>
+        row.kind === "resolution_learning_source" && row.state !== "withdrawn",
+    )
+      ? 2
+      : 0;
+  const engineering =
+    consuming !== "engineering" &&
+    rows.some(
+      (row) => row.kind === "engineering_source" && row.state !== "withdrawn",
+    )
+      ? 2
+      : 0;
+  const terminalWorkId =
+    typeof consuming === "object" ? consuming.engineeringTerminalWorkId : null;
+  const terminal = rows.reduce(
+    (sum, row) =>
+      sum +
+      (row.kind === "engineering_work" && row.id !== terminalWorkId
+        ? row.terminalReserveRows
+        : 0),
+    0,
+  );
+  return learning + engineering + terminal;
 }
 
 /** Reserve is opt-in metadata on the existing quota, never a second counter. */
@@ -2216,7 +2379,7 @@ function enforceManagedAdmission(
   additionalRows: number,
   addsMessage = false,
   firstHumanReply = false,
-  consumesWithdrawalReserve = false,
+  consumesWithdrawalReserve: DerivationReserveConsumption = false,
 ): void {
   const quota = rows.find(
     (row): row is TicketQuotaRecord => row.kind === "ticket_quota",
@@ -2229,7 +2392,7 @@ function enforceManagedAdmission(
     rows.length,
     limits.maxRecordsPerTicket -
       (reserved ? humanReserveRows(rows) : 0) -
-      (consumesWithdrawalReserve ? 0 : withdrawalReserveRows(rows)),
+      derivationReserveRows(rows, consumesWithdrawalReserve),
     additionalRows,
   );
   if (
@@ -2263,7 +2426,7 @@ function enforceHandlingControlAdmission(
   rows: readonly SupportRecord[],
   limits: SupportDeskLimits,
   additionalRows: number,
-  consumesWithdrawalReserve = false,
+  consumesWithdrawalReserve: DerivationReserveConsumption = false,
 ): void {
   const quota = rows.find(
     (row): row is TicketQuotaRecord => row.kind === "ticket_quota",
@@ -2275,7 +2438,7 @@ function enforceHandlingControlAdmission(
     rows.length,
     limits.maxRecordsPerTicket -
       (reserved ? firstHumanReplyReserveRows : 0) -
-      (consumesWithdrawalReserve ? 0 : withdrawalReserveRows(rows)),
+      derivationReserveRows(rows, consumesWithdrawalReserve),
     additionalRows,
   );
   if (reserved && quota.messageCount >= limits.maxMessagesPerTicket)
@@ -3554,8 +3717,22 @@ export function createSupportDeskApplication(options: {
   /** Optional durable scheduling; absent retains the SD-01 manual assistant seam. */
   readonly assistantTurns?: AssistantTurnOptions;
   readonly resolutionLearning?: ResolutionLearningOptions;
+  readonly engineering?: EngineeringOptions;
+  readonly engineeringPolicy?: {
+    readonly maxRepositories?: number;
+    readonly maxRecords?: number;
+    readonly historyRetentionMilliseconds?: number;
+  };
 }): SupportDeskApplication {
   const source = boundaryObject(options, "application options");
+  const engineeringOptions = resolveEngineeringOptions(
+    ownDataProperty(
+      source,
+      "engineering",
+      "application options.engineering",
+      true,
+    ) as EngineeringOptions | undefined,
+  );
   const resolutionLearningOptions = resolveResolutionLearningOptions(
     ownDataProperty(
       source,
@@ -3684,6 +3861,45 @@ export function createSupportDeskApplication(options: {
   ) {
     throw new TypeError("maxConflictAttempts must be between 1 and 20");
   }
+  const rawEngineeringPolicy = ownDataProperty(
+    source,
+    "engineeringPolicy",
+    "application options.engineeringPolicy",
+    true,
+  );
+  const engineeringPolicyOverrides: {
+    maxRepositories?: number;
+    maxRecords?: number;
+    historyRetentionMilliseconds?: number;
+  } = {};
+  if (rawEngineeringPolicy !== undefined) {
+    const policyOptions = boundaryObject(
+      rawEngineeringPolicy,
+      "engineeringPolicy options",
+    );
+    for (const field of [
+      "maxRepositories",
+      "maxRecords",
+      "historyRetentionMilliseconds",
+    ] as const) {
+      const value = ownDataProperty(
+        policyOptions,
+        field,
+        `engineeringPolicy.${field}`,
+        true,
+      );
+      if (value === undefined) continue;
+      if (typeof value !== "number")
+        throw new TypeError(`engineeringPolicy.${field} must be a number`);
+      engineeringPolicyOverrides[field] = value;
+    }
+  }
+  const engineeringPolicy = createEngineeringPolicyServices({
+    store,
+    clock,
+    maxConflictAttempts,
+    ...engineeringPolicyOverrides,
+  });
   const terminalRetentionMilliseconds =
     rawTerminalRetention === undefined
       ? defaultQueueTerminalRetentionMilliseconds
@@ -4089,7 +4305,13 @@ export function createSupportDeskApplication(options: {
     admission: (ticket, rows, additional) =>
       enforceManagedAdmission(ticket, rows, limits, additional),
     withdrawalAdmission: (ticket, rows, additional) =>
-      enforceHandlingControlAdmission(ticket, rows, limits, additional, true),
+      enforceHandlingControlAdmission(
+        ticket,
+        rows,
+        limits,
+        additional,
+        "learning",
+      ),
     audit: (command, ticket, actorId, now, action) =>
       ticketAuditAction({
         commandId: command.commandId,
@@ -4102,6 +4324,67 @@ export function createSupportDeskApplication(options: {
           action as (typeof supportTicketAuditActions)[keyof typeof supportTicketAuditActions],
       }),
   });
+
+  const engineeringDependencies: EngineeringDependencies = {
+    records,
+    clock,
+    limits,
+    options: engineeringOptions,
+    maxConflictAttempts,
+    policy: engineeringPolicy,
+    admission: (ticket, rows, additional) =>
+      enforceManagedAdmission(ticket, rows, limits, additional),
+    withdrawalAdmission: (ticket, rows, additional) =>
+      enforceHandlingControlAdmission(
+        ticket,
+        rows,
+        limits,
+        additional,
+        "engineering",
+      ),
+    completionAdmission: (ticket, rows, additional, workId) => {
+      const consumption = { engineeringTerminalWorkId: workId };
+      const current = rows.find(
+        (row): row is TicketRecord =>
+          row.kind === "ticket" && row.ticket.id === ticket.id,
+      );
+      if (current !== undefined)
+        enforceHandlingControlAdmission(
+          current.ticket,
+          rows,
+          limits,
+          additional,
+          consumption,
+        );
+      else
+        enforcePartitionRecordLimit(
+          rows.length,
+          limits.maxRecordsPerTicket - derivationReserveRows(rows, consumption),
+          additional,
+        );
+    },
+    audit: (command, ticket, actorId, now, action) =>
+      ticketAuditAction({
+        commandId: command.commandId,
+        correlationId: command.correlationId,
+        ticketId: ticket.id,
+        revision: ticket.revision,
+        actorId,
+        occurredAt: now,
+        action:
+          action as (typeof supportTicketAuditActions)[keyof typeof supportTicketAuditActions],
+      }),
+  };
+  const engineeringEvidence = createEngineeringEvidenceServices(
+    engineeringDependencies,
+  );
+  const engineeringWorkers = createEngineeringWorkerServices(
+    engineeringDependencies,
+    engineeringEvidence.load,
+  );
+  const engineeringReconciliation = createEngineeringReconciliationServices(
+    engineeringDependencies,
+  );
 
   type HandlingOperation =
     | "assistant_reply"
@@ -4257,10 +4540,11 @@ export function createSupportDeskApplication(options: {
                     ...common,
                   });
       if (updated.revision === ticket.revision) return ticket;
-      const learningMutation = await planResolutionLearningTicketMutation(
+      const learningMutation = await planTicketDerivationMutation(
         records,
         { value: versioned.value, version: versioned.version },
         updated,
+        operation === "assistant_reply",
       );
       const learningConfirmation =
         operation === "confirm_customer_success"
@@ -4473,6 +4757,10 @@ export function createSupportDeskApplication(options: {
 
   return {
     ...resolutionLearning.application,
+    ...engineeringEvidence.application,
+    ...engineeringWorkers,
+    ...engineeringReconciliation,
+    ...engineeringPolicy.application,
     scanAssistantTurnCandidates: assistantTurns.scanAssistantTurnCandidates,
     claimAssistantTurn: assistantTurns.claimAssistantTurn,
     prepareAssistantTurnAttempt: assistantTurns.prepareAssistantTurnAttempt,
@@ -4803,6 +5091,7 @@ export function createSupportDeskApplication(options: {
       const estimatedCreateRows =
         6 + // ticket, quota, reservation, message, audit, command
         (resolutionLearningOptions.enabled ? 1 : 0) +
+        (engineeringOptions.enabled ? 1 : 0) +
         (command.notification === undefined ? 0 : 1) +
         (assistantTurnOptions !== undefined &&
         command.initialHandling === "assistant"
@@ -4813,6 +5102,7 @@ export function createSupportDeskApplication(options: {
         limits.maxRecordsPerTicket,
         estimatedCreateRows +
           (resolutionLearningOptions.enabled ? 2 : 0) +
+          (engineeringOptions.enabled ? 2 : 0) +
           (command.initialHandling === "assistant"
             ? assistantHumanReserveRows +
               (resolutionLearningOptions.enabled ? 1 : 0)
@@ -4944,6 +5234,14 @@ export function createSupportDeskApplication(options: {
               ]
             : [];
       const actions: Parameters<typeof records.transact>[1] = [
+        ...(engineeringOptions.enabled
+          ? [
+              {
+                action: "insert" as const,
+                value: await createEngineeringSource(ticket),
+              },
+            ]
+          : []),
         ...(resolutionLearningOptions.enabled
           ? [
               {
@@ -5150,10 +5448,11 @@ export function createSupportDeskApplication(options: {
               effectiveTicketHandling(updated).generation,
           });
         }
-        const learningMutation = await planResolutionLearningTicketMutation(
+        const learningMutation = await planTicketDerivationMutation(
           records,
           { value: versioned.value, version: versioned.version },
           updated,
+          true,
         );
         enforcePartitionRecordLimit(
           partitionRows.length,
@@ -5574,10 +5873,11 @@ export function createSupportDeskApplication(options: {
           actorId: access.principalId,
           occurredAt: now,
         });
-        const learningMutation = await planResolutionLearningTicketMutation(
+        const learningMutation = await planTicketDerivationMutation(
           records,
           { value: versioned.value, version: versioned.version },
           updated,
+          true,
         );
         enforcePartitionRecordLimit(
           partitionRows.length,
@@ -6492,10 +6792,11 @@ export function createSupportDeskApplication(options: {
         actorId: access.principalId,
         occurredAt: now,
       });
-      const learningMutation = await planResolutionLearningTicketMutation(
+      const learningMutation = await planTicketDerivationMutation(
         records,
         { value: versioned.value, version: versioned.version },
         updated,
+        command.messageId !== undefined,
       );
       enforcePartitionRecordLimit(
         partitionRows.length,
@@ -9656,10 +9957,11 @@ export function createInboundMailProcessor(
         responseTargetPolicy,
         "customer_replied",
       );
-      const learningMutation = await planResolutionLearningTicketMutation(
+      const learningMutation = await planTicketDerivationMutation(
         records,
         { value: versioned.value, version: versioned.version },
         updated,
+        true,
       );
       try {
         enforceManagedAdmission(

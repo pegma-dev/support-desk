@@ -22,6 +22,81 @@ memory tests, and real-adapter tests.
 
 ## Authoritative records
 
+### SD-04 engineering layout checkpoint
+
+This checkpoint precedes SD-04 production changes. It records a source design,
+not implementation, publication, or host acceptance. SD-03 merged in
+[PR #39](https://github.com/pegma-dev/support-desk/pull/39) before this work began.
+
+An explicitly enrolled ticket has one `engineering-source` record and bounded
+`engineering-work:<sourceGeneration>` records in `support-desk.records.v1`.
+Their accepted changes, Audit actions, command receipts, source invalidations,
+export requests, and remote acknowledgements share the ticket partition.
+Engineering evidence can apply to open tickets; successful resolution evidence
+never establishes a bug. Staff-verified reproduction or a trusted relevant
+failing-test receipt must bind expected/actual behavior, reproduction/test,
+actor, trusted product/build, and source generation. Source rows contain no
+copied conversation archive. Restricted or uncertain security cases cannot
+enter ordinary export.
+
+`support-desk.engineering-policy.v1`, partition `instance`, contains a bounded
+current repository policy, its Audit events, and command receipts. Each entry
+uses immutable repository identity and current owner/name, visibility,
+responsibilities, product/component/version descriptions, allowed labels and
+templates, and approval-required publication authority. Credentials remain
+host-owned. No initial automatic-filing mode is enabled. The policy partition
+has a finite row budget and reserves two rows for an emergency disable action.
+Its own transaction cannot atomically commit with a ticket transaction.
+
+Policy history has a configurable retention horizon (30 days by default).
+Authorized `pruneRepositoryPolicyHistory` reads at most 64 physical records per
+page, confirms immutable Audit/receipt pairs and the policy head, and removes
+expired records with opaque version-conditional deletes. Cleanup can be partial
+and is repeated with host-owned cursors. It never removes the authoritative
+head. Expired command receipts are not an indefinite replay guarantee; expected
+policy generations still prevent an old command from changing a newer head.
+
+The optional AI package uses a separate assessment purpose and bounded current
+allowlisted descriptors. A trusted independently verifiable calibration gate
+binds normalized routing decisions to versioned evaluated model/prompt/parser
+and allowlist facts. Self-reported confidence is not calibration. Unknown,
+competing, or ambiguous targets require authorized human selection. Independent
+privacy, factual, security, and public-reproduction checks bind the complete
+sanitized outbound request. Duplicate discovery uses only trusted configured
+queries or independently checked sanitized text, with bounded physical results.
+
+Staff approval binds exact title/body/labels/template/evidence/opaque marker,
+source and evidence generation, repository immutable ID/current metadata and
+visibility, policy generation, routing and check results. Source, policy,
+installation authority, and remote metadata are checked again before dispatch.
+Changes invalidate approval without relying on projection repair. These are
+fresh cross-partition checks, not a global atomic snapshot.
+
+An approved request is durable before its one physical issue-creation call.
+A fenced `dispatch-started` transition must precede the call. A replacement
+worker observing possible dispatch performs reconciliation only. An opaque
+marker correlates remote acceptance; it does not make GitHub idempotent.
+Absence, timeout, and age never authorize another create. Retain unresolved
+request identity and destination through later source invalidation or deletion.
+Linking an existing issue creates only a private Support association; external
+comments or edits require their own exact approval boundary.
+
+Evidence/proposal generations, model attempts, targets, claims, review history,
+and complete encoded records are finite. Construct the largest reachable later
+completion/reconciliation states before paid work, preserving the 60,000-byte
+record cap. Engineering consumes ordinary capacity and preserves the existing
+human reserve. Independently withdrawable engineering sources reserve their
+own two Audit/receipt rows; they cannot reuse learning's withdrawal reserve.
+Relevant visible-message/reopen changes invalidate persisted sources even if
+new composition options omit engineering. Worker changes do not increment the
+ticket domain revision. Metadata and notes are not new bug evidence.
+
+Permanent withdrawal scrubs private evidence, model manifests and draft copies,
+stops new export, and retains only required opaque reconciliation identity.
+Hosts withdraw every derivation workflow before deleting ticket bodies.
+Withdrawal does not claim to retract already exported GitHub content; external
+privacy remediation remains separately authorized host work.
+
 `support-desk.records.v1` is a heterogeneous collection partitioned by ticket
 ID. One partition contains:
 

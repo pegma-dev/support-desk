@@ -8,16 +8,24 @@ the exact verified published `0.1.2` application and contracts packages.
 The base Support Desk application works without this package, a KB, or a model.
 Customer request-person and staff takeover remain deterministic application
 commands during provider outages. Email remains human support. This package
-provides separate answer and resolution-learning coordinators. Answering only
+provides separate answer, resolution-learning, and engineering coordinators. Answering only
 replies or escalates. Learning prepares private KB drafts and reconciles source
-withdrawal through separate retirement authority. Neither coordinator resolves
-tickets, changes accounts, publishes knowledge, or routes engineering work.
+withdrawal through separate retirement authority. Engineering prepares verified
+bug proposals and approval-controlled issue exports. These coordinators cannot
+resolve tickets, change accounts, or publish knowledge.
 
 `createSupportDeskLearning` and `createSupportDeskLearningSourceVerifier` are
-the SD-03 source candidate. See the
+merged SD-03 source. See the
 [resolution learning guide](../../docs/RESOLUTION_LEARNING.md) for exact proof,
-permission, draft, review, privacy, and recovery boundaries. Current-head
-validation and review still precede completion; host adoption requires SD-06.
+permission, draft, review, privacy, and recovery boundaries. Host adoption
+requires the synchronized SD-06 release.
+
+`createSupportDeskEngineering` is the SD-04 source candidate. It uses verified
+failure evidence, current admin repository policy, independently calibrated
+routing, exact sanitized export checks, and staff approval. A durable dispatch
+fence precedes one physical GitHub creation attempt; uncertain acceptance
+requires reconciliation. See the [engineering guide](../../docs/ENGINEERING_EXPORT.md).
+Current-head validation and review remain required before this candidate merges.
 
 ## Composition
 
