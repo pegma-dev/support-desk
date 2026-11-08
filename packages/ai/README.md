@@ -2,7 +2,7 @@
 
 Optional, provider-neutral Support Desk answer, learning, engineering, and
 release follow-up coordination.
-This source candidate is `0.1.1`; it has not been published. A synchronized
+This source candidate is `0.2.0`; it has not been published. A synchronized
 Support Desk release is required before host adoption. Its KB dependencies are
 the exact verified published `0.1.2` application and contracts packages.
 
@@ -32,7 +32,7 @@ requires reconciliation. See the [engineering guide](../../docs/ENGINEERING_EXPO
 Host adoption still requires the synchronized SD-06 release and its activation
 gates.
 
-`createSupportDeskReleaseFollowup` is the SD-05 implementation candidate, with
+`createSupportDeskReleaseFollowup` is merged SD-05 source, with
 four methods: `scanCandidates`, `processWork`, `prepareStaffReassessment`, and
 `approveAndPostWebUpdate`. Generation uses the separate
 `support_release_followup` purpose and current evaluated model/data-control

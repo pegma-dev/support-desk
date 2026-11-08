@@ -54,6 +54,9 @@ jobs:
       - name: Run synthetic composition
         run: pnpm example
 
+      - name: Run optional AI composition
+        run: pnpm run ai:example
+
       - name: Check release metadata
         run: pnpm run release:check
 

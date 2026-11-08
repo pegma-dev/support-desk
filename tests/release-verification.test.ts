@@ -1,0 +1,670 @@
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  assertTrustedPublishingEnvironment,
+  inspectReleaseTarball,
+  preflightRegistry,
+  verifyPreparedRelease,
+  verifyProvenanceAudit,
+  verifyRegistryRelease,
+} from "../scripts/release-verification.mjs";
+import {
+  releaseArtifactFixture,
+  releaseAuditCertificate,
+  releaseAuditFixture,
+  releaseAuditStatement,
+  releaseDigest,
+  releaseFixtureTarball,
+  releasePublishingEnvironment,
+  releaseRegistryFixture,
+  setReleaseAuditStatement,
+  releaseVerificationCommit,
+  releaseVerificationPackages,
+  releaseVerificationVersion,
+} from "../test/release-verification-fixtures.js";
+
+type Fixture = ReturnType<typeof releaseArtifactFixture>;
+const fixtures = new Set<Fixture>();
+function fixture() {
+  const value = releaseArtifactFixture();
+  fixtures.add(value);
+  return value;
+}
+function options(f: Fixture) {
+  return {
+    manifest: f.manifestPath,
+    manifestSha256: f.originalManifestSha256,
+    releaseTag: `v${releaseVerificationVersion}`,
+    expectedReleaseCommit: releaseVerificationCommit,
+  };
+}
+function writeManifest(f: Fixture) {
+  const bytes = Buffer.from(`${JSON.stringify(f.manifest, null, 2)}\n`);
+  writeFileSync(f.manifestPath, bytes);
+  return { ...options(f), manifestSha256: releaseDigest("sha256", bytes) };
+}
+function replacePackage(
+  f: Fixture,
+  index: number,
+  packageJson: Record<string, unknown>,
+) {
+  const entry = f.packages[index]!;
+  const packed = releaseFixtureTarball(packageJson);
+  writeFileSync(join(f.directory, entry.record.tarball), packed.bytes);
+  Object.assign(entry.record, {
+    integrity: `sha512-${releaseDigest("sha512", packed.bytes, "base64")}`,
+    shasum: releaseDigest("sha1", packed.bytes),
+    files: packed.files,
+  });
+  return writeManifest(f);
+}
+
+afterEach(() => {
+  for (const value of fixtures) value.dispose();
+  fixtures.clear();
+});
+
+describe("registry verification of the original bytes", () => {
+  it("checks every exact registry tarball, authenticates source provenance and imports all public exports with pinned npm", async () => {
+    const f = fixture();
+    const registry = releaseRegistryFixture(f);
+    const receipt = await verifyRegistryRelease(
+      { ...options(f), npmCli: registry.npmCli, npmVersion: "11.18.0" },
+      registry.ports,
+    );
+    expect(receipt).toMatchObject({
+      verified: true,
+      manifestSha256: f.originalManifestSha256,
+      identity: {
+        repository: "pegma-dev/support-desk",
+        workflow: ".github/workflows/publish.yml",
+        environment: "npm-publish",
+        tag: "v0.2.0",
+        commit: releaseVerificationCommit,
+        version: "0.2.0",
+      },
+      packages: releaseVerificationPackages.map(({ name }) => name),
+    });
+    expect(registry.state.consumerDependencies).toEqual(
+      Object.fromEntries(
+        releaseVerificationPackages.map(({ name }) => [name, "0.2.0"]),
+      ),
+    );
+    expect(registry.state.imports).toBe(1);
+    expect(registry.state.consumerSource).toContain(
+      'await import("@pegma/support-desk-templates/retiregolden")',
+    );
+    for (const { name } of releaseVerificationPackages) {
+      expect(
+        registry.fetch.mock.calls.some(
+          ([url]) => url === registry.metadataUrl(name),
+        ),
+      ).toBe(true);
+      expect(
+        registry.fetch.mock.calls.some(
+          ([url]) => url === registry.tarballUrl(name),
+        ),
+      ).toBe(true);
+      expect(registry.state.consumerSource).toContain(
+        `await import(${JSON.stringify(name)})`,
+      );
+    }
+    const commands = registry.run.mock.calls.map(([, args]) => args.slice(1));
+    expect(commands).toContainEqual(["--version"]);
+    expect(
+      commands.some(
+        (args) => args[0] === "install" && args.includes("--ignore-scripts"),
+      ),
+    ).toBe(true);
+    expect(
+      commands.some(
+        (args) =>
+          args[0] === "audit" &&
+          args.includes("signatures") &&
+          args.includes("--include-attestations"),
+      ),
+    ).toBe(true);
+    expect(
+      commands.some(
+        (args) => args.includes("pack") || args.includes("publish"),
+      ),
+    ).toBe(false);
+    for (const [binary, , processOptions] of registry.run.mock.calls) {
+      expect(binary).toBe(process.execPath);
+      expect(processOptions.env.NODE_AUTH_TOKEN).toBeUndefined();
+      expect(processOptions.env.NPM_TOKEN).toBeUndefined();
+      expect(processOptions.env.npm_config_ignore_scripts).toBe("true");
+      expect(processOptions.env.npm_config_registry).toBe(
+        "https://registry.npmjs.org/",
+      );
+    }
+  });
+
+  it("preflights every existing package as skip only after checking its exact original bytes", async () => {
+    const f = fixture();
+    const registry = releaseRegistryFixture(f);
+    const verified = await verifyPreparedRelease(options(f));
+    expect(await preflightRegistry(verified, registry.ports)).toEqual(
+      releaseVerificationPackages.map(({ name }) => ({
+        name,
+        version: "0.2.0",
+        action: "skip",
+      })),
+    );
+    expect(registry.run).not.toHaveBeenCalled();
+    expect(registry.fetch).toHaveBeenCalledTimes(10);
+  });
+
+  it("distinguishes absent versions from metadata whose original tarball is not yet visible", async () => {
+    const f = fixture();
+    const registry = releaseRegistryFixture(f);
+    const verified = await verifyPreparedRelease(options(f));
+    const first = releaseVerificationPackages[0]!.name;
+    registry.documents.delete(registry.metadataUrl(first));
+    expect((await preflightRegistry(verified, registry.ports))[0]).toEqual({
+      name: first,
+      version: "0.2.0",
+      action: "publish",
+    });
+    const missingBytes = releaseRegistryFixture(f);
+    missingBytes.tarballs.delete(missingBytes.tarballUrl(first));
+    await expect(
+      preflightRegistry(verified, missingBytes.ports),
+    ).rejects.toThrow();
+    expect(missingBytes.run).not.toHaveBeenCalled();
+  });
+
+  it.each(["metadata", "tarball"] as const)(
+    "retries transient %s visibility against the same original artifact without repacking",
+    async (part) => {
+      const f = fixture();
+      const registry = releaseRegistryFixture(f);
+      if (part === "metadata") registry.state.metadataFailures = 2;
+      else registry.state.tarballFailures = 2;
+      const before = f.packages.map(({ record }) =>
+        readFileSync(join(f.directory, record.tarball)),
+      );
+      await expect(
+        verifyRegistryRelease(
+          { ...options(f), npmCli: registry.npmCli },
+          registry.ports,
+        ),
+      ).resolves.toMatchObject({ verified: true });
+      expect(
+        registry.sleep.mock.calls.map(([milliseconds]) => milliseconds),
+      ).toEqual([1_000, 2_000]);
+      expect(readFileSync(f.manifestPath)).toEqual(f.manifestBytes);
+      f.packages.forEach(({ record }, index) =>
+        expect(readFileSync(join(f.directory, record.tarball))).toEqual(
+          before[index],
+        ),
+      );
+      expect(
+        registry.run.mock.calls.some(
+          ([, args]) => args.includes("pack") || args.includes("publish"),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("bounds permanent registry visibility failure before installing or accepting any receipt", async () => {
+    const f = fixture();
+    const registry = releaseRegistryFixture(f);
+    registry.state.metadataFailures = 100;
+    await expect(
+      verifyRegistryRelease(
+        { ...options(f), npmCli: registry.npmCli },
+        registry.ports,
+      ),
+    ).rejects.toThrow();
+    expect(registry.fetch).toHaveBeenCalledTimes(9);
+    expect(
+      registry.sleep.mock.calls.map(([milliseconds]) => milliseconds),
+    ).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000]);
+    expect(registry.run).not.toHaveBeenCalled();
+    expect(readFileSync(f.manifestPath)).toEqual(f.manifestBytes);
+  });
+
+  it.each([
+    "version",
+    "integrity",
+    "sha1",
+    "dependency",
+    "tarball-url",
+    "bytes",
+    "missing-signatures",
+    "empty-signatures",
+  ] as const)(
+    "rejects different registry %s without running package code",
+    async (part) => {
+      const f = fixture();
+      const registry = releaseRegistryFixture(f);
+      const name = releaseVerificationPackages[0]!.name;
+      const document = registry.documents.get(registry.metadataUrl(name))!;
+      if (part === "version") document.version = "0.1.1";
+      if (part === "integrity")
+        document.dist.integrity = `sha512-${Buffer.alloc(64, 9).toString("base64")}`;
+      if (part === "sha1") document.dist.shasum = "d".repeat(40);
+      if (part === "dependency")
+        Object.assign(document, { dependencies: { "@pegma/spine": "0.1.1" } });
+      if (part === "tarball-url")
+        document.dist.tarball =
+          "https://untrusted.invalid/modified-release.tgz";
+      if (part === "missing-signatures")
+        Reflect.deleteProperty(document.dist, "signatures");
+      if (part === "empty-signatures") document.dist.signatures = [];
+      if (part === "bytes") {
+        const bytes = Buffer.from(
+          registry.tarballs.get(registry.tarballUrl(name))!,
+        );
+        bytes[bytes.length - 1] = bytes[bytes.length - 1]! ^ 0xff;
+        registry.tarballs.set(registry.tarballUrl(name), bytes);
+      }
+      await expect(
+        verifyRegistryRelease(
+          { ...options(f), npmCli: registry.npmCli },
+          registry.ports,
+        ),
+      ).rejects.toThrow();
+      expect(registry.run).not.toHaveBeenCalled();
+      expect(registry.state.imports).toBe(0);
+      expect(
+        registry.fetch.mock.calls.some(([url]) =>
+          String(url).startsWith("https://untrusted.invalid/"),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("does not reinterpret a registry authorization/server failure as a missing version", async () => {
+    const f = fixture();
+    const registry = releaseRegistryFixture(f);
+    registry.state.metadataStatus = 503;
+    await expect(
+      verifyRegistryRelease(
+        { ...options(f), npmCli: registry.npmCli },
+        registry.ports,
+      ),
+    ).rejects.toThrow();
+    expect(registry.sleep).not.toHaveBeenCalled();
+    expect(registry.run).not.toHaveBeenCalled();
+  });
+
+  it.each(["integrity", "resolved", "dependency", "link"] as const)(
+    "rejects a clean-consumer lock with a different %s before signature acceptance or imports",
+    async (part) => {
+      const f = fixture();
+      const registry = releaseRegistryFixture(f);
+      registry.state.mutateLock = (lock) => {
+        const installed =
+          lock.packages[
+            `node_modules/${releaseVerificationPackages[0]!.name}`
+          ]!;
+        if (part === "integrity") installed.integrity = "sha512-different";
+        if (part === "resolved") installed.resolved = "file:modified-local.tgz";
+        if (part === "dependency") installed.dependencies = {};
+        if (part === "link") installed.link = true;
+      };
+      await expect(
+        verifyRegistryRelease(
+          { ...options(f), npmCli: registry.npmCli },
+          registry.ports,
+        ),
+      ).rejects.toThrow();
+      expect(
+        registry.run.mock.calls.some(([, args]) => args.includes("audit")),
+      ).toBe(false);
+      expect(registry.state.imports).toBe(0);
+    },
+  );
+
+  it.each([
+    "wrong-npm",
+    "audit-failure",
+    "audit-json",
+    "import-failure",
+  ] as const)(
+    "fails closed for %s instead of falling back to unverified consumers",
+    async (failure) => {
+      const f = fixture();
+      const registry = releaseRegistryFixture(f);
+      if (failure === "wrong-npm") registry.state.npmVersion = "11.17.0";
+      if (failure === "audit-failure") registry.state.auditStatus = 1;
+      if (failure === "audit-json") registry.state.auditJson = "{";
+      if (failure === "import-failure") registry.state.importStatus = 1;
+      await expect(
+        verifyRegistryRelease(
+          { ...options(f), npmCli: registry.npmCli },
+          registry.ports,
+        ),
+      ).rejects.toThrow();
+      if (failure !== "import-failure") expect(registry.state.imports).toBe(0);
+    },
+  );
+});
+
+describe("authenticated provenance policy", () => {
+  it("accepts the real-DER test certificate and exact authenticated SLSA source statement", async () => {
+    const f = fixture();
+    const verified = await verifyPreparedRelease(options(f));
+    expect(() =>
+      verifyProvenanceAudit(releaseAuditFixture(f), verified),
+    ).not.toThrow();
+  });
+
+  it.each([
+    "invalid-signature",
+    "missing-signature",
+    "missing-package",
+    "duplicate-package",
+    "bootstrap-without-provenance",
+  ] as const)("rejects %s after the external crypto audit", async (failure) => {
+    const f = fixture();
+    const registry = releaseRegistryFixture(f);
+    if (failure === "invalid-signature")
+      registry.audit.invalid.push({
+        name: releaseVerificationPackages[0]!.name,
+      });
+    if (failure === "missing-signature")
+      registry.audit.missing.push({
+        name: releaseVerificationPackages[0]!.name,
+      });
+    if (failure === "missing-package") registry.audit.verified.pop();
+    if (failure === "duplicate-package")
+      registry.audit.verified.push(
+        structuredClone(registry.audit.verified[0]!),
+      );
+    if (failure === "bootstrap-without-provenance")
+      registry.audit.verified[4]!.attestationBundles = [];
+    await expect(
+      verifyRegistryRelease(
+        { ...options(f), npmCli: registry.npmCli },
+        registry.ports,
+      ),
+    ).rejects.toThrow();
+    expect(registry.state.imports).toBe(0);
+  });
+
+  it.each([
+    "repository",
+    "tag",
+    "commit",
+    "workflow",
+    "event",
+    "builder",
+    "subject-digest",
+    "subject-name",
+    "source-uri",
+    "statement-type",
+  ] as const)(
+    "rejects cryptographically reported provenance for a different %s",
+    async (field) => {
+      const f = fixture();
+      const registry = releaseRegistryFixture(f);
+      const statement = releaseAuditStatement(registry.audit);
+      const definition = statement.predicate.buildDefinition;
+      if (field === "repository")
+        definition.externalParameters.workflow.repository =
+          "https://github.com/foreign/support-desk";
+      if (field === "tag")
+        definition.externalParameters.workflow.ref = "refs/tags/v0.1.1";
+      if (field === "commit")
+        definition.resolvedDependencies[0]!.digest.gitCommit = "d".repeat(40);
+      if (field === "workflow")
+        definition.externalParameters.workflow.path =
+          ".github/workflows/unreviewed.yml";
+      if (field === "event")
+        definition.internalParameters.github.event_name = "workflow_dispatch";
+      if (field === "builder")
+        statement.predicate.runDetails.builder.id =
+          "https://github.com/actions/runner/self-hosted";
+      if (field === "subject-digest")
+        statement.subject[0]!.digest.sha512 = "e".repeat(128);
+      if (field === "subject-name")
+        statement.subject[0]!.name =
+          "pkg:npm/%40foreign/support-desk-contracts@0.2.0";
+      if (field === "source-uri")
+        definition.resolvedDependencies[0]!.uri =
+          "git+https://github.com/pegma-dev/support-desk@refs/heads/main";
+      if (field === "statement-type")
+        statement._type = "https://in-toto.io/Statement/v0.1";
+      setReleaseAuditStatement(registry.audit, statement);
+      await expect(
+        verifyRegistryRelease(
+          { ...options(f), npmCli: registry.npmCli },
+          registry.ports,
+        ),
+      ).rejects.toThrow();
+      expect(registry.state.imports).toBe(0);
+    },
+  );
+
+  it.each(["issuer", "repository", "workflow", "tag", "malformed"] as const)(
+    "rejects a real certificate with the wrong %s signer identity",
+    async (field) => {
+      const f = fixture();
+      const registry = releaseRegistryFixture(f);
+      let identity =
+        "https://github.com/pegma-dev/support-desk/.github/workflows/publish.yml@refs/tags/v0.2.0";
+      if (field === "repository")
+        identity = identity.replace("pegma-dev", "foreign-org");
+      if (field === "workflow")
+        identity = identity.replace("publish.yml", "unreviewed.yml");
+      if (field === "tag") identity = identity.replace("v0.2.0", "v0.1.1");
+      registry.audit.verified[0]!.attestationBundles[0]!.bundle.verificationMaterial.certificate.rawBytes =
+        field === "malformed"
+          ? Buffer.from("not a certificate").toString("base64")
+          : releaseAuditCertificate({
+              identity,
+              ...(field === "issuer"
+                ? { issuer: "https://untrusted.invalid/oidc" }
+                : {}),
+            });
+      await expect(
+        verifyRegistryRelease(
+          { ...options(f), npmCli: registry.npmCli },
+          registry.ports,
+        ),
+      ).rejects.toThrow();
+      expect(registry.state.imports).toBe(0);
+    },
+  );
+});
+
+describe("protected OIDC publication authority", () => {
+  it("binds the exact repo, immutable tag/main commit, workflow and protected environment without inventing an environment provenance claim", async () => {
+    const verified = await verifyPreparedRelease(options(fixture()));
+    expect(() =>
+      assertTrustedPublishingEnvironment(
+        releasePublishingEnvironment(),
+        verified.identity,
+      ),
+    ).not.toThrow();
+  });
+
+  it.each([
+    "GITHUB_REPOSITORY",
+    "GITHUB_REF",
+    "GITHUB_SHA",
+    "GITHUB_WORKFLOW_SHA",
+    "GITHUB_WORKFLOW_REF",
+    "RELEASE_ENVIRONMENT",
+    "GITHUB_EVENT_NAME",
+    "RUNNER_ENVIRONMENT",
+    "ACTIONS_ID_TOKEN_REQUEST_URL",
+  ] as const)("rejects a different %s publication context", async (field) => {
+    const verified = await verifyPreparedRelease(options(fixture()));
+    const env = releasePublishingEnvironment();
+    Object.assign(env, {
+      [field]:
+        field === "ACTIONS_ID_TOKEN_REQUEST_URL"
+          ? "https://untrusted.invalid/oidc"
+          : "different-context",
+    });
+    expect(() =>
+      assertTrustedPublishingEnvironment(env, verified.identity),
+    ).toThrow();
+  });
+
+  it.each([
+    "NODE_AUTH_TOKEN",
+    "NPM_TOKEN",
+    "NPM_AUTH_TOKEN",
+    "NPM_AUTH",
+    "YARN_NPM_AUTH_TOKEN",
+    "npm_config_registry",
+  ])(
+    "rejects the %s fallback instead of treating it as trusted publishing",
+    async (credential) => {
+      const verified = await verifyPreparedRelease(options(fixture()));
+      const env = {
+        ...releasePublishingEnvironment(),
+        [credential]: "synthetic-unapproved-credential",
+      };
+      expect(() =>
+        assertTrustedPublishingEnvironment(env, verified.identity),
+      ).toThrow();
+    },
+  );
+
+  it("requires an actual OIDC request context and does not accept a token/bootstrap-only environment", async () => {
+    const verified = await verifyPreparedRelease(options(fixture()));
+    expect(() =>
+      assertTrustedPublishingEnvironment(
+        { NODE_AUTH_TOKEN: "synthetic-token", RELEASE_TAG: "v0.2.0" },
+        verified.identity,
+      ),
+    ).toThrow();
+    expect(() =>
+      assertTrustedPublishingEnvironment(
+        {
+          ...releasePublishingEnvironment(),
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: "",
+        },
+        verified.identity,
+      ),
+    ).toThrow();
+  });
+});
+
+describe("source-bound original release artifact", () => {
+  it("reads real gzip/tar artifacts and accepts the independently pinned exact five-package candidate", async () => {
+    const f = fixture();
+    expect(
+      f.manifest.packages.map(({ name, version }) => ({ name, version })),
+    ).toEqual(
+      releaseVerificationPackages.map(({ name }) => ({
+        name,
+        version: "0.2.0",
+      })),
+    );
+    for (const entry of f.packages) {
+      const inspected = inspectReleaseTarball(entry.bytes);
+      expect(inspected.packageJson).toEqual(entry.packageJson);
+      expect(inspected.files).toEqual(entry.record.files);
+    }
+    await expect(verifyPreparedRelease(options(f))).resolves.toBeDefined();
+  });
+
+  it("rejects a changed original manifest even when its parsed package inventory is unchanged", async () => {
+    const f = fixture();
+    writeFileSync(
+      f.manifestPath,
+      Buffer.concat([f.manifestBytes, Buffer.from(" ")]),
+    );
+    await expect(verifyPreparedRelease(options(f))).rejects.toThrow();
+  });
+
+  it("rejects tarball tampering against the original independent manifest pin", async () => {
+    const f = fixture();
+    const entry = f.packages[0]!;
+    writeFileSync(
+      join(f.directory, entry.record.tarball),
+      Buffer.concat([entry.bytes, Buffer.from("tampered")]),
+    );
+    await expect(verifyPreparedRelease(options(f))).rejects.toThrow();
+  });
+
+  it.each([
+    "release-tag",
+    "source-commit",
+    "manifest-pin",
+    "missing-manifest-pin",
+  ] as const)(
+    "rejects a stale or different trusted %s identity",
+    async (field) => {
+      const f = fixture();
+      const expected = options(f);
+      if (field === "release-tag") expected.releaseTag = "v0.2.1";
+      if (field === "source-commit")
+        expected.expectedReleaseCommit = "d".repeat(40);
+      if (field === "manifest-pin") expected.manifestSha256 = "f".repeat(64);
+      if (field === "missing-manifest-pin") expected.manifestSha256 = "";
+      await expect(verifyPreparedRelease(expected)).rejects.toThrow();
+    },
+  );
+
+  it("rejects a missing original tarball without recreating it", async () => {
+    const f = fixture();
+    const path = join(f.directory, f.packages[0]!.record.tarball);
+    unlinkSync(path);
+    await expect(verifyPreparedRelease(options(f))).rejects.toThrow();
+    expect(() => readFileSync(path)).toThrow();
+  });
+
+  it.each([
+    "missing",
+    "duplicate",
+    "different-name",
+    "mixed-version",
+    "not-selected",
+  ] as const)(
+    "rejects a coherently pinned %s package inventory",
+    async (variant) => {
+      const f = fixture();
+      if (variant === "missing") f.manifest.packages.pop();
+      if (variant === "duplicate")
+        f.manifest.packages[4] = { ...f.manifest.packages[0]! };
+      if (variant === "different-name")
+        Object.assign(f.manifest.packages[4]!, {
+          name: "@foreign/support-desk-ai",
+        });
+      if (variant === "mixed-version")
+        f.manifest.packages[4]!.version = "0.1.1";
+      if (variant === "not-selected") f.manifest.packages[4]!.publish = false;
+      await expect(verifyPreparedRelease(writeManifest(f))).rejects.toThrow();
+    },
+  );
+
+  it.each([
+    [1, "@pegma/support-desk-contracts", "^0.2.0"],
+    [3, "@pegma/support-desk-core", "0.1.1"],
+    [4, "@pegma/support-desk-application", "workspace:*"],
+    [4, "@pegma/knowledge-base-application", "0.1.1"],
+  ] as const)(
+    "rejects a freshly hashed archive with wrong dependency %s/%s@%s",
+    async (index, dependency, version) => {
+      const f = fixture();
+      const packageJson = f.packages[index]!.packageJson;
+      const prepared = replacePackage(f, index, {
+        ...packageJson,
+        dependencies: { ...packageJson.dependencies, [dependency]: version },
+      });
+      expect(prepared.manifestSha256).not.toBe(f.originalManifestSha256);
+      await expect(verifyPreparedRelease(prepared)).rejects.toThrow();
+    },
+  );
+
+  it("does not repair or repack altered prepared bytes while verifying", async () => {
+    const f = fixture();
+    const entry = f.packages[0]!;
+    const altered = Buffer.from(entry.bytes);
+    altered[altered.length - 1] = altered[altered.length - 1]! ^ 0xff;
+    const path = join(f.directory, entry.record.tarball);
+    writeFileSync(path, altered);
+    await expect(verifyPreparedRelease(options(f))).rejects.toThrow();
+    expect(readFileSync(path)).toEqual(altered);
+    expect(readFileSync(f.manifestPath)).toEqual(f.manifestBytes);
+  });
+});

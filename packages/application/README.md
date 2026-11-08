@@ -6,8 +6,8 @@ and a trusted Authorization Core access context.
 The host server supplies `correlationId` on commands; the application validates
 and propagates it and never generates it.
 
-Current source remains version `0.1.1` and includes changes beyond the
-published artifacts at that version. SD-01 adds handling/handoff foundations
+The synchronized source candidate is `0.2.0` and includes changes beyond the
+published `0.1.1` artifacts. SD-01 adds handling/handoff foundations
 without model generation or a KB dependency; source review/tests determine
 completion. Host adoption requires the later synchronized SD-06 release and
 activation gates, not a source checkout or overwritten registry version.
@@ -43,7 +43,7 @@ model and GitHub coordination through host ports. See the
 [engineering guide](../../docs/ENGINEERING_EXPORT.md). Host adoption still
 requires the synchronized SD-06 release and its activation gates.
 
-SD-05's implementation candidate adds optional `engineeringFollowup` services
+SD-05's merged source adds optional `engineeringFollowup` services
 through `EngineeringFollowupApplication`. Signed allowlisted input and current
 confirmed fix-to-product/build/deployment mapping establish bounded private
 follow-up work; issue closure or a release tag alone does not. Independent

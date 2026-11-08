@@ -1,6 +1,6 @@
-# Publishes exact tarballs prepared from a stable GitHub release tag.
-# Authentication is npm trusted-publisher OIDC only; no token fallback exists.
-
+# Normal publication is release-event-only from a protected signed stable tag.
+# Recovery reruns failed jobs on the unchanged tag, retaining the original
+# preparation outputs/artifact; never rerun all jobs or repack a partial release.
 name: Publish
 
 on:
@@ -15,29 +15,50 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  prepare:
+  identity:
+    name: Verify signed release identity
+    if: >-
+      github.repository == 'pegma-dev/support-desk' &&
+      github.event_name == 'release' &&
+      !github.event.release.draft && !github.event.release.prerelease
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.identity.outputs.tag }}
+      commit: ${{ steps.identity.outputs.commit }}
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name }}
-      RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
       RELEASE_COMMIT: ${{ github.sha }}
       RELEASE_ALLOWED_SIGNERS: ${{ vars.RELEASE_ALLOWED_SIGNERS }}
-
+      GIT_NO_REPLACE_OBJECTS: "1"
     steps:
+      # No project code or dependency installation precedes signer validation.
+      - name: Validate the stable release event
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${RELEASE_TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ||
+                ! "${RELEASE_COMMIT}" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ||
+                "${GITHUB_REF}" != "refs/tags/${RELEASE_TAG}" ]]; then
+            echo "::error::An exact stable release tag and full source commit are required"
+            exit 1
+          fi
       - name: Check out the release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: refs/tags/${{ github.event.release.tag_name }}
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           fetch-depth: 0
-
+          fetch-tags: true
+          persist-credentials: false
       - name: Fetch the protected release branch
         run: git fetch --no-tags origin main:refs/remotes/origin/main
-
-      - name: Configure approved release signers
+      - name: Verify the approved signer, source and main ancestry
+        id: identity
         shell: bash
         run: |
+          set -euo pipefail
           if [[ -z "${RELEASE_ALLOWED_SIGNERS}" ]]; then
-            echo "::error::RELEASE_ALLOWED_SIGNERS must contain the reviewed SSH allowed-signers entries"
+            echo "::error::RELEASE_ALLOWED_SIGNERS must contain reviewed SSH allowed-signers entries"
             exit 1
           fi
           allowed_signers="${RUNNER_TEMP}/release-allowed-signers"
@@ -45,84 +66,252 @@ jobs:
           printf '%s\n' "${RELEASE_ALLOWED_SIGNERS}" > "${allowed_signers}"
           git config --local gpg.format ssh
           git config --local gpg.ssh.allowedSignersFile "${allowed_signers}"
+          tag_ref="refs/tags/${RELEASE_TAG}"
+          if [[ "$(git cat-file -t "${tag_ref}")" != "tag" ||
+                "$(git rev-parse HEAD)" != "${RELEASE_COMMIT}" ||
+                "$(git rev-parse "${tag_ref}^{commit}")" != "${RELEASE_COMMIT}" ]]; then
+            echo "::error::The annotated tag target, checkout and release commit must match"
+            exit 1
+          fi
+          git verify-tag --raw "${tag_ref}"
+          git merge-base --is-ancestor "${RELEASE_COMMIT}" refs/remotes/origin/main
+          printf 'tag=%s\ncommit=%s\n' "${RELEASE_TAG}" "${RELEASE_COMMIT}" >> "${GITHUB_OUTPUT}"
 
+  validate:
+    name: Release gate / Node.js ${{ matrix.node-version }}
+    needs: identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
+    steps:
+      - name: Check out the verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.identity.outputs.commit }}
+          persist-credentials: false
       - name: Install pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10.34.5
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check formatting
+        run: pnpm run format:check
+      - name: Check types
+        run: pnpm run check
+      - name: Run all tests
+        run: pnpm test
+      - name: Run synthetic composition
+        run: pnpm example
+      - name: Run optional AI composition
+        run: pnpm run ai:example
+      - name: Check release metadata
+        run: pnpm run release:check
+      - name: Pack and import all public artifacts
+        run: pnpm run release:pack -- --output .release/ci-check
 
+  prepare:
+    name: Prepare immutable signed-tag artifacts
+    needs: [identity, validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      manifest-sha256: ${{ steps.manifest.outputs.sha256 }}
+    env:
+      RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+      RELEASE_COMMIT: ${{ needs.identity.outputs.commit }}
+      RELEASE_ALLOWED_SIGNERS: ${{ vars.RELEASE_ALLOWED_SIGNERS }}
+      GIT_NO_REPLACE_OBJECTS: "1"
+    steps:
+      - name: Check out the verified source and tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ needs.identity.outputs.tag }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Fetch the protected release branch
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
+      - name: Configure the approved signer
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RELEASE_ALLOWED_SIGNERS}"
+          allowed_signers="${RUNNER_TEMP}/release-allowed-signers"
+          umask 077
+          printf '%s\n' "${RELEASE_ALLOWED_SIGNERS}" > "${allowed_signers}"
+          git config --local gpg.format ssh
+          git config --local gpg.ssh.allowedSignersFile "${allowed_signers}"
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10.34.5
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24.18.0
-          registry-url: https://registry.npmjs.org
-          cache: pnpm
-
-      - name: Use the reviewed npm release
+          package-manager-cache: false
+      - name: Use the reviewed packer npm
         run: npm install --global npm@11.18.0
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Check formatting
-        run: pnpm run format:check
-
-      - name: Check types
-        run: pnpm run check
-
-      - name: Run tests
-        run: pnpm test
-
-      - name: Prepare and verify release tarballs
-        run: pnpm run release:pack -- --require-clean --require-main-ancestor --require-release-tag --expected-release-commit "${RELEASE_COMMIT}" --output .release
-
-      - name: Upload the prepared release
+      - name: Run optional AI composition
+        run: pnpm run ai:example
+      - name: Prepare the exact release once
+        run: >-
+          pnpm run release:pack -- --require-clean --require-main-ancestor
+          --require-release-tag --expected-release-commit "${RELEASE_COMMIT}"
+          --output "${RUNNER_TEMP}/support-desk-prepared"
+      # This trusted output is independent of the uploaded manifest itself.
+      - name: Independently pin and validate the prepared manifest
+        id: manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r manifest_sha256 _ < <(sha256sum "${RUNNER_TEMP}/support-desk-prepared/package-manifest.json")
+          [[ "${manifest_sha256}" =~ ^[0-9a-f]{64}$ ]]
+          RELEASE_MANIFEST_SHA256="${manifest_sha256}" node --input-type=module -e '
+            import { verifyPreparedRelease } from "./scripts/release-verification.mjs";
+            await verifyPreparedRelease({ manifest: `${process.env.RUNNER_TEMP}/support-desk-prepared/package-manifest.json`, manifestSha256: process.env.RELEASE_MANIFEST_SHA256, releaseTag: process.env.RELEASE_TAG, expectedReleaseCommit: process.env.RELEASE_COMMIT });
+          '
+          printf 'sha256=%s\n' "${manifest_sha256}" >> "${GITHUB_OUTPUT}"
+      - name: Upload the immutable original release
         id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: support-desk-release-${{ github.run_id }}
-          path: .release/
+          name: support-desk-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/support-desk-prepared/
           if-no-files-found: error
-          include-hidden-files: true
-          overwrite: true
+          overwrite: false
           retention-days: 30
-
-      - name: Record the prepared artifact digest
-        run: echo "Prepared artifact SHA-256 ${{ steps.upload.outputs.artifact-digest }}" >> "${GITHUB_STEP_SUMMARY}"
+      - name: Record independent identity for approval and recovery
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+          MANIFEST_SHA256: ${{ steps.manifest.outputs.sha256 }}
+        run: |
+          printf 'Source tag: %s\n\nSource commit: %s\n\nPrepared artifact ID: %s\n\nArtifact SHA-256: %s\n\nIndependent manifest SHA-256: %s\n' \
+            "${RELEASE_TAG}" "${RELEASE_COMMIT}" "${ARTIFACT_ID}" "${ARTIFACT_DIGEST}" "${MANIFEST_SHA256}" >> "${GITHUB_STEP_SUMMARY}"
 
   publish:
-    needs: prepare
+    name: Publish exact prepared artifacts
+    needs: [identity, prepare]
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: npm-publish
     permissions:
       contents: read
       id-token: write
     env:
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
-      RELEASE_COMMIT: ${{ github.sha }}
-
+      RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+      RELEASE_COMMIT: ${{ needs.identity.outputs.commit }}
+      RELEASE_MANIFEST_SHA256: ${{ needs.prepare.outputs.manifest-sha256 }}
+      RELEASE_ENVIRONMENT: npm-publish
+      GIT_NO_REPLACE_OBJECTS: "1"
     steps:
-      - name: Check out the exact release tag
+      - name: Check out the exact verified source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: refs/tags/${{ github.event.release.tag_name }}
-          fetch-depth: 1
-
-      - name: Set up Node.js and the npm registry
+          ref: ${{ needs.identity.outputs.commit }}
+          persist-credentials: false
+      - name: Set up Node.js without package-manager configuration
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24.18.0
-          registry-url: https://registry.npmjs.org
           package-manager-cache: false
-
-      - name: Use the reviewed npm release
-        run: npm install --global npm@11.18.0
-
-      - name: Download the prepared release
+      # Extract only a checksum-pinned CLI; install/build/repack/import nothing
+      # with OIDC authority and never run project/package lifecycle scripts.
+      - name: Verify and extract the reviewed npm CLI
+        shell: bash
+        env:
+          NPM_VERSION: 11.18.0
+          NPM_TARBALL_SHA256: 73f6155215ebabf4ed96dca1f567c2372cc713c33af2e5b9b62fde4e92373e2e
+        run: |
+          set -euo pipefail
+          tarball="${RUNNER_TEMP}/npm-${NPM_VERSION}.tgz"
+          npm_root="${RUNNER_TEMP}/release-npm-${NPM_VERSION}"
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://registry.npmjs.org/npm/-/npm-${NPM_VERSION}.tgz" --output "${tarball}"
+          echo "${NPM_TARBALL_SHA256}  ${tarball}" | sha256sum --check --strict --quiet
+          mkdir "${npm_root}"
+          tar --extract --gzip --file "${tarball}" --directory "${npm_root}"
+          npm_cli="${npm_root}/package/bin/npm-cli.js"
+          [[ "$(node "${npm_cli}" --version)" == "${NPM_VERSION}" ]]
+          printf 'RELEASE_NPM_CLI=%s\nRELEASE_NPM_VERSION=%s\n' "${npm_cli}" "${NPM_VERSION}" >> "${GITHUB_ENV}"
+      - name: Download the original immutable preparation artifact
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: support-desk-release-${{ github.run_id }}
-          path: .release
+          artifact-ids: ${{ needs.prepare.outputs.artifact-id }}
+          path: ${{ runner.temp }}/support-desk-prepared
+      - name: Preflight all five and publish original tarballs through OIDC
+        run: >-
+          node scripts/release-verification.mjs publish
+          --manifest "${RUNNER_TEMP}/support-desk-prepared/package-manifest.json"
+          --manifest-sha256 "${RELEASE_MANIFEST_SHA256}"
+          --release-tag "${RELEASE_TAG}" --expected-release-commit "${RELEASE_COMMIT}"
 
-      - name: Publish verified prepared tarballs
-        run: node scripts/release-packages.mjs publish --expected-release-commit "${RELEASE_COMMIT}" --manifest .release/package-manifest.json
+  verify:
+    name: Verify registry signatures, source provenance and consumer
+    needs: [identity, prepare, publish]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: none
+    env:
+      RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+      RELEASE_COMMIT: ${{ needs.identity.outputs.commit }}
+      RELEASE_MANIFEST_SHA256: ${{ needs.prepare.outputs.manifest-sha256 }}
+      GIT_NO_REPLACE_OBJECTS: "1"
+    steps:
+      - name: Check out the exact verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.identity.outputs.commit }}
+          persist-credentials: false
+      - name: Set up Node.js without package-manager configuration
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - name: Verify and extract the reviewed npm CLI
+        shell: bash
+        env:
+          NPM_VERSION: 11.18.0
+          NPM_TARBALL_SHA256: 73f6155215ebabf4ed96dca1f567c2372cc713c33af2e5b9b62fde4e92373e2e
+        run: |
+          set -euo pipefail
+          tarball="${RUNNER_TEMP}/npm-${NPM_VERSION}.tgz"
+          npm_root="${RUNNER_TEMP}/release-npm-${NPM_VERSION}"
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://registry.npmjs.org/npm/-/npm-${NPM_VERSION}.tgz" --output "${tarball}"
+          echo "${NPM_TARBALL_SHA256}  ${tarball}" | sha256sum --check --strict --quiet
+          mkdir "${npm_root}"
+          tar --extract --gzip --file "${tarball}" --directory "${npm_root}"
+          npm_cli="${npm_root}/package/bin/npm-cli.js"
+          [[ "$(node "${npm_cli}" --version)" == "${NPM_VERSION}" ]]
+          printf 'RELEASE_NPM_CLI=%s\nRELEASE_NPM_VERSION=%s\n' "${npm_cli}" "${NPM_VERSION}" >> "${GITHUB_ENV}"
+      - name: Download the same original immutable preparation artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact-id }}
+          path: ${{ runner.temp }}/support-desk-prepared
+      # Upload status is insufficient. Authenticate before executing imports.
+      - name: Verify registry bytes, provenance and clean public imports
+        run: >-
+          node scripts/release-verification.mjs verify
+          --manifest "${RUNNER_TEMP}/support-desk-prepared/package-manifest.json"
+          --manifest-sha256 "${RELEASE_MANIFEST_SHA256}"
+          --release-tag "${RELEASE_TAG}" --expected-release-commit "${RELEASE_COMMIT}"

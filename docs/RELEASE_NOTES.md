@@ -1,32 +1,63 @@
 # Release notes
 
-## Source candidate — optional assistant coordination (SD-02)
+## 0.2.0 candidate — synchronized optional AI workflows (SD-06)
 
-Implementation is in progress at source `0.1.1`; current-head validation,
-code/security review, and publication have not completed. The source release
-inventory now includes optional `@pegma/support-desk-ai` as a fifth package,
-with exact published KB `0.1.1` dependencies. The existing application remains
-KB/provider-independent and works with AI disabled. This candidate adds
-bounded same-ticket turn jobs and five fixed application operations around
-external model work, current-authority/full-source checks, durable host usage,
-and exact answer/human-handoff commit. See
-[assistant coordination](ASSISTANT_COORDINATION.md).
+All five source packages now target exact `0.2.0`: contracts, core, templates,
+application, and optional `@pegma/support-desk-ai`. This is a release candidate,
+not a publication receipt. The original four published `0.1.1` artifacts remain
+immutable; the additional behavior accumulated in pre-SD-06 source `0.1.1`
+must not overwrite them. Hosts wait for the exact synchronized registry set
+and [strict release verification](RELEASING.md).
 
-Both KB and Agent Access have strictly verified trusted `0.1.1` registry
-releases; [producer receipts](HOST_COMPOSITION.md#kb-authoring-producers)
-close SD-02's publication prerequisite. Their historical manual `0.1.0`
-bootstrap supplied no OIDC provenance. No Support Desk source version is
-published or overwritten by this work: future synchronized verified SD-06
-publication, new AI package bootstrap/trusted-publisher setup, and all real
-host login/client/privacy/Task 12/full-workflow/pilot gates remain open.
+The candidate includes the merged source phases:
 
-## Unreleased — handling and deterministic controls (SD-01)
+| Phase | Source and behavior                                                                                                                                                                                                               |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SD-01 | [PR #34](https://github.com/pegma-dev/support-desk/pull/34): optional assistant handling, deterministic human controls, bounded handoffs, and explicit customer success confirmation.                                             |
+| SD-02 | [PR #38](https://github.com/pegma-dev/support-desk/pull/38): bounded assistant jobs, current-source/authority fences, durable usage recovery, and exact answer or human-handoff commit.                                           |
+| SD-03 | [PR #39](https://github.com/pegma-dev/support-desk/pull/39): private resolution evidence and learning drafts, independent delivery checks, exact KB requests, review/publication source gates, and conditional cleanup.           |
+| SD-04 | [PR #40](https://github.com/pegma-dev/support-desk/pull/40): verified bug evidence, bounded repository policy and routing, exact sanitized export review, one physical issue-create attempt, and uncertain-result reconciliation. |
+| SD-05 | [PR #41](https://github.com/pegma-dev/support-desk/pull/41): trusted issue/deployment observations, private reassessment proposals, optional advisory retests, and explicit staff-reviewed web notices.                           |
 
-Implemented in source via
-[PR #34](https://github.com/pegma-dev/support-desk/pull/34), with no version,
-tag, or publication change. Source `0.1.1` contains unreleased behavior beyond
-registry `0.1.1`; hosts must wait for the synchronized release. Task 12's host
-production-evidence gates remain open.
+Historical Phase 5 source validation at
+`eddd3526f8bec3a1a80cc7aacd3a4cdcdb950cfe` recorded **2,173 tests across 48
+test files**, with separate release-metadata, five-package pack, and example
+receipts. That receipt describes the merged SD-05 source. It does not certify
+the new SD-06 artifacts, registry-to-candidate migration, or publication.
+
+The base application remains independent of KB, model providers, and GitHub.
+Human support works with optional AI disabled. The optional AI package uses
+exact verified KB `0.1.2`; the candidate uses Authorization Core `0.4.0` and
+Spine `0.1.2`. New permissions, trusted ports, finite reserves, current proof,
+and host-owned scheduling are explicit opt-ins. No workflow automatically
+publishes KB content, resolves a ticket from a release, or grants host roles.
+
+The new AI name has a separate manual registration-only `0.1.1`
+[bootstrap](AI_BOOTSTRAP.md). It has no OIDC provenance and is not host-usable:
+the older registry application `0.1.1` lacks required newer exports. That
+registration is separate from the advertised five-package `0.2.0` release.
+
+Read [upgrading](UPGRADING.md) before writing new rows. The clean-consumer
+upgrade proof must start with the actual old published application; it does
+not promise that older codecs can read new records. The operational fallback
+is human support on the new SDK with generation/export disabled, while
+recovery and reconciliation remain available. See [AI operations](AI_OPERATIONS.md)
+and the individual [answer](ASSISTANT_COORDINATION.md),
+[learning](RESOLUTION_LEARNING.md), [export](ENGINEERING_EXPORT.md), and
+[follow-up](ENGINEERING_FOLLOWUP.md) handbooks.
+
+Current-head Node 22/24 gates, reviews, packed/registry consumers, migration,
+AI registration/configuration, and verified stable publication remain required.
+Actual host login/Admin consent, requested clients, privacy controls, staging,
+durable-store production evidence, full workflows, and supervised pilots remain
+separate host gates. Synthetic SDK examples use fictional data and close none
+of those acceptance gates.
+
+## Merged source history — handling and deterministic controls (SD-01)
+
+Implemented via [PR #34](https://github.com/pegma-dev/support-desk/pull/34)
+without a publication change at that time; included in the candidate above.
+Task 12's host production-evidence gates remain open.
 
 - Optional web-only assistant handling requires trusted host opt-in and
   dedicated permissions. Assistant attribution and exact ticket revision,
@@ -59,23 +90,18 @@ Run the existing queue repair cycle. See
 [host composition](HOST_COMPOSITION.md#optional-handling-and-deterministic-controls-sd-01)
 and [capacity details](COLLECTIONS.md#sd-01-handling-and-handoff-layout-checkpoint).
 
-This adds no model integration, KB dependency, or new package. The
-[implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) records
-merged standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
-preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
-both producers' final release preparation. Both producers subsequently
-completed strictly verified trusted `0.1.1` publication. SD-02 is now an
-in-progress source candidate, described above. PG-01/RG-01 consume both exact
-verified published producers and still require actual existing-login/Admin
-consent and requested-client proof before activation or pilots. Synthetic
-SDK/source proof uses no actual customer data and does not close host privacy,
-operations, full-workflow, or pilot gates. See the
-[producer evidence and bootstrap handoff](HOST_COMPOSITION.md#kb-authoring-producers).
+SD-01 alone added no model integration, KB dependency, or new package.
+Subsequent phases are included in the synchronized candidate above. Producer
+publication and host acceptance are distinct; the
+[producer evidence](HOST_COMPOSITION.md#kb-authoring-producers) does not replace
+actual host login/Admin consent, requested-client, privacy, full-workflow, or
+pilot evidence.
 
-## Unreleased — lifecycle extras (Buildout Task 13)
+## Merged source history — lifecycle extras (Buildout Task 13)
 
-Additive package work against `0.1.1`; no versions, tags, or publication change.
-Task 12 remains pending on both hosts' durable-store production evidence.
+Additive package work originally made against source `0.1.1`, without a
+publication change then; included in the candidate above. Task 12 remains
+pending on the hosts' durable-store production evidence.
 
 - Optional bounded host `allowedTags` and `maxTagsPerTicket`; staff `setTags`
   with `support.ticket.manage`, normalized idempotency, transactional
@@ -96,10 +122,10 @@ composition, and run a complete queue repair cycle to enrich legacy projection
 rows. No automatic target backfill or new worker is introduced. See
 [host composition](HOST_COMPOSITION.md#optional-lifecycle-extras-task-13).
 
-## Unreleased — inbound mail (Buildout Task 11)
+## Merged source history — inbound mail (Buildout Task 11)
 
-Additive to the `0.1.1` public surface; package versions are unchanged until
-the next synchronized release.
+Originally additive to the `0.1.1` source surface without publication;
+included in the synchronized candidate above.
 
 - `@pegma/support-desk-application`: `createInboundMailProcessor` with the
   `InboundEmailInput`, `InboundAccountMatcher`, `InboundRoutingPolicy`, and

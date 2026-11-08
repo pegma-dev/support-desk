@@ -10,9 +10,9 @@ See also the runnable example at
 
 ## Public packages
 
-This guide describes current source APIs. Source packages remain `0.1.1`, but
-their newer dependencies and lifecycle/SD-01 changes are not equivalent to the
-published `0.1.1` artifacts. The [P-00 baseline](KNOWLEDGE_AI_P00.md) separates
+This guide describes the synchronized `0.2.0` source candidate, including
+SD-01 through SD-05. It is unpublished and differs from the four published
+base `0.1.1` packages. The [P-00 baseline](KNOWLEDGE_AI_P00.md) separates
 source and registry snapshots. Hosts adopting new Support Desk behavior must
 wait for a new synchronized release under SD-06; never overwrite an existing
 registry version. The KB-only host path has its own publication gates below.
@@ -328,8 +328,8 @@ SD-01 includes no AI provider, knowledge retrieval, learning, or publication.
 Keep model activation disabled until the host gates pass. Both KB and Agent
 Access now have strictly verified trusted `0.1.1` releases, closing SD-02's
 producer publication prerequisite. SD-02's optional coordinator source is
-merged after validation/review. SD-03 learning validation/review and future
-SD-06 publication remain open. Actual two-host login/client, privacy, operations, Task 12,
+merged after validation/review, as are SD-03 through SD-05. The synchronized
+SD-06 publication remains open. Actual two-host login/client, privacy, operations, Task 12,
 full-workflow, and pilot evidence remain separate gates.
 
 ## Optional assistant coordination (SD-02)
@@ -343,6 +343,13 @@ without that option it creates no turn jobs and still works without AI.
 See [the coordination guide](ASSISTANT_COORDINATION.md) and
 [the layout checkpoint](COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
 for actual types, bounds, replay, and required validation.
+
+The runnable [optional AI composition](../examples/ai/README.md) exercises
+the public SDKs with synthetic provider ports. Its memory/Azurite checks and
+clean-consumer checks are source validation; they do not prove a host's login,
+provider, deployment, or pilot readiness. Follow [upgrading](UPGRADING.md)
+and [AI operations](AI_OPERATIONS.md) for forward migration, independent
+worker cursors, disabling new work, and privacy withdrawal.
 
 Hosts persist scan continuations, repeat bounded physical scan cycles, claim
 with a deadline-compatible lease, and keep per-instance durable usage

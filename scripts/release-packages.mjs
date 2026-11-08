@@ -1,17 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { createHash, timingSafeEqual } from "node:crypto";
-import {
-  mkdtemp,
-  mkdir,
-  readFile,
-  readdir,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  consumerVerificationPath,
+  verifyReleaseConsumers,
+} from "./release-consumers.mjs";
 
 const REPOSITORY_URL = "git+https://github.com/pegma-dev/support-desk.git";
 const NODE_RANGE = ">=22";
@@ -609,39 +604,13 @@ function verifyPackedFiles(manifest, files) {
 }
 
 async function smokeTestTarballs(root, packageRecords) {
-  const directory = await mkdtemp(join(tmpdir(), "pegma-release-smoke-"));
-  try {
-    await writeFile(
-      join(directory, "package.json"),
-      '{"name":"pegma-release-smoke","private":true,"type":"module"}\n',
-    );
-    runNpm(
-      [
-        "install",
-        "--ignore-scripts",
-        "--no-audit",
-        "--no-fund",
-        "--package-lock=false",
-        ...packageRecords.map(({ tarballPath }) => tarballPath),
-      ],
-      { cwd: directory, capture: true },
-    );
-    for (const { manifest } of packageRecords) {
-      for (const specifier of exportSpecifiers(manifest)) {
-        run(
-          process.execPath,
-          [
-            "--input-type=module",
-            "--eval",
-            `await import(${JSON.stringify(specifier)})`,
-          ],
-          { cwd: directory, capture: true },
-        );
-      }
-    }
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
+  return verifyReleaseConsumers({
+    root,
+    records: packageRecords,
+    inventory: RELEASE_PACKAGES,
+    runNpm,
+    exportSpecifiers,
+  });
 }
 
 function queryRegistryIntegrity(name, version) {
@@ -736,7 +705,11 @@ export async function prepareRelease(options = {}) {
       manifest,
     });
   }
-  await smokeTestTarballs(root, records);
+  const consumers = await smokeTestTarballs(root, records);
+  await writeFile(
+    consumerVerificationPath(output),
+    `${JSON.stringify(consumers, null, 2)}\n`,
+  );
 
   if (releaseTag !== undefined) {
     for (const record of records.filter(({ publish }) => !publish)) {
@@ -768,7 +741,7 @@ export async function prepareRelease(options = {}) {
   return { manifestPath, manifest };
 }
 
-async function verifyPreparedManifest(manifestPath) {
+export async function verifyPreparedManifest(manifestPath) {
   const manifest = await readJson(manifestPath);
   if (
     manifest.schemaVersion !== 1 ||

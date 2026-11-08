@@ -6,9 +6,9 @@
 A composable, open-source support queue for web and email.
 
 > [!IMPORTANT]
-> Support Desk is in early `0.x` development. Source packages stay at exact
-> `0.1.1`; lifecycle and SD-01 additions are unreleased and differ from the
-> published artifacts at that version. Hosts must consume published
+> Support Desk is in early `0.x` development. The synchronized `0.2.0` source
+> candidate includes the optional AI workflows and awaits verified publication.
+> Hosts must consume published
 > versions and cannot substitute Git branches, copied source, or local paths.
 
 Implemented in source today: the customer-facing and staff application
@@ -21,7 +21,7 @@ tags, host-computed response targets and milestones, and revision collision hint
 (Buildout Task 13), with all new metadata limited to staff views. Durable host
 deployments, customer UI, staff UI, inbound provider adapters, and production
 hardening remain later buildout tasks. Task 12 stays pending on host durable-store
-evidence; Task 13 changes are additive and package versions remain `0.1.1`.
+evidence; the source release candidate is `0.2.0`.
 
 ## What it will do
 
@@ -50,7 +50,8 @@ and human queue separation. It includes no model or KB integration and has not
 been published. Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial
 KB-05 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
 and both producers' final release preparation are merged. The four KB packages
-and `@pegma/agent-access` now have verified trusted `0.1.1` registry releases;
+have verified trusted `0.1.2` registry releases, and `@pegma/agent-access` has
+a verified trusted `0.1.1` release;
 the KB-05 publication prerequisite for SD-02 is closed. SD-02's optional
 `@pegma/support-desk-ai` coordinator and bounded ticket-partition turn jobs
 are merged in [PR #38](https://github.com/pegma-dev/support-desk/pull/38)
@@ -83,8 +84,9 @@ exact staff-approved export and reconciliation source merged in
 See the [engineering export guide](docs/ENGINEERING_EXPORT.md). These source
 capabilities still require the synchronized SD-06 release before host adoption.
 
-SD-05 is the source candidate for confirmed-deployment follow-up, private KB
-change/retest proposals and staff-approved web notices. See the
+SD-05 merged in [PR #41](https://github.com/pegma-dev/support-desk/pull/41),
+adding confirmed-deployment follow-up, private KB change/retest proposals
+and staff-approved web notices. See the
 [follow-up guide](docs/ENGINEERING_FOLLOWUP.md) for the current contracts and gates.
 
 ## How the pieces fit
@@ -142,22 +144,23 @@ The organization profile is at
 
 ## Current packages
 
-| Package                           | Purpose                                                              |
-| --------------------------------- | -------------------------------------------------------------------- |
-| `@pegma/support-desk-contracts`   | Provider-neutral ticket, message, requester, and event types         |
-| `@pegma/support-desk-core`        | Pure ticket creation and workflow transitions                        |
-| `@pegma/support-desk-application` | Authorized customer services, collections, audit, and outbox         |
-| `@pegma/support-desk-templates`   | Safe versioned templates and optional host-branded packs             |
-| `@pegma/support-desk-ai`          | In-progress optional SD-02 coordinator; unpublished source candidate |
+| Package                           | Purpose                                                                 |
+| --------------------------------- | ----------------------------------------------------------------------- |
+| `@pegma/support-desk-contracts`   | Provider-neutral ticket, message, requester, and event types            |
+| `@pegma/support-desk-core`        | Pure ticket creation and workflow transitions                           |
+| `@pegma/support-desk-application` | Authorized customer services, collections, audit, and outbox            |
+| `@pegma/support-desk-templates`   | Safe versioned templates and optional host-branded packs                |
+| `@pegma/support-desk-ai`          | Optional answers, resolution learning, engineering export and follow-up |
 
-The first `0.1.0` set is published under the `@pegma` scope. Current source
-packages remain at exact `0.1.1`; unreleased lifecycle/SD-01 source is not
-registry-equivalent and does not publish a new set. A future synchronized
-SD-06 release is required before enhancement adoption. Follow
+The four base packages have published `0.1.1` versions under the `@pegma` scope.
+All five source packages are synchronized at the unpublished `0.2.0` candidate.
+The optional AI package first needs a separate registration bootstrap;
+neither that bootstrap nor local tarballs close the stable release gate.
+Verified SD-06 publication is required before enhancement adoption. Follow
 [docs/RELEASING.md](docs/RELEASING.md) for releases. There is
 deliberately no storage package and no access package. Inbound mail processing
 is implemented (Buildout Task 11); host adapters, production hardening, and the
-knowledge pipeline remain later work. See the
+host activation remain later work. See the
 [project plan](docs/PROJECT_PLAN.md) and
 [declared-collection reference](docs/COLLECTIONS.md).
 
@@ -173,6 +176,17 @@ corepack enable
 pnpm install --frozen-lockfile
 pnpm run example
 ```
+
+The optional [AI composition](examples/ai/README.md) uses the public SDKs,
+real Store services, and synthetic provider ports for answers, human handoff,
+resolution learning, verified bug association, and staff-approved follow-up:
+
+```sh
+pnpm run ai:example
+```
+
+Read [upgrading](docs/UPGRADING.md) and [AI operations](docs/AI_OPERATIONS.md)
+before composing these workflows in a host.
 
 Host HTTP mapping and scheduler ownership are documented in
 [docs/HOST_COMPOSITION.md](docs/HOST_COMPOSITION.md).

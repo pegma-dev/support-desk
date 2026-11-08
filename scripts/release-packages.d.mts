@@ -102,6 +102,8 @@ export function prepareRelease(
   options?: ReleaseCommandOptions,
 ): Promise<{ manifestPath: string; manifest: unknown }>;
 
+export function verifyPreparedManifest(manifestPath: string): Promise<unknown>;
+
 export function publishPreparedRelease(
   options?: ReleaseCommandOptions,
 ): Promise<void>;
