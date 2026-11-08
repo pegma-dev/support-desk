@@ -45,6 +45,33 @@ import {
   createAssistantTurnServices,
   type AssistantTurnCommit,
 } from "./assistant-turns.js";
+import type {
+  ResolutionLearningApplication,
+  ResolutionLearningOptions,
+  ResolutionLearningSourceResult,
+} from "./resolution-learning-types.js";
+import {
+  assertResolutionLearningRecord,
+  resolveResolutionLearningOptions,
+  type ResolutionLearningReviewRecord,
+  type ResolutionLearningSourceRecord,
+  type ResolutionLearningWorkRecord,
+} from "./resolution-learning-records.js";
+import {
+  createResolutionLearningServices,
+  createResolutionLearningSource,
+  planResolutionLearningTicketMutation,
+} from "./resolution-learning.js";
+export type * from "./resolution-learning-types.js";
+export type {
+  ResolutionLearningReviewRecord,
+  ResolutionLearningSourceRecord,
+  ResolutionLearningWorkRecord,
+} from "./resolution-learning-records.js";
+export {
+  resolutionLearningDeliveryBinding,
+  resolutionLearningManifestHash,
+} from "./resolution-learning-worker.js";
 export type * from "./assistant-turn-types.js";
 export type { AssistantTurnRecord } from "./assistant-turn-records.js";
 
@@ -67,6 +94,11 @@ export const supportPermissions = Object.freeze({
   requestPerson: "support.ticket.request_person.own",
   takeOver: "support.ticket.take_over",
   confirmSuccess: "support.ticket.confirm_success.own",
+  learningRead: "support.learning.read",
+  learningEvidenceSubmit: "support.learning.evidence.submit",
+  learningProcess: "support.learning.process",
+  learningReview: "support.learning.review",
+  learningWithdraw: "support.learning.withdraw",
 } as const);
 
 export interface SupportDeskLimits {
@@ -344,6 +376,7 @@ export interface CustomerSuccessConfirmation {
   readonly lastSeenVisibleMessageId: MessageId;
   readonly revision: number;
   readonly handlingGeneration: number;
+  readonly resolutionCycle?: number;
 }
 interface CustomerSuccessRecord extends CustomerSuccessConfirmation {
   readonly kind: "customer_success";
@@ -361,6 +394,16 @@ interface TicketReservationRecord {
 }
 
 export type SupportRecord =
+  | ResolutionLearningSourceRecord
+  | ResolutionLearningWorkRecord
+  | ResolutionLearningReviewRecord
+  | {
+      readonly kind: "resolution_learning_receipt";
+      readonly partition: string;
+      readonly id: string;
+      readonly fingerprint: string;
+      readonly result: ResolutionLearningSourceResult;
+    }
   | AssistantTurnRecord
   | TicketRecord
   | TicketQuotaRecord
@@ -392,6 +435,11 @@ export const supportTicketAuditActions = Object.freeze({
   humanEscalated: "support.ticket.human_escalated",
   humanTakenOver: "support.ticket.human_taken_over",
   customerSuccessConfirmed: "support.ticket.customer_success_confirmed",
+  learningEnrolled: "support.learning.enrolled",
+  learningEvidenceRecorded: "support.learning.evidence_recorded",
+  learningEvidenceInvalidated: "support.learning.evidence_invalidated",
+  learningWithdrawn: "support.learning.withdrawn",
+  learningReviewed: "support.learning.reviewed",
 } as const);
 
 export interface CustomerTicketIndexEntry {
@@ -559,6 +607,17 @@ function jsonCodec<T>(key: (value: T) => EntityKey): Codec<T> {
     encode(value) {
       const location = key(value);
       if (
+        [
+          "resolution_learning_source",
+          "resolution_learning_work",
+          "resolution_learning_review",
+        ].includes((value as { kind?: string }).kind ?? "") ||
+        location.id === "learning-source" ||
+        location.id.startsWith("resolution-learning:") ||
+        location.id.startsWith("learning-review:")
+      )
+        assertResolutionLearningRecord(value, location);
+      if (
         (value as { kind?: unknown }).kind === "assistant_turn" ||
         location.id.startsWith("assistant-turn:")
       )
@@ -574,6 +633,27 @@ function jsonCodec<T>(key: (value: T) => EntityKey): Codec<T> {
         throw new TypeError("stored Support Desk record has no JSON payload");
       }
       const decoded = JSON.parse(record.payload) as T;
+      if (
+        [
+          "resolution_learning_source",
+          "resolution_learning_work",
+          "resolution_learning_review",
+        ].includes((decoded as { kind?: string })?.kind ?? "") ||
+        record.id === "learning-source" ||
+        (typeof record.id === "string" &&
+          (record.id.startsWith("resolution-learning:") ||
+            record.id.startsWith("learning-review:")))
+      ) {
+        if (
+          typeof record.partition !== "string" ||
+          typeof record.id !== "string"
+        )
+          throw new TypeError("Learning record has invalid physical envelope");
+        assertResolutionLearningRecord(decoded, {
+          partition: record.partition,
+          id: record.id,
+        });
+      }
       if (
         (decoded as { kind?: unknown })?.kind === "assistant_turn" ||
         (typeof record.id === "string" &&
@@ -1141,7 +1221,8 @@ export interface QueueInactiveSweepResult {
   readonly deleted: number;
 }
 
-export interface SupportDeskApplication extends AssistantTurnApplication {
+export interface SupportDeskApplication
+  extends AssistantTurnApplication, ResolutionLearningApplication {
   readHandoffWork(
     access: AccessContext,
     ticketId: TicketId,
@@ -2112,6 +2193,20 @@ function enforcePartitionRecordLimit(
 export const assistantHumanReserveRows = 12;
 export const assistantHumanReserveMessages = 1;
 const firstHumanReplyReserveRows = 4;
+function humanReserveRows(rows: readonly SupportRecord[]): number {
+  return (
+    assistantHumanReserveRows +
+    (rows.some((row) => row.kind === "resolution_learning_source") ? 1 : 0)
+  );
+}
+function withdrawalReserveRows(rows: readonly SupportRecord[]): number {
+  return rows.some(
+    (row) =>
+      row.kind === "resolution_learning_source" && row.state !== "withdrawn",
+  )
+    ? 2
+    : 0;
+}
 
 /** Reserve is opt-in metadata on the existing quota, never a second counter. */
 function enforceManagedAdmission(
@@ -2121,6 +2216,7 @@ function enforceManagedAdmission(
   additionalRows: number,
   addsMessage = false,
   firstHumanReply = false,
+  consumesWithdrawalReserve = false,
 ): void {
   const quota = rows.find(
     (row): row is TicketQuotaRecord => row.kind === "ticket_quota",
@@ -2131,7 +2227,9 @@ function enforceManagedAdmission(
     !firstHumanReply;
   enforcePartitionRecordLimit(
     rows.length,
-    limits.maxRecordsPerTicket - (reserved ? assistantHumanReserveRows : 0),
+    limits.maxRecordsPerTicket -
+      (reserved ? humanReserveRows(rows) : 0) -
+      (consumesWithdrawalReserve ? 0 : withdrawalReserveRows(rows)),
     additionalRows,
   );
   if (
@@ -2165,6 +2263,7 @@ function enforceHandlingControlAdmission(
   rows: readonly SupportRecord[],
   limits: SupportDeskLimits,
   additionalRows: number,
+  consumesWithdrawalReserve = false,
 ): void {
   const quota = rows.find(
     (row): row is TicketQuotaRecord => row.kind === "ticket_quota",
@@ -2174,7 +2273,9 @@ function enforceHandlingControlAdmission(
     ticket.firstStaffRespondedAt === undefined;
   enforcePartitionRecordLimit(
     rows.length,
-    limits.maxRecordsPerTicket - (reserved ? firstHumanReplyReserveRows : 0),
+    limits.maxRecordsPerTicket -
+      (reserved ? firstHumanReplyReserveRows : 0) -
+      (consumesWithdrawalReserve ? 0 : withdrawalReserveRows(rows)),
     additionalRows,
   );
   if (reserved && quota.messageCount >= limits.maxMessagesPerTicket)
@@ -3452,8 +3553,17 @@ export function createSupportDeskApplication(options: {
   readonly assistantHandlingEnabled?: boolean;
   /** Optional durable scheduling; absent retains the SD-01 manual assistant seam. */
   readonly assistantTurns?: AssistantTurnOptions;
+  readonly resolutionLearning?: ResolutionLearningOptions;
 }): SupportDeskApplication {
   const source = boundaryObject(options, "application options");
+  const resolutionLearningOptions = resolveResolutionLearningOptions(
+    ownDataProperty(
+      source,
+      "resolutionLearning",
+      "application options.resolutionLearning",
+      true,
+    ) as ResolutionLearningOptions | undefined,
+  );
   const assistantTurnOptions = resolveAssistantTurnOptions(
     ownDataProperty(
       source,
@@ -3970,6 +4080,29 @@ export function createSupportDeskApplication(options: {
     return reserveNextTicketNumber(numbers, maxConflictAttempts);
   }
 
+  const resolutionLearning = createResolutionLearningServices({
+    records,
+    clock,
+    limits,
+    options: resolutionLearningOptions,
+    maxConflictAttempts,
+    admission: (ticket, rows, additional) =>
+      enforceManagedAdmission(ticket, rows, limits, additional),
+    withdrawalAdmission: (ticket, rows, additional) =>
+      enforceHandlingControlAdmission(ticket, rows, limits, additional, true),
+    audit: (command, ticket, actorId, now, action) =>
+      ticketAuditAction({
+        commandId: command.commandId,
+        correlationId: command.correlationId,
+        ticketId: ticket.id,
+        revision: ticket.revision,
+        actorId,
+        occurredAt: now,
+        action:
+          action as (typeof supportTicketAuditActions)[keyof typeof supportTicketAuditActions],
+      }),
+  });
+
   type HandlingOperation =
     | "assistant_reply"
     | "assistant_escalate"
@@ -4075,7 +4208,16 @@ export function createSupportDeskApplication(options: {
           rows.some(
             (row) =>
               row.kind === "customer_success" &&
-              row.lastSeenVisibleMessageId === command.lastSeenVisibleMessageId,
+              row.lastSeenVisibleMessageId ===
+                command.lastSeenVisibleMessageId &&
+              (rows.find(
+                (record) => record.kind === "resolution_learning_source",
+              ) === undefined ||
+                row.resolutionCycle ===
+                  rows.find(
+                    (record): record is ResolutionLearningSourceRecord =>
+                      record.kind === "resolution_learning_source",
+                  )?.resolutionCycle),
           )
         )
           return ticket;
@@ -4115,16 +4257,32 @@ export function createSupportDeskApplication(options: {
                     ...common,
                   });
       if (updated.revision === ticket.revision) return ticket;
-      const newRows = operation === "take_over" ? 2 : 3;
+      const learningMutation = await planResolutionLearningTicketMutation(
+        records,
+        { value: versioned.value, version: versioned.version },
+        updated,
+      );
+      const learningConfirmation =
+        operation === "confirm_customer_success"
+          ? await resolutionLearning.customerConfirmation(
+              learningMutation.source,
+              updated,
+              access.principalId,
+              command.lastSeenVisibleMessageId!,
+              command.commandId,
+              rows,
+            )
+          : { actions: [], additionalRows: 0 };
+      const newRows =
+        (operation === "take_over" ? 2 : 3) +
+        learningMutation.additionalRows +
+        learningConfirmation.additionalRows;
       if (operation === "assistant_reply")
         enforceManagedAdmission(ticket, rows, limits, newRows, true);
       else enforceHandlingControlAdmission(ticket, rows, limits, newRows);
       const actions: Parameters<typeof records.transact>[1][number][] = [
-        {
-          action: "putIfUnchanged",
-          version: versioned.version,
-          value: { ...versioned.value, ticket: updated },
-        },
+        ...learningMutation.actions,
+        ...learningConfirmation.actions,
       ];
       if (operation === "assistant_reply") {
         const quota = await records.getVersioned(
@@ -4210,6 +4368,12 @@ export function createSupportDeskApplication(options: {
             lastSeenVisibleMessageId: command.lastSeenVisibleMessageId!,
             revision: updated.revision,
             handlingGeneration: effectiveTicketHandling(updated).generation,
+            ...(learningMutation.source === null
+              ? {}
+              : {
+                  resolutionCycle:
+                    learningMutation.source.value.resolutionCycle,
+                }),
           },
         });
       }
@@ -4308,6 +4472,7 @@ export function createSupportDeskApplication(options: {
   });
 
   return {
+    ...resolutionLearning.application,
     scanAssistantTurnCandidates: assistantTurns.scanAssistantTurnCandidates,
     claimAssistantTurn: assistantTurns.claimAssistantTurn,
     prepareAssistantTurnAttempt: assistantTurns.prepareAssistantTurnAttempt,
@@ -4637,6 +4802,7 @@ export function createSupportDeskApplication(options: {
       // reserved-but-never-created tickets.
       const estimatedCreateRows =
         6 + // ticket, quota, reservation, message, audit, command
+        (resolutionLearningOptions.enabled ? 1 : 0) +
         (command.notification === undefined ? 0 : 1) +
         (assistantTurnOptions !== undefined &&
         command.initialHandling === "assistant"
@@ -4646,8 +4812,10 @@ export function createSupportDeskApplication(options: {
         0,
         limits.maxRecordsPerTicket,
         estimatedCreateRows +
+          (resolutionLearningOptions.enabled ? 2 : 0) +
           (command.initialHandling === "assistant"
-            ? assistantHumanReserveRows
+            ? assistantHumanReserveRows +
+              (resolutionLearningOptions.enabled ? 1 : 0)
             : 0),
       );
       if (
@@ -4776,6 +4944,14 @@ export function createSupportDeskApplication(options: {
               ]
             : [];
       const actions: Parameters<typeof records.transact>[1] = [
+        ...(resolutionLearningOptions.enabled
+          ? [
+              {
+                action: "insert" as const,
+                value: await createResolutionLearningSource(ticket),
+              },
+            ]
+          : []),
         {
           action: "insert",
           value: {
@@ -4928,18 +5104,6 @@ export function createSupportDeskApplication(options: {
         const addedReplyRows =
           (command.notification === undefined ? 3 : 4) +
           (durableAssistantIngress ? 1 : 0);
-        enforcePartitionRecordLimit(
-          partitionRows.length,
-          limits.maxRecordsPerTicket,
-          addedReplyRows,
-        );
-        enforceManagedAdmission(
-          versioned.value.ticket,
-          partitionRows,
-          limits,
-          addedReplyRows,
-          true,
-        );
         const quota = await records.getVersioned(
           ticketQuotaKey(command.ticketId),
         );
@@ -4986,6 +5150,23 @@ export function createSupportDeskApplication(options: {
               effectiveTicketHandling(updated).generation,
           });
         }
+        const learningMutation = await planResolutionLearningTicketMutation(
+          records,
+          { value: versioned.value, version: versioned.version },
+          updated,
+        );
+        enforcePartitionRecordLimit(
+          partitionRows.length,
+          limits.maxRecordsPerTicket,
+          addedReplyRows + learningMutation.additionalRows,
+        );
+        enforceManagedAdmission(
+          versioned.value.ticket,
+          partitionRows,
+          limits,
+          addedReplyRows + learningMutation.additionalRows,
+          true,
+        );
         const message: TicketMessage = {
           id: command.messageId,
           ticketId: command.ticketId,
@@ -5025,11 +5206,7 @@ export function createSupportDeskApplication(options: {
                 command.notification,
               );
         const outcome = await records.transact(command.ticketId, [
-          {
-            action: "putIfUnchanged",
-            version: versioned.version,
-            value: { ...versioned.value, ticket: updated },
-          },
+          ...learningMutation.actions,
           {
             action: "putIfUnchanged",
             version: quota.version,
@@ -5373,19 +5550,6 @@ export function createSupportDeskApplication(options: {
             notificationThreading(command),
           );
         const partitionRows = await records.list(command.ticketId);
-        enforcePartitionRecordLimit(
-          partitionRows.length,
-          limits.maxRecordsPerTicket,
-          command.notification === undefined ? 3 : 4,
-        );
-        enforceManagedAdmission(
-          versioned.value.ticket,
-          partitionRows,
-          limits,
-          command.notification === undefined ? 3 : 4,
-          true,
-          true,
-        );
         const quota = await records.getVersioned(
           ticketQuotaKey(command.ticketId),
         );
@@ -5410,6 +5574,26 @@ export function createSupportDeskApplication(options: {
           actorId: access.principalId,
           occurredAt: now,
         });
+        const learningMutation = await planResolutionLearningTicketMutation(
+          records,
+          { value: versioned.value, version: versioned.version },
+          updated,
+        );
+        enforcePartitionRecordLimit(
+          partitionRows.length,
+          limits.maxRecordsPerTicket,
+          (command.notification === undefined ? 3 : 4) +
+            learningMutation.additionalRows,
+        );
+        enforceManagedAdmission(
+          versioned.value.ticket,
+          partitionRows,
+          limits,
+          (command.notification === undefined ? 3 : 4) +
+            learningMutation.additionalRows,
+          true,
+          true,
+        );
         const message: TicketMessage = {
           id: command.messageId,
           ticketId: command.ticketId,
@@ -5432,11 +5616,7 @@ export function createSupportDeskApplication(options: {
                 command.notification,
               );
         const outcome = await records.transact(command.ticketId, [
-          {
-            action: "putIfUnchanged",
-            version: versioned.version,
-            value: { ...versioned.value, ticket: updated },
-          },
+          ...learningMutation.actions,
           {
             action: "putIfUnchanged",
             version: quota.version,
@@ -6283,19 +6463,6 @@ export function createSupportDeskApplication(options: {
           : command.notification === undefined
             ? 3 // message + audit + command
             : 4) + (needsReopenHandoff ? 1 : 0); // optional atomic human handoff
-      enforcePartitionRecordLimit(
-        partitionRows.length,
-        limits.maxRecordsPerTicket,
-        addedRecords,
-      );
-
-      enforceManagedAdmission(
-        versioned.value.ticket,
-        partitionRows,
-        limits,
-        addedRecords,
-        command.messageId !== undefined,
-      );
       let quotaVersion: Awaited<
         ReturnType<CollectionStore<SupportRecord>["getVersioned"]>
       > = null;
@@ -6325,6 +6492,23 @@ export function createSupportDeskApplication(options: {
         actorId: access.principalId,
         occurredAt: now,
       });
+      const learningMutation = await planResolutionLearningTicketMutation(
+        records,
+        { value: versioned.value, version: versioned.version },
+        updated,
+      );
+      enforcePartitionRecordLimit(
+        partitionRows.length,
+        limits.maxRecordsPerTicket,
+        addedRecords + learningMutation.additionalRows,
+      );
+      enforceManagedAdmission(
+        versioned.value.ticket,
+        partitionRows,
+        limits,
+        addedRecords + learningMutation.additionalRows,
+        command.messageId !== undefined,
+      );
       // Optional system message + mail commit with the lifecycle change so a
       // resolution notification cannot be lost after the ticket is resolved.
       const systemMessage: TicketMessage | undefined =
@@ -6351,11 +6535,7 @@ export function createSupportDeskApplication(options: {
               command.notification,
             );
       const outcome = await records.transact(command.ticketId, [
-        {
-          action: "putIfUnchanged",
-          version: versioned.version,
-          value: { ...versioned.value, ticket: updated },
-        },
+        ...learningMutation.actions,
         ...(quotaVersion === null ||
         systemMessage === undefined ||
         quotaVersion.value.kind !== "ticket_quota"
@@ -9464,22 +9644,6 @@ export function createInboundMailProcessor(
       });
       const requiresHandoff =
         effectiveTicketHandling(ticket).state === "assistant";
-      try {
-        enforceManagedAdmission(
-          ticket,
-          partitionRows,
-          limits,
-          (notification === undefined ? 3 : 4) + (requiresHandoff ? 1 : 0),
-          true,
-        );
-      } catch (error) {
-        if (!(error instanceof SupportDeskLimitError)) throw error;
-        return rejected(
-          error.field === "ticket_messages"
-            ? "ticket_messages_limit"
-            : "ticket_partition_limit",
-        );
-      }
       const now = clampTicketTime(clock.now(), ticket.updatedAt);
       // Customer-reply semantics: any status, including resolved or closed,
       // moves to waiting_on_support. No actor: email is not authentication.
@@ -9492,13 +9656,32 @@ export function createInboundMailProcessor(
         responseTargetPolicy,
         "customer_replied",
       );
+      const learningMutation = await planResolutionLearningTicketMutation(
+        records,
+        { value: versioned.value, version: versioned.version },
+        updated,
+      );
+      try {
+        enforceManagedAdmission(
+          ticket,
+          partitionRows,
+          limits,
+          (notification === undefined ? 3 : 4) +
+            (requiresHandoff ? 1 : 0) +
+            learningMutation.additionalRows,
+          true,
+        );
+      } catch (error) {
+        if (!(error instanceof SupportDeskLimitError)) throw error;
+        return rejected(
+          error.field === "ticket_messages"
+            ? "ticket_messages_limit"
+            : "ticket_partition_limit",
+        );
+      }
       const notificationContent = deliveryContent(notification);
       const outcome = await records.transact(ticketId, [
-        {
-          action: "putIfUnchanged",
-          version: versioned.version,
-          value: { ...versioned.value, ticket: updated },
-        },
+        ...learningMutation.actions,
         {
           action: "putIfUnchanged",
           version: quota.version,
