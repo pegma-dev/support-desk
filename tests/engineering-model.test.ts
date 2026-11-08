@@ -13,6 +13,7 @@ import { supportPermissions } from "@pegma/support-desk-application";
 import { describe, expect, it, vi } from "vitest";
 import {
   engineeringAiFixture,
+  engineeringAdmin,
   engineeringBarrier,
   engineeringCustomer,
   engineeringStaff,
@@ -742,6 +743,103 @@ for (const [name, createStore] of engineeringStores) {
         expect(work.dispatch).toBeUndefined();
       },
     );
+
+    it("observes an emergency disable committed during the final facts authority await before provider admission", async () => {
+      const f = await engineeringAiFixture(createStore());
+      const barrier = engineeringBarrier();
+      let reserved = false;
+      let finalConfigurationRead = false;
+      let outerFinalAuthorityReturned = false;
+      let capturedAuthority = false;
+      let disabledPolicyObserved = false;
+      f.reserve.mockImplementation(async (context) => {
+        reserved = true;
+        return {
+          outcome: "reserved",
+          usageReservationId: context.usageReservationId,
+        };
+      });
+      const engineering = createSupportDeskEngineering({
+        ...f.baseOptions,
+        configuration: {
+          async resolve(expected, signal) {
+            const result = await f.baseOptions.configuration.resolve(
+              expected,
+              signal,
+            );
+            if (reserved) finalConfigurationRead = true;
+            return result;
+          },
+        },
+        serviceAccess: {
+          async resolve(signal) {
+            const authority = await f.baseOptions.serviceAccess.resolve(signal);
+            if (!finalConfigurationRead || capturedAuthority) return authority;
+            // verifyCurrent resolves its outer authority before entering the
+            // facts helper, whose own fresh authority is the following read.
+            if (!outerFinalAuthorityReturned) {
+              outerFinalAuthorityReturned = true;
+              return authority;
+            }
+            expect(authority).toEqual({
+              outcome: "ready",
+              authority: f.state.authority,
+            });
+            capturedAuthority = true;
+            await barrier.wait();
+            return authority;
+          },
+        },
+        policy: {
+          async resolve(access) {
+            const policy = await f.baseOptions.policy.resolve(access);
+            if (capturedAuthority && !policy.policy.enabled)
+              disabledPolicyObserved = true;
+            return policy;
+          },
+        },
+      });
+      const pending = engineering.processWork(await f.nextCommand(), {
+        signal: AbortSignal.timeout(10_000),
+      });
+      try {
+        await Promise.race([
+          barrier.reached,
+          pending.then((result) => {
+            throw new Error(
+              `Final provider facts authority hook was not reached: ${JSON.stringify(result)}`,
+            );
+          }),
+        ]);
+        const source = await f.source();
+        const work = await f.work();
+        expect(source.state).toBe("eligible");
+        expect(work.status).toBe("prepared");
+        const policy = await f.policy();
+        await f.app.disableEngineeringExports(engineeringAdmin, {
+          ...f.policyCommand("disable-during-final-provider-authority"),
+          expectedGeneration: policy.generation,
+        });
+        expect((await f.policy()).policy.enabled).toBe(false);
+        expect(await f.source()).toEqual(source);
+        expect(await f.work()).toEqual(work);
+      } finally {
+        barrier.release();
+      }
+      expect(["held", "pending"]).toContain((await pending).outcome);
+      expect(capturedAuthority).toBe(true);
+      expect(disabledPolicyObserved).toBe(true);
+      expect(f.reserve).toHaveBeenCalledOnce();
+      expect(f.generate).not.toHaveBeenCalled();
+      expect(f.createIssue).not.toHaveBeenCalled();
+      expect(f.reconcile).toHaveBeenCalledWith(expect.anything(), {
+        state: "not_called",
+      });
+      const work = await f.work();
+      expect(work.candidate).toBeUndefined();
+      expect(work.proposal).toBeUndefined();
+      expect(work.dispatch).toBeUndefined();
+    });
 
     it.each(["input", "output", "context", "cost", "currency"] as const)(
       "settles actual known usage when the provider exceeds its %s budget",

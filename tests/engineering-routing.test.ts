@@ -8,6 +8,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import {
   engineeringAiFixture,
+  engineeringAdmin,
   engineeringBarrier,
   engineeringCustomer,
   engineeringRepositories,
@@ -771,6 +772,113 @@ for (const [name, createStore] of engineeringStores) {
         expect(retained.acknowledgement).toBeUndefined();
       },
     );
+
+    it("observes an emergency disable during the post-permit facts authority await without POST or blind retry", async () => {
+      const f = await engineeringAiFixture(createStore());
+      await f.prepareProposal();
+      await f.approve();
+      const barrier = engineeringBarrier();
+      let permitReturned = false;
+      let metadataAfterPermit = false;
+      let outerFinalAuthorityReturned = false;
+      let capturedAuthority = false;
+      let disabledPolicyObserved = false;
+      const begin = vi.fn<typeof f.app.beginEngineeringDispatch>(
+        async (...args) => {
+          const permit = await f.app.beginEngineeringDispatch(...args);
+          if (permit !== null) permitReturned = true;
+          return permit;
+        },
+      );
+      const engineering = createSupportDeskEngineering({
+        ...f.baseOptions,
+        application: { ...f.app, beginEngineeringDispatch: begin },
+        github: {
+          ...f.baseOptions.github,
+          async getMetadata(...args) {
+            const metadata = await f.baseOptions.github.getMetadata(...args);
+            if (permitReturned) metadataAfterPermit = true;
+            return metadata;
+          },
+        },
+        serviceAccess: {
+          async resolve(signal) {
+            const authority = await f.baseOptions.serviceAccess.resolve(signal);
+            if (!metadataAfterPermit || capturedAuthority) return authority;
+            // The post-permit guard resolves its outer authority before the
+            // facts helper performs its own fresh processing-authority read.
+            if (!outerFinalAuthorityReturned) {
+              outerFinalAuthorityReturned = true;
+              return authority;
+            }
+            expect(authority).toEqual({
+              outcome: "ready",
+              authority: f.state.authority,
+            });
+            capturedAuthority = true;
+            await barrier.wait();
+            return authority;
+          },
+        },
+        policy: {
+          async resolve(access) {
+            const policy = await f.baseOptions.policy.resolve(access);
+            if (capturedAuthority && !policy.policy.enabled)
+              disabledPolicyObserved = true;
+            return policy;
+          },
+        },
+      });
+      const pending = engineering.processWork(await f.nextCommand(), {
+        signal: AbortSignal.timeout(10_000),
+      });
+      try {
+        await Promise.race([
+          barrier.reached,
+          pending.then((result) => {
+            throw new Error(
+              `Post-permit facts authority hook was not reached: ${JSON.stringify(result)}`,
+            );
+          }),
+        ]);
+        const source = await f.source();
+        const work = await f.work();
+        expect(source.state).toBe("eligible");
+        expect(work.dispatch).toBeDefined();
+        const policy = await f.policy();
+        await f.app.disableEngineeringExports(engineeringAdmin, {
+          ...f.policyCommand("disable-during-post-permit-authority"),
+          expectedGeneration: policy.generation,
+        });
+        expect((await f.policy()).policy.enabled).toBe(false);
+        expect(await f.source()).toEqual(source);
+        expect(await f.work()).toEqual(work);
+      } finally {
+        barrier.release();
+      }
+      expect((await pending).outcome).toBe("pending");
+      expect(permitReturned).toBe(true);
+      expect(capturedAuthority).toBe(true);
+      expect(disabledPolicyObserved).toBe(true);
+      expect(begin).toHaveBeenCalledOnce();
+      expect(f.createIssue).not.toHaveBeenCalled();
+      const work = await f.work();
+      expect(work.dispatch).toBeDefined();
+      expect(work.acknowledgement).toBeUndefined();
+      expect(["unknown", "dispatch_started"]).toContain(work.status);
+      const dispatchId = work.dispatch!.dispatchId;
+      expect(await engineering.reconcileSource("ticket")).toMatchObject({
+        outcome: "pending",
+      });
+      await engineering.processWork(await f.nextCommand());
+      expect(f.githubReconcile).toHaveBeenCalled();
+      expect(f.createIssue).not.toHaveBeenCalled();
+      expect(f.generate).toHaveBeenCalledOnce();
+      expect(f.reserve).toHaveBeenCalledOnce();
+      const retained = await f.work();
+      expect(retained.dispatch?.dispatchId).toBe(dispatchId);
+      expect(retained.acknowledgement).toBeUndefined();
+    });
 
     it("holds a proposal when no trusted duplicate-discovery query is available", async () => {
       const f = await engineeringAiFixture(createStore());

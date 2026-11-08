@@ -119,16 +119,14 @@ export async function engineeringSource(
     expectedAuthority,
     deadline,
   );
-  const source = snapshot(
-    await runtime.within(
-      () =>
-        options.application.readEngineeringSource(
-          current.access,
-          fence.ticketId,
-        ),
-      deadline,
-    ),
-  );
+  return readEngineeringSource(options, fence, current, runtime, deadline);
+}
+
+function validateEngineeringSource(
+  raw: EngineeringSourceRecord,
+  fence: EngineeringSourceFence,
+): EngineeringSourceRecord {
+  const source = snapshot(raw);
   if (
     source.ticketId !== fence.ticketId ||
     source.sourceGeneration !== fence.sourceGeneration ||
@@ -146,6 +144,27 @@ export async function engineeringSource(
     );
   scalar(source.evidenceFingerprint);
   return source;
+}
+
+/** Only callers that already validated current authority can enter this private read. */
+async function readEngineeringSource(
+  options: Pick<SupportDeskEngineeringOptions, "application">,
+  fence: EngineeringSourceFence,
+  authority: EngineeringServiceAuthority,
+  runtime: LearningRuntime,
+  deadline: number,
+): Promise<EngineeringSourceRecord> {
+  return validateEngineeringSource(
+    await runtime.within(
+      () =>
+        options.application.readEngineeringSource(
+          authority.access,
+          fence.ticketId,
+        ),
+      deadline,
+    ),
+    fence,
+  );
 }
 
 /** Sanitized diagnostics never imply that an invoked mutation was not committed. */
@@ -186,7 +205,7 @@ export async function engineeringPolicy(
   }
 }
 
-/** Policy/authority awaits precede the final authoritative source and work reads. */
+/** All remote proof/authority awaits precede final policy, then direct application reads. */
 export async function engineeringCurrentFacts(
   options: SupportDeskEngineeringOptions,
   fence: EngineeringSourceFence,
@@ -194,20 +213,24 @@ export async function engineeringCurrentFacts(
   runtime: LearningRuntime,
   deadline = runtime.deadline,
 ) {
-  const policy = await engineeringPolicy(options, authority, runtime, deadline);
-  // engineeringSource refreshes the original processing authority before its
-  // keyed read. No remote proof await follows the final source/work observations.
-  const source = await engineeringSource(
-    options,
-    fence,
+  const current = await engineeringProcessingAuthority(
+    options.serviceAccess,
     runtime,
     authority,
+    deadline,
+  );
+  const policy = await engineeringPolicy(options, current, runtime, deadline);
+  const source = await readEngineeringSource(
+    options,
+    fence,
+    current,
+    runtime,
     deadline,
   );
   const work = snapshot(
     await runtime.within(
       () =>
-        options.application.readEngineeringWork(authority.access, {
+        options.application.readEngineeringWork(current.access, {
           ticketId: fence.ticketId,
           sourceGeneration: fence.sourceGeneration,
         }),
