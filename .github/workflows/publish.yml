@@ -150,6 +150,7 @@ jobs:
             .release/ci-check-consumer-verification.json
             .release/ci-check/package-manifest.json
           if-no-files-found: error
+          include-hidden-files: true
           overwrite: false
           retention-days: 30
       - name: Record the Node consumer evidence identity
