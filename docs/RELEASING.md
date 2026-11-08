@@ -48,6 +48,14 @@ without reformatting, plus actual GitHub API snapshots for the
 These corroborate the source, run/job/artifact identifiers and digests above;
 they are evidence snapshots, not newly generated release artifacts.
 
+The verification-job snapshot preserves the complete GitHub API response,
+including its step numbers: setup `1`, verification steps `2`–`6`, and runner
+post steps `11`–`13`. The immutable release's
+[`verify` job definition](https://github.com/pegma-dev/support-desk/blob/efc9d733b3d305d24cf4197444e1d76c99bdb777/.github/workflows/publish.yml#L459)
+declares five explicit steps; each appears in the snapshot with a successful
+conclusion. GitHub's returned numbering is preserved without inserting
+records for numbers `7`–`10` or renumbering the post steps.
+
 The [preserved original preparation ZIP](https://github.com/pegma-dev/support-desk/releases/download/v0.2.0/sd06-v0.2.0-artifact-13622923209.zip)
 is retained on the existing `v0.2.0` release as asset `724580443` (478,270
 bytes). It is the unchanged original Actions archive, not a repack or a new
