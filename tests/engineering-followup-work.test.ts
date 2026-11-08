@@ -1,8 +1,12 @@
 import {
+  engineeringFollowupModelAttemptCount,
   supportPermissions,
   supportRecords,
+  type EngineeringFollowupAssociation,
+  type EngineeringFollowupContext,
   type EngineeringFollowupWorkRecord,
 } from "@pegma/support-desk-application";
+import type { Store } from "@pegma/storage-core";
 import { describe, expect, it } from "vitest";
 import {
   engineeringFollowupBarrier,
@@ -14,8 +18,629 @@ import {
 } from "../test/engineering-followup-fixtures.js";
 import { engineeringService as parentService } from "../test/engineering-fixtures.js";
 
+async function sharedHeadFixture(
+  createStore: () => Store,
+  phase: "draftless retry" | "bundle reassessment",
+  maximum?: number,
+) {
+  const f = await engineeringFollowupFixture(
+    createStore(),
+    maximum === undefined
+      ? {}
+      : { support: { limits: { maxRecordsPerTicket: maximum } } },
+  );
+  const firstAssociation = await f.association();
+  const initial = f.state.context;
+  if (initial === undefined || initial.mapping === undefined)
+    throw new Error("Expected the original independently verified deployment");
+  const mapping = initial.mapping;
+  await f.refreshEvidence();
+  await f.linkExisting({
+    repositoryId: firstAssociation.repositoryId,
+    issueId: "independent-cohort-issue",
+    issueNumber: 2,
+  });
+  const unrelatedAssociation = await f.association();
+  async function observe(
+    context: EngineeringFollowupContext,
+    association: EngineeringFollowupAssociation,
+    label: string,
+  ) {
+    f.state.context = context;
+    const proof = f.proof();
+    f.trust.setCurrent(proof);
+    const result = await f.observe({
+      association: {
+        repositoryId: association.repositoryId,
+        issueId: association.issueId,
+      },
+      inputReference: await f.issueInput(label, proof, { association }),
+    });
+    if (result.workId === undefined)
+      throw new Error(
+        `Expected a real independent cohort: ${JSON.stringify(result)}`,
+      );
+    return { key: { ticketId: result.ticketId, workId: result.workId }, proof };
+  }
+  const a = await observe(
+    {
+      ...initial,
+      deploymentHead: {
+        ...initial.deploymentHead,
+        contextRef: "cohort-context-A",
+        hash: "cohort-deploy-A-1",
+        deploymentEpoch: "cohort-epoch-A",
+      },
+      mapping: { ...mapping, deploymentHeadHash: "cohort-deploy-A-1" },
+    },
+    firstAssociation,
+    "cohort-A-initial-release",
+  );
+  if (phase === "draftless retry") {
+    const owner = await f.claim(a.key);
+    await f.app.finishEngineeringFollowupModel(service, {
+      ...owner.fence,
+      disposition: "held",
+      reason: "temporary_provider_outage",
+    });
+  } else await f.prepareBundle({ key: a.key });
+  const b = await observe(
+    {
+      ...initial,
+      deploymentHead: {
+        ...initial.deploymentHead,
+        contextRef: "cohort-context-B",
+        hash: "cohort-deploy-B-1",
+        deploymentEpoch: "cohort-epoch-B",
+      },
+      mapping: { ...mapping, deploymentHeadHash: "cohort-deploy-B-1" },
+    },
+    firstAssociation,
+    "cohort-B-initial-release",
+  );
+  const c = await observe(
+    {
+      ...initial,
+      issueHead: {
+        ...initial.issueHead,
+        repositoryId: unrelatedAssociation.repositoryId,
+        issueId: unrelatedAssociation.issueId,
+        issueNumber: unrelatedAssociation.issueNumber,
+        hash: "independent-cohort-issue-head",
+      },
+      deploymentHead: {
+        ...initial.deploymentHead,
+        contextRef: "cohort-context-C",
+        hash: "cohort-deploy-C-1",
+        deploymentEpoch: "cohort-epoch-C",
+      },
+      mapping: {
+        ...mapping,
+        issueHeadHash: "independent-cohort-issue-head",
+        deploymentHeadHash: "cohort-deploy-C-1",
+      },
+    },
+    unrelatedAssociation,
+    "cohort-C-independent-release",
+  );
+  return { f, firstAssociation, a, b, c };
+}
+
 for (const [name, createStore] of engineeringFollowupStores) {
   describe(`release follow-up durable work (${name})`, () => {
+    it.each(["draftless retry", "bundle reassessment"] as const)(
+      "atomically refreshes shared heads and releases only stale sibling tails during %s",
+      async (phase) => {
+        const probe = await sharedHeadFixture(createStore, phase);
+        const count = (await probe.f.rows()).length;
+        const maximum = count + 2 + (phase === "draftless retry" ? 12 : 13);
+        const { f, firstAssociation, a, b, c } = await sharedHeadFixture(
+          createStore,
+          phase,
+          maximum,
+        );
+        expect(await f.rows()).toHaveLength(count);
+        const target = await f.work(a.key);
+        const sibling = await f.work(b.key);
+        const unrelated = await f.work(c.key);
+        expect(sibling).toMatchObject({
+          status: "pending",
+          completionRows: 5,
+          messageSlots: 1,
+        });
+        const oldHead = await f.head();
+        const freshProofs = [a.proof, b.proof].map((old) => {
+          const mapping = old.context.mapping;
+          if (mapping === undefined)
+            throw new Error(
+              "Expected both independently applicable deployment mappings",
+            );
+          return f.proof({
+            context: {
+              ...old.context,
+              issueHead: {
+                ...old.context.issueHead,
+                generation: 2,
+                hash: "shared-cohort-issue-head-2",
+                state: "closed",
+              },
+              mapping: {
+                ...mapping,
+                issueHeadHash: "shared-cohort-issue-head-2",
+              },
+            },
+          });
+        });
+        for (const proof of freshProofs) f.trust.setCurrent(proof);
+        const before = await f.rows();
+        if (phase === "draftless retry")
+          await f.app.retryEngineeringFollowupWork(staff, {
+            ...f.command("retry-with-shared-head-refresh"),
+            ...a.key,
+            expectedWorkGeneration: target.workGeneration,
+          });
+        else await f.prepareBundle({ key: a.key, mode: "staff_reassessment" });
+        const after = await f.rows();
+        expect(after).toHaveLength(before.length + 2);
+        expect(
+          after
+            .filter((row) => !before.some((old) => old.id === row.id))
+            .map((row) => row.kind)
+            .sort(),
+        ).toEqual(["audit", "engineering_followup_receipt"]);
+        const rearmed = await f.work(a.key);
+        expect(rearmed).toMatchObject({
+          workId: target.workId,
+          status: phase === "draftless retry" ? "pending" : "bundle_prepared",
+          completionRows: phase === "draftless retry" ? 5 : 3,
+          messageSlots: 1,
+        });
+        expect(rearmed.semanticIdentity).toEqual(target.semanticIdentity);
+        expect(engineeringFollowupModelAttemptCount(rearmed)).toBe(
+          engineeringFollowupModelAttemptCount(target),
+        );
+        expect(await f.work(b.key)).toMatchObject({
+          workId: sibling.workId,
+          status: "held",
+          completionRows: 0,
+          messageSlots: 0,
+        });
+        expect((await f.work(b.key)).modelAttempts).toEqual(
+          sibling.modelAttempts,
+        );
+        expect(await f.work(c.key)).toEqual(unrelated);
+        expect(await f.head()).toMatchObject({
+          workCount: oldHead.workCount,
+          headGeneration: oldHead.headGeneration + 1,
+        });
+        const refreshed = freshProofs[0];
+        if (refreshed === undefined)
+          throw new Error("Expected the exact fresh target proof");
+        const beforeDuplicate = await f.rows();
+        const duplicate = await f.observe({
+          association: {
+            repositoryId: firstAssociation.repositoryId,
+            issueId: firstAssociation.issueId,
+          },
+          inputReference: await f.issueInput(
+            "duplicate-shared-head-current-release",
+            refreshed,
+            { association: firstAssociation },
+          ),
+        });
+        expect(duplicate.outcome).toBe("unchanged");
+        expect(await f.rows()).toEqual(beforeDuplicate);
+        expect(await f.work(b.key)).toMatchObject({
+          status: "held",
+          completionRows: 0,
+          messageSlots: 0,
+        });
+        expect(await f.work(c.key)).toEqual(unrelated);
+        expect((await f.head()).workCount).toBe(3);
+      },
+    );
+
+    it.each(["customer", "staff"] as const)(
+      "preserves nonterminal learning source on an ordinary %s reply and invalidates it only for the approved notice",
+      async (author) => {
+        const f = await engineeringFollowupFixture(createStore(), {
+          support: { resolutionLearning: { enabled: true } },
+        });
+        const source = await f.app.readResolutionLearningSource(
+          staff,
+          "ticket",
+        );
+        const reply = {
+          ...f.command(`ordinary-${author}-reply-learning-boundary`),
+          messageId: `ordinary-${author}-visible-reply`,
+          body: "The release investigation is continuing.",
+        };
+        if (author === "customer")
+          await f.app.replyToCustomerTicket(customer, reply);
+        else await f.app.replyAsStaff(staff, reply);
+        const ticket = (await f.app.readStaffTicket(staff, "ticket")).ticket;
+        expect(["resolved", "closed"]).not.toContain(ticket.status);
+        expect(
+          await f.app.readResolutionLearningSource(staff, "ticket"),
+        ).toEqual(source);
+        await f.eligible();
+        await f.prepareBundle();
+        const beforeNotice = await f.app.readResolutionLearningSource(
+          staff,
+          "ticket",
+        );
+        await f.post({ messageId: `approved-notice-after-${author}-reply` });
+        const afterNotice = await f.app.readResolutionLearningSource(
+          staff,
+          "ticket",
+        );
+        expect(afterNotice).toMatchObject({
+          resolutionCycle: beforeNotice.resolutionCycle,
+          sourceGeneration: beforeNotice.sourceGeneration + 1,
+          workGeneration: beforeNotice.workGeneration + 1,
+          state: "held",
+          heldReason: "visible_source_changed",
+        });
+        expect(afterNotice.sourceId).toBe(beforeNotice.sourceId);
+        expect(afterNotice.generationCount).toBe(beforeNotice.generationCount);
+        expect(
+          (await f.app.readStaffTicket(staff, "ticket")).ticket.status,
+        ).toBe(ticket.status);
+      },
+    );
+
+    it.each([1, 2])(
+      "preserves unknown paid attempts through staff recovery and refuses an exhausted lifetime cap of %i",
+      async (maximum) => {
+        const f = await engineeringFollowupFixture(createStore(), {
+          followup: { maxModelAttempts: maximum },
+        });
+        await f.eligible();
+        const unknown: {
+          stepId: string;
+          requestHash: string;
+          accounting: "unknown";
+        }[] = [];
+        for (let attempt = 0; attempt < maximum; attempt += 1) {
+          const owner = await f.claim();
+          const preparation = {
+            ...owner.fence,
+            binding: await f.modelBinding(owner),
+          };
+          const prepared = await f.app.prepareEngineeringFollowupModel(
+            service,
+            preparation,
+          );
+          await f.app.finishEngineeringFollowupModel(service, {
+            ...owner.fence,
+            stepId: prepared.stepId,
+            requestHash: prepared.requestHash,
+            disposition: "held",
+            accounting: "unknown",
+            reason: "Provider acceptance was not established.",
+            processing: { requestId: `unknown-paid-request-${attempt}` },
+          });
+          unknown.push({
+            stepId: prepared.stepId,
+            requestHash: prepared.requestHash,
+            accounting: "unknown",
+          });
+          const held = await f.work();
+          expect(held.candidate).toBeUndefined();
+          expect(engineeringFollowupModelAttemptCount(held)).toBe(attempt + 1);
+          const command = {
+            ...f.command(`retry-unknown-paid-attempt-${attempt}`),
+            ...f.key,
+            expectedWorkGeneration: held.workGeneration,
+          };
+          const before = await f.rows();
+          if (attempt + 1 === maximum) {
+            await expect(
+              f.app.retryEngineeringFollowupWork(staff, command),
+            ).rejects.toThrow();
+            expect(await f.rows()).toEqual(before);
+            expect((await f.work()).completionRows).toBe(0);
+          } else {
+            await f.app.retryEngineeringFollowupWork(staff, command);
+            const recovered = await f.work();
+            expect(recovered).toMatchObject({
+              status: "pending",
+              completionRows: 5,
+              messageSlots: 1,
+            });
+            expect(recovered.semanticIdentity).toEqual(held.semanticIdentity);
+            expect([
+              ...recovered.modelAttempts,
+              ...(recovered.usageTombstones ?? []),
+            ]).toEqual(
+              expect.arrayContaining(
+                unknown.map((entry) => expect.objectContaining(entry)),
+              ),
+            );
+            expect(engineeringFollowupModelAttemptCount(recovered)).toBe(
+              attempt + 1,
+            );
+            const recoveredRows = await f.rows();
+            await expect(
+              f.app.prepareEngineeringFollowupModel(service, preparation),
+            ).rejects.toThrow();
+            expect(await f.rows()).toEqual(recoveredRows);
+          }
+        }
+        expect(engineeringFollowupModelAttemptCount(await f.work())).toBe(
+          maximum,
+        );
+        expect((await f.head()).workCount).toBe(1);
+      },
+    );
+
+    it.each(["retry", "abandon"] as const)(
+      "replays an accepted %s acknowledgement after disablement and parent withdrawal without rearming work",
+      async (action) => {
+        const f = await engineeringFollowupFixture(createStore());
+        await f.eligible();
+        if (action === "retry") {
+          const owner = await f.claim();
+          await f.app.finishEngineeringFollowupModel(service, {
+            ...owner.fence,
+            disposition: "held",
+            reason: "temporary_outage",
+          });
+        }
+        const access = {
+          ...staff,
+          permissions: [
+            supportPermissions.engineeringFollowupReview,
+            supportPermissions.queueRead,
+          ],
+        };
+        const command = {
+          ...f.command(`accepted-local-${action}`),
+          ...f.key,
+          expectedWorkGeneration: (await f.work()).workGeneration,
+        };
+        const abandon = {
+          ...command,
+          reason: "Staff locally abandoned this exact undelivered attempt.",
+        };
+        let lost = false;
+        f.observed.intercept(async (trace, commit) => {
+          const outcome = await commit();
+          if (
+            !lost &&
+            outcome.committed &&
+            trace.actions.some((entry) => {
+              if (
+                !("value" in entry) ||
+                entry.value === null ||
+                typeof entry.value !== "object" ||
+                !("kind" in entry.value) ||
+                !("id" in entry.value)
+              )
+                return false;
+              return (
+                entry.value.kind === "engineering_followup_receipt" &&
+                entry.value.id ===
+                  `engineering-followup-command:${command.commandId}`
+              );
+            })
+          ) {
+            lost = true;
+            throw new Error(
+              "Accepted local recovery ACK lost after durable commit",
+            );
+          }
+          return outcome;
+        });
+        await expect(
+          action === "retry"
+            ? f.app.retryEngineeringFollowupWork(access, command)
+            : f.app.abandonEngineeringFollowupWork(access, abandon),
+        ).rejects.toThrow("ACK lost");
+        f.observed.intercept(undefined);
+        expect(lost).toBe(true);
+        const receipt = (await f.rows()).find(
+          (row) =>
+            row.kind === "engineering_followup_receipt" &&
+            row.id === `engineering-followup-command:${command.commandId}`,
+        );
+        if (receipt?.kind !== "engineering_followup_receipt")
+          throw new Error("Expected the durable local recovery receipt");
+        const accepted = receipt.result;
+        await f.app.withdrawEngineeringSource(staff, {
+          ...f.command(`withdraw-after-${action}`),
+          reason: "privacy_withdrawal",
+        });
+        const before = await f.rows();
+        const disabled = f.support.freshApplication({
+          engineeringFollowup: { enabled: false },
+        });
+        const confirmations = f.confirm.mock.calls.length;
+        const replay = (caller = access) =>
+          action === "retry"
+            ? disabled.retryEngineeringFollowupWork(caller, command)
+            : disabled.abandonEngineeringFollowupWork(caller, abandon);
+        await expect(replay()).resolves.toEqual(accepted);
+        expect(f.confirm.mock.calls.length).toBe(confirmations);
+        expect(await f.rows()).toEqual(before);
+        expect(await f.work()).toMatchObject({
+          withdrawn: true,
+          completionRows: 0,
+          messageSlots: 0,
+        });
+        await expect(
+          replay({
+            ...access,
+            principalId: "different-local-recovery-principal",
+          }),
+        ).rejects.toThrow();
+        await expect(
+          replay({ ...access, permissions: [supportPermissions.queueRead] }),
+        ).rejects.toThrow();
+        expect(await f.rows()).toEqual(before);
+      },
+    );
+
+    it.each(["revoked epoch", "restricted", "withdrawn", "delivered"] as const)(
+      "refuses explicit retry for %s work",
+      async (state) => {
+        const f = await engineeringFollowupFixture(createStore());
+        await f.eligible();
+        const original = await f.work();
+        if (state === "delivered") {
+          await f.prepareBundle();
+          await f.post();
+        } else if (state === "withdrawn") {
+          await f.app.withdrawEngineeringSource(staff, {
+            ...f.command("withdraw-before-local-retry"),
+            reason: "privacy_withdrawal",
+          });
+        } else {
+          const owner = await f.claim();
+          await f.app.finishEngineeringFollowupModel(service, {
+            ...owner.fence,
+            disposition: state === "restricted" ? "restricted" : "held",
+            reason: "independent_staff_hold",
+          });
+          if (state === "revoked epoch") {
+            await f.app.invalidateEngineeringSource(staff, {
+              ...f.command("revoke-before-local-retry"),
+              reason: "evidence_revoked",
+            });
+            await f.refreshEvidence();
+            await f.linkExisting();
+            expect(
+              (await f.support.source()).followupRevocationEpoch,
+            ).toBeGreaterThan(original.association.followupRevocationEpoch);
+            expect(
+              (await f.association()).followupRevocationEpoch,
+            ).toBeGreaterThan(original.association.followupRevocationEpoch);
+          }
+        }
+        const current = await f.work();
+        const before = await f.rows();
+        const confirmations = f.confirm.mock.calls.length;
+        await expect(
+          f.app.retryEngineeringFollowupWork(staff, {
+            ...f.command(`refuse-retry-${state}`),
+            ...f.key,
+            expectedWorkGeneration: current.workGeneration,
+          }),
+        ).rejects.toThrow();
+        expect(await f.rows()).toEqual(before);
+        expect(await f.work()).toEqual(current);
+        expect((await f.head()).workCount).toBe(1);
+        if (state === "revoked epoch")
+          expect(f.confirm.mock.calls.length).toBe(confirmations);
+      },
+    );
+
+    it("does not rearm an old-epoch retained bundle using a fresh proof and newly reviewed same-issue association", async () => {
+      const f = await engineeringFollowupFixture(createStore());
+      await f.eligible();
+      const prepared = await f.prepareBundle();
+      const oldEpoch = prepared.work.association.followupRevocationEpoch;
+      await f.app.invalidateEngineeringSource(staff, {
+        ...f.command("revoke-before-bundle-rearm"),
+        reason: "evidence_revoked",
+      });
+      await f.refreshEvidence();
+      await f.linkExisting();
+      expect((await f.association()).followupRevocationEpoch).toBeGreaterThan(
+        oldEpoch,
+      );
+      const current = await f.work();
+      const before = await f.rows();
+      const confirmations = f.confirm.mock.calls.length;
+      const checks = f.checksVerify.mock.calls.length;
+      await expect(
+        f.app.prepareEngineeringFollowupBundle(
+          staff,
+          {
+            ...prepared.command,
+            ...f.command("refuse-old-epoch-explicit-staff-rearm"),
+            mode: "staff_reassessment",
+            expectedWorkGeneration: current.workGeneration,
+          },
+          async () => {},
+        ),
+      ).rejects.toThrow();
+      expect(f.confirm.mock.calls.length).toBe(confirmations);
+      expect(f.checksVerify.mock.calls.length).toBe(checks);
+      expect(await f.rows()).toEqual(before);
+      expect(await f.work()).toEqual(current);
+      expect((await f.work()).association.followupRevocationEpoch).toBe(
+        oldEpoch,
+      );
+    });
+
+    it("explicitly retries held draftless work with fresh proof under the same semantic identity and lifetime counters", async () => {
+      const f = await engineeringFollowupFixture(createStore());
+      const key = await f.eligible();
+      const owner = await f.claim();
+      await f.app.finishEngineeringFollowupModel(service, {
+        ...owner.fence,
+        disposition: "held",
+        reason: "temporary_provider_outage",
+      });
+      const held = await f.work();
+      expect(held).toMatchObject({
+        status: "held",
+        modelAttempts: [],
+        completionRows: 0,
+        messageSlots: 0,
+      });
+      const before = await f.rows();
+      const confirmed = f.confirm.mock.calls.length;
+      const command = {
+        ...f.command("staff-retry-draftless-work"),
+        ...key,
+        expectedWorkGeneration: held.workGeneration,
+      };
+      const access = {
+        ...staff,
+        permissions: [
+          supportPermissions.engineeringFollowupReview,
+          supportPermissions.queueRead,
+        ],
+      };
+      f.state.currentOutcome = "unavailable";
+      await expect(
+        f.app.retryEngineeringFollowupWork(access, command),
+      ).rejects.toThrow();
+      expect(await f.rows()).toEqual(before);
+      expect(await f.work()).toEqual(held);
+      f.state.currentOutcome = "ready";
+      const retried = await f.app.retryEngineeringFollowupWork(access, command);
+      expect(f.confirm.mock.calls.length).toBeGreaterThan(confirmed);
+      expect(await f.rows()).toHaveLength(before.length + 2);
+      const current = await f.work();
+      expect(current).toMatchObject({
+        workId: key.workId,
+        stage: "model",
+        status: "pending",
+        completionRows: 5,
+        messageSlots: 1,
+      });
+      expect(current.semanticIdentity).toEqual(held.semanticIdentity);
+      expect(current.bundleRevision).toBe(held.bundleRevision);
+      expect(engineeringFollowupModelAttemptCount(current)).toBe(0);
+      expect((await f.head()).workCount).toBe(1);
+      expect(current.claim).toBeUndefined();
+      expect(Date.parse(current.deadline)).toBeGreaterThan(
+        Date.parse(f.clock.now()),
+      );
+      const replacement = await f.claim();
+      expect(replacement.fence.claimGeneration).toBeGreaterThan(
+        owner.fence.claimGeneration,
+      );
+      const afterClaim = await f.rows();
+      await expect(
+        f.app.retryEngineeringFollowupWork(access, command),
+      ).resolves.toEqual(retried);
+      expect(await f.rows()).toEqual(afterClaim);
+      expect((await f.work()).claim).toEqual(replacement.fence);
+    });
     it.each([
       "completion lease",
       "completion model deadline",

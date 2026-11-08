@@ -37,7 +37,7 @@ All authoritative rows use the existing ticket partition in
 | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `engineering-followup-head` (`engineering_followup_head`)                   | One bounded issue/deployment observation head, up to four registered associations and eight deployment contexts.                                                                          |
 | `engineering-followup:<workId>` (`engineering_followup_work`)               | One private customer draft, KB change proposal and advisory retest bundle per semantic issue/mapping/deployment identity. Default four, hard maximum eight lifetime work sets per ticket. |
-| `engineering-followup-command:<commandId>` (`engineering_followup_receipt`) | Exact command replay with opaque IDs, hashes and outcomes; no copied bodies or destination URLs.                                                                                          |
+| `engineering-followup-command:<commandId>` (`engineering_followup_receipt`) | Exact committed-mutation replay with opaque IDs, hashes and outcomes; no copied bodies or destination URLs.                                                                               |
 
 The semantic work ID hashes immutable repository/issue identity, semantic
 mapping identity and deployment epoch. Ticket revision, refreshed attestation,
@@ -45,6 +45,21 @@ association replacement and authority epochs do not create a second notice.
 Delivered work never rearms. Issue and deployment generations are independent:
 lower generations are stale, equal generations with different hashes conflict,
 and rollback to an older build still requires a newer deployment generation.
+An issue-head change invalidates work across its deployment contexts; a
+deployment or mapping change affects only its matching context. Independently
+current deployment contexts retain their reservations and work.
+
+Stale, unchanged, and unavailable observation outcomes that change no durable
+state are live reads. They do not reserve a command ID or append a receipt;
+retrying them rechecks current authority and proof. This deliberate zero-row
+coalescing prevents repeated webhook hints from consuming the ticket's finite
+capacity. Exact replay receipts acknowledge committed changes, including
+accepted observations, rather than caching every read result.
+
+Head admission preserves actual proof fields while reserving maximum control,
+hold, opaque acknowledgement, and scrub growth. A new context or replacement
+proof must pass full actual-head admission again before commit; pending paid
+operations retain their already admitted proof fields.
 
 The host verifies signed, allowlisted normalized input and confirms current
 issue/deployment heads and fix-to-product/build/deployment applicability through
@@ -123,6 +138,14 @@ complete proof/checks and five-row/one-slot readmission. Reassessment preserves
 attempt counters and cannot clear withdrawal, restricted evidence, revoked
 association epochs or delivered status. A passing retest alone does not unhold
 or send. Retest results require trusted exact-request/build/runner receipts.
+
+Draftless model work that is held, superseded, or expired has a separate explicit
+staff retry using fresh same-semantic proof, unchanged lifetime attempt history,
+and five-row/one-slot readmission. It spends two ordinary Audit/receipt rows.
+Staff can locally abandon undelivered work without provider or release ports,
+spending two rows from its own funded tail or ordinary capacity and releasing
+its remaining tail and slot. Abandonment retains identity and accounting;
+parent withdrawal remains the privacy-erasure operation.
 
 The optional AI coordinator uses purpose `support_release_followup`. Provider
 input contains bounded customer-visible conversation and host-approved public

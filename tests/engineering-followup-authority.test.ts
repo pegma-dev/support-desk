@@ -36,7 +36,11 @@ type Operation =
   | "post replay"
   | "retest"
   | "retest replay"
-  | "preparation recovery";
+  | "preparation recovery"
+  | "retry"
+  | "retry replay"
+  | "abandon"
+  | "abandon replay";
 
 const staffOperation = (kind: Operation) =>
   [
@@ -47,6 +51,10 @@ const staffOperation = (kind: Operation) =>
     "post",
     "post replay",
     "preparation recovery",
+    "retry",
+    "retry replay",
+    "abandon",
+    "abandon replay",
   ].includes(kind);
 
 function requiredPermission(kind: Operation): string {
@@ -85,6 +93,38 @@ async function operation(
       f.app.observeEngineeringFollowup(access, command);
   }
   const key = await f.eligible();
+  if (
+    kind === "retry" ||
+    kind === "retry replay" ||
+    kind === "abandon" ||
+    kind === "abandon replay"
+  ) {
+    if (kind === "retry" || kind === "retry replay") {
+      const owner = await f.claim();
+      await f.app.finishEngineeringFollowupModel(service, {
+        ...owner.fence,
+        disposition: "held",
+        reason: "temporary_provider_outage",
+      });
+    }
+    const command = {
+      ...f.command(`live-authority-${kind}`),
+      ...key,
+      expectedWorkGeneration: (await f.work()).workGeneration,
+    };
+    if (kind === "retry" || kind === "retry replay") {
+      if (kind === "retry replay")
+        await f.app.retryEngineeringFollowupWork(staff, command);
+      return (access) => f.app.retryEngineeringFollowupWork(access, command);
+    }
+    const abandon = {
+      ...command,
+      reason: "Staff abandoned this exact undelivered work.",
+    };
+    if (kind === "abandon replay")
+      await f.app.abandonEngineeringFollowupWork(staff, abandon);
+    return (access) => f.app.abandonEngineeringFollowupWork(access, abandon);
+  }
   if (kind === "read") {
     expect(JSON.stringify(await f.work(key))).toContain("PRIVATE_MAPPING_ID");
     return (access: AccessContext) =>
@@ -275,6 +315,10 @@ for (const [name, createStore] of engineeringFollowupStores) {
       "retest",
       "retest replay",
       "preparation recovery",
+      "retry",
+      "retry replay",
+      "abandon",
+      "abandon replay",
     ] as const) {
       it.each(["permission", "principal"] as const)(
         `rejects ${kind} after the original caller's %s changes during a real store await`,
@@ -362,6 +406,73 @@ for (const [name, createStore] of engineeringFollowupStores) {
         },
       );
     }
+
+    it.each(["retry", "abandon"] as const)(
+      "requires queue authority throughout an awaited local %s command",
+      async (kind) => {
+        const f = await engineeringFollowupFixture(createStore());
+        const execute = await operation(f, kind);
+        const access = {
+          ...staff,
+          permissions: [
+            supportPermissions.engineeringFollowupReview,
+            supportPermissions.queueRead,
+          ],
+        };
+        const before = await f.rows();
+        const barrier = engineeringFollowupBarrier();
+        let armed = true;
+        f.readObserver.afterRead(async (trace) => {
+          if (!armed || trace.collection !== supportRecords.name) return;
+          armed = false;
+          await barrier.wait();
+        });
+        const settled = execute(access).then(
+          () => ({ accepted: true }),
+          () => ({ accepted: false }),
+        );
+        await barrier.reached;
+        access.permissions = [supportPermissions.engineeringFollowupReview];
+        barrier.release();
+        expect(await settled).toEqual({ accepted: false });
+        f.readObserver.afterRead(undefined);
+        expect(await f.rows()).toEqual(before);
+      },
+    );
+
+    it.each(["permission", "principal", "queue"] as const)(
+      "rechecks original staff %s after fresh retry proof is captured and awaited",
+      async (change) => {
+        const f = await engineeringFollowupFixture(createStore());
+        const execute = await operation(f, "retry");
+        const access = { ...staff, permissions: [...staff.permissions] };
+        const before = await f.rows();
+        const barrier = engineeringFollowupBarrier();
+        f.confirm.mockImplementationOnce(async () => {
+          const captured = f.proof();
+          await barrier.wait();
+          return captured;
+        });
+        const settled = execute(access).then(
+          () => ({ accepted: true }),
+          () => ({ accepted: false }),
+        );
+        await barrier.reached;
+        if (change === "principal")
+          access.principalId = "different-retry-reviewer";
+        else
+          access.permissions = access.permissions.filter(
+            (permission) =>
+              permission !==
+              (change === "queue"
+                ? supportPermissions.queueRead
+                : supportPermissions.engineeringFollowupReview),
+          );
+        barrier.release();
+        expect(await settled).toEqual({ accepted: false });
+        expect(await f.rows()).toEqual(before);
+      },
+    );
 
     it.each([
       supportPermissions.engineeringFollowupReview,

@@ -29,6 +29,7 @@ export interface EngineeringFollowupLoaded {
 export type EngineeringFollowupLoad = (
   ticketId: string,
 ) => Promise<EngineeringFollowupLoaded>;
+export type EngineeringFollowupReassessmentPurpose = "bundle" | "model_retry";
 export interface EngineeringFollowupMutationPlan {
   readonly actions: readonly EngineeringAction[];
   readonly nextWorkRows: readonly EngineeringFollowupWorkRecord[];

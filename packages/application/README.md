@@ -65,8 +65,21 @@ states at bundle preparation. Retest Audit/receipts use ordinary capacity.
 `recoverEngineeringFollowupPreparation` returns only an opaque accepted result
 bound to the current staff actor and exact recovery intent before live work or
 proof reads, preventing duplicate preparation after a lost acknowledgement.
+`retryEngineeringFollowupWork` explicitly readmits held/superseded or expired
+draftless model work under fresh same-semantic proof, retaining its ID and
+lifetime attempt cap and reserving five rows plus a slot. Its two Audit/receipt
+rows use ordinary capacity. `abandonEngineeringFollowupWork` locally holds
+undelivered work without provider/proof ports, spends its own two funded rows or
+ordinary capacity, and releases the remaining tail/slot while preserving history.
+Both use current review and queue authority; parent withdrawal remains the
+privacy-erasure operation.
+The optional coordinator additionally needs follow-up read and queue grants for
+new private processing/review; direct base operations retain their purpose
+permissions. Metadata-only receipt replay remains available under each base
+operation's current grants. Zero-row stale/unchanged/unavailable observations
+are live reevaluated reads, with no persisted command receipt.
 See the [release follow-up guide](../../docs/ENGINEERING_FOLLOWUP.md) for trusted
-ports, explicit reassessment, private KB/retest handoffs, and capacity rules.
+ports, explicit retry/reassessment, private KB/retest handoffs, and capacity rules.
 Current-head validation/review, publication, and host acceptance remain separate.
 
 Customer create uses `support.ticket.create`; list and read both use the

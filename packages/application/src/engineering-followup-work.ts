@@ -46,6 +46,7 @@ import {
   engineeringFollowupAssociation,
   engineeringFollowupProofContext,
   engineeringFollowupValidateProof,
+  planEngineeringFollowupContextChange,
 } from "./engineering-followup-source.js";
 import type {
   EngineeringFollowupDependencies,
@@ -75,6 +76,8 @@ type Methods = Pick<
   | "rejectEngineeringFollowupBundle"
   | "submitEngineeringFollowupRetestResult"
   | "recoverEngineeringFollowupPreparation"
+  | "retryEngineeringFollowupWork"
+  | "abandonEngineeringFollowupWork"
 >;
 
 function validateFence(command: EngineeringFollowupClaimFence): void {
@@ -1178,7 +1181,22 @@ export function createEngineeringFollowupWorkServices(
           },
         };
         reserveEngineeringFollowupReachable(next);
-        deps.admission(loaded.ticket.value.ticket, loaded.rows, [next], 2);
+        const cohort =
+          rearm === null
+            ? { actions: [], nextWorkRows: [] }
+            : await planEngineeringFollowupContextChange(records, {
+                rows: loaded.rows,
+                context: rearm.proof.context,
+                previousHead: loaded.head!.value,
+                nextHead: rearm.nextHead,
+                excludedWorkId: work.workId,
+              });
+        deps.admission(
+          loaded.ticket.value.ticket,
+          loaded.rows,
+          [next, ...cohort.nextWorkRows],
+          2,
+        );
         await guard();
         const proof = rearm?.proof ?? current!.proof;
         const associationWork =
@@ -1213,6 +1231,7 @@ export function createEngineeringFollowupWorkServices(
             stored,
             next,
             [
+              ...cohort.actions,
               deps.audit(
                 command,
                 loaded.ticket.value.ticket,
@@ -1226,6 +1245,205 @@ export function createEngineeringFollowupWorkServices(
             ],
             rearm?.nextHead ?? loaded.head!.value,
           )
+        ) {
+          authorize();
+          return outcome;
+        }
+      }
+      throw new SupportDeskConflictError();
+    },
+    async retryEngineeringFollowupWork(access, input) {
+      const actorId = access.principalId;
+      const authorize = () =>
+        permission(
+          access,
+          supportPermissions.engineeringFollowupReview,
+          actorId,
+          true,
+        );
+      authorize();
+      const now = engineeringFollowupNow(deps);
+      const command = snapshot(
+        fields(input, "retry follow-up work", [
+          "ticketId",
+          "workId",
+          "commandId",
+          "correlationId",
+          "expectedWorkGeneration",
+        ]),
+      ) as unknown as typeof input;
+      for (const entry of [
+        command.ticketId,
+        command.workId,
+        command.commandId,
+        command.correlationId,
+      ])
+        text(entry, "retry identity");
+      integer(command.expectedWorkGeneration, "expectedWorkGeneration", 1);
+      const hash = await fingerprint({ actorId, command });
+      for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
+        const previous = await replay(command, hash);
+        authorize();
+        if (previous !== null) {
+          if (!("status" in previous))
+            throw new SupportDeskConflictError("Wrong follow-up receipt kind");
+          return previous;
+        }
+        const current = await sourceServices.internal.reassessment(
+          command,
+          now,
+          "model_retry",
+        );
+        const { loaded, work: stored } = current;
+        const work = stored.value;
+        if (
+          work.workGeneration !== command.expectedWorkGeneration ||
+          engineeringFollowupModelAttemptCount(work) >= options.maxModelAttempts
+        )
+          throw new SupportDeskConflictError(
+            "Follow-up recovery generation or lifetime model budget changed",
+          );
+        const {
+          stepId: _step,
+          requestHash: _request,
+          heldReason: _reason,
+          ...retained
+        } = withoutLease(compactModelAttempts(work));
+        const next: EngineeringFollowupWorkRecord = {
+          ...retained,
+          ...current.prospective,
+          workBindingHash: current.prospectiveWorkBindingHash,
+          workGeneration: work.workGeneration + 1,
+          status: "pending",
+          stage: "model",
+          completionRows: 5,
+          messageSlots: 1,
+          deadline: new Date(now() + options.maxWorkMilliseconds).toISOString(),
+        };
+        reserveEngineeringFollowupReachable(next);
+        const cohort = await planEngineeringFollowupContextChange(records, {
+          rows: loaded.rows,
+          context: current.proof.context,
+          previousHead: loaded.head!.value,
+          nextHead: current.nextHead,
+          excludedWorkId: work.workId,
+        });
+        deps.admission(
+          loaded.ticket.value.ticket,
+          loaded.rows,
+          [next, ...cohort.nextWorkRows],
+          2,
+        );
+        if (
+          !(await engineeringFollowupVersionsCurrent(
+            deps,
+            loaded,
+            stored,
+            current.engineeringWork,
+          ))
+        )
+          continue;
+        authorize();
+        if (
+          now() >=
+          Math.min(
+            timestamp(current.proof.attestation.validUntil, "validUntil"),
+            timestamp(next.deadline, "deadline"),
+          )
+        )
+          throw new SupportDeskConflictError(
+            "Follow-up recovery proof expired",
+          );
+        const outcome = result(next);
+        if (
+          await save(
+            loaded,
+            stored,
+            next,
+            [
+              ...cohort.actions,
+              deps.audit(
+                command,
+                loaded.ticket.value.ticket,
+                actorId,
+                clock.now(),
+                supportTicketAuditActions.engineeringFollowupRetried,
+              ),
+              receipt(command, hash, outcome),
+            ],
+            current.nextHead,
+          )
+        ) {
+          authorize();
+          return outcome;
+        }
+      }
+      throw new SupportDeskConflictError();
+    },
+    async abandonEngineeringFollowupWork(access, input) {
+      const actorId = access.principalId;
+      const authorize = () =>
+        permission(
+          access,
+          supportPermissions.engineeringFollowupReview,
+          actorId,
+          true,
+        );
+      authorize();
+      const command = snapshot(
+        fields(input, "abandon follow-up work", [
+          "ticketId",
+          "workId",
+          "commandId",
+          "correlationId",
+          "expectedWorkGeneration",
+          "reason",
+        ]),
+      ) as unknown as typeof input;
+      for (const entry of [
+        command.ticketId,
+        command.workId,
+        command.commandId,
+        command.correlationId,
+        command.reason,
+      ])
+        text(entry, "abandonment identity");
+      integer(command.expectedWorkGeneration, "expectedWorkGeneration", 1);
+      const hash = await fingerprint({ actorId, command });
+      for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
+        const previous = await replay(command, hash);
+        authorize();
+        if (previous !== null) {
+          if (!("status" in previous))
+            throw new SupportDeskConflictError("Wrong follow-up receipt kind");
+          return previous;
+        }
+        const loaded = await load(command.ticketId);
+        const stored = await workAt(command);
+        const work = stored.value;
+        if (
+          work.workGeneration !== command.expectedWorkGeneration ||
+          work.withdrawn ||
+          work.status === "delivered"
+        )
+          throw new SupportDeskConflictError(
+            "Follow-up abandonment target changed or was withdrawn or delivered",
+          );
+        const next = holdEngineeringFollowupWork(work, command.reason);
+        deps.admission(loaded.ticket.value.ticket, loaded.rows, [next], 2);
+        const outcome = result(next);
+        authorize();
+        if (
+          await save(loaded, stored, next, [
+            deps.audit(
+              command,
+              loaded.ticket.value.ticket,
+              actorId,
+              clock.now(),
+              supportTicketAuditActions.engineeringFollowupAbandoned,
+            ),
+            receipt(command, hash, outcome),
+          ])
         ) {
           authorize();
           return outcome;

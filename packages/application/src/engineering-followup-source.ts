@@ -47,6 +47,7 @@ import type {
   EngineeringFollowupMutationPlan,
   EngineeringFollowupSourceChangeContext,
   EngineeringFollowupWorkVersion,
+  EngineeringFollowupReassessmentPurpose,
 } from "./engineering-followup-internal.js";
 import type { EngineeringAction } from "./engineering-internal.js";
 
@@ -446,8 +447,10 @@ export async function engineeringFollowupActive(
         work.context!.deploymentHead.contextRef,
   );
   if (
+    issue === undefined ||
+    deployment === undefined ||
     canonical(issue) !== canonical(work.context.issueHead) ||
-    canonical(deployment?.deploymentHead) !==
+    canonical(deployment.deploymentHead) !==
       canonical(work.context.deploymentHead) ||
     work.context.issueHead.state !== "closed" ||
     work.context.deploymentHead.state !== "deployed" ||
@@ -632,6 +635,80 @@ export async function planEngineeringFollowupTicketMutation(
   return { actions, nextWorkRows };
 }
 
+export async function planEngineeringFollowupContextChange(
+  records: CollectionStore<SupportRecord>,
+  input: {
+    readonly rows: readonly SupportRecord[];
+    readonly context: EngineeringFollowupContext;
+    readonly previousHead: EngineeringFollowupHeadRecord;
+    readonly nextHead: EngineeringFollowupHeadRecord;
+    readonly capacity?: boolean;
+    readonly excludedWorkId?: string;
+  },
+): Promise<EngineeringFollowupMutationPlan> {
+  const hints = input.rows.filter(
+    (row) => row.kind === "engineering_followup_work",
+  );
+  if (hints.length > 8)
+    throw new SupportDeskConflictError("Follow-up history exceeds bound");
+  if (
+    !input.capacity &&
+    canonical(input.previousHead.associationHeads) ===
+      canonical(input.nextHead.associationHeads) &&
+    canonical(input.previousHead.deploymentContexts) ===
+      canonical(input.nextHead.deploymentContexts)
+  )
+    return { actions: [], nextWorkRows: [] };
+  const associationKey = await fingerprint({
+    repositoryId: input.context.issueHead.repositoryId,
+    issueId: input.context.issueHead.issueId,
+  });
+  const previousIssue = input.previousHead.associationHeads.find(
+    (entry) => entry.associationKey === associationKey,
+  )?.issueHead;
+  const issueChanged =
+    previousIssue === undefined ||
+    canonical(previousIssue) !== canonical(input.context.issueHead);
+  const affected = (work: EngineeringFollowupWorkRecord) =>
+    !work.withdrawn &&
+    work.status !== "delivered" &&
+    work.workId !== input.excludedWorkId &&
+    work.association.repositoryId === input.context.issueHead.repositoryId &&
+    work.association.issueId === input.context.issueHead.issueId &&
+    (issueChanged ||
+      work.context?.deploymentHead.contextRef ===
+        input.context.deploymentHead.contextRef);
+  const negative =
+    input.capacity ||
+    input.context.issueHead.state !== "closed" ||
+    input.context.deploymentHead.state !== "deployed" ||
+    input.context.mapping === undefined;
+  const actions: EngineeringAction[] = [];
+  const nextWorkRows: EngineeringFollowupWorkRecord[] = [];
+  for (const hint of hints) {
+    if (!affected(hint)) continue;
+    const stored = await records.getVersioned({
+      partition: hint.partition,
+      id: hint.id,
+    });
+    if (stored?.value.kind !== "engineering_followup_work")
+      throw new SupportDeskConflictError("Follow-up child changed");
+    if (!affected(stored.value)) continue;
+    const next = holdEngineeringFollowupWork(
+      stored.value,
+      negative ? "release_reassessment_required" : "release_context_changed",
+    );
+    checkEngineeringFollowupRecordCapacity(next);
+    nextWorkRows.push(next);
+    actions.push({
+      action: "putIfUnchanged",
+      version: stored.version,
+      value: next,
+    });
+  }
+  return { actions, nextWorkRows };
+}
+
 export async function engineeringFollowupPlanHeads(
   head: EngineeringFollowupHeadRecord,
   context: EngineeringFollowupContext,
@@ -799,6 +876,7 @@ export function createEngineeringFollowupSourceServices(
   async function reassessment(
     key: { readonly ticketId: string; readonly workId: string },
     now = engineeringFollowupNow(deps),
+    purpose: EngineeringFollowupReassessmentPurpose = "bundle",
   ) {
     const loaded = await load(key.ticketId);
     const work = await workAt(key);
@@ -809,10 +887,23 @@ export function createEngineeringFollowupSourceServices(
       value.status === "delivered" ||
       value.security !== "ordinary" ||
       value.context === undefined ||
-      (value.candidate === undefined && value.preparedBundle === undefined)
+      loaded.source.value.state === "withdrawn" ||
+      loaded.source.value.security !== "ordinary" ||
+      loaded.source.value.followupRevocationEpoch === undefined ||
+      value.association.followupRevocationEpoch !==
+        loaded.source.value.followupRevocationEpoch ||
+      (purpose === "bundle" &&
+        value.candidate === undefined &&
+        value.preparedBundle === undefined) ||
+      (purpose === "model_retry" &&
+        (value.stage !== "model" ||
+          value.candidate !== undefined ||
+          value.preparedBundle !== undefined ||
+          (!["held", "superseded"].includes(value.status) &&
+            timestamp(value.deadline, "deadline") > now())))
     )
       throw new SupportDeskConflictError(
-        "Follow-up has no eligible retained draft",
+        "Follow-up has no eligible retained draft or explicit model recovery",
       );
     const associated = await engineeringFollowupAssociation(
       deps,
@@ -1357,15 +1448,6 @@ export function createEngineeringFollowupSourceServices(
           throw new SupportDeskConflictError(
             "Follow-up work count exceeds bound",
           );
-        const affected = workHints.filter(
-          (work) =>
-            !work.withdrawn &&
-            work.status !== "delivered" &&
-            (planned.capacity ||
-              (work.association.repositoryId ===
-                command.association.repositoryId &&
-                work.association.issueId === command.association.issueId)),
-        );
         const negative =
           planned.capacity ||
           proof.context.issueHead.state !== "closed" ||
@@ -1409,27 +1491,19 @@ export function createEngineeringFollowupSourceServices(
             outcome: "unchanged",
           };
         }
-        const actions: EngineeringAction[] = [];
-        const nextWorkRows: EngineeringFollowupWorkRecord[] = [];
+        const cohort = await planEngineeringFollowupContextChange(records, {
+          rows: loaded.rows,
+          context: proof.context,
+          previousHead: oldHead,
+          nextHead: planned.head,
+          capacity: planned.capacity,
+        });
+        const actions: EngineeringAction[] = [...cohort.actions];
+        const nextWorkRows: EngineeringFollowupWorkRecord[] = [
+          ...cohort.nextWorkRows,
+        ];
         let workId: string | undefined;
         let queued = false;
-        for (const hint of affected) {
-          const stored = await workAt(hint);
-          const next = holdEngineeringFollowupWork(
-            stored.value,
-            negative
-              ? "release_reassessment_required"
-              : "release_context_changed",
-          );
-          if (next !== stored.value) {
-            nextWorkRows.push(next);
-            actions.push({
-              action: "putIfUnchanged",
-              version: stored.version,
-              value: next,
-            });
-          }
-        }
         let head = planned.head;
         if (
           semanticIdentity !== undefined &&

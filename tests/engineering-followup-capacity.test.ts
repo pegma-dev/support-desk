@@ -1,5 +1,6 @@
 import {
   engineeringFollowupModelAttemptCount,
+  supportPermissions,
   supportRecords,
   type EngineeringFollowupCandidate,
   type EngineeringFollowupKey,
@@ -198,6 +199,168 @@ async function twoAssociatedChildren(f: Fixture) {
 
 for (const [name, createStore] of engineeringFollowupStores) {
   describe(`release follow-up physical capacity (${name})`, () => {
+    it.each(["rows", "message slot"] as const)(
+      "readmits all five reserved rows and one message slot on staff retry (%s)",
+      async (bound) => {
+        const probe = await engineeringFollowupFixture(createStore(), {
+          support: managed,
+        });
+        await probe.eligible();
+        const count = (await probe.rows()).length;
+        const messages = (await probe.rows()).filter(
+          (row) => row.kind === "message",
+        ).length;
+        const maximumRows = bound === "rows" ? count + 13 + 2 + 2 + 5 : 512;
+        const maximumMessages =
+          bound === "message slot" ? messages + 1 + 1 : 100;
+        const f = await engineeringFollowupFixture(createStore(), {
+          support: {
+            ...managed,
+            limits: {
+              maxRecordsPerTicket: maximumRows,
+              maxMessagesPerTicket: maximumMessages,
+            },
+          },
+        });
+        await f.eligible();
+        const owner = await f.claim();
+        await f.app.finishEngineeringFollowupModel(service, {
+          ...owner.fence,
+          disposition: "held",
+          reason: "temporary_provider_failure",
+        });
+        if (bound === "message slot")
+          await f.app.addNote(staff, {
+            ...f.command("consume-released-local-message-slot"),
+            messageId: "private-note-before-explicit-retry",
+            body: "Ordinary private support consumed the released slot.",
+          });
+        const held = await f.work();
+        expect(held).toMatchObject({
+          status: "held",
+          completionRows: 0,
+          messageSlots: 0,
+        });
+        const command = {
+          ...f.command(`retry-with-complete-readmission-${bound}`),
+          ...f.key,
+          expectedWorkGeneration: held.workGeneration,
+        };
+        const before = await f.rows();
+        await expect(
+          f.app.retryEngineeringFollowupWork(staff, command),
+        ).rejects.toMatchObject({
+          name: "SupportDeskLimitError",
+          field: bound === "rows" ? "ticket_partition" : "ticket_messages",
+        });
+        expect(await f.rows()).toEqual(before);
+        const admitted = f.support.freshApplication({
+          limits: {
+            maxRecordsPerTicket: maximumRows + (bound === "rows" ? 2 : 0),
+            maxMessagesPerTicket:
+              maximumMessages + (bound === "message slot" ? 1 : 0),
+          },
+        });
+        await admitted.retryEngineeringFollowupWork(staff, command);
+        expect(await f.rows()).toHaveLength(before.length + 2);
+        expect(await f.work()).toMatchObject({
+          workId: held.workId,
+          status: "pending",
+          completionRows: 5,
+          messageSlots: 1,
+        });
+        expect(engineeringFollowupModelAttemptCount(await f.work())).toBe(0);
+        expect((await f.head()).workCount).toBe(1);
+        assertPhysicalRecords(await f.rows());
+      },
+    );
+
+    it("abandons expired draftless work from its own prepaid pair at full capacity without spending another child or privacy reserve", async () => {
+      const probe = await engineeringFollowupFixture(createStore(), {
+        support: managed,
+      });
+      await twoAssociatedChildren(probe);
+      const count = (await probe.rows()).length;
+      const messages = (await probe.rows()).filter(
+        (row) => row.kind === "message",
+      ).length;
+      const f = await engineeringFollowupFixture(createStore(), {
+        support: {
+          ...managed,
+          limits: {
+            maxRecordsPerTicket: count + 13 + 2 + 2 + 5 + 5,
+            maxMessagesPerTicket: messages + 1 + 1 + 1,
+          },
+        },
+      });
+      const { keys } = await twoAssociatedChildren(f);
+      const own = await f.work(keys[0]);
+      const other = await f.work(keys[1]);
+      f.advance(Date.parse(own.deadline) - Date.parse(f.clock.now()) + 1);
+      expect(Date.parse(f.clock.now())).toBeGreaterThan(
+        Date.parse(own.deadline),
+      );
+      f.state.inputOutcome = "unavailable";
+      f.state.currentOutcome = "unavailable";
+      f.state.checksOutcome = "unavailable";
+      f.state.retestOutcome = "unavailable";
+      const offline = f.support.freshApplication({
+        engineeringFollowup: { enabled: false },
+      });
+      const access = {
+        ...staff,
+        permissions: [
+          supportPermissions.engineeringFollowupReview,
+          supportPermissions.queueRead,
+        ],
+      };
+      const before = await f.rows();
+      const source = await f.support.source();
+      const confirmations = f.confirm.mock.calls.length;
+      await offline.abandonEngineeringFollowupWork(access, {
+        ...f.command("abandon-expired-prepaid-draftless-work"),
+        ...keys[0],
+        expectedWorkGeneration: own.workGeneration,
+        reason: "Staff abandoned an expired draftless operation locally.",
+      });
+      expect(await f.rows()).toHaveLength(before.length + 2);
+      expect(f.confirm.mock.calls.length).toBe(confirmations);
+      expect(await f.work(keys[0])).toMatchObject({
+        status: "held",
+        completionRows: 0,
+        messageSlots: 0,
+      });
+      expect((await f.work(keys[0])).withdrawn).toBeUndefined();
+      expect(await f.work(keys[1])).toEqual(other);
+      expect(await f.support.source()).toEqual(source);
+      await f.app.addNote(staff, {
+        ...f.command("ordinary-uses-only-abandoned-unused-three-rows"),
+        messageId: "private-note-after-local-abandonment",
+        body: "The abandoned work released only its own unused tail.",
+      });
+      const afterOwnCredit = await f.rows();
+      await expect(
+        f.app.addNote(staff, {
+          ...f.command("ordinary-cannot-spend-unrelated-reserves"),
+          messageId: "forbidden-second-note-after-local-abandonment",
+          body: "Other prepaid work and human privacy remain protected.",
+        }),
+      ).rejects.toThrow();
+      expect(await f.rows()).toEqual(afterOwnCredit);
+      await f.app.withdrawResolutionLearningSource(staff, {
+        ...f.command("independent-learning-privacy-after-local-abandonment"),
+        reason: "privacy_withdrawal",
+      });
+      expect(await f.work(keys[1])).toEqual(other);
+      await f.app.withdrawEngineeringSource(staff, {
+        ...f.command("parent-privacy-after-local-abandonment"),
+        reason: "privacy_withdrawal",
+      });
+      expect((await f.work(keys[1])).withdrawn).toBe(true);
+      expect(await f.rows()).toHaveLength(before.length + 9);
+      assertPhysicalRecords(await f.rows());
+    });
+
     it.each(["rows", "message slots"] as const)(
       "requires five future rows and one message slot before any paid request (%s)",
       async (bound) => {

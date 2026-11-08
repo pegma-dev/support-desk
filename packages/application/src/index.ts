@@ -572,6 +572,8 @@ export const supportTicketAuditActions = Object.freeze({
   engineeringFollowupBundlePrepared:
     "support.engineering.followup.bundle_prepared",
   engineeringFollowupReassessed: "support.engineering.followup.reassessed",
+  engineeringFollowupRetried: "support.engineering.followup.retried",
+  engineeringFollowupAbandoned: "support.engineering.followup.abandoned",
   engineeringFollowupRejected: "support.engineering.followup.rejected",
   engineeringFollowupNoticePosted: "support.engineering.followup.notice_posted",
   engineeringFollowupRetestRecorded:

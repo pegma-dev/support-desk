@@ -1,4 +1,5 @@
 import { createSupportDeskReleaseFollowup } from "@pegma/support-desk-ai";
+import { supportPermissions } from "@pegma/support-desk-application";
 import { describe, expect, it, vi } from "vitest";
 import {
   engineeringFollowupAiFixture,
@@ -16,6 +17,147 @@ const run = (f: Fixture) => f.followup.processWork(f.nextCommand());
 
 for (const [name, createStore] of engineeringFollowupStores) {
   describe(`release follow-up model (${name})`, () => {
+    it.each([
+      supportPermissions.engineeringFollowupProcess,
+      supportPermissions.engineeringFollowupRead,
+      supportPermissions.queueRead,
+    ])(
+      "rejects processing without %s before any durable paid preparation",
+      async (missing) => {
+        const f = await engineeringFollowupAiFixture(createStore());
+        const permissions = [
+          supportPermissions.engineeringFollowupProcess,
+          supportPermissions.engineeringFollowupRead,
+          supportPermissions.queueRead,
+        ].filter((permission) => permission !== missing);
+        f.state.authority = {
+          ...f.state.authority,
+          access: {
+            ...f.state.authority.access,
+            permissions,
+            roles: [],
+            entitlements: [],
+          },
+        };
+        const before = await f.work();
+        const rows = await f.rows();
+        const prepared = vi.fn<typeof f.app.prepareEngineeringFollowupModel>(
+          (...args) => f.app.prepareEngineeringFollowupModel(...args),
+        );
+        const followup = createSupportDeskReleaseFollowup({
+          ...f.baseOptions,
+          application: { ...f.app, prepareEngineeringFollowupModel: prepared },
+        });
+        expect(await followup.processWork(f.nextCommand())).toMatchObject({
+          outcome: "pending",
+          reason: "authority_unavailable",
+        });
+        expect(prepared).not.toHaveBeenCalled();
+        expect(f.reserve).not.toHaveBeenCalled();
+        expect(f.generate).not.toHaveBeenCalled();
+        expect(await f.work()).toEqual(before);
+        expect(await f.rows()).toEqual(rows);
+      },
+    );
+
+    it("processes a candidate and checked bundle with exactly the documented processing grants", async () => {
+      const f = await engineeringFollowupAiFixture(createStore());
+      f.state.authority = {
+        ...f.state.authority,
+        access: {
+          ...f.state.authority.access,
+          permissions: [
+            supportPermissions.engineeringFollowupProcess,
+            supportPermissions.engineeringFollowupRead,
+            supportPermissions.queueRead,
+          ],
+          roles: [],
+          entitlements: [],
+        },
+      };
+      expect(await run(f)).toMatchObject({ outcome: "candidate" });
+      expect(await run(f)).toMatchObject({ outcome: "prepared" });
+      expect((await f.work()).preparedBundle).toBeDefined();
+      expect((await f.work()).delivered).toBeUndefined();
+      expect(f.generate).toHaveBeenCalledOnce();
+      expect(f.reserve).toHaveBeenCalledOnce();
+    });
+
+    it("recovers draftless provider-outage work through explicit staff retry without resetting its paid-attempt budget", async () => {
+      const f = await engineeringFollowupAiFixture(createStore());
+      const originalKey = { ...f.key };
+      const before = await f.app.readCustomerTicket(
+        engineeringFollowupCustomer,
+        "ticket",
+      );
+      f.setModel(async () => {
+        throw new Error("Synthetic temporary follow-up provider outage");
+      });
+      expect(await run(f)).toMatchObject({ outcome: "held" });
+      const held = await f.work();
+      expect(held.candidate).toBeUndefined();
+      expect(held.preparedBundle).toBeUndefined();
+      expect(held.completionRows).toBe(0);
+      expect(held.messageSlots).toBe(0);
+      expect(held.modelAttempts).toHaveLength(1);
+      const failedAttempt = held.modelAttempts[0]!;
+      expect(failedAttempt.accounting).toBe("unknown");
+      expect(f.generate).toHaveBeenCalledOnce();
+      expect(f.reserve).toHaveBeenCalledOnce();
+      await f.app.retryEngineeringFollowupWork(
+        {
+          ...engineeringFollowupStaff,
+          permissions: [
+            supportPermissions.engineeringFollowupReview,
+            supportPermissions.queueRead,
+          ],
+          roles: [],
+          entitlements: [],
+        },
+        {
+          ...f.command("staff-retry-draftless-provider-outage"),
+          ...originalKey,
+          expectedWorkGeneration: held.workGeneration,
+        },
+      );
+      const retried = await f.work();
+      expect(retried.status).toBe("pending");
+      expect(retried.stage).toBe("model");
+      expect(retried.workId).toBe(originalKey.workId);
+      expect(retried.completionRows).toBe(5);
+      expect(retried.messageSlots).toBe(1);
+      expect(retried.usageTombstones).toContainEqual({
+        stepId: failedAttempt.stepId,
+        requestHash: failedAttempt.requestHash,
+        usageReservationId: failedAttempt.binding.usageReservationId,
+        accounting: "unknown",
+      });
+      expect(f.generate).toHaveBeenCalledOnce();
+      f.setModel(async () => f.answer());
+      expect(await run(f)).toMatchObject({ outcome: "candidate" });
+      const candidate = await f.work();
+      expect(f.key).toEqual(originalKey);
+      expect(candidate.candidate).toEqual(f.candidate());
+      expect(candidate.modelAttempts).toEqual([]);
+      expect(candidate.usageTombstones).toHaveLength(2);
+      expect(candidate.usageTombstones).toContainEqual({
+        stepId: failedAttempt.stepId,
+        requestHash: failedAttempt.requestHash,
+        usageReservationId: failedAttempt.binding.usageReservationId,
+        accounting: "unknown",
+      });
+      expect(f.generate).toHaveBeenCalledTimes(2);
+      expect(f.reserve).toHaveBeenCalledTimes(2);
+      expect(f.generate.mock.calls[1]![1].attempt).toBe(2);
+      expect((await f.head()).workCount).toBe(1);
+      expect(f.reconcile).toHaveBeenCalledWith(expect.anything(), {
+        state: "unknown",
+      });
+      expect(
+        await f.app.readCustomerTicket(engineeringFollowupCustomer, "ticket"),
+      ).toEqual(before);
+    });
+
     it("prepares immutable paid work with five rows and one slot before exposing only visible public facts", async () => {
       const f = await engineeringFollowupAiFixture(createStore(), {
         notificationBody:

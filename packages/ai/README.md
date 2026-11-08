@@ -40,6 +40,14 @@ configuration. Provider input contains customer-visible conversation and
 host-approved public release facts; operational IDs, private KB content, and
 internal notes stay outside it.
 
+`processWork` checks current `engineeringFollowupProcess`,
+`engineeringFollowupRead`, and `queueRead` before claim or paid preparation.
+Body-free `scanCandidates` instead accepts process authority alone, or
+`engineeringFollowupReview` plus `queueRead`, without private read or implied
+processing rights. New staff reassessment needs follow-up read/review and queue
+grants; new posting also needs `replyAny`. The base APIs retain their narrower
+purpose permissions.
+
 The host supplies current release evidence, target selection, independent
 whole-bundle checks, and usage accounting. Optional KB access exposes only actual
 `getDraft` and `getValidationRequirements` reads, or an explicit `none` target.
@@ -52,6 +60,15 @@ manifest and maximum accounting/candidate states; success compacts that attempt
 to an opaque usage tombstone and acknowledgement. The actual checked bundle has
 separate admission for its body, request count, retest, posting, and scrub states.
 Retest Audit/receipt rows use ordinary capacity outside the prepaid posting tail.
+Accepted preparation recovery needs only current review/queue authority, and
+accepted post replay retains review/queue/reply authority. These opaque metadata
+acknowledgements need no read grant or private work/proof calls. The application
+also exposes explicit draftless `retryEngineeringFollowupWork` with fresh proof,
+unchanged lifetime attempts, and five-row/one-slot readmission, plus local
+`abandonEngineeringFollowupWork` that releases reservations without provider
+ports. Neither expands this coordinator's four-method factory or replaces
+parent privacy withdrawal. Stale/unchanged/unavailable observations that change
+no durable state remain live reads with no persisted receipt.
 There is no automatic notification or email path. See the
 [release follow-up guide](../../docs/ENGINEERING_FOLLOWUP.md) and
 [port contracts](src/release-followup-ports.ts). Current-head validation/review,

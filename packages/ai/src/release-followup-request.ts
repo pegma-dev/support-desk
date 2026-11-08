@@ -47,11 +47,12 @@ export function releaseFollowupFailure(
   return fallback;
 }
 
-export async function releaseFollowupAuthority(
+async function resolveReleaseFollowupAuthority(
   options: Pick<SupportDeskReleaseFollowupOptions, "serviceAccess">,
   runtime: LearningRuntime,
-  expected?: ReleaseFollowupServiceAuthority,
-  phase = runtime.deadline,
+  expected: ReleaseFollowupServiceAuthority | undefined,
+  phase: number,
+  mode: "processing" | "scan",
 ): Promise<ReleaseFollowupServiceAuthority> {
   const result = await runtime.within(
     () => options.serviceAccess.resolve(runtime.signal),
@@ -62,14 +63,59 @@ export async function releaseFollowupAuthority(
   const authority = learningAuthoritySnapshot(result.authority);
   if (expected !== undefined && canonical(authority) !== canonical(expected))
     throw new AssistantBoundaryError("authority_changed");
-  if (
-    !hasPermission(
-      authority.access,
-      supportPermissions.engineeringFollowupProcess,
-    )
-  )
-    throw new AssistantBoundaryError("authority_unavailable");
+  const process = hasPermission(
+    authority.access,
+    supportPermissions.engineeringFollowupProcess,
+  );
+  const queue = hasPermission(authority.access, supportPermissions.queueRead);
+  const allowed =
+    mode === "processing"
+      ? process &&
+        queue &&
+        hasPermission(
+          authority.access,
+          supportPermissions.engineeringFollowupRead,
+        )
+      : process ||
+        (queue &&
+          hasPermission(
+            authority.access,
+            supportPermissions.engineeringFollowupReview,
+          ));
+  if (!allowed) throw new AssistantBoundaryError("authority_unavailable");
   return authority;
+}
+
+/** Private current-fence reads require explicit read/queue grants before paid preparation. */
+export function releaseFollowupAuthority(
+  options: Pick<SupportDeskReleaseFollowupOptions, "serviceAccess">,
+  runtime: LearningRuntime,
+  expected?: ReleaseFollowupServiceAuthority,
+  phase = runtime.deadline,
+): Promise<ReleaseFollowupServiceAuthority> {
+  return resolveReleaseFollowupAuthority(
+    options,
+    runtime,
+    expected,
+    phase,
+    "processing",
+  );
+}
+
+/** Body-free discovery has the application's process OR review+queue authority. */
+export function releaseFollowupScanAuthority(
+  options: Pick<SupportDeskReleaseFollowupOptions, "serviceAccess">,
+  runtime: LearningRuntime,
+  expected?: ReleaseFollowupServiceAuthority,
+  phase = runtime.deadline,
+): Promise<ReleaseFollowupServiceAuthority> {
+  return resolveReleaseFollowupAuthority(
+    options,
+    runtime,
+    expected,
+    phase,
+    "scan",
+  );
 }
 
 export function releaseFollowupConfigurationSnapshot(

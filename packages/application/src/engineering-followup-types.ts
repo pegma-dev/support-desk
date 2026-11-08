@@ -328,6 +328,15 @@ export interface RejectEngineeringFollowupBundleCommand
   readonly bundleHash: string;
   readonly reason: string;
 }
+export interface RetryEngineeringFollowupWorkCommand
+  extends EngineeringCommand, EngineeringFollowupKey {
+  readonly expectedWorkGeneration: number;
+}
+export interface AbandonEngineeringFollowupWorkCommand
+  extends EngineeringCommand, EngineeringFollowupKey {
+  readonly expectedWorkGeneration: number;
+  readonly reason: string;
+}
 export interface ApproveAndPostEngineeringFollowupWebUpdateCommand
   extends EngineeringCommand, EngineeringFollowupKey {
   readonly expectedWorkGeneration: number;
@@ -408,6 +417,14 @@ export interface EngineeringFollowupApplication {
   rejectEngineeringFollowupBundle(
     access: AccessContext,
     command: RejectEngineeringFollowupBundleCommand,
+  ): Promise<EngineeringFollowupResult>;
+  retryEngineeringFollowupWork(
+    access: AccessContext,
+    command: RetryEngineeringFollowupWorkCommand,
+  ): Promise<EngineeringFollowupResult>;
+  abandonEngineeringFollowupWork(
+    access: AccessContext,
+    command: AbandonEngineeringFollowupWorkCommand,
   ): Promise<EngineeringFollowupResult>;
   approveAndPostEngineeringFollowupWebUpdate(
     access: AccessContext,

@@ -1554,30 +1554,16 @@ export function maximumEngineeringFollowupHeadBytes(
 ): number {
   const wide = "\ud800".repeat(200);
   const at = "+275760-09-13T00:00:00.000Z";
+  // New proof identities and generations pass admission again through
+  // observation or reassessment. Retained work can grow only control metadata.
   const future = {
     ...head,
     headGeneration: Number.MAX_SAFE_INTEGER,
+    workCount: 8,
     updatedAt: at,
     heldReason: wide,
-    associationHeads: head.associationHeads.map((entry) => ({
-      ...entry,
-      issueHead: {
-        ...entry.issueHead,
-        generation: Number.MAX_SAFE_INTEGER,
-        hash: wide,
-        state: "closed",
-      },
-    })),
     deploymentContexts: head.deploymentContexts.map((entry) => ({
       ...entry,
-      deploymentHead: {
-        ...entry.deploymentHead,
-        generation: Number.MAX_SAFE_INTEGER,
-        hash: wide,
-        deploymentEpoch: wide,
-        state: "rolled_back",
-      },
-      mappingHash: wide,
       heldReason: wide,
     })),
     lastObservation: {
@@ -1591,9 +1577,17 @@ export function maximumEngineeringFollowupHeadBytes(
       },
     },
   };
+  const { lastObservation: _observation, ...retained } = future;
+  const scrubbed = {
+    ...retained,
+    withdrawn: true,
+    associationHeads: [],
+    deploymentContexts: [],
+  };
   return Math.max(
     engineeringFollowupEncodedBytes(head),
     engineeringFollowupEncodedBytes(future),
+    engineeringFollowupEncodedBytes(scrubbed),
   );
 }
 export function checkEngineeringFollowupRecordCapacity(

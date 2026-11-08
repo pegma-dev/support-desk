@@ -1,4 +1,8 @@
-import type { AccessContext } from "@pegma/authorization-core";
+import { hasPermission, type AccessContext } from "@pegma/authorization-core";
+import {
+  SupportDeskAuthorizationError,
+  supportPermissions,
+} from "@pegma/support-desk-application";
 import type {
   ApproveAndPostEngineeringFollowupWebUpdateCommand,
   ClaimEngineeringFollowupWorkCommand,
@@ -34,6 +38,7 @@ import {
   releaseFollowupAuthority,
   releaseFollowupCurrent,
   releaseFollowupFailure,
+  releaseFollowupScanAuthority,
 } from "./release-followup-request.js";
 import { processReleaseFollowupModel } from "./release-followup-model.js";
 import {
@@ -59,6 +64,20 @@ function staffFence(access: AccessContext): () => void {
     if (canonical(current) !== canonical(baseline))
       throw new ReleaseFollowupReviewGuardFailure("authority_changed");
   };
+}
+
+function requireStaffRead(
+  access: AccessContext,
+  action: "prepare" | "post",
+): void {
+  for (const permission of [
+    supportPermissions.engineeringFollowupRead,
+    supportPermissions.engineeringFollowupReview,
+    supportPermissions.queueRead,
+    ...(action === "post" ? [supportPermissions.replyAny] : []),
+  ])
+    if (!hasPermission(access, permission))
+      throw new SupportDeskAuthorizationError(permission);
 }
 
 function prospectiveWork(
@@ -248,8 +267,8 @@ export function createSupportDeskReleaseFollowup(
     ) {
       const runtime = createLearningRuntime(options);
       try {
-        const authority = await releaseFollowupAuthority(options, runtime);
-        return snapshot(
+        const authority = await releaseFollowupScanAuthority(options, runtime);
+        const page = snapshot(
           await runtime.within(() =>
             options.application.scanEngineeringFollowups(
               authority.access,
@@ -257,6 +276,8 @@ export function createSupportDeskReleaseFollowup(
             ),
           ),
         );
+        await releaseFollowupScanAuthority(options, runtime, authority);
+        return page;
       } finally {
         runtime.close();
       }
@@ -374,6 +395,7 @@ export function createSupportDeskReleaseFollowup(
         ensureStaff();
         const recovered = await recover();
         if (recovered !== null) return recovered;
+        requireStaffRead(access, "prepare");
         const view = snapshot(
           await runtime.within(() =>
             options.application.readEngineeringFollowupReassessment(
@@ -478,6 +500,7 @@ export function createSupportDeskReleaseFollowup(
         const guard = async (): Promise<void> => {
           try {
             ensureStaff();
+            requireStaffRead(access, "post");
             const work = snapshot(
               await runtime.within(() =>
                 options.application.readEngineeringFollowupWork(access, key),

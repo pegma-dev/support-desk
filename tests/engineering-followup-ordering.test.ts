@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { EngineeringFollowupContext } from "../packages/application/src/engineering-followup-types.js";
+import type {
+  EngineeringFollowupContext,
+  EngineeringFollowupKey,
+} from "../packages/application/src/engineering-followup-types.js";
 import {
   engineeringFollowupCustomer as customer,
   engineeringFollowupFixture,
@@ -44,8 +47,373 @@ function updateContext(
 const works = async (f: Fixture) =>
   (await f.rows()).filter((row) => row.kind === "engineering_followup_work");
 
+async function independentDeploymentContexts(f: Fixture, prepareFirst = false) {
+  const contextA = structuredClone(f.state.context!);
+  f.trust.setCurrent(f.proof());
+  const keyA = await f.eligible();
+  if (prepareFirst) await f.prepareCandidate({ key: keyA });
+  const beforeB = await f.work(keyA);
+  const contextB: EngineeringFollowupContext = {
+    issueHead: contextA.issueHead,
+    deploymentHead: {
+      ...contextA.deploymentHead,
+      contextRef: "independent-deployment-context-B",
+      hash: "independent-context-B-head-1",
+      deploymentEpoch: "independent-context-B-epoch-1",
+    },
+    mapping: {
+      ...contextA.mapping!,
+      semanticMappingId: "independent-context-B-semantic-fix",
+      mappingId: "independent-context-B-mapping",
+      deploymentId: "independent-context-B-deployment",
+      scopeRef: "independent-context-B-scope",
+      deploymentHeadHash: "independent-context-B-head-1",
+    },
+  };
+  f.state.context = contextB;
+  f.trust.setCurrent(f.proof());
+  const keyB = await f.eligible();
+  return { keyA, keyB, contextA, contextB, beforeB };
+}
+
+async function expectCurrent(f: Fixture, key: EngineeringFollowupKey) {
+  const work = await f.work(key);
+  expect(
+    await f.app.confirmEngineeringFollowupCurrent(service, {
+      ...key,
+      workBindingHash: work.workBindingHash,
+      expectedWorkGeneration: work.workGeneration,
+    }),
+  ).toBe(true);
+}
+
+function numberedDeploymentContext(
+  original: EngineeringFollowupContext,
+  number: number,
+): EngineeringFollowupContext {
+  const hash = `independent-context-${number}-deployment-head`;
+  return {
+    issueHead: original.issueHead,
+    deploymentHead: {
+      ...original.deploymentHead,
+      contextRef: `independent-deployment-context-${number}`,
+      hash,
+      deploymentEpoch: `independent-deployment-epoch-${number}`,
+    },
+    mapping: {
+      ...original.mapping!,
+      semanticMappingId: `independent-semantic-mapping-${number}`,
+      mappingId: `independent-mapping-${number}`,
+      deploymentId: `independent-deployment-${number}`,
+      scopeRef: `independent-deployment-scope-${number}`,
+      deploymentHeadHash: hash,
+    },
+  };
+}
+
+async function eightCurrentContexts(f: Fixture) {
+  const original = structuredClone(f.state.context!);
+  const keys: EngineeringFollowupKey[] = [];
+  for (let number = 1; number <= 8; number += 1) {
+    f.state.context = numberedDeploymentContext(original, number);
+    f.trust.setCurrent(f.proof());
+    keys.push(await f.eligible());
+  }
+  return { keys, original };
+}
+
 for (const [name, createStore] of engineeringFollowupStores) {
   describe(`engineering follow-up observation ordering (${name})`, () => {
+    it.each(["ordinary capacity", "full partition"] as const)(
+      "preserves eight current funded contexts when a ninth context exceeds the head bound at %s",
+      async (capacity) => {
+        const probe = await engineeringFollowupFixture(createStore(), {
+          followup: { maxWorksets: 8 },
+        });
+        const probed = await eightCurrentContexts(probe);
+        const count = (await probe.rows()).length;
+        const f =
+          capacity === "ordinary capacity"
+            ? probe
+            : await engineeringFollowupFixture(createStore(), {
+                followup: { maxWorksets: 8 },
+                support: { limits: { maxRecordsPerTicket: count + 2 + 8 * 5 } },
+              });
+        const { keys, original } =
+          capacity === "ordinary capacity"
+            ? probed
+            : await eightCurrentContexts(f);
+        const before = await Promise.all(keys.map((key) => f.work(key)));
+        for (const work of before)
+          expect(work).toMatchObject({
+            status: "pending",
+            completionRows: 5,
+            messageSlots: 1,
+          });
+        expect(before.reduce((sum, work) => sum + work.completionRows, 0)).toBe(
+          40,
+        );
+        expect(before.reduce((sum, work) => sum + work.messageSlots, 0)).toBe(
+          8,
+        );
+        const head = await f.head();
+        expect(head.associationHeads).toHaveLength(1);
+        expect(head.deploymentContexts).toHaveLength(8);
+        expect(head.workCount).toBe(8);
+        const beforeRows = await f.rows();
+        f.state.context = numberedDeploymentContext(original, 9);
+        f.trust.setCurrent(f.proof());
+        const observation = await f.observe().then(
+          (value) => ({ value }),
+          (error: unknown) => ({ error }),
+        );
+        if ("error" in observation)
+          expect(observation.error).toMatchObject({
+            name: "SupportDeskLimitError",
+          });
+        else expect(observation.value.outcome).toBe("held");
+        if (capacity === "full partition")
+          expect(await f.rows()).toEqual(beforeRows);
+        expect(await Promise.all(keys.map((key) => f.work(key)))).toEqual(
+          before,
+        );
+        expect(await works(f)).toHaveLength(8);
+        const retainedHead = await f.head();
+        expect(retainedHead.associationHeads).toEqual(head.associationHeads);
+        expect(retainedHead.deploymentContexts).toEqual(
+          head.deploymentContexts,
+        );
+        expect(retainedHead.workCount).toBe(8);
+        for (const key of keys) await expectCurrent(f, key);
+        expect(f.support.generate).toHaveBeenCalledOnce();
+        expect(f.support.createIssue).toHaveBeenCalledOnce();
+      },
+    );
+
+    it("keeps a private candidate and its reservation current when another deployment context for the same issue is observed", async () => {
+      const f = await engineeringFollowupFixture(createStore());
+      const { keyA, keyB, contextA, contextB, beforeB } =
+        await independentDeploymentContexts(f, true);
+      expect(keyA.workId).not.toBe(keyB.workId);
+      expect(beforeB).toMatchObject({
+        status: "candidate",
+        completionRows: 5,
+        messageSlots: 1,
+      });
+      expect((await f.work(keyB)).association).toEqual(beforeB.association);
+      expect(await f.work(keyA)).toEqual(beforeB);
+      await expectCurrent(f, keyA);
+      await expectCurrent(f, keyB);
+      const current = await f.app.readEngineeringFollowupReassessment(
+        staff,
+        keyA,
+      );
+      expect(current.proof.context).toEqual(contextA);
+      expect(current.work).toEqual(beforeB);
+      const head = await f.head();
+      expect(head.associationHeads).toHaveLength(1);
+      expect(
+        head.deploymentContexts.map((entry) => entry.deploymentHead.contextRef),
+      ).toEqual(
+        expect.arrayContaining([
+          contextA.deploymentHead.contextRef,
+          contextB.deploymentHead.contextRef,
+        ]),
+      );
+      expect(head.workCount).toBe(2);
+    });
+
+    it.each(["rollback", "deployment change", "mapping change"] as const)(
+      "holds only context B after its %s while context A remains independently current",
+      async (change) => {
+        const f = await engineeringFollowupFixture(createStore());
+        const { keyA, keyB, contextA, beforeB } =
+          await independentDeploymentContexts(f, true);
+        expect(await f.work(keyA)).toEqual(beforeB);
+        if (change === "mapping change")
+          updateContext(f, {
+            mapping: {
+              semanticMappingId: "context-B-new-semantic-mapping",
+              mappingId: "context-B-new-mapping-attestation",
+              mappingVersion: "mapping-v2",
+            },
+          });
+        else
+          updateContext(f, {
+            deployment: {
+              generation: 2,
+              hash: "context-B-new-deployment-head",
+              deploymentEpoch: "context-B-new-deployment-epoch",
+              state: change === "rollback" ? "rolled_back" : "deployed",
+            },
+          });
+        f.trust.setCurrent(f.proof());
+        const observed = await f.observe();
+        expect(observed.outcome).toBe(
+          change === "rollback" ? "held" : "queued",
+        );
+        expect(await f.work(keyB)).toMatchObject({
+          status: "held",
+          completionRows: 0,
+          messageSlots: 0,
+        });
+        expect(await f.work(keyA)).toEqual(beforeB);
+        await expectCurrent(f, keyA);
+        expect(
+          (await f.app.readEngineeringFollowupReassessment(staff, keyA)).proof
+            .context,
+        ).toEqual(contextA);
+      },
+    );
+
+    it("confines a trusted failed retest to its deployment context on the same issue", async () => {
+      const f = await engineeringFollowupFixture(createStore());
+      const { keyA, keyB, beforeB } = await independentDeploymentContexts(
+        f,
+        true,
+      );
+      expect(await f.work(keyA)).toEqual(beforeB);
+      const prepared = await f.prepareBundle({ key: keyB });
+      const binding = await f.retestBinding(keyB);
+      const receiptReference = f.trust.issueRetest(
+        "context-B-failed-retest",
+        binding,
+        "failed",
+      );
+      expect(
+        await f.app.submitEngineeringFollowupRetestResult(service, {
+          ...f.command("record-context-B-failed-retest"),
+          ...keyB,
+          retestRequestId: prepared.bundle.retestRequests[0]!.requestId,
+          receiptReference,
+        }),
+      ).toMatchObject({ outcome: "held", result: "failed" });
+      expect(await f.work(keyB)).toMatchObject({
+        status: "held",
+        completionRows: 0,
+        messageSlots: 0,
+      });
+      expect(await f.work(keyA)).toEqual(beforeB);
+      await expectCurrent(f, keyA);
+    });
+
+    it.each(["reopened", "new closed issue head"] as const)(
+      "holds both deployment contexts when their shared issue has a %s observation",
+      async (change) => {
+        const f = await engineeringFollowupFixture(createStore());
+        const { keyA, keyB, contextA, beforeB } =
+          await independentDeploymentContexts(f);
+        expect(await f.work(keyA)).toEqual(beforeB);
+        const issueHead = {
+          ...contextA.issueHead,
+          generation: 2,
+          hash: "shared-issue-head-2",
+          state:
+            change === "reopened" ? ("open" as const) : ("closed" as const),
+        };
+        updateContext(f, { issue: issueHead });
+        f.trust.setCurrent(f.proof());
+        f.trust.setCurrent(
+          f.proof({
+            context: {
+              ...contextA,
+              issueHead,
+              mapping: { ...contextA.mapping!, issueHeadHash: issueHead.hash },
+            },
+          }),
+        );
+        expect((await f.observe()).outcome).toBe("held");
+        for (const key of [keyA, keyB])
+          expect(await f.work(key)).toMatchObject({
+            status: "held",
+            completionRows: 0,
+            messageSlots: 0,
+          });
+      },
+    );
+
+    it("spends only context B's prepaid donor at capacity while preserving context A's funded tail", async () => {
+      const probe = await engineeringFollowupFixture(createStore());
+      await independentDeploymentContexts(probe);
+      const count = (await probe.rows()).length;
+      const f = await engineeringFollowupFixture(createStore(), {
+        support: { limits: { maxRecordsPerTicket: count + 2 + 5 + 5 } },
+      });
+      const { keyA, keyB, beforeB } = await independentDeploymentContexts(f);
+      expect(await f.work(keyA)).toEqual(beforeB);
+      expect(beforeB).toMatchObject({
+        status: "pending",
+        completionRows: 5,
+        messageSlots: 1,
+      });
+      const before = await f.rows();
+      updateContext(f, {
+        deployment: {
+          generation: 2,
+          hash: "context-B-rollback-at-capacity",
+          state: "rolled_back",
+        },
+      });
+      f.trust.setCurrent(f.proof());
+      expect((await f.observe()).outcome).toBe("held");
+      const after = await f.rows();
+      expect(after).toHaveLength(before.length + 2);
+      expect(
+        after
+          .filter((row) => !before.some((old) => old.id === row.id))
+          .map((row) => row.kind)
+          .sort(),
+      ).toEqual(["audit", "engineering_followup_receipt"]);
+      expect(await f.work(keyB)).toMatchObject({
+        status: "held",
+        completionRows: 0,
+        messageSlots: 0,
+      });
+      expect(await f.work(keyA)).toEqual(beforeB);
+      await expectCurrent(f, keyA);
+    });
+
+    it("cannot borrow context A's reservation for an unfunded negative observation of context B", async () => {
+      const probe = await engineeringFollowupFixture(createStore());
+      await independentDeploymentContexts(probe);
+      const count = (await probe.rows()).length;
+      const f = await engineeringFollowupFixture(createStore(), {
+        support: { limits: { maxRecordsPerTicket: count + 2 + 5 + 5 } },
+      });
+      const { keyA, keyB, beforeB } = await independentDeploymentContexts(f);
+      expect(await f.work(keyA)).toEqual(beforeB);
+      const prepared = await f.prepareBundle({ key: keyB });
+      await f.app.rejectEngineeringFollowupBundle(staff, {
+        ...f.command("release-only-context-B-tail"),
+        ...keyB,
+        expectedWorkGeneration: prepared.work.workGeneration,
+        bundleHash: prepared.work.preparedBundle!.bundleHash,
+        reason: "Context B's private bundle was rejected.",
+      });
+      const before = await f.rows();
+      expect(before).toHaveLength(count + 4);
+      expect(await f.work(keyB)).toMatchObject({
+        status: "held",
+        completionRows: 0,
+        messageSlots: 0,
+      });
+      updateContext(f, {
+        deployment: {
+          generation: 2,
+          hash: "context-B-unfunded-rollback",
+          state: "rolled_back",
+        },
+      });
+      f.trust.setCurrent(f.proof());
+      await expect(f.observe()).rejects.toMatchObject({
+        name: "SupportDeskLimitError",
+        field: "ticket_partition",
+      });
+      expect(await f.rows()).toEqual(before);
+      expect(await f.work(keyA)).toEqual(beforeB);
+      await expectCurrent(f, keyA);
+    });
+
     it.each(["issue", "deployment"] as const)(
       "ignores a lower %s generation without moving the other observed head or reviving work",
       async (dimension) => {

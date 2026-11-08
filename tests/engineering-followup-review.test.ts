@@ -1,5 +1,8 @@
 import { createSupportDeskReleaseFollowup } from "@pegma/support-desk-ai";
-import { supportPermissions } from "@pegma/support-desk-application";
+import {
+  supportPermissions,
+  supportRecords,
+} from "@pegma/support-desk-application";
 import { describe, expect, it, vi } from "vitest";
 import {
   engineeringFollowupAiFixture,
@@ -14,6 +17,251 @@ import {
 
 for (const [name, createStore] of engineeringFollowupStores) {
   describe(`staff-reviewed release follow-up (${name})`, () => {
+    it("discovers review hints with review and queue grants without processing or private-read authority", async () => {
+      const f = await engineeringFollowupAiFixture(createStore());
+      const prepared = await f.prepareBundle();
+      const access = {
+        ...f.state.authority.access,
+        permissions: [
+          supportPermissions.engineeringFollowupReview,
+          supportPermissions.queueRead,
+        ],
+        roles: [],
+        entitlements: [],
+      };
+      f.state.authority = { ...f.state.authority, access };
+      await expect(
+        f.app.readEngineeringFollowupWork(access, f.key),
+      ).rejects.toThrow();
+      const page = await f.followup.scanCandidates({ limit: 64 });
+      expect(page.reviewCandidates).toContainEqual(f.key);
+      expect(page.candidates).toEqual([]);
+      expect(page.associations).toEqual([]);
+      expect(JSON.stringify(page)).not.toContain(
+        prepared.preparedBundle!.bundle.customerDraft.body,
+      );
+      expect(JSON.stringify(page)).not.toContain("preparedBundle");
+      for (const key of page.reviewCandidates)
+        expect(Object.keys(key).sort()).toEqual(["ticketId", "workId"]);
+      expect(f.generate).toHaveBeenCalledOnce();
+      expect(f.reserve).toHaveBeenCalledOnce();
+    });
+
+    it("allows a process-only body-free scanner without admitting paid processing", async () => {
+      const f = await engineeringFollowupAiFixture(createStore());
+      const access = {
+        ...f.state.authority.access,
+        permissions: [supportPermissions.engineeringFollowupProcess],
+        roles: [],
+        entitlements: [],
+      };
+      f.state.authority = { ...f.state.authority, access };
+      await expect(
+        f.app.readEngineeringFollowupWork(access, f.key),
+      ).rejects.toThrow();
+      const page = await f.followup.scanCandidates({ limit: 64 });
+      expect(page.candidates).toContainEqual(f.key);
+      expect(page.reviewCandidates).toEqual([]);
+      for (const key of page.candidates)
+        expect(Object.keys(key).sort()).toEqual(["ticketId", "workId"]);
+      expect(JSON.stringify(page)).not.toContain("customerDraft");
+      expect(JSON.stringify(page)).not.toContain(
+        "PRIVATE_ENGINEERING_INTERNAL_NOTE",
+      );
+      expect(f.generate).not.toHaveBeenCalled();
+      expect(f.reserve).not.toHaveBeenCalled();
+    });
+
+    it("does not turn unrelated roles or a review grant without queue access into scan authority", async () => {
+      const f = await engineeringFollowupAiFixture(createStore());
+      for (const permissions of [
+        [],
+        [supportPermissions.engineeringFollowupRead],
+        [supportPermissions.engineeringFollowupReview],
+      ]) {
+        f.state.authority = {
+          ...f.state.authority,
+          access: {
+            ...f.state.authority.access,
+            permissions,
+            roles: ["followup-reviewer", "followup-worker"],
+            entitlements: [],
+          },
+        };
+        await expect(
+          f.followup.scanCandidates({ limit: 64 }),
+        ).rejects.toThrow();
+      }
+      expect(f.generate).not.toHaveBeenCalled();
+      expect(f.reserve).not.toHaveBeenCalled();
+    });
+
+    it.each(["principal-swap", "permission-revoke"] as const)(
+      "does not return review hints after %s during an actual scan source read",
+      async (change) => {
+        const f = await engineeringFollowupAiFixture(createStore());
+        await f.prepareBundle();
+        const access = {
+          ...f.state.authority.access,
+          permissions: [
+            supportPermissions.engineeringFollowupReview,
+            supportPermissions.queueRead,
+          ],
+          roles: [],
+          entitlements: [],
+        };
+        f.state.authority = { ...f.state.authority, access };
+        expect(
+          (await f.app.scanEngineeringFollowups(access, { limit: 64 }))
+            .reviewCandidates,
+        ).toContainEqual(f.key);
+        const beforeRows = await f.rows();
+        const beforeWork = await f.work();
+        const barrier = engineeringFollowupBarrier();
+        let captured = false;
+        f.readObserver.afterRead(async (trace) => {
+          const key = trace.key;
+          if (
+            !captured &&
+            trace.collection === supportRecords.name &&
+            trace.method === "get" &&
+            key !== null &&
+            typeof key === "object" &&
+            "id" in key &&
+            key.id === "engineering-source"
+          ) {
+            captured = true;
+            await barrier.wait();
+          }
+        });
+        const followup = createSupportDeskReleaseFollowup({
+          ...f.baseOptions,
+          maxOperationMilliseconds: 10_000,
+        });
+        const pending = followup.scanCandidates({ limit: 64 });
+        try {
+          await waitForFollowupHook(barrier, pending);
+          f.state.authority = {
+            ...f.state.authority,
+            access:
+              change === "principal-swap"
+                ? {
+                    ...access,
+                    principalId: "followup/replacement-review-scanner",
+                  }
+                : {
+                    ...access,
+                    permissions: access.permissions.filter(
+                      (permission) =>
+                        permission !==
+                        supportPermissions.engineeringFollowupReview,
+                    ),
+                  },
+          };
+        } finally {
+          barrier.release();
+          f.readObserver.afterRead(undefined);
+        }
+        await expect(pending).rejects.toThrow();
+        expect(captured).toBe(true);
+        expect(await f.rows()).toEqual(beforeRows);
+        expect(await f.work()).toEqual(beforeWork);
+        expect(f.generate).toHaveBeenCalledOnce();
+        expect(f.reserve).toHaveBeenCalledOnce();
+      },
+    );
+
+    it("posts with exactly the documented staff grants and replays its opaque receipt without private-read authority", async () => {
+      const f = await engineeringFollowupAiFixture(createStore());
+      await f.prepareBundle();
+      const access = {
+        ...engineeringFollowupStaff,
+        permissions: [
+          supportPermissions.engineeringFollowupRead,
+          supportPermissions.engineeringFollowupReview,
+          supportPermissions.queueRead,
+          supportPermissions.replyAny,
+        ],
+        roles: [],
+        entitlements: [],
+      };
+      const command = await f.postCommand("minimal-staff-followup-post");
+      const posted = await f.followup.approveAndPostWebUpdate(access, command);
+      expect((await f.work()).status).toBe("delivered");
+      const rows = await f.rows();
+      const proofReads = f.confirm.mock.calls.length;
+      const replayAccess = {
+        ...access,
+        permissions: access.permissions.filter(
+          (permission) =>
+            permission !== supportPermissions.engineeringFollowupRead,
+        ),
+      };
+      expect(
+        await f.followup.approveAndPostWebUpdate(replayAccess, command),
+      ).toEqual(posted);
+      expect(await f.rows()).toEqual(rows);
+      expect(f.confirm.mock.calls).toHaveLength(proofReads);
+      expect(f.generate).toHaveBeenCalledOnce();
+    });
+
+    it("requires private read only for a fresh staff reassessment while permitting its narrower opaque replay", async () => {
+      const f = await engineeringFollowupAiFixture(createStore());
+      const prepared = await f.prepareBundle();
+      await f.app.rejectEngineeringFollowupBundle(engineeringFollowupStaff, {
+        ...f.command("hold-for-minimal-staff-reassessment"),
+        ...f.key,
+        expectedWorkGeneration: prepared.workGeneration,
+        bundleHash: prepared.preparedBundle!.bundleHash,
+        reason: "Recheck this release notice under current proof.",
+      });
+      const held = await f.work();
+      const command = {
+        ...f.command("minimal-staff-reassessment"),
+        ...f.key,
+        expectedWorkGeneration: held.workGeneration,
+      };
+      const narrow = {
+        ...engineeringFollowupStaff,
+        permissions: [
+          supportPermissions.engineeringFollowupReview,
+          supportPermissions.queueRead,
+        ],
+        roles: [],
+        entitlements: [],
+      };
+      const checkedBefore = f.check.mock.calls.length;
+      const proofReadsBefore = f.confirm.mock.calls.length;
+      await expect(
+        f.followup.prepareStaffReassessment(narrow, command),
+      ).rejects.toThrow();
+      expect(f.check.mock.calls).toHaveLength(checkedBefore);
+      expect(f.confirm.mock.calls).toHaveLength(proofReadsBefore);
+      expect(await f.work()).toEqual(held);
+      const allowed = {
+        ...narrow,
+        permissions: [
+          ...narrow.permissions,
+          supportPermissions.engineeringFollowupRead,
+        ],
+      };
+      const result = await f.followup.prepareStaffReassessment(
+        allowed,
+        command,
+      );
+      expect((await f.work()).status).toBe("bundle_prepared");
+      expect(f.check.mock.calls.length).toBeGreaterThan(checkedBefore);
+      const rows = await f.rows();
+      const proofReads = f.confirm.mock.calls.length;
+      expect(
+        await f.followup.prepareStaffReassessment(narrow, command),
+      ).toEqual(result);
+      expect(await f.rows()).toEqual(rows);
+      expect(f.confirm.mock.calls).toHaveLength(proofReads);
+      expect(f.generate).toHaveBeenCalledOnce();
+      expect(f.reserve).toHaveBeenCalledOnce();
+    });
+
     it("keeps worker drafts private and atomically posts exactly one notice only after explicit current staff approval", async () => {
       const f = await engineeringFollowupAiFixture(createStore());
       const before = await f.app.readCustomerTicket(
@@ -77,6 +325,7 @@ for (const [name, createStore] of engineeringFollowupStores) {
     });
 
     it.each([
+      supportPermissions.engineeringFollowupRead,
       supportPermissions.engineeringFollowupReview,
       supportPermissions.replyAny,
       supportPermissions.queueRead,

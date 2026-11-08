@@ -27,6 +27,13 @@ and current heads at model preparation, bundle preparation, reassessment, and
 staff posting. These are versioned observations across systems, without an
 atomic transaction with the provider or deployment platform.
 
+Stale, unchanged, and proof-or-association-unavailable observations that change
+no durable state are live reads. They append no receipt and reserve no command
+ID; retrying them reevaluates current authority and proof. This zero-row
+coalescing keeps repeated webhook hints from consuming finite ticket capacity.
+Exact replay receipts acknowledge committed changes, rather than caching every
+observation result.
+
 `scanEngineeringFollowups` returns one bounded physical page with association,
 processing, review, and source-attention hints. Every adapter-returned row
 counts before filtering. The host persists the unmodified `nextCursor`, repeats
@@ -42,6 +49,22 @@ The optional `createSupportDeskReleaseFollowup` follows the
 | `processWork`              | Prepares a private candidate and checked bundle under a fresh physical claim.               |
 | `prepareStaffReassessment` | Rechecks retained content or explicit staff edits with fresh proof and whole-bundle checks. |
 | `approveAndPostWebUpdate`  | Rechecks the exact bundle and current staff authority before the atomic web notice.         |
+
+The coordinator uses these current `supportPermissions` grants:
+
+- `scanCandidates`: `engineeringFollowupProcess`, or
+  `engineeringFollowupReview` plus `queueRead`. This body-free scan needs no
+  private-read grant and gives reviewers no processing permission.
+- `processWork`: `engineeringFollowupProcess`, `engineeringFollowupRead`, and
+  `queueRead`, checked before claiming, preparation, usage reservation, or a
+  provider call.
+- New staff reassessment: `engineeringFollowupRead`,
+  `engineeringFollowupReview`, and `queueRead`.
+- New staff posting: the same read/review/queue grants plus `replyAny`.
+
+The additional read grants cover the coordinator's private detail reads; direct
+base application operations retain their narrower named purpose permissions.
+Permission names imply no role inheritance.
 
 The base application remains independent of a model, GitHub client, and KB.
 `rejectEngineeringFollowupBundle` records an exact private staff rejection with
@@ -129,6 +152,31 @@ and recovery-intent hash, returning only an opaque acknowledgement or `null`.
 It requires current review and queue authority and grants no new approval.
 An exact accepted intent therefore does not prepare twice after a lost
 acknowledgement, even if live proof or source bodies later become unavailable.
+Accepted preparation recovery needs review and queue authority without a read
+grant. Accepted posting replay needs review, queue, and reply authority without
+a read grant. Both return metadata only and bypass private work reads and live
+proof calls; the stronger coordinator grants apply when a new operation reaches
+its private preflight.
+
+For draftless model work, `retryEngineeringFollowupWork` provides a separate
+explicit staff retry. It accepts only ordinary, undelivered, nonwithdrawn model
+work that is held, superseded, or expired, with no candidate or prepared bundle.
+Current review and queue authority, exact work generation, fresh association and
+same-semantic deployment proof, and remaining lifetime attempt capacity are
+required. It retains the work ID and accounting/history, removes the old claim
+and step, and returns work to pending with a fresh deadline. Readmission restores
+five future rows and one message slot; its own two Audit/receipt rows use
+ordinary capacity. It does not reset the paid-attempt limit or repeat an old
+unknown provider call.
+
+`abandonEngineeringFollowupWork` locally holds undelivered work under exact work
+generation, current review and queue authority, and a reason. It needs no
+provider, configuration, release proof, or check ports. Its two Audit/receipt
+rows use its own funded tail or ordinary capacity, then release the remaining
+tail and message slot. Identity, private retained content, and accounting/history
+remain; abandonment is not privacy erasure. Delivered and withdrawn work cannot
+be abandoned. Both lifecycle commands recover exact accepted receipts before
+new proof or generation checks, with current authority and the original actor.
 
 `approveAndPostEngineeringFollowupWebUpdate` binds the exact checked bundle,
 work generation, ticket revision, association authority, and live staff actor.
@@ -144,13 +192,16 @@ update time while preserving ticket status, handling, resolution/closure, and
 `firstStaffRespondedAt`. It sends no email and does not resolve tickets or act
 on accounts. Its trusted cause completes its own work, preserves the parent
 engineering association, and holds other stale follow-ups; other affected
-source proofs retain their normal invalidation rules.
+source proofs retain their normal invalidation rules. This approved notice
+newly holds enrolled resolution learning as a visible-source change without
+advancing its resolution cycle. SD-05 leaves ordinary replies' existing learning
+behavior unchanged.
 
 ## Holds, capacity, and withdrawal
 
 Reopened issues, rollbacks, failed retests, and relevant ticket conversation or
-reopening hold stale unsent work. Duplicate observations coalesce. A negative
-observation can fund its two Audit/receipt rows from one affected prepaid work
+reopening hold stale unsent follow-up work. Duplicate observations coalesce.
+A negative observation can fund its two Audit/receipt rows from one affected prepaid work
 set, then hold all affected work and release their remaining reservations in
 the same transaction. Without a funded affected work set, ordinary capacity
 may reject the observation. Current proof guards still prevent stale posting;

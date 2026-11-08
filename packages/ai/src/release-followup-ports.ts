@@ -34,6 +34,7 @@ import type { LearningKnowledgeAccessPort } from "./learning-integration-types.j
 
 export type ReleaseFollowupBudgets = LearningBudgets;
 export type ReleaseFollowupServiceAuthority = LearningServiceAuthority;
+/** The coordinator applies method-specific grants to each freshly resolved context. */
 export type ReleaseFollowupServiceAccessPort = LearningServiceAccessPort;
 export type ReleaseFollowupTokenCounter = LearningTokenCounter;
 export type ReleaseFollowupModelUsage = LearningModelUsage;
@@ -219,6 +220,7 @@ export interface ReleaseFollowupChecksPort
 export interface SupportDeskReleaseFollowupOptions {
   readonly application: EngineeringFollowupApplication;
   readonly clock: Clock;
+  /** Processing requires Process+Read+queueRead; body-free scans accept Process OR Review+queueRead. */
   readonly serviceAccess: ReleaseFollowupServiceAccessPort;
   /** The same actual current-facts verifier used by the base application. */
   readonly releaseEvidence: EngineeringFollowupReleaseEvidencePort;
@@ -260,20 +262,24 @@ export interface PrepareReleaseFollowupStaffReassessmentCommand
 }
 
 export interface SupportDeskReleaseFollowup {
+  /** Body-free hints: engineeringFollowupProcess OR engineeringFollowupReview+queueRead. */
   scanCandidates(
     bounds: Parameters<
       EngineeringFollowupApplication["scanEngineeringFollowups"]
     >[1],
   ): ReturnType<EngineeringFollowupApplication["scanEngineeringFollowups"]>;
+  /** Requires engineeringFollowupProcess+engineeringFollowupRead+queueRead before claiming or paid preparation. */
   processWork(
     command: Omit<ClaimEngineeringFollowupWorkCommand, "claimId">,
     options?: { readonly signal?: AbortSignal },
   ): Promise<ReleaseFollowupProcessResult>;
+  /** New work requires Read+Review+queueRead; opaque accepted-intent recovery needs Review+queueRead only. */
   prepareStaffReassessment(
     access: AccessContext,
     command: PrepareReleaseFollowupStaffReassessmentCommand,
     options?: { readonly signal?: AbortSignal },
   ): Promise<EngineeringFollowupResult>;
+  /** New posting requires Read+Review+queueRead+replyAny; exact historical ACK replay retains base posting grants. */
   approveAndPostWebUpdate(
     access: AccessContext,
     command: ApproveAndPostEngineeringFollowupWebUpdateCommand,
