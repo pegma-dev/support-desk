@@ -25,14 +25,23 @@ See the [layout checkpoint](../../docs/COLLECTIONS.md#sd-02-assistant-turn-layou
 and [coordination guide](../../docs/ASSISTANT_COORDINATION.md). Current-head
 tests/review and future verified SD-06 publication remain required.
 
-SD-03's in-progress source adds opt-in `resolutionLearning` and fixed evidence,
+SD-03's merged source adds opt-in `resolutionLearning` and fixed evidence,
 work, exact staff review, withdrawal, and reconciliation operations. The
 [resolution learning guide](../../docs/RESOLUTION_LEARNING.md) documents the
 `support.learning.*` permissions, trusted evidence ports, 13-row human reserve
 plus two withdrawal rows, and source retention requirements. The public AI
 learning coordinator and KB delivery integration live in the optional AI
-package. Current-head validation and review remain required. This application
+package. This application
 package still has no KB or model-provider dependency.
+
+SD-04's source candidate adds optional `engineering` evidence/work services and
+bounded `engineeringPolicy` configuration. Repository policy has its own
+declared collection and atomic Audit/receipts. Engineering source/work records
+share the ticket partition, with independent withdrawal and terminal-result
+capacity reserved before external dispatch. The optional AI package supplies
+model and GitHub coordination through host ports. See the
+[engineering guide](../../docs/ENGINEERING_EXPORT.md); current-head tests and
+review remain required before completion.
 
 Customer create uses `support.ticket.create`; list and read both use the
 documented `support.ticket.read.own` permission and then confirm authoritative
