@@ -32,6 +32,7 @@ import type {
 import {
   safeEngineeringSnapshot as snapshot,
   checkEngineeringRecordCapacity,
+  advanceEngineeringFollowupRevocationEpoch,
   engineeringMaximumCandidateBytes,
   engineeringMaximumRecordBytes,
   engineeringCommandKey,
@@ -52,6 +53,7 @@ import type {
   EngineeringLoader,
   EngineeringWorkVersion,
 } from "./engineering-internal.js";
+import { projectEngineeringRows } from "./engineering-internal.js";
 
 export async function engineeringModelManifestHash(
   manifest: EngineeringModelBinding["inputManifest"],
@@ -455,9 +457,25 @@ export function createEngineeringWorkerServices(
     work: EngineeringWorkRecord,
     source: EngineeringSourceRecord = loaded.source.value,
     extra: readonly EngineeringAction[] = [],
+    beforeCommit?: () => void,
   ): Promise<boolean> {
+    const securityRestriction =
+      (source !== loaded.source.value && source.state === "restricted") ||
+      (work.security !== "ordinary" &&
+        (stored.value.security !== work.security ||
+          (stored.value.status !== "restricted" &&
+            work.status === "restricted")));
+    const followup = securityRestriction
+      ? await deps.planFollowupSourceChange({
+          rows: projectEngineeringRows(loaded.rows, [source, work]),
+          previousSource: loaded.source.value,
+          nextSource: source,
+          reason: "security_restriction",
+        })
+      : { actions: [], nextWorkRows: [] };
     checkEngineeringRecordCapacity(work);
     checkEngineeringRecordCapacity(source);
+    beforeCommit?.();
     return (
       await records.transact(work.ticketId, [
         {
@@ -471,6 +489,7 @@ export function createEngineeringWorkerServices(
           value: source,
         },
         { action: "putIfUnchanged", version: stored.version, value: work },
+        ...followup.actions,
         ...extra,
       ])
     ).committed;
@@ -509,6 +528,8 @@ export function createEngineeringWorkerServices(
       state: "restricted",
       security,
       sourceGeneration: source.sourceGeneration + 1,
+      followupRevocationEpoch:
+        advanceEngineeringFollowupRevocationEpoch(source),
       workGeneration: source.workGeneration + 1,
       heldReason: "security_restricted",
       updatedAt: clock.now(),
@@ -1353,7 +1374,16 @@ export function createEngineeringWorkerServices(
           command.candidate.security === "ordinary"
             ? loaded.source.value
             : restrictedSource(loaded, work, command.candidate.security);
-        if (await save(loaded, stored, next, nextSource)) {
+        if (
+          await save(loaded, stored, next, nextSource, [], () => {
+            permission(access, false, actorId);
+            live(loaded, work, command, runNow());
+            if (timestamp(model.binding.deadline, "model.deadline") <= runNow())
+              throw new SupportDeskConflictError(
+                "Engineering prepared model deadline expired",
+              );
+          })
+        ) {
           permission(access, false, actorId);
           return outcome(next);
         }
@@ -1363,6 +1393,8 @@ export function createEngineeringWorkerServices(
     async finishEngineeringWork(access, input) {
       permission(access);
       const actorId = access.principalId;
+      const requestStartedAt = timestamp(clock.now(), "now");
+      const runNow = effectiveTime(deps);
       const command = snapshot(
         fields(
           input,
@@ -1473,14 +1505,21 @@ export function createEngineeringWorkerServices(
           };
           permission(access, false, actorId);
           if (
-            await save(loaded, stored, next, restrictedSource(loaded, work))
+            await save(
+              loaded,
+              stored,
+              next,
+              restrictedSource(loaded, work),
+              [],
+              () => permission(access, false, actorId),
+            )
           ) {
             permission(access, false, actorId);
             return outcome(next);
           }
           continue;
         }
-        const now = timestamp(clock.now(), "now");
+        const now = runNow();
         if (
           !sameClaim(work, command) ||
           work.leaseUntil === undefined ||
@@ -1507,9 +1546,11 @@ export function createEngineeringWorkerServices(
           throw new SupportDeskConflictError(
             "Prepared engineering work requires its exact step fence",
           );
+        // Retry scheduling uses the request floor; only the live claim must
+        // remain unexpired while storage and child planning await.
         if (
           command.retryAt !== undefined &&
-          (timestamp(command.retryAt, "retryAt") < now ||
+          (timestamp(command.retryAt, "retryAt") < requestStartedAt ||
             timestamp(command.retryAt, "retryAt") >=
               timestamp(work.deadline, "deadline"))
         )
@@ -1577,7 +1618,28 @@ export function createEngineeringWorkerServices(
             ? loaded.source.value
             : restrictedSource(loaded, work);
         permission(access, false, actorId);
-        if (await save(loaded, stored, next, nextSource)) {
+        if (
+          await save(loaded, stored, next, nextSource, [], () => {
+            permission(access, false, actorId);
+            const commitNow = runNow();
+            if (
+              !sameClaim(work, command) ||
+              work.leaseUntil === undefined ||
+              timestamp(work.leaseUntil, "leaseUntil") <= commitNow
+            )
+              throw new SupportDeskConflictError(
+                "Engineering finish claim expired",
+              );
+            if (
+              command.retryAt !== undefined &&
+              timestamp(command.retryAt, "retryAt") >=
+                timestamp(work.deadline, "deadline")
+            )
+              throw new SupportDeskConflictError(
+                "Engineering retry exceeds work deadline",
+              );
+          })
+        ) {
           permission(access, false, actorId);
           return outcome(next);
         }
@@ -2250,6 +2312,12 @@ export function createEngineeringWorkerServices(
                 {
                   repositoryId: dispatch.repositoryId,
                   sourceGeneration: work.sourceGeneration,
+                  ...(loaded.source.value.followupRevocationEpoch === undefined
+                    ? {}
+                    : {
+                        followupRevocationEpoch:
+                          loaded.source.value.followupRevocationEpoch,
+                      }),
                   stepId: proposal.stepId,
                   requestHash: proposal.requestHash,
                   exportMarker: dispatch.exportMarker,

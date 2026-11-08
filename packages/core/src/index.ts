@@ -344,6 +344,12 @@ export function applyTicketEvent(ticket: Ticket, event: TicketEvent): Ticket {
           : { handling: advanceHandling(ticket, "human-active") }),
       });
 
+    case "customer_notice_added":
+      return freezeTicket({
+        ...ticket,
+        ...nextRevision(ticket, event.occurredAt, { customerVisible: true }),
+      });
+
     case "assistant_replied": {
       const handling = requireHandlingFence(ticket, event);
       requireActiveAssistant(ticket, handling);

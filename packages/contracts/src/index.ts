@@ -174,6 +174,11 @@ export type TicketEvent =
       readonly type: "support_replied";
       readonly actorId: PrincipalId;
     })
+  | (TicketEventBase & {
+      /** A staff-approved informational notice preserves lifecycle and handling. */
+      readonly type: "customer_notice_added";
+      readonly actorId: PrincipalId;
+    })
   | (TicketEventBase &
       TicketHandlingFence & {
         readonly type: "assistant_replied";

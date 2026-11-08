@@ -1,0 +1,245 @@
+# Release follow-up: SD-05 source contracts
+
+SD-05 is an implementation candidate. This handbook describes its source
+contracts and host responsibilities; it does not establish passed gates,
+publication, deployment, or host acceptance. SD-04 merged in
+[PR #40](https://github.com/pegma-dev/support-desk/pull/40). The synchronized
+SD-06 release still precedes host adoption. Scope comes from the
+[approved release follow-up plan](KNOWLEDGE_AI_PLAN.md#release-follow-up)
+and [collection checkpoint](COLLECTIONS.md#sd-05-release-follow-up-layout-checkpoint).
+There is no runnable host recipe here.
+
+## Entry points and trusted release facts
+
+`createSupportDeskApplication` exposes
+[EngineeringFollowupApplication](../packages/application/src/engineering-followup-types.ts).
+The host calls `observeEngineeringFollowup` with a registered repository/issue
+association and an opaque input reference. `EngineeringFollowupReleaseEvidencePort`
+verifies signed, allowlisted normalized input and confirms current issue and
+deployment heads plus the fix-to-product/build/deployment mapping. A webhook is
+a refresh hint. Issue closure, a merged PR, a tag, or a package release alone
+does not prove that the affected customer has the fix.
+
+Issue and deployment generations advance independently. Lower generations are
+stale; equal generations with different hashes conflict. A rollback to an older
+build still needs a newer deployment generation. Reconfirm the exact mapping
+and current heads at model preparation, bundle preparation, reassessment, and
+staff posting. These are versioned observations across systems, without an
+atomic transaction with the provider or deployment platform.
+
+Stale, unchanged, and proof-or-association-unavailable observations that change
+no durable state are live reads. They append no receipt and reserve no command
+ID; retrying them reevaluates current authority and proof. This zero-row
+coalescing keeps repeated webhook hints from consuming finite ticket capacity.
+Exact replay receipts acknowledge committed changes, rather than caching every
+observation result.
+
+`scanEngineeringFollowups` returns one bounded physical page with association,
+processing, review, and source-attention hints. Every adapter-returned row
+counts before filtering. The host persists the unmodified `nextCursor`, repeats
+scan cycles, and confirms work through `readEngineeringFollowupWork`. A hint
+grants no authority. Current access and restricted-read boundaries still apply.
+
+The optional `createSupportDeskReleaseFollowup` follows the
+[AI port contracts](../packages/ai/src/release-followup-ports.ts):
+
+| Method                     | Boundary                                                                                    |
+| -------------------------- | ------------------------------------------------------------------------------------------- |
+| `scanCandidates`           | Delegates bounded application discovery; the host owns cursors.                             |
+| `processWork`              | Prepares a private candidate and checked bundle under a fresh physical claim.               |
+| `prepareStaffReassessment` | Rechecks retained content or explicit staff edits with fresh proof and whole-bundle checks. |
+| `approveAndPostWebUpdate`  | Rechecks the exact bundle and current staff authority before the atomic web notice.         |
+
+The coordinator uses these current `supportPermissions` grants:
+
+- `scanCandidates`: `engineeringFollowupProcess`, or
+  `engineeringFollowupReview` plus `queueRead`. This body-free scan needs no
+  private-read grant and gives reviewers no processing permission.
+- `processWork`: `engineeringFollowupProcess`, `engineeringFollowupRead`, and
+  `queueRead`, checked before claiming, preparation, usage reservation, or a
+  provider call.
+- New staff reassessment: `engineeringFollowupRead`,
+  `engineeringFollowupReview`, and `queueRead`.
+- New staff posting: the same read/review/queue grants plus `replyAny`.
+
+The additional read grants cover the coordinator's private detail reads; direct
+base application operations retain their narrower named purpose permissions.
+Permission names imply no role inheritance.
+
+The base application remains independent of a model, GitHub client, and KB.
+`rejectEngineeringFollowupBundle` records an exact private staff rejection with
+a reason under current review and queue authority. It needs no provider,
+export service, or model configuration.
+
+## Association authority and duplicate work
+
+Follow-up requires an exact ordinary accepted engineering association with
+matching source and destination `followupRevocationEpoch` values. A destination
+captures the current epoch at durable dispatch start, before a possible GitHub
+POST. Late acknowledgements and reconciliation preserve that captured epoch.
+Missing legacy epochs hold eligibility; there is no blanket backfill.
+
+Explicit evidence, product, or check-policy revocation, current-source security
+restriction, and permanent withdrawal advance the source epoch. Ordinary
+conversation, reopening, provider disablement, and fresh ordinary proof preserve
+it. New proof therefore cannot silently grant authority to an old association.
+When appropriate, an explicitly checked and staff-approved new
+`link_existing_issue` association can capture fresh authority through the
+existing engineering workflow, subject to its destination and marker bounds.
+It does not restamp the old destination.
+
+One semantic work ID binds immutable repository/issue identity, semantic mapping
+identity, and deployment epoch. Ticket revisions, refreshed attestations,
+association replacement, and authority epochs do not create another notice for
+that identity. Delivered work never rearms or posts again. Each ticket has one
+follow-up head, at most four registered associations and eight deployment
+contexts, and a default of four lifetime work sets with a hard maximum of eight.
+
+## Prepare the complete private handoff
+
+Admit work only for an authenticated web ticket. The optional coordinator uses
+purpose `support_release_followup`, current verified data controls, evaluated
+model/prompt/parser versions, local token counting, and durable usage accounting.
+Each physical invocation uses a fresh claim identity. A prepared attempt and
+its exact input binding survive ambiguous acknowledgements; recovery preserves
+unknown usage instead of blindly repeating that paid request. No exactly-once
+provider guarantee is implied.
+
+Provider-visible input contains bounded customer-visible conversation and
+host-approved public release facts with request-local references. Server-only
+issue, deployment, ticket, KB, receipt, and authority identities stay outside the
+prompt and content logs. Internal notes and private KB content are excluded.
+The model's first input argument is the complete disclosure boundary; adapters
+must keep its server context and configuration proof outside provider content.
+
+The candidate contains a customer draft, an optional KB change proposal, and
+advisory retest requests. `ReleaseFollowupTargetPort` chooses an explicit article
+or `none`; unavailable target authority holds preparation. For an article, the
+coordinator uses only the actual released KB SDK's `getDraft` and
+`getValidationRequirements` with current KB authority. These private reads bind
+the article revision, content, and requirements; they do not enter provider
+input. KB access is optional when the explicit target is `none`.
+
+Independent checks cover the entire exact bundle: customer text, KB proposal,
+target baseline, validation requirements, retest steps, expected behavior, and
+product binding. The receipt binds the candidate and bundle hashes, work and
+source authority, current issue/deployment heads, and check-policy version.
+Model self-assessment cannot replace privacy, factual, applicability, or
+security checks.
+
+KB changes and retests remain Support-private handoffs. SD-05 adds no KB write,
+publication, source verifier, or fabricated SD-03 resolution-learning proof.
+The owning KB/API/MCP workflow retains its evidence and publication gates.
+`submitEngineeringFollowupRetestResult` authenticates a receipt against the exact
+request, bundle, product/build, execution, and runner. A passing retest alone
+does not unhold work or authorize a notice.
+
+## Staff posting and reassessment
+
+`prepareEngineeringFollowupBundle` requires mode `prepare` or
+`staff_reassessment`. Normal preparation cannot quietly revive held or expired
+work. Explicit reassessment uses current staff authority, fresh complete release
+proof, fresh whole-bundle checks, and new capacity admission. It preserves the
+semantic ID, paid-attempt counters, and bundle revision limits. It cannot clear
+withdrawal, restricted evidence, revoked association authority, or delivery.
+The staff coordinator helpers use current proof, target, and check ports
+independently of generation configuration and provider availability.
+
+Before reading current proof or private work, `prepareStaffReassessment` uses
+`recoverEngineeringFollowupPreparation` to recover an accepted preparation.
+This narrow read binds the current staff actor, exact work/command identity,
+and recovery-intent hash, returning only an opaque acknowledgement or `null`.
+It requires current review and queue authority and grants no new approval.
+An exact accepted intent therefore does not prepare twice after a lost
+acknowledgement, even if live proof or source bodies later become unavailable.
+Accepted preparation recovery needs review and queue authority without a read
+grant. Accepted posting replay needs review, queue, and reply authority without
+a read grant. Both return metadata only and bypass private work reads and live
+proof calls; the stronger coordinator grants apply when a new operation reaches
+its private preflight.
+
+For draftless model work, `retryEngineeringFollowupWork` provides a separate
+explicit staff retry. It accepts only ordinary, undelivered, nonwithdrawn model
+work that is held, superseded, or expired, with no candidate or prepared bundle.
+Current review and queue authority, exact work generation, fresh association and
+same-semantic deployment proof, and remaining lifetime attempt capacity are
+required. It retains the work ID and accounting/history, removes the old claim
+and step, and returns work to pending with a fresh deadline. Readmission restores
+five future rows and one message slot; its own two Audit/receipt rows use
+ordinary capacity. It does not reset the paid-attempt limit or repeat an old
+unknown provider call.
+
+`abandonEngineeringFollowupWork` locally holds undelivered work under exact work
+generation, current review and queue authority, and a reason. It needs no
+provider, configuration, release proof, or check ports. Its two Audit/receipt
+rows use its own funded tail or ordinary capacity, then release the remaining
+tail and message slot. Identity, private retained content, and accounting/history
+remain; abandonment is not privacy erasure. Delivered and withdrawn work cannot
+be abandoned. Both lifecycle commands recover exact accepted receipts before
+new proof or generation checks, with current authority and the original actor.
+
+`approveAndPostEngineeringFollowupWebUpdate` binds the exact checked bundle,
+work generation, ticket revision, association authority, and live staff actor.
+It requires current review, queue, and staff reply authority. Its read-only
+commit guard rechecks release applicability and independent whole-bundle proof
+after awaited work. Guards never perform a provider call or external mutation
+inside a storage retry.
+
+Approval and posting form one ticket transaction: the canonical web message,
+message quota, Audit, replay receipt, and delivered work marker commit together.
+The Core `customer_notice_added` event advances revision and customer-visible
+update time while preserving ticket status, handling, resolution/closure, and
+`firstStaffRespondedAt`. It sends no email and does not resolve tickets or act
+on accounts. Its trusted cause completes its own work, preserves the parent
+engineering association, and holds other stale follow-ups; other affected
+source proofs retain their normal invalidation rules. This approved notice
+newly holds enrolled resolution learning as a visible-source change without
+advancing its resolution cycle. SD-05 leaves ordinary replies' existing learning
+behavior unchanged.
+
+## Holds, capacity, and withdrawal
+
+Reopened issues, rollbacks, failed retests, and relevant ticket conversation or
+reopening hold stale unsent follow-up work. Duplicate observations coalesce.
+A negative observation can fund its two Audit/receipt rows from one affected prepaid work
+set, then hold all affected work and release their remaining reservations in
+the same transaction. Without a funded affected work set, ordinary capacity
+may reject the observation. Current proof guards still prevent stale posting;
+an unrecorded observation is not permission to use old proof.
+
+Admission reserves five future physical rows and one future message slot before
+paid work, beyond the actual head/work/causal records. Checked bundle preparation
+spends two rows and leaves three plus the slot. Staff posting spends those
+three on the message, Audit, and receipt. Normal and control operations preserve
+every other work set's tail and the existing human, learning, engineering
+privacy, and terminal reserves. A human conversation change releases the held
+follow-ups' reservations before admitting its own message.
+
+Paid model attempts default to two with a hard maximum of four; bundle revisions
+default to four with a hard maximum of eight. One retained candidate or complete
+bundle fits a combined 16,000 conservative UTF-16 JSON bytes, and complete
+physical records fit 60,000. Admission follows each stage's immutable input.
+Observation checks the actual work and its hold/scrub states; it does not reserve
+an arbitrary future bundle. Before a paid model call, preparation checks the
+exact manifest with maximum accounting/finish metadata and maximum candidate
+completion/replacement-claim states. Successful completion compacts that attempt
+to its opaque usage tombstone and exact completion acknowledgement. Unresolved
+preparation retains its manifest, and the lifetime attempt bound counts the
+unique union of full attempts and tombstones. Unknown usage remains reserved
+in the host ledger.
+
+Exact bundle preparation separately admits its actual body and retest request
+count with maximum future retest summaries, post, hold, and scrub states.
+An arbitrary later bundle needs its own admission. Verified retest results are
+stored as bounded hashes and private ledger references. Their Audit/receipt
+rows require ordinary capacity; the five-row tail funds bundle preparation and
+posting. Saturation holds new derivation within the configured physical ticket
+cap.
+
+Call the parent `withdrawEngineeringSource` before deleting source bodies. Its
+existing two-row privacy reserve scrubs the follow-up head and at most eight
+work rows, including private manifests, drafts, KB/retest details, even if later
+composition omits follow-up options. There is no child withdrawal command or
+extra privacy reserve. Retain only opaque delivery/recovery metadata; already
+sent canonical messages follow ordinary ticket retention. Late output cannot
+restore withdrawn private content.

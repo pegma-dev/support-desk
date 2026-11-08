@@ -34,14 +34,53 @@ learning coordinator and KB delivery integration live in the optional AI
 package. This application
 package still has no KB or model-provider dependency.
 
-SD-04's source candidate adds optional `engineering` evidence/work services and
+SD-04's merged source adds optional `engineering` evidence/work services and
 bounded `engineeringPolicy` configuration. Repository policy has its own
 declared collection and atomic Audit/receipts. Engineering source/work records
 share the ticket partition, with independent withdrawal and terminal-result
 capacity reserved before external dispatch. The optional AI package supplies
 model and GitHub coordination through host ports. See the
-[engineering guide](../../docs/ENGINEERING_EXPORT.md); current-head tests and
-review remain required before completion.
+[engineering guide](../../docs/ENGINEERING_EXPORT.md). Host adoption still
+requires the synchronized SD-06 release and its activation gates.
+
+SD-05's implementation candidate adds optional `engineeringFollowup` services
+through `EngineeringFollowupApplication`. Signed allowlisted input and current
+confirmed fix-to-product/build/deployment mapping establish bounded private
+follow-up work; issue closure or a release tag alone does not. Independent
+issue/deployment generations and captured source/destination revocation epochs
+fence stale associations. Default four, hard maximum eight semantic work sets
+share the existing ticket partition; delivered work never rearms.
+
+`prepareEngineeringFollowupBundle` requires mode `prepare` or
+`staff_reassessment`. `rejectEngineeringFollowupBundle` is a local staff review
+with a reason, independent of provider/export availability. The combined
+`approveAndPostEngineeringFollowupWebUpdate` commits one authenticated web
+notice, quota, Audit/receipt, and delivered marker while preserving status,
+handling, and first-staff-response facts. No worker or email sends a notice.
+Five prepaid rows and one message slot cover bundle preparation and posting;
+parent engineering withdrawal scrubs children using its existing privacy reserve.
+Admission checks each actual stage: exact model manifests and their completion
+states before paid work, then actual bundle/request counts and later retest/post
+states at bundle preparation. Retest Audit/receipts use ordinary capacity.
+`recoverEngineeringFollowupPreparation` returns only an opaque accepted result
+bound to the current staff actor and exact recovery intent before live work or
+proof reads, preventing duplicate preparation after a lost acknowledgement.
+`retryEngineeringFollowupWork` explicitly readmits held/superseded or expired
+draftless model work under fresh same-semantic proof, retaining its ID and
+lifetime attempt cap and reserving five rows plus a slot. Its two Audit/receipt
+rows use ordinary capacity. `abandonEngineeringFollowupWork` locally holds
+undelivered work without provider/proof ports, spends its own two funded rows or
+ordinary capacity, and releases the remaining tail/slot while preserving history.
+Both use current review and queue authority; parent withdrawal remains the
+privacy-erasure operation.
+The optional coordinator additionally needs follow-up read and queue grants for
+new private processing/review; direct base operations retain their purpose
+permissions. Metadata-only receipt replay remains available under each base
+operation's current grants. Zero-row stale/unchanged/unavailable observations
+are live reevaluated reads, with no persisted command receipt.
+See the [release follow-up guide](../../docs/ENGINEERING_FOLLOWUP.md) for trusted
+ports, explicit retry/reassessment, private KB/retest handoffs, and capacity rules.
+Current-head validation/review, publication, and host acceptance remain separate.
 
 Customer create uses `support.ticket.create`; list and read both use the
 documented `support.ticket.read.own` permission and then confirm authoritative
@@ -230,7 +269,7 @@ ticket partition with `defineAudit`. Customer create/reply and every staff
 mutation drop Audit transaction actions beside the state change; history is
 read through `readTicketAuditHistory` / Audit, not a private sorter. Domain
 `TicketEvent` remains pure workflow input and is not stored as a second audit
-shape. Authorization Core is exact `0.1.2`.
+shape. Authorization Core is exact `0.4.0`.
 
 Customer and staff commands are snapshotted from own data properties exactly
 once before validation, idempotency fingerprinting, or persistence. Accessors

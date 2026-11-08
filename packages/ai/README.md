@@ -1,6 +1,7 @@
 # @pegma/support-desk-ai
 
-Optional, provider-neutral coordination for signed-in web Support Desk answers.
+Optional, provider-neutral Support Desk answer, learning, engineering, and
+release follow-up coordination.
 This source candidate is `0.1.1`; it has not been published. A synchronized
 Support Desk release is required before host adoption. Its KB dependencies are
 the exact verified published `0.1.2` application and contracts packages.
@@ -8,10 +9,13 @@ the exact verified published `0.1.2` application and contracts packages.
 The base Support Desk application works without this package, a KB, or a model.
 Customer request-person and staff takeover remain deterministic application
 commands during provider outages. Email remains human support. This package
-provides separate answer, resolution-learning, and engineering coordinators. Answering only
+provides separate answer, resolution-learning, engineering, and release follow-up
+coordinators. Answering only
 replies or escalates. Learning prepares private KB drafts and reconciles source
 withdrawal through separate retirement authority. Engineering prepares verified
-bug proposals and approval-controlled issue exports. These coordinators cannot
+bug proposals and approval-controlled issue exports. Follow-up prepares private
+release bundles and posts an exact web notice only through current staff approval.
+These coordinators cannot
 resolve tickets, change accounts, or publish knowledge.
 
 `createSupportDeskLearning` and `createSupportDeskLearningSourceVerifier` are
@@ -20,12 +24,55 @@ merged SD-03 source. See the
 permission, draft, review, privacy, and recovery boundaries. Host adoption
 requires the synchronized SD-06 release.
 
-`createSupportDeskEngineering` is the SD-04 source candidate. It uses verified
+`createSupportDeskEngineering` is merged SD-04 source. It uses verified
 failure evidence, current admin repository policy, independently calibrated
 routing, exact sanitized export checks, and staff approval. A durable dispatch
 fence precedes one physical GitHub creation attempt; uncertain acceptance
 requires reconciliation. See the [engineering guide](../../docs/ENGINEERING_EXPORT.md).
-Current-head validation and review remain required before this candidate merges.
+Host adoption still requires the synchronized SD-06 release and its activation
+gates.
+
+`createSupportDeskReleaseFollowup` is the SD-05 implementation candidate, with
+four methods: `scanCandidates`, `processWork`, `prepareStaffReassessment`, and
+`approveAndPostWebUpdate`. Generation uses the separate
+`support_release_followup` purpose and current evaluated model/data-control
+configuration. Provider input contains customer-visible conversation and
+host-approved public release facts; operational IDs, private KB content, and
+internal notes stay outside it.
+
+`processWork` checks current `engineeringFollowupProcess`,
+`engineeringFollowupRead`, and `queueRead` before claim or paid preparation.
+Body-free `scanCandidates` instead accepts process authority alone, or
+`engineeringFollowupReview` plus `queueRead`, without private read or implied
+processing rights. New staff reassessment needs follow-up read/review and queue
+grants; new posting also needs `replyAny`. The base APIs retain their narrower
+purpose permissions.
+
+The host supplies current release evidence, target selection, independent
+whole-bundle checks, and usage accounting. Optional KB access exposes only actual
+`getDraft` and `getValidationRequirements` reads, or an explicit `none` target.
+KB change proposals and retests remain private handoffs with no KB write or new
+resolution-learning proof. Staff reassessment and posting recheck current proof
+without generation configuration; rejection remains a base-application command.
+Staff reassessment first attempts narrow actor/intent-bound opaque preparation
+recovery before proof or private-work reads. Paid preparation admits the exact
+manifest and maximum accounting/candidate states; success compacts that attempt
+to an opaque usage tombstone and acknowledgement. The actual checked bundle has
+separate admission for its body, request count, retest, posting, and scrub states.
+Retest Audit/receipt rows use ordinary capacity outside the prepaid posting tail.
+Accepted preparation recovery needs only current review/queue authority, and
+accepted post replay retains review/queue/reply authority. These opaque metadata
+acknowledgements need no read grant or private work/proof calls. The application
+also exposes explicit draftless `retryEngineeringFollowupWork` with fresh proof,
+unchanged lifetime attempts, and five-row/one-slot readmission, plus local
+`abandonEngineeringFollowupWork` that releases reservations without provider
+ports. Neither expands this coordinator's four-method factory or replaces
+parent privacy withdrawal. Stale/unchanged/unavailable observations that change
+no durable state remain live reads with no persisted receipt.
+There is no automatic notification or email path. See the
+[release follow-up guide](../../docs/ENGINEERING_FOLLOWUP.md) and
+[port contracts](src/release-followup-ports.ts). Current-head validation/review,
+publication, and host acceptance remain open.
 
 ## Composition
 

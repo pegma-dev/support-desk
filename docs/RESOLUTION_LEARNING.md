@@ -114,6 +114,13 @@ fence binds ticket ID, cycle, source generation, and `sourceBindingHash`.
 Confirmation rechecks source authority across awaited reads, so a concurrent
 reopen cannot return a stale positive confirmation.
 
+SD-05 adds one explicit visible-change cause: an approved release follow-up
+notice holds an enrolled learning source and advances its source generation,
+while preserving its resolution cycle. The notice changes the exact last
+visible-message binding used by resolution evidence. Ordinary visible replies
+retain the existing terminal-to-active invalidation behavior; the shared
+planner enables this extra cause only for the trusted follow-up notice.
+
 `invalidateResolutionEvidence` records `evidence_revoked`,
 `product_binding_revoked`, or `check_policy_revoked`. It advances generation
 and holds the source without privacy scrubbing. This is distinct from permanent

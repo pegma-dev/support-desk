@@ -351,6 +351,18 @@ export function engineeringFixture(
         ...configure(configuration, overrides),
       });
     },
+    freshApplicationWithoutEngineeringFollowup(overrides: FixtureOptions = {}) {
+      const { engineeringFollowup: _followup, ...configured } = configure(
+        configuration,
+        overrides,
+      );
+      return createSupportDeskApplication({
+        store: f.store,
+        clock: f.clock,
+        assistantHandlingEnabled: true,
+        ...configured,
+      });
+    },
     source,
     async work(ticketId = "ticket", sourceGeneration?: number) {
       return f.app.readEngineeringWork(engineeringStaff, {

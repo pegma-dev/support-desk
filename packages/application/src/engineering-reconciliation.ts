@@ -481,6 +481,8 @@ export function createEngineeringReconciliationServices(
         entry !== destination
           ? entry
           : {
+              // The epoch belongs to the pre-dispatch association. A late ACK
+              // records history without inheriting newer source authority.
               ...entry,
               outcome: result.outcome,
               reconciliation: terminal

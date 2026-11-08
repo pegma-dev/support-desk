@@ -22,6 +22,139 @@ memory tests, and real-adapter tests.
 
 ## Authoritative records
 
+### SD-05 release follow-up layout checkpoint
+
+This checkpoint precedes SD-05 implementation. SD-04 merged in
+[PR #40](https://github.com/pegma-dev/support-desk/pull/40); follow-up source,
+validation, release and host acceptance remain open. The owning scope is
+[the approved release follow-up task](KNOWLEDGE_AI_PLAN.md#release-follow-up).
+
+Follow-up adds no collection, database, event-bus dependency or access model.
+All authoritative rows use the existing ticket partition in
+`support-desk.records.v1`:
+
+| Row                                                                         | Purpose and bound                                                                                                                                                                         |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `engineering-followup-head` (`engineering_followup_head`)                   | One bounded issue/deployment observation head, up to four registered associations and eight deployment contexts.                                                                          |
+| `engineering-followup:<workId>` (`engineering_followup_work`)               | One private customer draft, KB change proposal and advisory retest bundle per semantic issue/mapping/deployment identity. Default four, hard maximum eight lifetime work sets per ticket. |
+| `engineering-followup-command:<commandId>` (`engineering_followup_receipt`) | Exact committed-mutation replay with opaque IDs, hashes and outcomes; no copied bodies or destination URLs.                                                                               |
+
+The semantic work ID hashes immutable repository/issue identity, semantic
+mapping identity and deployment epoch. Ticket revision, refreshed attestation,
+association replacement and authority epochs do not create a second notice.
+Delivered work never rearms. Issue and deployment generations are independent:
+lower generations are stale, equal generations with different hashes conflict,
+and rollback to an older build still requires a newer deployment generation.
+An issue-head change invalidates work across its deployment contexts; a
+deployment or mapping change affects only its matching context. Independently
+current deployment contexts retain their reservations and work.
+
+Stale, unchanged, and unavailable observation outcomes that change no durable
+state are live reads. They do not reserve a command ID or append a receipt;
+retrying them rechecks current authority and proof. This deliberate zero-row
+coalescing prevents repeated webhook hints from consuming the ticket's finite
+capacity. Exact replay receipts acknowledge committed changes, including
+accepted observations, rather than caching every read result.
+
+Head admission preserves actual proof fields while reserving maximum control,
+hold, opaque acknowledgement, and scrub growth. A new context or replacement
+proof must pass full actual-head admission again before commit; pending paid
+operations retain their already admitted proof fields.
+
+The host verifies signed, allowlisted normalized input and confirms current
+issue/deployment heads and fix-to-product/build/deployment applicability through
+read-only ports. Issue closure, a merged PR, tag or package release is not
+deployment proof. An event is a refresh hint. Current proof is checked again
+for model preparation, exact bundle preparation and staff posting. These are
+versioned observations across systems, not a global atomic snapshot with a
+deployment platform or model provider.
+
+The parent engineering source and each registered destination gain an optional
+`followupRevocationEpoch`. New sources start at zero. A destination captures
+the current epoch at durable dispatch start, before a possible external call;
+late acknowledgement and reconciliation preserve that captured value. Explicit
+evidence/product/check-policy revocation, current-source security restriction
+and permanent withdrawal advance the source epoch. Ordinary conversation,
+reopen, model disablement and fresh ordinary proof preserve it. A new follow-up
+needs matching epochs and exact ordinary accepted work. Missing legacy epochs
+hold eligibility. Fresh proof must not silently authorize an old destination;
+an explicitly checked and reviewed new existing-issue association can establish
+new authority within the existing destination bounds.
+
+Claims and paid attempts are bounded and inline. Before paid work, admission
+reserves five future physical rows and one future message slot, in addition to
+the actual head/work/causal records. Preparing a checked bundle spends its two
+Audit/receipt rows and leaves three rows plus the slot. Staff posting atomically
+spends those three on the canonical message, Audit and replay receipt. Normal
+and control admission preserve every outstanding follow-up tail and slot along
+with existing human, learning, engineering-withdrawal and terminal reserves.
+Admission evaluates old-to-planned work transitions, so no operation consumes
+another work set's reservation.
+
+A negative issue/rollback/retest observation can spend two rows from one
+affected prepaid unsent work, hold all affected work and release their remaining
+tails/slots in the same transaction. With no funded affected work, ordinary
+capacity may reject the observation; current proof guards still block stale
+posting. Relevant human conversation/reopen uses its existing causal Audit and
+holds stale unsent work while releasing its slots before message admission.
+Duplicate observations coalesce before spending new capacity.
+
+One candidate or exact checked bundle is retained, with a combined 16,000-byte
+conservative encoded bound; complete physical envelopes remain within 60,000.
+Admission follows the immutable input of each stage. Observation checks the
+actual work and its hold/scrub states. Before a paid model call, preparation
+checks its exact manifest with maximum accounting/finish metadata and maximum
+candidate completion/replacement-claim states. Successful completion compacts
+that attempt to its opaque usage tombstone and exact completion acknowledgement;
+unresolved preparation retains its full manifest. Lifetime attempt bounds count
+the unique union of full attempts and tombstones. Unknown usage remains reserved
+in the host's durable usage ledger.
+
+Exact bundle preparation separately checks its actual body and request count
+with maximum future retest summaries, post, hold and scrub states before
+advisory tests can run. An arbitrary future bundle cannot consume a model
+preparation's guarantee: it requires its own admission. Full trusted retest
+proofs are verified, then stored as bounded hashes and private ledger references.
+Retest Audit/receipt rows require ordinary capacity; the five-row reservation
+funds bundle preparation and posting, not four additional retest commands.
+Private model manifests, copied drafts and KB/retest details
+are scrubbed with the parent engineering withdrawal using its existing two-row
+privacy reserve. There is no independent child-withdrawal command or reserve.
+Retain only opaque reconciliation/delivery metadata; canonical sent messages
+follow ordinary ticket retention.
+
+The new Core `customer_notice_added` event advances revision and customer-visible
+update time while preserving status, handling, resolution/closure and first
+staff response facts. Only explicit current staff review and reply authority
+can atomically approve and post an authenticated web notice. No worker, email,
+ticket resolution, account action or KB publication is added. Its trusted cause
+completes its own work, skips parent engineering visible invalidation and holds
+other stale follow-ups in the same Ticket transaction.
+
+Staff can reject a prepared bundle privately with a reason, without requiring
+the provider or export services. Held or expired retained work can be explicitly
+reassessed under the same semantic ID using current staff authority, fresh
+complete proof/checks and five-row/one-slot readmission. Reassessment preserves
+attempt counters and cannot clear withdrawal, restricted evidence, revoked
+association epochs or delivered status. A passing retest alone does not unhold
+or send. Retest results require trusted exact-request/build/runner receipts.
+
+Draftless model work that is held, superseded, or expired has a separate explicit
+staff retry using fresh same-semantic proof, unchanged lifetime attempt history,
+and five-row/one-slot readmission. It spends two ordinary Audit/receipt rows.
+Staff can locally abandon undelivered work without provider or release ports,
+spending two rows from its own funded tail or ordinary capacity and releasing
+its remaining tail and slot. Abandonment retains identity and accounting;
+parent withdrawal remains the privacy-erasure operation.
+
+The optional AI coordinator uses purpose `support_release_followup`. Provider
+input contains bounded customer-visible conversation and host-approved public
+release facts; private issue/deployment/KB IDs, receipts and internal notes stay
+outside it. Actual optional KB reads use the released SDK's `getDraft` and
+`getValidationRequirements` with current authority and an explicit target or
+`none`. KB changes and retests remain private handoffs to their owning workflows;
+no new KB write, source verifier or fabricated resolution proof is introduced.
+
 ### SD-04 engineering layout checkpoint
 
 This checkpoint precedes SD-04 production changes. It records a source design,

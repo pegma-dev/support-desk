@@ -19,6 +19,7 @@ import {
 } from "./assistant-turn-records.js";
 import {
   checkEngineeringRecordCapacity,
+  advanceEngineeringFollowupRevocationEpoch,
   createEngineeringSource,
   engineeringCommandKey,
   engineeringSourceKey,
@@ -39,6 +40,7 @@ import type {
   EngineeringSourceVersion,
   EngineeringTicketVersion,
 } from "./engineering-internal.js";
+import { projectEngineeringRows } from "./engineering-internal.js";
 import type {
   EngineeringApplication,
   EngineeringCommand,
@@ -537,6 +539,8 @@ export function createEngineeringEvidenceServices(
             : "restricted",
         heldReason: command.reason,
         sourceGeneration: source.sourceGeneration + 1,
+        followupRevocationEpoch:
+          advanceEngineeringFollowupRevocationEpoch(source),
         workGeneration: source.workGeneration + 1,
         updatedAt: now,
         destinations: source.destinations.map((entry) => {
@@ -570,12 +574,23 @@ export function createEngineeringEvidenceServices(
             reconciliationAfterSourceChange(destination) !== "confirmed",
         ),
       };
+      const followup = await deps.planFollowupSourceChange({
+        rows: loaded.rows,
+        previousSource: source,
+        nextSource: next,
+        reason: privacy ? "withdrawal" : "explicit_revocation",
+      });
+      const plannedRows = projectEngineeringRows(
+        loaded.rows,
+        followup.nextWorkRows,
+      );
       if (privacy)
-        deps.withdrawalAdmission(loaded.ticket.value.ticket, loaded.rows, 2);
-      else deps.admission(loaded.ticket.value.ticket, loaded.rows, 2);
+        deps.withdrawalAdmission(loaded.ticket.value.ticket, plannedRows, 2);
+      else deps.admission(loaded.ticket.value.ticket, plannedRows, 2);
       const actions: EngineeringAction[] = [
         guardedTicket(loaded),
         sourceAction(loaded.source, next),
+        ...followup.actions,
       ];
       const workRows = loaded.rows.filter(
         (row) => row.kind === "engineering_work",
@@ -1021,12 +1036,37 @@ export function createEngineeringEvidenceServices(
             };
           }
         }
+        const securityRestriction =
+          next.security !== "ordinary" &&
+          (next.sourceGeneration !== source.sourceGeneration ||
+            next.security !== source.security ||
+            source.state !== "restricted");
+        if (securityRestriction)
+          next = {
+            ...next,
+            followupRevocationEpoch:
+              advanceEngineeringFollowupRevocationEpoch(source),
+          };
+        else if (trusted && next.followupRevocationEpoch === undefined)
+          next = { ...next, followupRevocationEpoch: 0 };
+        const followup = securityRestriction
+          ? await deps.planFollowupSourceChange({
+              rows: loaded.rows,
+              previousSource: source,
+              nextSource: next,
+              reason: "security_restriction",
+            })
+          : { actions: [], nextWorkRows: [] };
+        const plannedRows = projectEngineeringRows(
+          loaded.rows,
+          followup.nextWorkRows,
+        );
         try {
           bounded(next);
           if (work !== undefined) {
             bounded(work);
-            deps.admission(ticket, [...loaded.rows, work], 2);
-          } else deps.admission(ticket, loaded.rows, 2);
+            deps.admission(ticket, [...plannedRows, work], 2);
+          } else deps.admission(ticket, plannedRows, 2);
         } catch (error) {
           if (!(error instanceof SupportDeskLimitError) || work === undefined)
             throw error;
@@ -1038,11 +1078,12 @@ export function createEngineeringEvidenceServices(
             generationCount: source.generationCount,
           };
           bounded(next);
-          deps.admission(ticket, loaded.rows, 2);
+          deps.admission(ticket, plannedRows, 2);
         }
         const actions: EngineeringAction[] = [
           guardedTicket(loaded),
           sourceAction(loaded.source, next),
+          ...followup.actions,
         ];
         if (work !== undefined) actions.push({ action: "insert", value: work });
         actions.push(

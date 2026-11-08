@@ -77,10 +77,15 @@ preserve human support and permanent privacy withdrawal capacity. See the
 [resolution learning guide](docs/RESOLUTION_LEARNING.md) for permissions,
 storage reserves, composition, implemented boundaries, and current validation gates.
 
-SD-04 is a source candidate for verified bug evidence, admin repository policy,
-calibrated routing, exact staff-approved issue export, and reconciliation.
+SD-04's verified bug evidence, admin repository policy, calibrated routing,
+exact staff-approved export and reconciliation source merged in
+[PR #40](https://github.com/pegma-dev/support-desk/pull/40).
 See the [engineering export guide](docs/ENGINEERING_EXPORT.md). These source
 capabilities still require the synchronized SD-06 release before host adoption.
+
+SD-05 is the source candidate for confirmed-deployment follow-up, private KB
+change/retest proposals and staff-approved web notices. See the
+[follow-up guide](docs/ENGINEERING_FOLLOWUP.md) for the current contracts and gates.
 
 ## How the pieces fit
 
@@ -232,6 +237,7 @@ pnpm run format:check
 - [Assistant coordination](docs/ASSISTANT_COORDINATION.md)
 - [Resolution learning](docs/RESOLUTION_LEARNING.md)
 - [Engineering export](docs/ENGINEERING_EXPORT.md)
+- [Release follow-up](docs/ENGINEERING_FOLLOWUP.md)
 - [Release notes](docs/RELEASE_NOTES.md)
 - [Releasing](docs/RELEASING.md)
 
