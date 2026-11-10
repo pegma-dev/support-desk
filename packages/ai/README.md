@@ -2,10 +2,17 @@
 
 Optional, provider-neutral Support Desk answer, learning, engineering, and
 release follow-up coordination.
-This package is part of the verified published synchronized `0.2.0` release;
+The current verified published synchronized release is `0.2.0`;
 see the [publication receipt](../../docs/RELEASING.md#verified-sd-06-publication-2026-11-08).
 Host activation retains its own acceptance gates. Its KB dependencies are
 the exact verified published `0.1.2` application and contracts packages.
+
+The synchronized `0.2.1` source is an **unpublished patch candidate** for
+assistant-answering read batching in the application. Its exact internal
+Support application pin advances to `0.2.1`; both external KB pins remain
+`0.1.2`. It requires its own current-head validation, review, trusted publication
+and strict registry verification. This does not establish host activation,
+live-provider acceptance or a universal query or CPU budget.
 
 The base Support Desk application works without this package, a KB, or a model.
 Customer request-person and staff takeover remain deterministic application

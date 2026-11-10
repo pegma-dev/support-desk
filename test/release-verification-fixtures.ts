@@ -15,7 +15,7 @@ import { gzipSync } from "node:zlib";
 import { vi } from "vitest";
 import type { ReleasePorts } from "../scripts/release-verification.mjs";
 
-export const releaseVerificationVersion = "0.2.0";
+export const releaseVerificationVersion = "0.2.1";
 /** Read only the checkout's public commit identity; no Git process or config. */
 export function releaseCheckoutCommit(root = process.cwd()) {
   const dotGit = join(root, ".git");
@@ -296,7 +296,7 @@ export function releaseAuditCertificate(
               0x86,
               Buffer.from(
                 options.identity ??
-                  "https://github.com/pegma-dev/support-desk/.github/workflows/publish.yml@refs/tags/v0.2.0",
+                  "https://github.com/pegma-dev/support-desk/.github/workflows/publish.yml@refs/tags/v0.2.1",
               ),
             ),
           ),
@@ -406,13 +406,13 @@ export function releaseAuditFixture(
               workflow: {
                 repository: "https://github.com/pegma-dev/support-desk",
                 path: ".github/workflows/publish.yml",
-                ref: "refs/tags/v0.2.0",
+                ref: "refs/tags/v0.2.1",
               },
             },
             internalParameters: { github: { event_name: "release" } },
             resolvedDependencies: [
               {
-                uri: "git+https://github.com/pegma-dev/support-desk@refs/tags/v0.2.0",
+                uri: "git+https://github.com/pegma-dev/support-desk@refs/tags/v0.2.1",
                 digest: { gitCommit: releaseVerificationCommit },
               },
             ],
@@ -477,10 +477,10 @@ export function releaseRegistryFixture(
 ) {
   const registry = "https://registry.npmjs.org/";
   const metadataUrl = (name: string) =>
-    `${registry}${encodeURIComponent(name)}/0.2.0`;
+    `${registry}${encodeURIComponent(name)}/0.2.1`;
   const packageUrl = (name: string) => `${registry}${encodeURIComponent(name)}`;
   const tarballUrl = (name: string) =>
-    `${registry}${name}/-/${name.split("/").at(-1)}-0.2.0.tgz`;
+    `${registry}${name}/-/${name.split("/").at(-1)}-0.2.1.tgz`;
   const documents = new Map(
     f.packages.map(({ record, packageJson }) => [
       metadataUrl(record.name),
@@ -497,7 +497,7 @@ export function releaseRegistryFixture(
             },
           ],
           attestations: {
-            url: `${registry}-/npm/v1/attestations/${encodeURIComponent(record.name)}@0.2.0`,
+            url: `${registry}-/npm/v1/attestations/${encodeURIComponent(record.name)}@0.2.1`,
             provenance: { predicateType: "https://slsa.dev/provenance/v1" },
           },
         },
@@ -515,7 +515,7 @@ export function releaseRegistryFixture(
       packageUrl(record.name),
       {
         name: record.name,
-        "dist-tags": { latest: "0.2.0" } as Record<string, string>,
+        "dist-tags": { latest: "0.2.1" } as Record<string, string>,
       },
     ]),
   );
@@ -818,11 +818,11 @@ export function releasePublishingEnvironment() {
     GITHUB_EVENT_NAME: "release",
     GITHUB_REPOSITORY: "pegma-dev/support-desk",
     GITHUB_SERVER_URL: "https://github.com",
-    GITHUB_REF: "refs/tags/v0.2.0",
+    GITHUB_REF: "refs/tags/v0.2.1",
     GITHUB_SHA: releaseVerificationCommit,
     GITHUB_WORKFLOW_SHA: releaseVerificationCommit,
     GITHUB_WORKFLOW_REF:
-      "pegma-dev/support-desk/.github/workflows/publish.yml@refs/tags/v0.2.0",
+      "pegma-dev/support-desk/.github/workflows/publish.yml@refs/tags/v0.2.1",
     RELEASE_ENVIRONMENT: "npm-publish",
     RUNNER_ENVIRONMENT: "github-hosted",
     ACTIONS_ID_TOKEN_REQUEST_URL:

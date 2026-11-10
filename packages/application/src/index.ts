@@ -4,6 +4,7 @@ import { defineMail, maxMailAttempts, type MailJob } from "@pegma/mail";
 import type { Clock, IsoTimestamp, Logger, PrincipalId } from "@pegma/spine";
 import { noopLogger } from "@pegma/spine";
 import {
+  ConcurrencyError,
   defineCollection,
   MAX_SCAN_PAGE_SIZE,
   type Codec,
@@ -11,6 +12,7 @@ import {
   type EntityKey,
   type Store,
   type StoredRecord,
+  type UpdateDecision,
 } from "@pegma/storage-core";
 import type {
   InboundSenderAuthentication,
@@ -2402,6 +2404,26 @@ function enforcePartitionRecordLimit(
 export const assistantHumanReserveRows = 12;
 export const assistantHumanReserveMessages = 1;
 const firstHumanReplyReserveRows = 4;
+type ReadObservation<T> =
+  | { readonly outcome: "read"; readonly value: T }
+  | { readonly outcome: "failed"; readonly error: unknown };
+
+/** Settle unused speculative failures without changing their consumer order. */
+async function prepareRead<T>(
+  read: () => Promise<T>,
+): Promise<ReadObservation<T>> {
+  try {
+    return { outcome: "read", value: await read() };
+  } catch (error) {
+    return { outcome: "failed", error };
+  }
+}
+
+function readValue<T>(observation: ReadObservation<T>): T {
+  if (observation.outcome === "failed") throw observation.error;
+  return observation.value;
+}
+
 async function planTicketDerivationMutation(
   records: Parameters<typeof planResolutionLearningTicketMutation>[0],
   before: Parameters<typeof planResolutionLearningTicketMutation>[1],
@@ -2409,18 +2431,30 @@ async function planTicketDerivationMutation(
   rows: readonly SupportRecord[],
   visibleChange = false,
   notice?: { readonly completedFollowupWorkId: string },
+  parallel = false,
 ) {
-  const learning = await planResolutionLearningTicketMutation(
+  const learningRead = planResolutionLearningTicketMutation(
     records,
     before,
     after,
     notice !== undefined && visibleChange,
   );
+  const engineeringRead =
+    parallel && notice === undefined
+      ? prepareRead(() =>
+          planEngineeringTicketMutation(records, before, after, {
+            visibleChange,
+          }),
+        )
+      : undefined;
+  const learning = await learningRead;
   const engineering =
     notice === undefined
-      ? await planEngineeringTicketMutation(records, before, after, {
-          visibleChange,
-        })
+      ? engineeringRead === undefined
+        ? await planEngineeringTicketMutation(records, before, after, {
+            visibleChange,
+          })
+        : readValue(await engineeringRead)
       : { actions: [], additionalRows: 0 };
   const reopened =
     ["resolved", "closed"].includes(before.value.ticket.status) &&
@@ -3172,100 +3206,98 @@ export async function projectTicketToQueue(
 
   const records = store.collection(supportRecords);
   const projections = store.collection(queueIndex);
-  const ticketRecord = await records.get(ticketKey(ticketId));
-  if (ticketRecord?.kind !== "ticket") {
-    const existing = await projections.getVersioned(
-      queueProjectionKey(ticketId),
-    );
-    if (existing === null) {
-      return "absent";
+  const key = queueProjectionKey(ticketId);
+  function decide(
+    current: QueueIndexRecord | null,
+    derived: QueueIndexRecord,
+  ): UpdateDecision<QueueIndexRecord> {
+    if (current === null) {
+      return { action: "write", value: derived };
     }
-    const removed = await projections.deleteIfUnchanged(
-      queueProjectionKey(ticketId),
-      existing.version,
-    );
-    return removed ? "deleted" : "kept";
-  }
-
-  const ticket = ticketRecord.ticket;
-  if (ticket.id !== ticketId) {
-    throw new TypeError("stored ticket id does not match its partition");
-  }
-
-  // Sample the host clock only for terminal retention. Active tickets never
-  // consult wall time, so post-commit projection does not consume sequence
-  // clocks used by ticket mutations.
-  if (isTerminalTicketStatus(ticket.status)) {
-    const now = clock.now();
+    if (current.ticketId !== ticketId || current.id !== "queue") {
+      throw new TypeError("queue projection key does not match its payload");
+    }
+    if (current.projectedRevision > derived.projectedRevision) {
+      return { action: "keep" };
+    }
+    if (current.projectedRevision < derived.projectedRevision) {
+      return { action: "write", value: derived };
+    }
+    if (queueIndexContentEqual(current, derived)) {
+      return { action: "keep" };
+    }
+    // Exact pre-SD-01 rows may already contain Task-13 fields but no handling.
+    const { handling: _newHandling, ...beforeHandling } = derived;
     if (
-      ticketBeyondTerminalCutoff(ticket, now, terminalRetentionMilliseconds)
-    ) {
-      const existing = await projections.getVersioned(
-        queueProjectionKey(ticketId),
-      );
-      if (existing === null) {
-        return "absent";
-      }
-      // Only prune a projection that still matches this terminal revision.
-      // A concurrent reopen can land a newer active row between the ticket
-      // read and this delete; that row must be preserved for repair to see.
-      if (existing.value.projectedRevision !== ticket.revision) {
-        return "kept";
-      }
-      const removed = await projections.deleteIfUnchanged(
-        queueProjectionKey(ticketId),
-        existing.version,
-      );
-      return removed ? "deleted" : "kept";
-    }
+      current.handling === undefined &&
+      queueIndexContentEqual(current, beforeHandling)
+    )
+      return { action: "write", value: derived };
+    // Pre-Task-13 rows have none of these additive staff fields. Enrich
+    // only that exact legacy shape from freshly loaded authoritative state.
+    const {
+      tags: _tags,
+      firstResponseDueAt: _first,
+      resolutionDueAt: _due,
+      firstStaffRespondedAt: _responded,
+      resolvedAt: _resolved,
+      handling: _handling,
+      ...legacy
+    } = derived;
+    if (queueIndexContentEqual(current, legacy))
+      return { action: "write", value: derived };
+    throw new SupportDeskConflictError(
+      "Queue projection revision collision with divergent content",
+    );
   }
 
-  const derived = deriveQueueIndexRecord(ticket);
-  const result = await projections.update(
-    queueProjectionKey(ticketId),
-    (current) => {
-      if (current === null) {
-        return { action: "write", value: derived };
-      }
-      if (current.ticketId !== ticketId || current.id !== "queue") {
-        throw new TypeError("queue projection key does not match its payload");
-      }
-      if (current.projectedRevision > derived.projectedRevision) {
-        return { action: "keep" };
-      }
-      if (current.projectedRevision < derived.projectedRevision) {
-        return { action: "write", value: derived };
-      }
-      if (queueIndexContentEqual(current, derived)) {
-        return { action: "keep" };
-      }
-      // Exact pre-SD-01 rows may already contain Task-13 fields but no handling.
-      const { handling: _newHandling, ...beforeHandling } = derived;
+  for (let attempt = 0; attempt < maxConflictAttempts; attempt += 1) {
+    const ticketRead = records.get(ticketKey(ticketId));
+    const projectionRead = prepareRead(() => projections.getVersioned(key));
+    const ticketRecord = await ticketRead;
+    if (ticketRecord?.kind !== "ticket") {
+      const existing = readValue(await projectionRead);
+      if (existing === null) return "absent";
+      if (await projections.deleteIfUnchanged(key, existing.version))
+        return "deleted";
+      if (attempt + 1 === maxConflictAttempts) return "kept";
+      continue;
+    }
+
+    const ticket = ticketRecord.ticket;
+    if (ticket.id !== ticketId)
+      throw new TypeError("stored ticket id does not match its partition");
+
+    // Active tickets never consult wall time. Retry terminal retention only
+    // with the new authoritative Ticket and projection observations together.
+    if (isTerminalTicketStatus(ticket.status)) {
+      const now = clock.now();
       if (
-        current.handling === undefined &&
-        queueIndexContentEqual(current, beforeHandling)
-      )
-        return { action: "write", value: derived };
-      // Pre-Task-13 rows have none of these additive staff fields. Enrich
-      // only that exact legacy shape from freshly loaded authoritative state.
-      const {
-        tags: _tags,
-        firstResponseDueAt: _first,
-        resolutionDueAt: _due,
-        firstStaffRespondedAt: _responded,
-        resolvedAt: _resolved,
-        handling: _handling,
-        ...legacy
-      } = derived;
-      if (queueIndexContentEqual(current, legacy))
-        return { action: "write", value: derived };
-      throw new SupportDeskConflictError(
-        "Queue projection revision collision with divergent content",
-      );
-    },
-    { maxAttempts: maxConflictAttempts },
-  );
-  return result.written ? "written" : "kept";
+        ticketBeyondTerminalCutoff(ticket, now, terminalRetentionMilliseconds)
+      ) {
+        const existing = readValue(await projectionRead);
+        if (existing === null) return "absent";
+        // A newer active projection from a concurrent reopen must survive.
+        if (existing.value.projectedRevision !== ticket.revision) return "kept";
+        if (await projections.deleteIfUnchanged(key, existing.version))
+          return "deleted";
+        if (attempt + 1 === maxConflictAttempts) return "kept";
+        continue;
+      }
+    }
+
+    const derived = deriveQueueIndexRecord(ticket);
+    const existing = readValue(await projectionRead);
+    const decision = decide(existing?.value ?? null, derived);
+    if (decision.action !== "write") return "kept";
+    const written =
+      existing === null
+        ? (await projections.insertIfAbsent(decision.value)).inserted
+        : await projections.putIfUnchanged(decision.value, existing.version);
+    if (written) return "written";
+    // Rebuild both observations; never keep a stale Ticket across a CAS retry.
+  }
+  throw new ConcurrencyError(queueIndex.name, key, maxConflictAttempts);
 }
 
 function toStaffQueueItem(ticket: Ticket): StaffQueueItem {
@@ -4982,17 +5014,26 @@ export function createSupportDeskApplication(options: {
         ? {}
         : { assistantTurnFingerprint: assistantTurnCommit.fingerprint }),
     });
+    const completion = assistantTurnCommit;
+    const parallel = completion?.kind === "complete";
     for (let attempt = 0; attempt < maxConflictAttempts; attempt += 1) {
-      const versioned = await records.getVersioned(ticketKey(command.ticketId));
+      const ticketRead = records.getVersioned(ticketKey(command.ticketId));
+      const duplicateRead = parallel
+        ? prepareRead(() =>
+            records.get(commandKey(command.ticketId, command.commandId)),
+          )
+        : undefined;
+      const versioned = await ticketRead;
       if (
         versioned?.value.kind !== "ticket" ||
         (customer && !owns(versioned.value.ticket, access.principalId))
       )
         throw new SupportDeskNotFoundError();
       const ticket = versioned.value.ticket;
-      const duplicate = await records.get(
-        commandKey(command.ticketId, command.commandId),
-      );
+      const duplicate =
+        duplicateRead === undefined
+          ? await records.get(commandKey(command.ticketId, command.commandId))
+          : readValue(await duplicateRead);
       if (
         duplicateMatches(duplicate, operation, command.messageId, fingerprint)
       ) {
@@ -5077,13 +5118,42 @@ export function createSupportDeskApplication(options: {
                     ...common,
                   });
       if (updated.revision === ticket.revision) return ticket;
-      const learningMutation = await planTicketDerivationMutation(
-        records,
-        { value: versioned.value, version: versioned.version },
-        updated,
-        rows,
-        operation === "assistant_reply",
-      );
+      const originalTicket = {
+        value: versioned.value,
+        version: versioned.version,
+      };
+      const planMutation = () =>
+        planTicketDerivationMutation(
+          records,
+          originalTicket,
+          updated,
+          rows,
+          operation === "assistant_reply",
+          undefined,
+          parallel,
+        );
+      const mutationRead = parallel ? prepareRead(planMutation) : undefined;
+      const quotaRead =
+        parallel && operation === "assistant_reply"
+          ? prepareRead(() =>
+              records.getVersioned(ticketQuotaKey(command.ticketId)),
+            )
+          : undefined;
+      const assistantRead =
+        parallel && completion !== undefined
+          ? prepareRead(() =>
+              assistantTurns.completionAction(
+                ticket,
+                rows,
+                updated,
+                completion,
+              ),
+            )
+          : undefined;
+      const learningMutation =
+        mutationRead === undefined
+          ? await planMutation()
+          : readValue(await mutationRead);
       const learningConfirmation =
         operation === "confirm_customer_success"
           ? await resolutionLearning.customerConfirmation(
@@ -5119,9 +5189,10 @@ export function createSupportDeskApplication(options: {
         ...learningConfirmation.actions,
       ];
       if (operation === "assistant_reply") {
-        const quota = await records.getVersioned(
-          ticketQuotaKey(command.ticketId),
-        );
+        const quota =
+          quotaRead === undefined
+            ? await records.getVersioned(ticketQuotaKey(command.ticketId))
+            : readValue(await quotaRead);
         if (quota?.value.kind !== "ticket_quota")
           throw new SupportDeskConflictError(
             "Ticket partition quota metadata is missing",
@@ -5251,12 +5322,14 @@ export function createSupportDeskApplication(options: {
       const assistantCommit =
         assistantTurnCommit === undefined
           ? undefined
-          : await assistantTurns.completionAction(
-              ticket,
-              rows,
-              updated,
-              assistantTurnCommit,
-            );
+          : assistantRead === undefined
+            ? await assistantTurns.completionAction(
+                ticket,
+                rows,
+                updated,
+                assistantTurnCommit,
+              )
+            : readValue(await assistantRead);
       if (assistantCommit !== undefined) {
         actions.push(assistantCommit.action);
         await assistantCommit.verifyBeforeCommit();

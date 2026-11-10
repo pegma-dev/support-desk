@@ -13,6 +13,13 @@ without model generation or a KB dependency. See the
 Host adoption retains its own activation gates; source checkouts and
 overwritten registry versions are not release substitutes.
 
+Source here prepares the synchronized **unpublished `0.2.1` candidate** for
+assistant-answering read batching. Independent Store reads are grouped while
+current authority, ticket and turn fences remain required. This package gains
+no KB or provider dependency. Current-head validation, review, trusted release
+and strict registry verification remain pending; grouped reads do not establish
+a universal host query or CPU budget.
+
 SD-02's merged source adds opt-in `assistantTurns` and the
 `AssistantTurnApplication` methods `scanAssistantTurnCandidates`,
 `claimAssistantTurn`, `prepareAssistantTurnAttempt`, `completeAssistantTurn`,
