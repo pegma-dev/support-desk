@@ -168,12 +168,15 @@ future synchronized verified SD-06 release. Follow the
 [current ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) and
 [assistant coordination candidate](ASSISTANT_COORDINATION.md).
 
-The current KB selection is the verified trusted four-package `0.1.2` release
+The subsequent KB `0.1.2` producer checkpoint was the verified trusted four-package release
 at source `004044bfa836b74a61fb5defa49d5ebab1fe37dd`, confirmed by strict
 [registry/consumer verification](https://github.com/pegma-dev/knowledge-base/actions/runs/42436081951/job/128617897564).
-Support Desk's synchronized `0.2.0` candidate consumes exact KB `0.1.2` only
-through its optional AI package. This version correction does not refresh the
-frozen P-00 snapshot or close any host activation gate.
+The released `@pegma/support-desk-ai@0.2.0` retains exact KB `0.1.2` runtime
+dependencies. Current standalone authoring selection is all four KB `0.1.4`
+packages with Agent Access `0.1.1`; see the
+[current producer receipts](HOST_COMPOSITION.md#kb-authoring-producers).
+These publication updates do not refresh the frozen P-00 snapshot or close
+any host activation gate.
 
 ## Open prerequisites and activation gates
 
@@ -428,11 +431,15 @@ dependencies, are recorded in the plan's
 [current status ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
 AUTH-01 lifecycle source, synthetic SDK proof, KB-04 transport source exit,
 and both producers' release preparation are merged. Current verified producer
-versions are the four KB packages at `0.1.2` and Agent Access at `0.1.1`, closing
+versions are the four KB packages at `0.1.4` and Agent Access at `0.1.1`, with
+exact source and verification jobs in the
+[producer receipts](HOST_COMPOSITION.md#kb-authoring-producers), closing
 SD-02's producer prerequisite. Support Desk's synchronized `0.2.0` release is
 also published and strictly verified; see the
 [publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
-PG-01/RG-01 consume exact verified registry dependencies. Retained KB-04 real two-host
+Its optional AI package retains its exact KB `0.1.2` runtime dependencies;
+publication of a newer producer does not change those immutable pins.
+PG-01/RG-01 consume their reviewed exact verified registry sets. Retained KB-04 real two-host
 acceptance under P00-CREDENTIAL/P00-MCP and
 PG-01/RG-01, and the named host/ZDR, production-operation, deployment-mapping,
 and pilot gates remain open. Source/SDK evidence does not close host activation.
