@@ -19,6 +19,29 @@ is published and strictly verified; see the
 Host activation retains its own acceptance gates. Existing registry versions
 remain immutable.
 
+### Candidate read scheduling (`0.2.1`)
+
+The unpublished candidate groups keyed observations for claim/preparation,
+closed completion and queue projection. `finishAssistantTurnAttempt` retains
+its turn-then-ticket sequence: an exact historical finish or terminal result
+can return without starting a ticket read. Further finish batching is outside
+this patch's scope.
+
+Read waves are not a storage snapshot. Exact actor/input-bound completion
+receipts retain precedence over fresh lease, feature and turn fences; current
+service permissions are still required to recover an accepted result. Consumed
+read failures retain their consumer order. Unused speculative failures are
+settled without replacing an earlier unavailable-turn error or terminal claim
+result.
+
+Speculation can perform extra bounded work: completion may start a receipt read
+before rejecting an unavailable ticket, and claim may start a ticket read before
+returning an already-terminal turn. Unused observations grant no authority and
+supply no returned private data. Not every path performs fewer Store reads;
+complete supported host profiles require measurement. This candidate establishes
+no universal Workers Free query or CPU allowance, host activation or live-provider
+acceptance.
+
 ## One ticket transaction around external work
 
 ```mermaid

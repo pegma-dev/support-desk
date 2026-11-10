@@ -11,6 +11,12 @@ A composable, open-source support queue for web and email.
 > Hosts must consume published versions and satisfy their own activation gates;
 > Git branches, copied source, or local paths are not release substitutes.
 
+The synchronized `0.2.1` patch is an **unpublished candidate** for assistant-answering
+read batching. The current verified release remains `0.2.0`, and the optional AI
+package retains exact KB `0.1.2` dependencies. Current-head validation, review,
+trusted publication and strict registry verification remain required. Grouped
+reads do not establish a universal query or CPU budget or close host acceptance.
+
 Implemented in source today: the customer-facing and staff application
 services, the repairable staff queue projection, declared collections,
 Authorization Core permission boundaries, transactional audit and mail

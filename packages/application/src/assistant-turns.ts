@@ -259,6 +259,22 @@ export function createAssistantTurnServices(
     return { ...result, value: result.value };
   }
 
+  // Start alongside the deterministic turn read without letting unused ticket
+  // failures replace an unavailable turn or an already-terminal claim result.
+  async function observeTicket(ticketId: string) {
+    try {
+      return {
+        outcome: "read" as const,
+        value: await records.getVersioned({
+          partition: ticketId,
+          id: "ticket",
+        }),
+      };
+    } catch (error) {
+      return { outcome: "failed" as const, error };
+    }
+  }
+
   function boundedRows(rows: readonly SupportRecord[]): void {
     if (rows.length > limits.maxRecordsPerTicket)
       throw new SupportDeskLimitError(
@@ -401,13 +417,14 @@ export function createAssistantTurnServices(
         config.maxLeaseMilliseconds,
       );
       for (let conflict = 0; conflict < maxConflictAttempts; conflict += 1) {
-        const versioned = await load(command);
+        const turnRead = load(command);
+        const ticketRead = observeTicket(command.ticketId);
+        const versioned = await turnRead;
         const job = versioned.value;
         if (terminalTurn(job)) return null;
-        const ticketVersion = await records.getVersioned({
-          partition: command.ticketId,
-          id: "ticket",
-        });
+        const observed = await ticketRead;
+        if (observed.outcome === "failed") throw observed.error;
+        const ticketVersion = observed.value;
         if (ticketVersion?.value.kind !== "ticket") return null;
         const ticket = ticketVersion.value.ticket;
         const rows = await records.list(command.ticketId);
@@ -531,12 +548,13 @@ export function createAssistantTurnServices(
       const binding = validateBinding(raw.binding);
       const command = snapshot({ ...raw, binding });
       for (let conflict = 0; conflict < maxConflictAttempts; conflict += 1) {
-        const versioned = await load(command);
+        const turnRead = load(command);
+        const ticketRead = observeTicket(command.ticketId);
+        const versioned = await turnRead;
         const job = versioned.value;
-        const ticketVersion = await records.getVersioned({
-          partition: command.ticketId,
-          id: "ticket",
-        });
+        const observed = await ticketRead;
+        if (observed.outcome === "failed") throw observed.error;
+        const ticketVersion = observed.value;
         if (ticketVersion?.value.kind !== "ticket")
           throw new SupportDeskConflictError("Assistant ticket is unavailable");
         const rows = await records.list(command.ticketId);

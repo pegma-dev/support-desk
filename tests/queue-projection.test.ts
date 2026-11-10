@@ -5,6 +5,7 @@ import { createAzureTablesStore } from "@pegma/storage-azure-tables";
 import {
   createMemoryStore,
   type CollectionDefinition,
+  type CollectionStore,
   type Store,
 } from "@pegma/storage-core";
 import { describe, expect, it } from "vitest";
@@ -192,75 +193,188 @@ function describeQueueProjection(label: string, fixture: () => StoreFixture) {
       });
     });
 
-    it("does not roll back a committed command when projection fails", async () => {
-      const { store: inner } = fixture();
-      const logs: Array<{ level: string; message: string }> = [];
-      const store: Store = {
-        collection(definition) {
-          const collection = inner.collection(definition);
-          if (definition.name !== "support-desk.queue-index.v1") {
-            return collection;
-          }
-          return {
-            get: collection.get.bind(collection),
-            getVersioned: collection.getVersioned.bind(collection),
-            insertIfAbsent: collection.insertIfAbsent.bind(collection),
-            put: collection.put.bind(collection),
-            putIfUnchanged: collection.putIfUnchanged.bind(collection),
-            list: collection.list.bind(collection),
-            listVersioned: collection.listVersioned.bind(collection),
-            scan: collection.scan.bind(collection),
-            delete: collection.delete.bind(collection),
-            deleteIfUnchanged: collection.deleteIfUnchanged.bind(collection),
-            transact: collection.transact.bind(collection),
-            update: async () => {
-              throw new Error("simulated projection storage failure");
-            },
-          };
-        },
-      };
-      const application = createSupportDeskApplication({
-        store,
-        clock: fixedClock("2026-07-27T12:00:00.000Z"),
-        logger: {
-          log(level, message) {
-            logs.push({ level, message });
+    it.each(["read", "write"] as const)(
+      "does not roll back a committed command when projection fails (%s)",
+      async (failure) => {
+        const { store: inner } = fixture();
+        const logs: Array<{ level: string; message: string }> = [];
+        let failReads = failure === "read";
+        let failWrites = failure === "write";
+        let rejectedReads = 0;
+        let rejectedWrites = 0;
+        function projectionRead() {
+          if (!failReads) return;
+          rejectedReads += 1;
+          throw new Error("simulated projection storage failure");
+        }
+        function projectionWrite() {
+          if (!failWrites) return;
+          rejectedWrites += 1;
+          throw new Error("simulated projection storage failure");
+        }
+        const store: Store = {
+          collection<T>(
+            definition: CollectionDefinition<T>,
+          ): CollectionStore<T> {
+            const collection = inner.collection(definition);
+            if (definition.name !== "support-desk.queue-index.v1") {
+              return collection;
+            }
+            return {
+              async get(key) {
+                projectionRead();
+                return collection.get(key);
+              },
+              async getVersioned(key) {
+                projectionRead();
+                return collection.getVersioned(key);
+              },
+              async insertIfAbsent(value) {
+                projectionWrite();
+                return collection.insertIfAbsent(value);
+              },
+              async put(value) {
+                projectionWrite();
+                return collection.put(value);
+              },
+              async putIfUnchanged(value, version) {
+                projectionWrite();
+                return collection.putIfUnchanged(value, version);
+              },
+              list: collection.list.bind(collection),
+              listVersioned: collection.listVersioned.bind(collection),
+              scan: collection.scan.bind(collection),
+              async delete(key) {
+                projectionWrite();
+                return collection.delete(key);
+              },
+              async deleteIfUnchanged(key, version) {
+                projectionWrite();
+                return collection.deleteIfUnchanged(key, version);
+              },
+              async transact(partition, actions) {
+                projectionWrite();
+                return collection.transact(partition, actions);
+              },
+              async update(key, decide, options) {
+                projectionWrite();
+                return collection.update(key, decide, options);
+              },
+            };
           },
-        },
-      });
+        };
+        const application = createSupportDeskApplication({
+          store,
+          clock: fixedClock("2026-07-27T12:00:00.000Z"),
+          logger: {
+            log(level, message) {
+              logs.push({ level, message });
+            },
+          },
+        });
 
-      const created = await application.createCustomerTicket(customer, {
-        commandId: "create-fail-projection",
-        correlationId: "c-fail",
-        ticketId: "ticket-fail-projection",
-        messageId: "message-fail-projection",
-        subject: "Still commits",
-        body: "Projection fails after.",
-      });
-      expect(created.ticket.id).toBe("ticket-fail-projection");
-      expect(
-        await inner.collection(supportRecords).get({
-          partition: "ticket-fail-projection",
-          id: "ticket",
-        }),
-      ).not.toBeNull();
-      const health = application.queueProjectionHealth();
-      expect(health.consecutiveFailures).toBeGreaterThanOrEqual(1);
-      expect(logs.some((entry) => entry.message.includes("projection"))).toBe(
-        true,
-      );
+        const created = await application.createCustomerTicket(customer, {
+          commandId: "create-fail-projection",
+          correlationId: "c-fail",
+          ticketId: "ticket-fail-projection",
+          messageId: "message-fail-projection",
+          subject: "Still commits",
+          body: "Projection fails after.",
+        });
+        expect(created.ticket.id).toBe("ticket-fail-projection");
+        expect(
+          failure === "read" ? rejectedReads : rejectedWrites,
+        ).toBeGreaterThan(0);
+        expect(
+          await inner.collection(supportRecords).get({
+            partition: "ticket-fail-projection",
+            id: "ticket",
+          }),
+        ).not.toBeNull();
+        const health = application.queueProjectionHealth();
+        expect(health.consecutiveFailures).toBeGreaterThanOrEqual(1);
+        expect(logs.some((entry) => entry.message.includes("projection"))).toBe(
+          true,
+        );
 
-      // Replay must not duplicate the command or re-create the ticket.
-      const replay = await application.createCustomerTicket(customer, {
-        commandId: "create-fail-projection",
-        correlationId: "c-fail",
-        ticketId: "ticket-fail-projection",
-        messageId: "message-fail-projection",
-        subject: "Still commits",
-        body: "Projection fails after.",
-      });
-      expect(replay.ticket.number).toBe(created.ticket.number);
-    });
+        // Replay must not duplicate the command or re-create the ticket.
+        const beforeReplay = await inner
+          .collection(supportRecords)
+          .list("ticket-fail-projection");
+        const replay = await application.createCustomerTicket(customer, {
+          commandId: "create-fail-projection",
+          correlationId: "c-fail",
+          ticketId: "ticket-fail-projection",
+          messageId: "message-fail-projection",
+          subject: "Still commits",
+          body: "Projection fails after.",
+        });
+        expect(replay.ticket.number).toBe(created.ticket.number);
+        expect(
+          await inner.collection(supportRecords).list("ticket-fail-projection"),
+        ).toEqual(beforeReplay);
+
+        // Repair the missing projection through the public producer, then fail
+        // an actual refresh of that existing row after another accepted command.
+        const key = { partition: "ticket-fail-projection", id: "queue" };
+        expect(await inner.collection(queueIndex).get(key)).toBeNull();
+        failReads = false;
+        failWrites = false;
+        expect(
+          await projectTicketToQueue(key.partition, {
+            store,
+            clock: fixedClock("2026-07-27T12:00:00.000Z"),
+            ...defaultRetention,
+          }),
+        ).toBe("written");
+        const projection = await inner.collection(queueIndex).getVersioned(key);
+        expect(projection).not.toBeNull();
+        failWrites = true;
+        const writesBeforeUpdate = rejectedWrites;
+        const priorityCommand = {
+          commandId: "priority-fail-projection",
+          correlationId: "c-priority-fail",
+          ticketId: key.partition,
+          priority: "high" as const,
+        };
+        const changed = await application.changePriority(
+          staff,
+          priorityCommand,
+        );
+        expect(changed.ticket.priority).toBe("high");
+        expect(rejectedWrites).toBeGreaterThan(writesBeforeUpdate);
+        expect(
+          await inner
+            .collection(supportRecords)
+            .get({ partition: key.partition, id: "ticket" }),
+        ).toMatchObject({
+          ticket: { priority: "high", revision: changed.ticket.revision },
+        });
+        expect(await inner.collection(queueIndex).getVersioned(key)).toEqual(
+          projection,
+        );
+        expect(
+          application.queueProjectionHealth().consecutiveFailures,
+        ).toBeGreaterThanOrEqual(2);
+        expect(
+          logs.filter((entry) => entry.message.includes("projection")).length,
+        ).toBeGreaterThanOrEqual(2);
+        const beforePriorityReplay = await inner
+          .collection(supportRecords)
+          .list(key.partition);
+        const priorityReplay = await application.changePriority(
+          staff,
+          priorityCommand,
+        );
+        expect(priorityReplay.ticket).toEqual(changed.ticket);
+        expect(
+          await inner.collection(supportRecords).list(key.partition),
+        ).toEqual(beforePriorityReplay);
+        expect(await inner.collection(queueIndex).getVersioned(key)).toEqual(
+          projection,
+        );
+      },
+    );
 
     it("rejects stale projection writes that would overtake a newer revision", async () => {
       const { store } = fixture();

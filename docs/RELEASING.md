@@ -9,6 +9,14 @@ packages, in dependency order:
 4. `@pegma/support-desk-application`
 5. Optional `@pegma/support-desk-ai`
 
+The next patch is the synchronized **unpublished `0.2.1` candidate** for
+assistant-answering read batching. All five package versions and their internal
+Support pins advance together; the optional AI package retains exact KB
+application/contracts `0.1.2` dependencies. Its own current-head validation,
+review, trusted publication and strict registry verification remain pending.
+The verified `0.2.0` receipt below remains historical evidence for those exact
+artifacts, not qualification for the new candidate or either host.
+
 The original four package names retain their published `0.1.0`/`0.1.1`
 artifacts. Pre-SD-06 source also
 used `0.1.1` while accumulating SD-01 through SD-05 behavior; those additions
@@ -239,7 +247,7 @@ publication evidence.
 The common independent CLI bindings are:
 
 ```text
-node scripts/release-verification.mjs <preflight|publish|verify> --manifest .release/package-manifest.json --manifest-sha256 SHA256 --release-tag v0.2.0 --expected-release-commit COMMIT
+node scripts/release-verification.mjs <preflight|publish|verify> --manifest .release/package-manifest.json --manifest-sha256 SHA256 --release-tag vX.Y.Z --expected-release-commit COMMIT
 ```
 
 Both `preflight` and `publish` also require
@@ -260,7 +268,7 @@ strict six-file directory.
 recorded file digest:
 
 ```text
-node scripts/release-verification.mjs publish --manifest .release/package-manifest.json --manifest-sha256 SHA256 --release-tag v0.2.0 --expected-release-commit COMMIT --prepared-artifact-id ORIGINAL_ID --prepared-artifact-sha256 ORIGINAL_ZIP_SHA --preflight-receipt PREFLIGHT_DOWNLOAD/registry-preflight.json --preflight-receipt-sha256 TRUSTED_PREFLIGHT_SHA256
+node scripts/release-verification.mjs publish --manifest .release/package-manifest.json --manifest-sha256 SHA256 --release-tag vX.Y.Z --expected-release-commit COMMIT --prepared-artifact-id ORIGINAL_ID --prepared-artifact-sha256 ORIGINAL_ZIP_SHA --preflight-receipt PREFLIGHT_DOWNLOAD/registry-preflight.json --preflight-receipt-sha256 TRUSTED_PREFLIGHT_SHA256
 ```
 
 The package scripts `release:preflight`, `release:publish`, and `release:verify`

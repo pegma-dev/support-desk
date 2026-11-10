@@ -179,6 +179,14 @@ exact `@pegma/audit@0.2.0`. Host Tasks 7–8 consume exact verified published ar
 and retain their own deployment and acceptance gates.
 Provider selection and operation remain host work.
 
+The next synchronized patch, `0.2.1`, is an unpublished assistant-answering
+read-batching candidate across all five packages. Its internal Support pins
+advance together; the optional AI package retains exact KB `0.1.2` pins.
+Current-head Node 22/24 gates, review, trusted publication and strict registry
+verification remain required. Earlier release receipts and host activation
+gates are unchanged; grouped reads do not establish a universal query or CPU
+budget.
+
 SD-01 is implemented in source via
 [PR #34](https://github.com/pegma-dev/support-desk/pull/34): optional handling
 defaults legacy tickets to human support, explicitly attributes assistant
