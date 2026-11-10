@@ -191,7 +191,7 @@ activation gates after verified SDK publication.
 Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
 preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
 both producers' final release preparation are merged. All four KB packages have
-verified trusted `0.1.2` registry releases; Agent Access has verified trusted
+verified trusted `0.1.4` registry releases; Agent Access has verified trusted
 `0.1.1`. Their manual
 `0.1.0` bootstrap receipts remain historical and have no OIDC provenance;
 the separate trusted releases close the producer publication gates. SD-02

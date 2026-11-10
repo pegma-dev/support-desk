@@ -50,7 +50,7 @@ and human queue separation. That source slice includes no model or KB integratio
 and shipped in `0.2.0`. Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial
 KB-05 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
 and both producers' final release preparation are merged. The four KB packages
-have verified trusted `0.1.2` registry releases, and `@pegma/agent-access` has
+have verified trusted `0.1.4` registry releases, and `@pegma/agent-access` has
 a verified trusted `0.1.1` release;
 the KB-05 publication prerequisite for SD-02 is closed. SD-02's optional
 `@pegma/support-desk-ai` coordinator and bounded ticket-partition turn jobs
@@ -63,7 +63,9 @@ See the [producer evidence and bootstrap handoff](docs/HOST_COMPOSITION.md#kb-au
 The [assistant coordination guide](docs/ASSISTANT_COORDINATION.md) and
 [layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
 describe the SDK contracts. The base application works without AI; only
-the optional coordinator depends on KB. The
+the optional coordinator depends on KB. Its released `0.2.0` manifest keeps
+exact KB `0.1.2` dependencies; the separate standalone-authoring recipe selects
+KB `0.1.4` and Agent Access `0.1.1` in the producer handoff above. The
 [verified SD-06 publication receipt](docs/RELEASING.md#verified-sd-06-publication-2026-11-08)
 records the exact release; host adoption retains its own acceptance gates.
 Use the [implementation ledger](docs/KNOWLEDGE_AI_PLAN.md#status-and-reading-order)
