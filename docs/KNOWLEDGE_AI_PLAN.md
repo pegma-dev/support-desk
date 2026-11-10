@@ -122,17 +122,25 @@ adapter releases include
 [Cloudflare D1 `0.4.6`](https://github.com/pegma-dev/storage-core/releases/tag/v0.4.6)
 and [DynamoDB `0.4.5`](https://github.com/pegma-dev/storage-core/releases/tag/v0.4.5);
 Core `0.4.0` and Azure Tables `0.4.0` retain their original verified archives.
+The [producer receipts](HOST_COMPOSITION.md#kb-authoring-producers) bind KB
+`0.1.3`/`0.1.4` to exact signed source and strict verification jobs. The
+[storage receipts](HOST_COMPOSITION.md#qualified-storage-adapters) identify
+`@pegma/storage-cloudflare-d1@0.4.6`, `@pegma/storage-dynamodb@0.4.5`, and the
+unchanged `@pegma/storage-core@0.4.0` / `@pegma/storage-azure-tables@0.4.0`
+archives with their public qualification evidence.
 The [coordination design](ASSISTANT_COORDINATION.md) and
 [layout checkpoint](COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
 record the coordinator's five public application operations, bounded same-partition turns,
 authority/data controls, and replay contract. Public-entry memory/Azurite tests
 with the actual KB and a fake provider, Node 22/24 gates, and code/security
 review support this SDK release; they do not establish host activation.
-Existing registry versions remain immutable. RetireGolden reference-host source
-changes have merged; pegma.dev's PG-01 source integration remains open in
-[PR #59](https://github.com/pegma-dev/pegma.dev/pull/59). These are source
-milestones, not completed PG-01/RG-01 exit criteria. Each host retains its own
-exact published dependency set, with Knowledge/agent activation disabled.
+Existing registry versions remain immutable. The new standalone authoring
+recipe selects all four exact KB `0.1.4` packages and Agent Access `0.1.1`,
+as listed in the producer handoff; it does not change the released AI `0.2.0`
+consumer's KB `0.1.2` dependencies or assert either host's deployed versions.
+PG-01 source integration is tracked in
+[PR #59](https://github.com/pegma-dev/pegma.dev/pull/59). Neither host's source
+work completes PG-01/RG-01 exit criteria; Knowledge/agent activation stays gated.
 Neither host has completed actual existing-login/current-Admin consent and
 every requested client/mode acceptance. Those remain open activation gates
 tracked by P-00 and PG-01/RG-01; publication and source/SDK results do not close them.
@@ -695,7 +703,9 @@ preparation. The current producer publication gates are closed by strictly
 verified trusted KB `0.1.4`, Agent Access `0.1.1`, and the synchronized Support
 Desk `0.2.0` release recorded above. The released Support Desk AI package keeps
 its exact KB `0.1.2` dependencies. PG-01 and RG-01 must consume their reviewed
-exact published dependency sets and prove actual
+exact published dependency sets; the new standalone authoring recipe is the
+four KB `0.1.4` packages plus Agent Access `0.1.1` in the
+[producer handoff](HOST_COMPOSITION.md#kb-authoring-producers). They must prove actual
 existing-login and requested-client draft/evidence flows. KB-04's merged source
 exit closes only its source slice; retained actual two-host acceptance remains pending in P-00,
 PG-01/RG-01, and A-01 until those real runs pass. Source/SDK success cannot close

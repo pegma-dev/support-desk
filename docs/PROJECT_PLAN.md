@@ -32,13 +32,17 @@ independent of KB/providers. Read the
 Changes require current-head public-entry memory/Azurite/actual-KB fake-provider
 tests, Node 22/24 gates, and code/security review. The completed SDK release
 gates are recorded in the publication receipt above. Qualified storage adapter
-releases now include D1 `0.4.6` and DynamoDB `0.4.5`; see the
-[current producer facts](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
-RetireGolden reference-host source changes have merged; PG-01 remains open in
+releases include `@pegma/storage-cloudflare-d1@0.4.6` and
+`@pegma/storage-dynamodb@0.4.5`; the [storage receipts](HOST_COMPOSITION.md#qualified-storage-adapters)
+bind their signed source, verification jobs, and unchanged Core/Azure `0.4.0`
+archives. The new standalone authoring recipe selects all four KB `0.1.4`
+packages plus Agent Access `0.1.1`; this does not upgrade AI `0.2.0`'s KB
+`0.1.2` dependencies or assert private host adoption.
+PG-01 source integration is tracked in
 [pegma.dev #59](https://github.com/pegma-dev/pegma.dev/pull/59). Both host task
 exit criteria remain open, with Knowledge/agent activation disabled and actual
 existing-login/current-Admin consent and requested-client/mode acceptance
-unproven. Source and synthetic SDK results do not establish model calls,
+unproven. Source and synthetic SDK results do not establish deployment, model calls,
 full-workflow host acceptance, or pilots.
 
 Task 12 remains pending on both hosts' durable-store production evidence.
@@ -450,8 +454,11 @@ reviewed support knowledge on both launch hosts.
 AUTH-01 source/SDK proof, KB-04's transport source exit, and both producers'
 release preparation are merged. The four KB packages now have strictly verified
 trusted `0.1.4` releases and Agent Access has verified `0.1.1`, closing SD-02's publication prerequisite. The released
-Support Desk AI `0.2.0` keeps its exact KB `0.1.2` dependencies; hosts consume
-their reviewed exact verified registry sets rather than source substitutes.
+Support Desk AI `0.2.0` keeps its exact KB `0.1.2` dependencies. New standalone
+authoring recipes select all four KB `0.1.4` packages plus Agent Access `0.1.1`
+from the [producer handoff](HOST_COMPOSITION.md#kb-authoring-producers),
+separately from that AI consumer. Host adoption requires its own reviewed exact
+registry set rather than source substitutes.
 Actual two-host existing-login/current-Admin consent and Codex, Claude Code,
 Grok Bot desktop/hosted-agent, and T3 Code Codex-provider proof remains unproven
 under PG-01/RG-01 before activation or pilots. See the

@@ -53,7 +53,8 @@ actual customer data was used, and it does not establish an operational host.
 Historical `0.1.1` publication receipts for the four KB packages (`@pegma/knowledge-base-contracts`,
 `@pegma/knowledge-base-core`, `@pegma/knowledge-base-application`, and
 `@pegma/knowledge-base-mcp`) and `@pegma/agent-access` are retained below.
-Current selection is KB `0.1.2` and Agent Access `0.1.1`.
+The current standalone-authoring selection and later KB receipts follow the
+historical releases below; the released AI consumer retains separate pins.
 
 | Producer                          | Signed `v0.1.1` source                                                                                                                                                | Strict registry and clean-consumer verification                                                                                                                                                                                     |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -91,7 +92,57 @@ The optional learning integration is documented in
 [resolution learning](RESOLUTION_LEARNING.md); its current-head source and
 host activation gates are separate from producer publication.
 
-PG-01/RG-01 consume both exact verified published producers, then prove
+The later [KB `0.1.3` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.3)
+added shared test reports and staff confirmation. Its signed source is
+[`8b4c25aa6a40f0c56be97f07e3b7b5ac6136a99b`](https://github.com/pegma-dev/knowledge-base/commit/8b4c25aa6a40f0c56be97f07e3b7b5ac6136a99b);
+[strict verification job 128906942012](https://github.com/pegma-dev/knowledge-base/actions/runs/42533473529/job/128906942012)
+passed on release run 42533473529, attempt 5. That immutable release remains
+history; the current producer is `0.1.4`.
+
+#### Current standalone authoring recipe
+
+New standalone KB-authoring production recipes select these exact packages:
+
+- `@pegma/knowledge-base-contracts@0.1.4`
+- `@pegma/knowledge-base-core@0.1.4`
+- `@pegma/knowledge-base-application@0.1.4`
+- `@pegma/knowledge-base-mcp@0.1.4`
+- `@pegma/agent-access@0.1.1`
+
+The [KB `0.1.4` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.4)
+binds signed source
+[`541e8c93fe1b15bee9345e59b36325f422f97c50`](https://github.com/pegma-dev/knowledge-base/commit/541e8c93fe1b15bee9345e59b36325f422f97c50).
+[Strict verification job 129201837645](https://github.com/pegma-dev/knowledge-base/actions/runs/42576167664/job/129201837645)
+passed on release run 42576167664, attempt 5, for all four registry packages:
+exact archive/dependency checks, signatures/Sigstore, signed-source and original
+writer provenance, and public consumers. The release retains the original
+prepared artifact and documents recovery without another package write.
+Agent Access `0.1.1` retains its source and strict verification receipt above.
+
+This standalone recipe does not upgrade `@pegma/support-desk-ai@0.2.0`:
+its immutable [published manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.0/packages/ai/package.json)
+pins `@pegma/knowledge-base-application@0.1.2` and
+`@pegma/knowledge-base-contracts@0.1.2`. Adding a newer standalone SDK does not
+replace those dependencies or establish mixed-version host acceptance.
+
+#### Qualified storage adapters
+
+| Exact package                        | Signed release source                                                                                                                                                                                              | Strict registry/consumer verification                                                                                                |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `@pegma/storage-cloudflare-d1@0.4.6` | [`v0.4.6`](https://github.com/pegma-dev/storage-core/releases/tag/v0.4.6), [`35daa5e679d353fffc9fbf5afe73fe73198d8abf`](https://github.com/pegma-dev/storage-core/commit/35daa5e679d353fffc9fbf5afe73fe73198d8abf) | [Job 129478539115](https://github.com/pegma-dev/storage-core/actions/runs/42705318277/job/129478539115), run 42705318277, attempt 3. |
+| `@pegma/storage-dynamodb@0.4.5`      | [`v0.4.5`](https://github.com/pegma-dev/storage-core/releases/tag/v0.4.5), [`a5a5d0bfe6355df89c049fcec3148845c5124735`](https://github.com/pegma-dev/storage-core/commit/a5a5d0bfe6355df89c049fcec3148845c5124735) | [Job 129386921895](https://github.com/pegma-dev/storage-core/actions/runs/42679292292/job/129386921895), run 42679292292, attempt 2. |
+
+`@pegma/storage-core@0.4.0` and `@pegma/storage-azure-tables@0.4.0` retain their
+original verified archives. The `v0.4.6`
+[prepared manifest](https://github.com/pegma-dev/storage-core/releases/download/v0.4.6/package-manifest.json)
+and [strict verification job 129478539115](https://github.com/pegma-dev/storage-core/actions/runs/42705318277/job/129478539115)
+bind those reused archives together with
+D1 `0.4.6` and the reused DynamoDB `0.4.5` archive; reused packages were not
+rebuilt or republished. These producer receipts do not establish a live host's
+durable deployment, platform quota, or operational acceptance.
+
+The authoring recipe does not assert which versions either reference host has
+deployed. PG-01/RG-01 separately prove
 existing-login/current-Admin consent and actual draft/evidence flows through
 Codex, Claude Code, Grok Bot's installed desktop application with its hosted
 agent (not Grok Build CLI), and T3 Code in Codex-provider mode. Publication,
@@ -327,10 +378,11 @@ refused; missing or inactive hints can still leave a temporary repair gap.
 
 SD-01 includes no AI provider, knowledge retrieval, learning, or publication.
 Keep model activation disabled until the host gates pass. All four KB packages
-have strictly verified trusted `0.1.2` releases and Agent Access has verified `0.1.1`, closing SD-02's
+have strictly verified trusted `0.1.4` releases and Agent Access has verified `0.1.1`, closing SD-02's
 producer publication prerequisite. SD-02's optional coordinator source is
 merged after validation/review, as are SD-03 through SD-05. They shipped in the
-verified synchronized `0.2.0` release recorded above. Actual two-host
+verified synchronized `0.2.0` release recorded above; that AI consumer retains
+its exact KB `0.1.2` dependencies. Actual two-host
 login/client, privacy, operations, Task 12,
 full-workflow, and pilot evidence remain separate gates.
 

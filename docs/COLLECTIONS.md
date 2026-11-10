@@ -387,12 +387,15 @@ still grants no web principal or account access. SD-01 supplies handling and
 deterministic controls only. AUTH-01, KB-04 transport source/SDK proof, partial
 KB-05 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
 and both producers' final release preparation are merged. All four KB packages
-now have verified trusted `0.1.2` releases and Agent Access has verified `0.1.1`, closing the
+now have verified trusted `0.1.4` releases and Agent Access has verified `0.1.1`, closing the
 producer publication prerequisite. Support Desk's synchronized `0.2.0` release
 is published and strictly verified; see the
 [publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
 The implementation checkpoint below is historical.
-PG-01/RG-01 consume exact verified published producers and retain actual two-host
+The [standalone authoring recipe](HOST_COMPOSITION.md#kb-authoring-producers)
+selects KB `0.1.4` with Agent Access `0.1.1`; the released AI `0.2.0` package
+retains its exact KB `0.1.2` dependencies and the checkpoints below remain historical.
+PG-01/RG-01 retain actual two-host
 existing-login/Admin consent and requested-client proof before activation or
 pilots. Synthetic SDK proof uses no actual customer data and cannot close those
 host gates. Host privacy,
