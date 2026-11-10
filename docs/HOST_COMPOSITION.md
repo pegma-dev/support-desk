@@ -79,8 +79,8 @@ The KB-05 publication prerequisite for SD-02 is closed. The optional AI package
 uses exact KB `0.1.2` dependencies, while the base application has no
 KB or provider dependency. SD-02 source passed validation/review and merged in
 [PR #38](https://github.com/pegma-dev/support-desk/pull/38);
-that behavior shipped in the verified synchronized `0.2.0` release recorded
-above. Host acceptance remains required. Do not substitute branches, copied source,
+that behavior first shipped in verified synchronized `0.2.0` and remains in
+current `0.2.1`, whose publication receipt is linked above. Host acceptance remains required. Do not substitute branches, copied source,
 local paths, or unpublished tarballs for production dependencies.
 
 SD-03's atomic-provenance prerequisite is the verified trusted
@@ -382,9 +382,10 @@ SD-01 includes no AI provider, knowledge retrieval, learning, or publication.
 Keep model activation disabled until the host gates pass. All four KB packages
 have strictly verified trusted `0.1.4` releases and Agent Access has verified `0.1.1`, closing SD-02's
 producer publication prerequisite. SD-02's optional coordinator source is
-merged after validation/review, as are SD-03 through SD-05. They shipped in the
-verified synchronized `0.2.0` release recorded above; that AI consumer retains
-its exact KB `0.1.2` dependencies. Actual two-host
+merged after validation/review, as are SD-03 through SD-05. They first shipped
+in verified synchronized `0.2.0` and remain in current `0.2.1`, whose publication
+receipt is linked above. The current AI consumer retains its exact KB `0.1.2`
+dependencies. Actual two-host
 login/client, privacy, operations, Task 12,
 full-workflow, and pilot evidence remain separate gates.
 

@@ -434,9 +434,11 @@ and both producers' release preparation are merged. Current verified producer
 versions are the four KB packages at `0.1.4` and Agent Access at `0.1.1`, with
 exact source and verification jobs in the
 [producer receipts](HOST_COMPOSITION.md#kb-authoring-producers), closing
-SD-02's producer prerequisite. Support Desk's synchronized `0.2.0` release is
-also published and strictly verified; see the
-[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+SD-02's producer prerequisite. Support Desk's current synchronized `0.2.1`
+release is published and strictly verified; see the
+[publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
+The dated `0.2.0` publication update and producer checkpoints above remain
+historical observations; this progress update does not change the frozen baseline.
 Its optional AI package retains its exact KB `0.1.2` runtime dependencies;
 publication of a newer producer does not change those immutable pins.
 PG-01/RG-01 consume their reviewed exact verified registry sets. Retained KB-04 real two-host

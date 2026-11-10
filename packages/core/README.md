@@ -50,5 +50,8 @@ application's explicit assistant creation sets that reserve marker.
 `customer_success_confirmed` follows resolution semantics, including reopening
 closed work first; ownership and visible-message evidence are application
 checks. Pure functions grant no permission, perform no model/KB work, and
-commit no Audit, receipt, or handoff row. These SD-01 changes are unreleased
-source, not a replacement for existing registry `0.1.1` artifacts.
+commit no Audit, receipt, or handoff row. These SD-01 changes first shipped in
+verified synchronized `0.2.0` and remain in current `0.2.1`; see its
+[publication receipt](../../docs/RELEASING.md#verified-021-publication-2026-11-10).
+Existing registry `0.1.1` artifacts remain immutable; host activation retains
+its own acceptance gates.
