@@ -43,7 +43,7 @@ Contracts define vocabulary, not authorization or persistence. The application
 checks permissions/ownership and current visible-message proof, commits
 Audit/receipts/work, and keeps private handling generations and evidence out
 of customer DTOs. Core performs pure transitions and validates its handling
-inputs. These changes shipped in the verified published synchronized `0.2.0`
-release and add no model or KB dependency. See the
-[publication receipt](../../docs/RELEASING.md#verified-sd-06-publication-2026-11-08);
+inputs. These changes first shipped in verified synchronized `0.2.0` and remain
+in current `0.2.1`, with no model or KB dependency. See the current
+[publication receipt](../../docs/RELEASING.md#verified-021-publication-2026-11-10);
 host activation retains its own acceptance gates.

@@ -48,8 +48,8 @@ must supply their own current authorities, verified provider route and
 evaluations, release attesters, usage ledger, and operational controls.
 Separate instances keep their own Store, configuration, cursors, and secrets.
 
-The synchronized Support Desk `0.2.0` release is published and strictly verified;
-see the [publication receipt](../../docs/RELEASING.md#verified-sd-06-publication-2026-11-08).
+The current synchronized Support Desk `0.2.1` release is published and strictly verified;
+see the [publication receipt](../../docs/RELEASING.md#verified-021-publication-2026-11-10).
 Production adoption retains its own host acceptance gates.
 See [the existing human-support example](../composition/README.md),
 [host composition](../../docs/HOST_COMPOSITION.md), and the individual

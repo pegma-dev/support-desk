@@ -25,9 +25,10 @@ memory tests, and real-adapter tests.
 ### SD-05 release follow-up layout checkpoint
 
 This checkpoint originated before SD-05 implementation. SD-05 later merged in
-[PR #41](https://github.com/pegma-dev/support-desk/pull/41) and shipped in the
-verified published synchronized `0.2.0` release; see the
-[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+[PR #41](https://github.com/pegma-dev/support-desk/pull/41) and first shipped in the
+verified synchronized [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
+The current synchronized release is `0.2.1`; see its
+[publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
 Host acceptance remains open. The owning scope is
 [the approved release follow-up task](KNOWLEDGE_AI_PLAN.md#release-follow-up).
 
@@ -160,9 +161,9 @@ no new KB write, source verifier or fabricated resolution proof is introduced.
 ### SD-04 engineering layout checkpoint
 
 This checkpoint originated before SD-04 production changes. SD-04 later merged
-in [PR #40](https://github.com/pegma-dev/support-desk/pull/40) and shipped in the
-verified published synchronized `0.2.0` release recorded above. Host acceptance
-remains separate. SD-03 merged in
+in [PR #40](https://github.com/pegma-dev/support-desk/pull/40) and first shipped in
+verified synchronized `0.2.0`. Those contracts remain in current `0.2.1`, whose
+publication receipt is linked above. Host acceptance remains separate. SD-03 merged in
 [PR #39](https://github.com/pegma-dev/support-desk/pull/39) before this work began.
 
 An explicitly enrolled ticket has one `engineering-source` record and bounded
@@ -388,12 +389,12 @@ deterministic controls only. AUTH-01, KB-04 transport source/SDK proof, partial
 KB-05 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
 and both producers' final release preparation are merged. All four KB packages
 now have verified trusted `0.1.4` releases and Agent Access has verified `0.1.1`, closing the
-producer publication prerequisite. Support Desk's synchronized `0.2.0` release
-is published and strictly verified; see the
-[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+producer publication prerequisite. Support Desk's current synchronized `0.2.1`
+release is published and strictly verified; see the
+[publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
 The implementation checkpoint below is historical.
 The [standalone authoring recipe](HOST_COMPOSITION.md#kb-authoring-producers)
-selects KB `0.1.4` with Agent Access `0.1.1`; the released AI `0.2.0` package
+selects KB `0.1.4` with Agent Access `0.1.1`; the released AI `0.2.1` package
 retains its exact KB `0.1.2` dependencies and the checkpoints below remain historical.
 PG-01/RG-01 retain actual two-host
 existing-login/Admin consent and requested-client proof before activation or
@@ -502,8 +503,8 @@ provenance, and clean consumer were verified in
 [release run 42436081951](https://github.com/pegma-dev/knowledge-base/actions/runs/42436081951).
 The optional delivery adapter pins the verified public `0.1.2` producers.
 SD-03 later merged in [PR #39](https://github.com/pegma-dev/support-desk/pull/39)
-and shipped in the verified `0.2.0` release recorded above; host activation
-remains separate.
+and first shipped in the verified `0.2.0` release. The current `0.2.1` release
+retains those contracts; host activation remains separate.
 
 #### Enrollment, source authority, and evidence
 

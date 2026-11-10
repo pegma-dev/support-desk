@@ -1557,23 +1557,129 @@ describe("inbound mail: deduplication and idempotency", () => {
   it("creates one ticket when the same provider event is processed concurrently", async () => {
     const f = fixture();
     const input = inbound();
-    const results = await Promise.all([
-      f.processor.processInboundEmail(input),
-      f.processor.processInboundEmail({
+    const candidates = [
+      input,
+      {
         ...input,
         ticketId: "parallel-ticket",
         messageId: "parallel-message",
-      }),
-      f.processor.processInboundEmail({
+      },
+      {
         ...input,
         ticketId: "parallel-ticket-2",
         messageId: "parallel-message-2",
+      },
+    ];
+    const results = await Promise.all(
+      candidates.map((candidate) => f.processor.processInboundEmail(candidate)),
+    );
+    const receipt = await receiptFor(f.store, input);
+    if (receipt === null) {
+      throw new Error("Concurrent inbound delivery did not retain its receipt");
+    }
+    // Async hashing can finish out of call order; the receipt reserves the IDs.
+    const winner = candidates.find(
+      (candidate) =>
+        candidate.ticketId === receipt.reservedTicketId &&
+        candidate.messageId === receipt.reservedMessageId,
+    );
+    if (winner === undefined) {
+      throw new Error("Inbound receipt did not reserve one admitted ID pair");
+    }
+    expect(receipt).toMatchObject({
+      channelId: input.channelId,
+      providerEventId: input.providerEventId,
+      status: "processed",
+      outcome: "created",
+      ticketId: winner.ticketId,
+      messageId: winner.messageId,
+      reservedTicketId: winner.ticketId,
+      reservedMessageId: winner.messageId,
+      correlationId: winner.correlationId,
+    });
+    for (const result of results) {
+      expect(result).toMatchObject({
+        outcome: "created",
+        ticketId: winner.ticketId,
+        messageId: winner.messageId,
+      });
+    }
+    expect(results.filter((result) => !result.duplicateDelivery)).toHaveLength(
+      1,
+    );
+    expect(results.filter((result) => result.duplicateDelivery)).toHaveLength(
+      2,
+    );
+    expect(
+      candidates[results.findIndex((result) => !result.duplicateDelivery)],
+    ).toMatchObject({
+      ticketId: winner.ticketId,
+      messageId: winner.messageId,
+    });
+    expect(await ticketCount(f.store)).toBe(1);
+
+    const receiptPage = await f.store
+      .collection(inboundReceipts)
+      .scan({ limit: 100 });
+    expect(receiptPage.records.map((entry) => entry.value)).toEqual([receipt]);
+    expect(receiptPage.nextCursor ?? null).toBeNull();
+    const rows = await allSupportRecords(f.store);
+    expect(rows.every((row) => row.partition === winner.ticketId)).toBe(true);
+    const commandId = `inbound:${receipt.bucket.slice(-30)}${receipt.slot}`;
+    expect(rows.filter((row) => row.kind === "command")).toEqual([
+      expect.objectContaining({
+        partition: winner.ticketId,
+        id: `command:${commandId}`,
+        commandId,
+        commandType: "inbound_email_create",
+        messageId: winner.messageId,
+        requestFingerprint: receipt.payloadFingerprint,
       }),
     ]);
-    expect(new Set(results.map((result) => result.ticketId))).toEqual(
-      new Set([input.ticketId]),
+    const view = await f.application.readStaffTicket(staff, winner.ticketId);
+    expect(view.messages).toEqual([
+      expect.objectContaining({
+        id: winner.messageId,
+        ticketId: winner.ticketId,
+        authorKind: "customer",
+        channel: "email",
+        visibility: "customer",
+        body: input.body,
+      }),
+    ]);
+    const history = await supportAudit.history(
+      f.store.collection(supportRecords),
+      winner.ticketId,
     );
-    expect(await ticketCount(f.store)).toBe(1);
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({
+      action: supportTicketAuditActions.created,
+      actor: { kind: "system", systemId: inboundEmailSystemActorId },
+      sequence: 1,
+    });
+    const queuePage = await f.store.collection(queueIndex).scan({ limit: 100 });
+    expect(queuePage.records).toHaveLength(1);
+    expect(queuePage.records[0]).toMatchObject({
+      key: { partition: winner.ticketId, id: "queue" },
+      value: { ticketId: winner.ticketId, id: "queue" },
+    });
+    expect(queuePage.nextCursor ?? null).toBeNull();
+    const queue = await f.application.listStaffQueue(staff, {
+      association: "unverified",
+    });
+    expect(queue.items.map((item) => item.ticketId)).toEqual([winner.ticketId]);
+    const threading = await f.store
+      .collection(threadIndex)
+      .scan({ limit: 100 });
+    expect(threading.records.map((entry) => entry.value)).toEqual([
+      expect.objectContaining({
+        key: `number:${view.ticket.number}`,
+        id: "thread",
+        kind: "ticket_number",
+        ticketId: winner.ticketId,
+      }),
+    ]);
+    expect(threading.nextCursor ?? null).toBeNull();
   });
 
   it("treats the same Message-ID under a new provider event as one message", async () => {

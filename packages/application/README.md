@@ -6,19 +6,20 @@ and a trusted Authorization Core access context.
 The host server supplies `correlationId` on commands; the application validates
 and propagates it and never generates it.
 
-The verified published synchronized release is `0.2.0` and includes changes
-beyond the immutable `0.1.1` artifacts. SD-01 adds handling/handoff foundations
-without model generation or a KB dependency. See the
-[publication receipt](../../docs/RELEASING.md#verified-sd-06-publication-2026-11-08).
+The current verified published synchronized release is `0.2.1` and includes
+changes beyond the immutable `0.1.0`/`0.1.1` artifacts. SD-01 first shipped
+handling/handoff foundations in `0.2.0` without model generation or a KB
+dependency. See the current
+[publication receipt](../../docs/RELEASING.md#verified-021-publication-2026-11-10).
 Host adoption retains its own activation gates; source checkouts and
 overwritten registry versions are not release substitutes.
 
-Source here prepares the synchronized **unpublished `0.2.1` candidate** for
-assistant-answering read batching. Independent Store reads are grouped while
-current authority, ticket and turn fences remain required. This package gains
-no KB or provider dependency. Current-head validation, review, trusted release
-and strict registry verification remain pending; grouped reads do not establish
-a universal host query or CPU budget.
+The published synchronized `0.2.1` patch groups independent Store reads for
+assistant answering while retaining current authority, ticket and turn fences.
+This package gains no KB or provider dependency. Its validation, review,
+trusted publication and strict registry verification are recorded in the
+receipt above. Grouped reads do not establish a universal host query or CPU
+budget.
 
 SD-02's merged source adds opt-in `assistantTurns` and the
 `AssistantTurnApplication` methods `scanAssistantTurnCandidates`,

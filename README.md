@@ -6,16 +6,16 @@
 A composable, open-source support queue for web and email.
 
 > [!IMPORTANT]
-> Support Desk is in early `0.x` development. The synchronized `0.2.0` release
+> Support Desk is in early `0.x` development. The synchronized `0.2.1` release
 > includes the optional AI workflows and is published and strictly verified.
 > Hosts must consume published versions and satisfy their own activation gates;
 > Git branches, copied source, or local paths are not release substitutes.
 
-The synchronized `0.2.1` patch is an **unpublished candidate** for assistant-answering
-read batching. The current verified release remains `0.2.0`, and the optional AI
-package retains exact KB `0.1.2` dependencies. Current-head validation, review,
-trusted publication and strict registry verification remain required. Grouped
-reads do not establish a universal query or CPU budget or close host acceptance.
+The synchronized `0.2.1` patch for assistant-answering read batching is
+**published and strictly verified**; see the
+[2026-11-10 publication receipt](docs/RELEASING.md#verified-021-publication-2026-11-10).
+The optional AI package retains exact KB `0.1.2` dependencies. Grouped reads do
+not establish a universal query or CPU budget or close host acceptance.
 
 Implemented in source today: the customer-facing and staff application
 services, the repairable staff queue projection, declared collections,
@@ -27,7 +27,7 @@ tags, host-computed response targets and milestones, and revision collision hint
 (Buildout Task 13), with all new metadata limited to staff views. Durable host
 deployments, customer UI, staff UI, inbound provider adapters, and production
 hardening remain later buildout tasks. Task 12 stays pending on host durable-store
-evidence; the current verified package release is `0.2.0`.
+evidence; the current verified package release is `0.2.1`.
 
 ## What it will do
 
@@ -69,10 +69,10 @@ See the [producer evidence and bootstrap handoff](docs/HOST_COMPOSITION.md#kb-au
 The [assistant coordination guide](docs/ASSISTANT_COORDINATION.md) and
 [layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
 describe the SDK contracts. The base application works without AI; only
-the optional coordinator depends on KB. Its released `0.2.0` manifest keeps
+the optional coordinator depends on KB. Its released `0.2.1` manifest keeps
 exact KB `0.1.2` dependencies; the separate standalone-authoring recipe selects
 KB `0.1.4` and Agent Access `0.1.1` in the producer handoff above. The
-[verified SD-06 publication receipt](docs/RELEASING.md#verified-sd-06-publication-2026-11-08)
+[verified 0.2.1 publication receipt](docs/RELEASING.md#verified-021-publication-2026-11-10)
 records the exact release; host adoption retains its own acceptance gates.
 Use the [implementation ledger](docs/KNOWLEDGE_AI_PLAN.md#status-and-reading-order)
 for source/release evidence and the remaining activation gates.
@@ -162,10 +162,10 @@ The organization profile is at
 | `@pegma/support-desk-ai`          | Optional answers, resolution learning, engineering export and follow-up |
 
 All five packages are published under the `@pegma` scope at verified
-[`0.2.0`](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.0), with
-`latest` pointing to that synchronized release. The optional AI package's
+[`0.2.1`](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.1), with
+`latest` recorded at `0.2.1` during verification on 2026-11-10. The optional AI package's
 registration-only `bootstrap` remains `0.1.1`; earlier registry versions are
-immutable history. The [publication receipt](docs/RELEASING.md#verified-sd-06-publication-2026-11-08)
+immutable history. The [publication receipt](docs/RELEASING.md#verified-021-publication-2026-11-10)
 records the original artifacts and strict verification. There is
 deliberately no storage package and no access package. Inbound mail processing
 is implemented (Buildout Task 11); host adapters, production hardening, and the
