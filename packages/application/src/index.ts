@@ -560,6 +560,7 @@ export const supportTicketAuditActions = Object.freeze({
   learningEvidenceInvalidated: "support.learning.evidence_invalidated",
   learningWithdrawn: "support.learning.withdrawn",
   learningReviewed: "support.learning.reviewed",
+  learningReviewCancelled: "support.learning.review_cancelled",
   engineeringEnrolled: "support.engineering.enrolled",
   engineeringEvidenceRecorded: "support.engineering.evidence_recorded",
   engineeringEvidenceInvalidated: "support.engineering.evidence_invalidated",

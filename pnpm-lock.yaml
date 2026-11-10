@@ -15,11 +15,11 @@ importers:
         specifier: 0.4.0
         version: 0.4.0
       '@pegma/knowledge-base-application':
-        specifier: 0.1.2
-        version: 0.1.2
+        specifier: 0.1.5
+        version: 0.1.5
       '@pegma/knowledge-base-contracts':
-        specifier: 0.1.2
-        version: 0.1.2
+        specifier: 0.1.5
+        version: 0.1.5
       '@pegma/mail':
         specifier: 0.1.1
         version: 0.1.1
@@ -36,13 +36,13 @@ importers:
         specifier: 0.4.0
         version: 0.4.0
       '@pegma/support-desk-ai':
-        specifier: 0.2.1
+        specifier: 0.2.2
         version: link:packages/ai
       '@pegma/support-desk-application':
-        specifier: 0.2.1
+        specifier: 0.2.2
         version: link:packages/application
       '@pegma/support-desk-templates':
-        specifier: 0.2.1
+        specifier: 0.2.2
         version: link:packages/templates
       '@types/node':
         specifier: ^26.6.6
@@ -66,16 +66,16 @@ importers:
         specifier: 0.4.0
         version: 0.4.0
       '@pegma/knowledge-base-application':
-        specifier: 0.1.2
-        version: 0.1.2
+        specifier: 0.1.5
+        version: 0.1.5
       '@pegma/knowledge-base-contracts':
-        specifier: 0.1.2
-        version: 0.1.2
+        specifier: 0.1.5
+        version: 0.1.5
       '@pegma/spine':
         specifier: 0.1.2
         version: 0.1.2
       '@pegma/support-desk-application':
-        specifier: 0.2.1
+        specifier: 0.2.2
         version: link:../application
 
   packages/application:
@@ -96,10 +96,10 @@ importers:
         specifier: 0.4.0
         version: 0.4.0
       '@pegma/support-desk-contracts':
-        specifier: 0.2.1
+        specifier: 0.2.2
         version: link:../contracts
       '@pegma/support-desk-core':
-        specifier: 0.2.1
+        specifier: 0.2.2
         version: link:../core
 
   packages/contracts:
@@ -111,7 +111,7 @@ importers:
   packages/core:
     dependencies:
       '@pegma/support-desk-contracts':
-        specifier: 0.2.1
+        specifier: 0.2.2
         version: link:../contracts
 
   packages/templates: {}
@@ -661,16 +661,16 @@ packages:
     resolution: {integrity: sha512-GkagQwyDfKokB2Nm9EAo6cvKB8c90VN6Or6IdaWeMwCeuseOxDZ8ccxKqccW9YorByE6rHhr2nbxjsNWorZTHQ==}
     engines: {node: '>=22'}
 
-  '@pegma/knowledge-base-application@0.1.2':
-    resolution: {integrity: sha512-PMhCUU02EuQLPN7zziVk+kt2kChzb0R0mwXVEXz75hH6QX/2CmrCHjW9zx5VZI5RJRLXjIlq8LVLZ5BNM75HuQ==}
+  '@pegma/knowledge-base-application@0.1.5':
+    resolution: {integrity: sha512-tH9Hw+BSVmLzQPzdyhK9YaiAthWEwgYuG0Ef2kxT7FohMqYq4iaW/vDOHQdGa/gIMAlULqS/p0vCOPr7rPQfdA==}
     engines: {node: '>=22'}
 
-  '@pegma/knowledge-base-contracts@0.1.2':
-    resolution: {integrity: sha512-CMgkGxEcqT6e6gtC5iMwK4Ma0tTa8y5H8ciZNDJ0mHDphJyqmDYmFfwmEagerUjAVT+KKa+T0PhI85iNyO3UYA==}
+  '@pegma/knowledge-base-contracts@0.1.5':
+    resolution: {integrity: sha512-TgK0HNLlBJ6a3EYS0aBmF+UO9v2ykK0xVYPo51Cmcn1ET15Fj90w3dpyzBX7dRomi1aGBAW3FX4X+djrayqbzg==}
     engines: {node: '>=22'}
 
-  '@pegma/knowledge-base-core@0.1.2':
-    resolution: {integrity: sha512-AvRr8twDKdYFLZssQeyjPAmFkUmbICQFTQJN86YubF97usDmGTj10EngPZwp2JquA5kQglrBbqWBhfT2wOJJ6A==}
+  '@pegma/knowledge-base-core@0.1.5':
+    resolution: {integrity: sha512-ZuaXkuuyuMN+n1xGfPcXvInvwdNsCQpjo8m9GhFmc0fu1reisj0oeVzF4i9DvYbhHqMA6QoZgIUBUCVijLd9ug==}
     engines: {node: '>=22'}
 
   '@pegma/mail@0.1.1':
@@ -3023,22 +3023,22 @@ snapshots:
     dependencies:
       '@pegma/authorization-contracts': 0.4.0
 
-  '@pegma/knowledge-base-application@0.1.2':
+  '@pegma/knowledge-base-application@0.1.5':
     dependencies:
       '@pegma/audit': 0.2.0
       '@pegma/authorization-core': 0.4.0
-      '@pegma/knowledge-base-contracts': 0.1.2
-      '@pegma/knowledge-base-core': 0.1.2
+      '@pegma/knowledge-base-contracts': 0.1.5
+      '@pegma/knowledge-base-core': 0.1.5
       '@pegma/spine': 0.1.2
       '@pegma/storage-core': 0.4.0
 
-  '@pegma/knowledge-base-contracts@0.1.2':
+  '@pegma/knowledge-base-contracts@0.1.5':
     dependencies:
       '@pegma/spine': 0.1.2
 
-  '@pegma/knowledge-base-core@0.1.2':
+  '@pegma/knowledge-base-core@0.1.5':
     dependencies:
-      '@pegma/knowledge-base-contracts': 0.1.2
+      '@pegma/knowledge-base-contracts': 0.1.5
 
   '@pegma/mail@0.1.1':
     dependencies:

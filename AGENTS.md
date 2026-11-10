@@ -189,6 +189,22 @@ binds the original artifacts, completed Node 22/24 gates and strict registry
 verification. Earlier release receipts and host activation gates are unchanged;
 grouped reads do not establish a universal query or CPU budget.
 
+All five source packages are synchronized at **unpublished `0.2.2` candidate**
+versions for [opt-in durable staged retrieval](docs/ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval);
+see the [AI package guide](packages/ai/README.md#opt-in-staged-retrieval-022-candidate).
+The candidate's optional AI package uses exact KB application/contracts `0.1.5`
+runtime pins, with matching repository development/test pins. The published
+`0.2.1` artifacts retain their original KB `0.1.2` dependencies; their receipt
+does not qualify the candidate's changed dependency graph.
+The default remains monolithic. Staged preparation consumes an existing attempt;
+both application and verified-configuration attempt caps must permit at least
+two attempts without resetting or raising them. After `prepared`, the host
+must return from that physical invocation and resume only in a subsequent one.
+The candidate needs its own full current-head gates, review, trusted `0.2.2`
+publication and strict verification. Host adoption separately requires measured
+whole-invocation and CPU proof. The qualified `0.2.1` release remains current;
+no Free-plan acceptance is implied.
+
 SD-01 is implemented in source via
 [PR #34](https://github.com/pegma-dev/support-desk/pull/34): optional handling
 defaults legacy tickets to human support, explicitly attributes assistant

@@ -46,6 +46,15 @@ import {
   modelUsage,
   processingMetadata,
 } from "./output.js";
+import {
+  generationStageVersion,
+  isRetrievalPreparation,
+  retrievalStageVersion,
+  stagedInputFingerprint,
+  stagedPreparation,
+  stagedReferences,
+  verifyStagedPreparation,
+} from "./staged-retrieval.js";
 
 class GuardFailure extends AssistantBoundaryError {}
 
@@ -69,6 +78,7 @@ export function createSupportDeskAssistant(
     20_000,
     1,
   );
+  const stagedRetrieval = options.stagedRetrieval === true;
   if (commitReserve >= operationMilliseconds)
     throw new TypeError(
       "Completion reserve must be below the operation deadline",
@@ -275,6 +285,9 @@ export function createSupportDeskAssistant(
         // Never blindly generate again for that same attempt after a restart.
         for (const prepared of claim.preparedAttempts) {
           if (prepared.accounting !== "unknown") continue;
+          // The tagged first stage has no usage reservation or provider path.
+          // Unknown acknowledgment still cannot make it eligible for resume.
+          if (isRetrievalPreparation(prepared)) continue;
           try {
             await within(() =>
               options.usage.reconcile(
@@ -301,16 +314,29 @@ export function createSupportDeskAssistant(
         }
 
         const config = await configuration();
-        if (claim.fence.attempt > config.budgets.maxAttempts)
+        if (
+          claim.fence.attempt > config.budgets.maxAttempts ||
+          (stagedRetrieval && config.budgets.maxAttempts < 2)
+        )
           throw new AssistantBoundaryError("budget_exceeded");
+        const retrievalPreparation = stagedRetrieval
+          ? stagedPreparation(claim)
+          : undefined;
+        const preparingRetrieval =
+          stagedRetrieval && retrievalPreparation === undefined;
         const authority = await customer();
         const sources = sourceSnapshot(
           await within(() =>
-            options.knowledge.retrieveAnswerSources(authority.access, {
-              collectionIds: authority.collectionIds,
-              query: retrievalQuery(claim!),
-              applicability: authority.applicability,
-            }),
+            retrievalPreparation === undefined
+              ? options.knowledge.retrieveAnswerSources(authority.access, {
+                  collectionIds: authority.collectionIds,
+                  query: retrievalQuery(claim!),
+                  applicability: authority.applicability,
+                })
+              : options.knowledge.confirmAnswerSources(authority.access, {
+                  references: stagedReferences(retrievalPreparation),
+                  applicability: authority.applicability,
+                }),
           ),
           authority,
           options.tokenCounter,
@@ -330,6 +356,24 @@ export function createSupportDeskAssistant(
           options.tokenCounter,
           attemptBudgets,
         );
+        const logicalFingerprint = stagedRetrieval
+          ? await stagedInputFingerprint({
+              claim,
+              modelInput: input,
+              configuration: config,
+              authority,
+              sources,
+              budgets: attemptBudgets,
+            })
+          : undefined;
+        if (retrievalPreparation !== undefined)
+          await verifyStagedPreparation(
+            retrievalPreparation,
+            claim,
+            logicalFingerprint!,
+            config,
+            authority,
+          );
         const deadlineMilliseconds = Math.min(
           operationDeadline,
           timestamp(claim.leaseUntil),
@@ -343,7 +387,7 @@ export function createSupportDeskAssistant(
         const deadline = new Date(deadlineMilliseconds).toISOString();
         const references = sources.sources.map((source) => source.reference);
         const usageReservationId =
-          "usage:" +
+          (preparingRetrieval ? "retrieval:" : "usage:") +
           (
             await fingerprint({
               ticketId: claim.fence.ticketId,
@@ -351,18 +395,28 @@ export function createSupportDeskAssistant(
               attemptId: claim.fence.attemptId,
             })
           ).slice(0, 48);
-        const inputFingerprint = await fingerprint({
-          purpose: "support_answer",
-          operationId,
-          fence: claim.fence,
-          input,
-          configuration: config,
-          authority,
-          references,
-          deadline,
-          usageReservationId,
-          budgets: attemptBudgets,
-        });
+        const inputFingerprint = preparingRetrieval
+          ? logicalFingerprint!
+          : await fingerprint({
+              purpose: "support_answer",
+              operationId,
+              fence: claim.fence,
+              input,
+              configuration: config,
+              authority,
+              references,
+              deadline,
+              usageReservationId,
+              budgets: attemptBudgets,
+              ...(retrievalPreparation === undefined
+                ? {}
+                : {
+                    retrievalPreparation: {
+                      attemptId: retrievalPreparation.attemptId,
+                      inputFingerprint: retrievalPreparation.inputFingerprint,
+                    },
+                  }),
+            });
         const binding: AssistantAttemptBinding = snapshot({
           inputFingerprint,
           versions: {
@@ -372,6 +426,13 @@ export function createSupportDeskAssistant(
             audience: authority.audienceVersion,
             policy: authority.policyVersion,
             accessPolicy: authority.access.policyVersion,
+            ...(stagedRetrieval
+              ? {
+                  supportAnswerStage: preparingRetrieval
+                    ? retrievalStageVersion
+                    : generationStageVersion,
+                }
+              : {}),
           },
           references: references.map((reference) => ({
             namespace: "pegma.knowledge-base",
@@ -402,6 +463,17 @@ export function createSupportDeskAssistant(
           deadline,
           signal: providerController.signal,
           budgets: attemptBudgets,
+          ...(stagedRetrieval
+            ? {
+                stagedRetrieval: Object.freeze({
+                  stage: preparingRetrieval
+                    ? ("preparation" as const)
+                    : ("generation" as const),
+                  preparationAttemptId:
+                    retrievalPreparation?.attemptId ?? claim.fence.attemptId,
+                }),
+              }
+            : {}),
         });
         const policyReason = options.escalationPolicy?.evaluate(input, context);
         if (policyReason !== undefined && policyReason !== null) {
@@ -471,6 +543,25 @@ export function createSupportDeskAssistant(
           }
         }
         if (!prepared) return { outcome: "pending", stage: "prepare" };
+        if (preparingRetrieval) {
+          // A successful preparation ACK alone retains accounting:"unknown".
+          // Only this exact no-call finish releases the claim for another
+          // physical invocation; terminal or ambiguous finishes stay distinct.
+          const released = await finish("capacity", "retry");
+          ensure();
+          if (
+            released.outcome === "finished" &&
+            released.result.outcome === "retry_scheduled"
+          )
+            return {
+              outcome: "prepared",
+              ticketId: claim.fence.ticketId,
+              turnId: claim.fence.turnId,
+              preparationAttemptId: claim.fence.attemptId,
+              nextAttemptAt: released.result.nextAttemptAt,
+            };
+          return released;
+        }
         usageIdentity = {
           operationId,
           attemptId: context.attemptId,

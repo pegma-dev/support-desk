@@ -11,8 +11,8 @@ deployment, live-provider, or pilot result. Follow
 and the actual public types in `packages/application/src/assistant-turn-types.ts`
 and `packages/ai/src/ports.ts` when changing this boundary.
 
-The optional `@pegma/support-desk-ai` package owns coordination and exact KB
-`0.1.2` dependencies after SD-03's verified KB producer update. The base application remains usable without AI and
+The published `0.2.1` optional `@pegma/support-desk-ai` package owns coordination
+and exact KB `0.1.2` dependencies after SD-03's verified KB producer update. The base application remains usable without AI and
 contains no KB or model-provider dependency. The current synchronized `0.2.1`
 release is published and strictly verified; see the
 [publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
@@ -88,9 +88,10 @@ Each physical invocation generates a fresh internal cryptographic claim ID.
 Duplicate external callbacks cannot share an unprepared live claim and charge
 the provider under one reservation. The lower-level application claim API
 retains same-worker/same-claim idempotency for the invocation's storage retries.
-The coordinator calls `AssistantModelPort.generate` once for
-each newly prepared attempt, outside storage retries. Retry of an identical
-storage command is distinct from a new provider attempt. If an atomic
+For a paid monolithic or staged-generation attempt, the coordinator calls
+`AssistantModelPort.generate` at most once, outside storage retries. Staged
+retrieval preparation reserves no usage and makes no model call. Retry of an
+identical storage command is distinct from a new provider attempt. If an atomic
 completion succeeds but the response is lost, exact command replay recovers
 that result without adding another visible answer. A new invocation cannot
 take, cancel, finish, or reconcile another invocation's unexpired claim; it
@@ -104,6 +105,101 @@ If an identical completion command still has an indeterminate storage result,
 nor regenerates in the same invocation. After lease expiry, a later claim
 observes terminal work or starts a bounded new attempt while retaining the
 prior prepared/unknown metadata.
+
+### Opt-in durable staged retrieval
+
+This protocol belongs to the unpublished `0.2.2` candidate, whose optional AI
+package pins KB application/contracts to exact `0.1.5` with matching repository
+development/test pins. The published `0.2.1` release keeps its exact KB `0.1.2`
+graph. Candidate validation and packed-consumer checks must qualify the changed
+`0.1.5` graph before publication; host adoption waits for its verified release.
+
+`stagedRetrieval: true` on `createSupportDeskAssistant` splits a turn across
+two separate physical host invocations. Omission retains the monolithic
+coordinator. Both the application's `assistantTurns.maxAttempts` and the
+verified configuration's `budgets.maxAttempts` must allow at least two
+attempts. The existing counters are unchanged: the preparation owns attempt
+one and claim generation one; the paid execution owns attempt two and claim
+generation two. The protocol permits one paid opportunity, including when a
+host allows more total attempts. It never resets counters, raises caps, or
+repeats an ambiguous paid request.
+
+The first invocation claims pristine work, resolves current configuration
+and customer authority, retrieves complete approved sources, bounds the
+model input and evaluates trusted escalation policy. It persists the existing
+generic immutable preparation with version marker
+`supportAnswerStage: "support-answer-retrieval-1"`. Its fingerprint binds the
+complete logical conversation, ticket/handling/trigger tuple, model input,
+configuration, authority, exact ordered source envelope and effective budgets.
+Physical claim ownership, attempt number, lease, execution deadline and
+reservation are excluded from this logical fingerprint. Only the hash,
+versions, authority hash and complete source references are persisted; no
+conversation or source body is copied into the preparation. Its predetermined
+`retrieval:` identifier never reserves usage and never identifies a paid call.
+
+The full validated configuration and customer-authority snapshots must match
+across preparation and generation, not just their version labels. The binding
+includes `dataControls.verifiedAt`, `dataControls.validUntil` and opaque
+`usageScopeRef`. Re-attestation with new timestamps or a reissued usage scope
+invalidates the prepared turn even when versions and logical settings stay the
+same. This availability tradeoff is intentional: mismatch fails closed to
+finish/handoff before a new reservation or model call. Resolvers still freshly
+validate current inputs on every invocation and live guard; do not cache stale
+evidence, strip timestamps or normalize away scope identity to force resume.
+
+After the immutable preparation is acknowledged, the invocation calls the
+existing exact `finishAssistantTurnAttempt` with `disposition: "retry"` and
+`accounting: "not_called"`. Only an acknowledged `retry_scheduled` result
+produces the public `prepared` outcome with ticket, turn, preparation-attempt
+identity and next-attempt time. Failed or indeterminate finishes retain their
+ordinary `pending` result; terminal or escalated finishes remain `finished`.
+A one-attempt application cap can therefore safely escalate rather than
+incorrectly reporting a resumable preparation. Cancellation prevents a
+`prepared` outcome even if the no-call finish committed while its ACK was
+pending.
+
+The host must return after `prepared`. Retain the discovery checkpoint so the
+same bounded scan can rediscover the retry promptly, then invoke the
+coordinator from a genuine subsequent request, queue delivery or scheduler
+invocation. Calling it again in the same invocation, including `waitUntil`,
+does not provide a separate platform query allowance. A lost finish ACK can
+leave the first call `pending` while the next invocation observes the durable
+`not_called` retry and resumes safely. A preparation ACK alone is insufficient:
+an unknown preparation without that durable no-call finish is never resumed.
+
+The exported `AssistantProcessResult` union includes `prepared` for every typed
+caller, even when `stagedRetrieval` is omitted or `false`. Exhaustive TypeScript
+switches and matchers must add that case. Runtime production of `prepared`
+requires opt-in staging; its handler returns and schedules a genuine later
+invocation instead of continuing in the same invocation.
+
+Only attempt two with exactly one tagged, durably `not_called` first-stage
+preparation can generate. The new invocation claims freshly, resolves current
+configuration/customer authority, and reconstructs the source envelope using
+the exact references through `confirmAnswerSources`. It rebuilds the current
+conversation input and requires the complete logical fingerprint, version
+tuple, authority hash and preparation identity to agree. Expiry of the first
+execution deadline grants no authority and does not prolong it: the resumed
+execution receives its own fresh deadline, bounded by its new lease and the
+unchanged turn deadline. Changed or unavailable input, arbitrary old
+preparations, unknown preparations, and later claims fail closed to existing
+bounded finish/handoff behavior. There is no lexical retrieval fallback in
+that second stage.
+
+The generation binding has marker
+`supportAnswerStage: "support-answer-generation-1"` and binds the preparation
+identity alongside the fresh physical request, reservation and deadline.
+`AssistantAttemptContext.stagedRetrieval` distinguishes `preparation` and
+`generation` for trusted server policy; `attempt` and `fence` retain their
+actual durable values. Generation metadata never enters the model input.
+The paid stage preserves the ordinary usage reservation/reconciliation,
+identical live-preparation recheck, pre-call authority/source/configuration
+guard, and every final-CAS guard. Its initial reconstruction confirmation is
+additional to both existing confirmations. Unknown paid accounting remains
+conservative; accepted completion receipts and post-commit queue projection
+are unchanged. This protocol makes no universal query-budget claim: hosts
+must measure complete real invocations, including conflicts, handoff,
+projection and checkpoint work, on their actual adapters and platform.
 
 ## Separate service and customer authority
 

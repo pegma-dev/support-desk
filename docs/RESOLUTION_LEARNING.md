@@ -297,6 +297,61 @@ authority. The exact-target and recovery contracts are exercised in
 [the work suite](../tests/resolution-learning-work.test.ts) and the
 [released-KB integration suite](../tests/resolution-learning-kb.test.ts).
 
+## Exact review intent recovery (unpublished 0.2.2 candidate)
+
+The current qualified release remains `0.2.1`. The candidate adds a read-only
+`prepareReviewIntent(access, {ticketId, sourceGeneration})` operation. It derives
+an immutable `intent` and the actual private `draft` through the current Support
+work, KB/provenance and independent policy ports. The intent includes its
+reviewer, exact source/work generations, target and full policy snapshot. It is
+neither approval nor authority: a new `submitReviewIntent` rechecks the current
+source, target, policy and commit guard.
+
+Before any submission, retain the entire returned intent together with the
+original command/correlation IDs, decision and optional reason. Submit, receipt
+read and explicit cancellation take this same `LearningReviewCommand`; never
+rebuild it from a later draft, policy or source. Its complete intent participates
+in the command fingerprint. Mutating only a policy timestamp, decision, actor or
+other bound coordinate cannot recover a different command's acknowledgement.
+`reviewProposal` remains available for existing full-command integrations.
+
+Exact receipt lookup precedes obsolete live source/KB/policy checks. Thus an
+accepted review can recover its historical acknowledgement after reopening or
+withdrawal without approving the changed source or publishing anything.
+`readReviewReceipt` returns `null`, `{outcome: "accepted", result}` or
+`{outcome: "cancelled", ticketId, commandId}`. **Null is nonterminal:** an earlier
+in-flight request can still commit. Neither a conflict response, a GET, age nor
+a timeout establishes nonacceptance.
+
+A deliberate `cancelReview` takes the original packet and a trusted read-only
+`verifyBeforeCommit` human-authority guard. It either recovers the already
+accepted result or atomically stores cancellation and Audit at the existing
+ticket partition's command key. The review and cancellation compete for the
+same receipt insert and ticket version, so a committed cancellation fences a
+late original review; an accepted review is never undone. Cancellation does not
+need the obsolete KB target to remain current. Keep the packet unresolved on
+errors, capacity failures, timeouts or lost cancellation acknowledgements;
+retry its exact cancellation/recovery, not a new approval. Only a verified
+accepted/cancelled acknowledgement permits clearing that pending intent.
+
+Both operations retain named human review and queue permissions and ticket
+resource checks. Cancellation uses existing bounded partition admission for its
+receipt plus Audit and can fail closed at capacity; it does not consume human or
+withdrawal reserves. No store, permission, automatic resubmission, model call or
+publication capability is added. Hosts must preserve current session/permission
+fences around awaits and private DTOs. These operations need no model readiness.
+
+The existing generic receipt fields and accepted fingerprints are unchanged for
+legacy commands. New intent commands add optional `intentBinding`; cancellation
+uses a separate fingerprint domain at the same receipt key, without a new row
+kind or stored-data rewrite. A `0.2.1` caller rejects the new intent field, and
+its legacy reviewer treats a cancellation fingerprint as a conflict rather than
+an approval. This fail-closed behavior is not a claim that older clients can
+understand the new acknowledgement union. Preserve receipts through normal
+retention; deleting one could revive an old command. Candidate and host adoption
+still require their separate gates. See the
+[real Store recovery race suite](../tests/resolution-learning-review-recovery.test.ts).
+
 ## Composition and worker entry points
 
 Construct the read-only source verifier over the Support application first.

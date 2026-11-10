@@ -1,6 +1,6 @@
 {
   "name": "@pegma/support-desk-ai",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Optional bounded, provider-neutral Support Desk answer coordinator.",
   "license": "MIT",
   "type": "module",
@@ -35,9 +35,9 @@
   },
   "dependencies": {
     "@pegma/authorization-core": "0.4.0",
-    "@pegma/knowledge-base-application": "0.1.2",
-    "@pegma/knowledge-base-contracts": "0.1.2",
+    "@pegma/knowledge-base-application": "0.1.5",
+    "@pegma/knowledge-base-contracts": "0.1.5",
     "@pegma/spine": "0.1.2",
-    "@pegma/support-desk-application": "0.2.1"
+    "@pegma/support-desk-application": "0.2.2"
   }
 }

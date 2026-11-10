@@ -17,6 +17,20 @@ The synchronized `0.2.1` patch for assistant-answering read batching is
 The optional AI package retains exact KB `0.1.2` dependencies. Grouped reads do
 not establish a universal query or CPU budget or close host acceptance.
 
+All five source packages are now synchronized at **unpublished `0.2.2` candidate**
+versions for [opt-in staged retrieval](docs/ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval),
+documented in the [AI package guide](packages/ai/README.md#opt-in-staged-retrieval-022-candidate).
+The candidate moves the optional AI package's exact KB application/contracts
+runtime pins and the matching repository development/test pins to `0.1.5`.
+The published `0.2.1`/KB `0.1.2` artifacts and receipts remain unchanged.
+The default remains monolithic. Preparation uses an existing attempt, so both
+application and verified-configuration caps must allow at least two attempts;
+no counters or caps reset. After `prepared`, return from the physical invocation
+and resume only in a subsequent one. This candidate requires its own full gates,
+review, trusted publication and strict verification. Host adoption separately
+requires measured whole-invocation/CPU acceptance. `0.2.1` remains the current
+qualified release.
+
 Implemented in source today: the customer-facing and staff application
 services, the repairable staff queue projection, declared collections,
 Authorization Core permission boundaries, transactional audit and mail
