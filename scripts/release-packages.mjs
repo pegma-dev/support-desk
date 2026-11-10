@@ -870,8 +870,7 @@ function defaultRoot() {
   return resolve(dirname(fileURLToPath(import.meta.url)), "..");
 }
 
-async function validateReleaseEvidence() {
-  const root = defaultRoot();
+async function validateReleaseEvidence(root) {
   for (const [name, expected] of Object.entries(RELEASE_EVIDENCE_SHA256)) {
     const path = `docs/releases/v0.2.2/${name}`;
     const bytes = await readFile(join(root, path)).catch((error) => {
@@ -898,8 +897,8 @@ async function main() {
   }
   const options = parseArguments(arguments_);
   if (command === "check") {
-    await validateRepository(options);
-    await validateReleaseEvidence();
+    const { root } = await validateRepository(options);
+    await validateReleaseEvidence(root);
     process.stdout.write("Release metadata is valid.\n");
     return;
   }

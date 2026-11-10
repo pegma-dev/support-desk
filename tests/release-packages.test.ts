@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -134,6 +141,39 @@ describe("release package metadata", () => {
 
   it("validates package manifests and the lockfile together", async () => {
     await expect(validateRepository()).resolves.toBeDefined();
+  });
+
+  it("checks release evidence in the selected repository root", () => {
+    const checkout = process.cwd();
+    const root = mkdtempSync(join(tmpdir(), "support-desk-release-check-"));
+    const script = join(checkout, "scripts", "release-packages.mjs");
+    const evidence = join("docs", "releases", "v0.2.2");
+    const check = () =>
+      run(process.execPath, [script, "check", "--root", root]);
+    try {
+      for (const name of ["package.json", "pnpm-lock.yaml"]) {
+        cpSync(join(checkout, name), join(root, name));
+      }
+      for (const { directory } of RELEASE_PACKAGES) {
+        const path = join("packages", directory);
+        mkdirSync(join(root, path), { recursive: true });
+        for (const name of ["package.json", "README.md", "LICENSE"]) {
+          cpSync(join(checkout, path, name), join(root, path, name));
+        }
+      }
+      mkdirSync(join(root, "docs", "releases"), { recursive: true });
+      cpSync(join(checkout, evidence), join(root, evidence), {
+        recursive: true,
+      });
+
+      expect(check()).toBe("Release metadata is valid.");
+      writeFileSync(join(root, evidence, "verification-job.json"), "{}\n");
+      expect(check).toThrow(
+        "published release evidence SHA-256 mismatch: docs/releases/v0.2.2/verification-job.json",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("matches each lockfile dependency to its own specifier and resolved version", () => {
