@@ -4,6 +4,7 @@ import type {
   ClaimEngineeringWorkCommand,
   EngineeringApplication,
   EngineeringCandidate,
+  EngineeringCommitGuard,
   EngineeringExportChecksBinding,
   EngineeringExportChecksVerifier,
   EngineeringExportRequest,
@@ -374,6 +375,12 @@ export type EngineeringProcessResult =
       readonly reason?: string;
     };
 
+export interface EngineeringReviewOptions {
+  readonly signal?: AbortSignal;
+  /** Trusted read-only current human authority check for a new decision. */
+  readonly verifyBeforeCommit?: EngineeringCommitGuard;
+}
+
 export interface SupportDeskEngineering {
   scanCandidates(
     bounds: Parameters<EngineeringApplication["scanEngineeringCandidates"]>[1],
@@ -385,7 +392,7 @@ export interface SupportDeskEngineering {
   reviewProposal(
     access: AccessContext,
     command: ReviewEngineeringProposalCommand,
-    options?: { readonly signal?: AbortSignal },
+    options?: EngineeringReviewOptions,
   ): Promise<EngineeringStepResult>;
   reconcileSource(
     ticketId: string,

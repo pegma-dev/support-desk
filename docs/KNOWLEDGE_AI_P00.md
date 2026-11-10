@@ -1,5 +1,17 @@
 # P-00: baseline and implementation handoff
 
+## Current publication status
+
+All five synchronized Support Desk packages are published and strictly
+verified at `0.2.2`. Optional AI pins Knowledge Base application and contracts
+to exact `0.1.5`. This host composition selects all four verified Knowledge
+Base `0.1.5` packages and Agent Access `0.1.1`. Version statements in the dated
+sections below describe their recorded checkpoints. [Support Desk publication receipt](RELEASING.md#verified-022-publication-2026-11-10) · [Knowledge Base release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.5)
+
+The `0.2.3` engineering review guard correction is an unpublished source
+candidate. Host adoption, actual login and client flows, provider controls,
+operations and pilots have separate gates. [Engineering review guide](ENGINEERING_EXPORT.md)
+
 ## Publication update: 2026-11-08
 
 All five Support Desk packages are now published and strictly verified at
@@ -86,10 +98,10 @@ their version fields match.
 Published `support-desk-application@0.1.1` pins Authorization Core 0.2.0 and
 Spine 0.1.1. At this snapshot, source was also labeled 0.1.1 but pinned
 Authorization Core 0.4.0 and Spine 0.1.2 and contained later source work.
-Published contracts 0.1.1 likewise pin Spine 0.1.1. Current Support Desk source
-is the unpublished synchronized `0.2.0` candidate, retaining Authorization
-Core 0.4.0 and Spine 0.1.2. Installing published 0.1.1 does not prove the current
-source behavior. Verified new publication must precede adoption; never
+Published contracts 0.1.1 likewise pin Spine 0.1.1. At that checkpoint Support
+Desk source was the unpublished synchronized `0.2.0` candidate, retaining
+Authorization Core 0.4.0 and Spine 0.1.2. Installing published 0.1.1 did not
+prove that source behavior. Verified new publication must precede adoption; never
 overwrite 0.1.1 or conceal the difference with overrides or copied source.
 
 Freeze the proposed repository name as `pegma-dev/knowledge-base` and package
@@ -110,18 +122,18 @@ from that checkpoint. The publication update above records the later release.
 This dated inventory adds the approved producers after the 2026-11-06 snapshot.
 It does not refresh or modify `test/knowledge-ai/baseline.json`, whose source,
 registry observations, dependency tuples, and integrities remain historical.
-The current table incorporates the later verified KB `0.1.2` selection; the
+This table incorporates the later verified KB `0.1.2` selection; the
 dated `0.1.1` producer receipts below, source-preparation PRs, and registry
 observations remain historical evidence.
 
-| Producer                                                                                             | Current source state                                                                                                                                                                                                                                                  | Production dependency decision                                                                                  |
+| Producer                                                                                             | Source state at checkpoint                                                                                                                                                                                                                                            | Production dependency decision                                                                                  |
 | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `@pegma/agent-access`                                                                                | Verified trusted `0.1.1` registry release after [AUTH-01 source #1](https://github.com/pegma-dev/agent-access/pull/1), [release preparation #2](https://github.com/pegma-dev/agent-access/pull/2), and [release #4](https://github.com/pegma-dev/agent-access/pull/4) | Exact verified registry `0.1.1` is the public producer; actual two-host login/client acceptance remains open.   |
 | `@pegma/knowledge-base-contracts`, `@pegma/knowledge-base-core`, `@pegma/knowledge-base-application` | Verified trusted `0.1.2` registry releases in the synchronized [KB v0.1.2 release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.2)                                                                                                                   | The optional Support Desk AI candidate consumes exact KB `0.1.2`; the base application has no KB dependency.    |
 | `@pegma/knowledge-base-mcp`                                                                          | Verified trusted `0.1.2` registry release in the same synchronized four-package set                                                                                                                                                                                   | Exact verified registry `0.1.2` is available for host assembly; retained actual-client acceptance remains open. |
 | Support Desk package set                                                                             | Unpublished synchronized `0.2.0` source candidate, distinct from the four base registry `0.1.1` packages                                                                                                                                                              | Verified SD-06 publication precedes adoption; existing registry versions remain immutable.                      |
 
-PG-01/RG-01 host assembly consumes **both Agent Access and KB published
+The recorded PG-01/RG-01 assembly selected **both Agent Access and KB published
 artifacts** at exact verified Agent Access `0.1.1` and KB `0.1.2`. All five names had returned HTTP 404 at
 the earlier 2026-11-07 preparation checkpoint; that observation is historical
 and was superseded by manual bootstrap and the strictly verified trusted
@@ -172,9 +184,8 @@ The subsequent KB `0.1.2` producer checkpoint was the verified trusted four-pack
 at source `004044bfa836b74a61fb5defa49d5ebab1fe37dd`, confirmed by strict
 [registry/consumer verification](https://github.com/pegma-dev/knowledge-base/actions/runs/42436081951/job/128617897564).
 The released `@pegma/support-desk-ai@0.2.0` retains exact KB `0.1.2` runtime
-dependencies. Current standalone authoring selection is all four KB `0.1.4`
-packages with Agent Access `0.1.1`; see the
-[current producer receipts](HOST_COMPOSITION.md#kb-authoring-producers).
+dependencies. A later standalone authoring recipe selected all four KB `0.1.4`
+packages with Agent Access `0.1.1`. [Producer receipts](HOST_COMPOSITION.md#kb-authoring-producers)
 These publication updates do not refresh the frozen P-00 snapshot or close
 any host activation gate.
 
@@ -430,17 +441,11 @@ producers' release preparation, with verified gate results and remaining
 dependencies, are recorded in the plan's
 [current status ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
 AUTH-01 lifecycle source, synthetic SDK proof, KB-04 transport source exit,
-and both producers' release preparation are merged. Current verified producer
-versions are the four KB packages at `0.1.4` and Agent Access at `0.1.1`, with
-exact source and verification jobs in the
-[producer receipts](HOST_COMPOSITION.md#kb-authoring-producers), closing
-SD-02's producer prerequisite. Support Desk's current synchronized `0.2.1`
-release is published and strictly verified; see the
-[publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
-The dated `0.2.0` publication update and producer checkpoints above remain
-historical observations; this progress update does not change the frozen baseline.
-Its optional AI package retains its exact KB `0.1.2` runtime dependencies;
-publication of a newer producer does not change those immutable pins.
+and both producers' release preparation are merged. The earlier Support Desk
+AI `0.2.1` package retains its exact KB `0.1.2` runtime dependencies and dated
+verification record. The publication status above identifies the selected
+`0.2.2` graph.
+[Historical `0.2.1` receipt](RELEASING.md#verified-021-publication-2026-11-10) · [Current publication status](#current-publication-status)
 PG-01/RG-01 consume their reviewed exact verified registry sets. Retained KB-04 real two-host
 acceptance under P00-CREDENTIAL/P00-MCP and
 PG-01/RG-01, and the named host/ZDR, production-operation, deployment-mapping,

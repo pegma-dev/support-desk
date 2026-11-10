@@ -4,12 +4,17 @@ This records the completed one-time npm name registration for `@pegma/support-de
 not a supported host installation or the synchronized release. The immutable
 registry application `0.1.1` lacks exports required by this newer AI source.
 Importing five local source tarballs proves only that isolated assembly.
-Hosts use the separately verified published five-package `0.2.1` release;
-see its [publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
-AI's `0.1.1` registration artifact remains immutable. At the 2026-11-10
-verification checkpoint, its mutable dist-tags were `bootstrap: 0.1.1` and
-`latest: 0.2.1`. Do not repeat registration or replace the bootstrap artifact
-to repair its registry dependency tree.
+Hosts use the separately verified published five-package `0.2.2` release.
+Its optional AI package pins Knowledge Base application and contracts to
+exact `0.1.5`. The `0.2.3` engineering review guard correction is an unpublished
+source candidate. Host adoption and activation have separate gates.
+[Publication receipt](RELEASING.md#verified-022-publication-2026-11-10) · [Engineering review guide](ENGINEERING_EXPORT.md)
+
+AI's `0.1.1` registration artifact remains immutable. At the `0.2.1`
+verification checkpoint on 2026-11-10, the mutable dist-tags were
+`bootstrap: 0.1.1` and `latest: 0.2.1`. The later `0.2.2` verification observed
+`bootstrap: 0.1.1` and `latest: 0.2.2`. Do not repeat registration or replace
+the bootstrap artifact to repair its registry dependency tree.
 
 ## Fixed identity and limited authority
 
@@ -135,7 +140,6 @@ Retain the source/tag object, tool/workflow commits, run/attempt, artifact ID,
 both independently recorded digests, tarball hashes, preflight/postflight
 receipts, actual dist-tags, and the settings verification. Those are required
 records for the completed registration, not a substitute for synchronized
-trusted-release verification. The later `0.2.0` release has its
-[historical receipt](RELEASING.md#verified-sd-06-publication-2026-11-08), and current
-`0.2.1` has its separate receipt above. Name registration closes no host,
-client, staging, or pilot acceptance gate.
+trusted-release verification. The `0.2.0` and `0.2.1` releases have dated
+receipts. Name registration closes no host, client, staging, or pilot
+acceptance gate. [Historical `0.2.0` receipt](RELEASING.md#verified-sd-06-publication-2026-11-08) · [Historical `0.2.1` receipt](RELEASING.md#verified-021-publication-2026-11-10)

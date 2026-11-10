@@ -83,6 +83,10 @@ verified before GitHub Latest-release promotion on 2026-11-10:
 | [Registry verification receipt](https://github.com/pegma-dev/support-desk/releases/download/v0.2.2/registry-verification.json)                   | `733169732` | `0d5d1c7e0763ccc02eab94367c259fc009403fe6c608c4e7c6675da54c99d4a4` |
 | [Qualified release summary](https://github.com/pegma-dev/support-desk/releases/download/v0.2.2/qualified-release-notes.md)                       | `733169730` | `1a9d600dc06772cc9f6f2ee9b9d9e7c41b0106b8ae4682142fd41aed7a0217cc` |
 
+`pnpm run release:check` hashes the five checked-in copies in
+`docs/releases/v0.2.2/` and fails on a missing file or a SHA-256 mismatch
+against the verified GitHub asset digests above.
+
 The original archive is named
 `support-desk-v0.2.2-original-artifact-13806500809.zip`. Hash that unchanged ZIP
 before extraction against the independent digest above, then compare the

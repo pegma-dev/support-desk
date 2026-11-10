@@ -154,20 +154,27 @@ repository identity/current metadata and visibility, policy, routing, and check
 results. Editing any bound fact requires fresh checks and review. The coordinator
 rechecks current authority and remote facts immediately before dispatch.
 
-**Unpublished `0.2.3` source candidate:** The following final-guard ordering
-and guarded-rejection behavior are not part of published `0.2.2`. For a new
-approval, the application finishes its current repository and policy
-observations before awaiting the supplied commit guard. It then checks the
-original reviewer permissions and verification expiry before the existing
-partition CAS. A supplied rejection guard runs at the same final boundary;
-rejection itself needs no repository, routing, model, processing-service, or
-other external export proof. The coordinator supplies a current-staff guard for
-rejection so a host wrapper can append its fresh original-session and role check
-after all SDK work. Direct application callers may still omit a rejection guard.
-An exact accepted receipt is returned before either guard or external proof,
-subject to current review/queue authorization. These are bounded fresh
-observations around a partition transaction, not a cross-store atomicity or
-continuous-authority guarantee.
+**Unpublished `0.2.3` source candidate.** For a new decision, pass a trusted
+read-only `verifyBeforeCommit` callback in the coordinator's
+`reviewProposal(access, command, { signal, verifyBeforeCommit })` options. Use
+it to check the original browser session and current staff role. Approval
+finishes its external proof and current repository and policy observations
+before the callback. Rejection checks the current invocation and reviewer,
+with no export proof requirement. Direct application callers may omit the
+rejection guard.
+
+The coordinator bounds the callback by the invocation's signal and deadline.
+After the guard, the application checks reviewer permissions, source and proof
+expiry and capacity synchronously before its conditional transaction. When the
+coordinator receives a precommit callback refusal on its first attempt, it
+returns the safe `verification_unavailable` category without a retry. An
+earlier uncertain write can still yield `review_acknowledgement_unknown`. The
+partition transaction protects its own record versions. Authority in separate
+stores can change after observation.
+
+An exact accepted receipt is returned before the mutation guard or external
+proof, subject to current review and queue permissions. Hosts still check
+current authority when admitting the request and before returning its result.
 
 `link_existing_issue` records a private Support association with the approved
 existing issue. It sends no comment, changes no external issue, and grants no

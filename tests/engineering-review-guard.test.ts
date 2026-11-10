@@ -1,7 +1,13 @@
-import type { CollectionDefinition, Store } from "@pegma/storage-core";
+import type {
+  CollectionDefinition,
+  EntityKey,
+  Store,
+} from "@pegma/storage-core";
 import { createMemoryStore } from "@pegma/storage-core";
 import {
   engineeringPolicyRecords,
+  supportPermissions,
+  supportRecords,
   type ReviewEngineeringProposalCommand,
 } from "@pegma/support-desk-application";
 import { createSupportDeskEngineering } from "@pegma/support-desk-ai";
@@ -13,21 +19,21 @@ import {
   engineeringStaff as staff,
 } from "../test/engineering-fixtures.js";
 
-/** Delay only actual policy-adapter reads. No copied policy key/codec or state. */
-function observePolicyReads(backing: Store) {
-  let afterRead: (() => Promise<void>) | undefined;
+/** Observe a collection's real versioned reads without replacing stored data. */
+function observeVersionedReads(
+  backing: Store,
+  collectionName = engineeringPolicyRecords.name,
+) {
+  let afterRead: ((key: EntityKey) => Promise<void>) | undefined;
   const store: Store = {
     collection<T>(definition: CollectionDefinition<T>) {
       const target = backing.collection(definition);
       return new Proxy(target, {
         get(object, property) {
-          if (
-            definition.name === engineeringPolicyRecords.name &&
-            property === "getVersioned"
-          )
+          if (definition.name === collectionName && property === "getVersioned")
             return async (key: Parameters<typeof object.getVersioned>[0]) => {
               const result = await object.getVersioned(key);
-              await afterRead?.();
+              await afterRead?.(key);
               return result;
             };
           const value: unknown = Reflect.get(object, property, object);
@@ -77,7 +83,7 @@ describe("engineering review final host guard over real MemoryStore services", (
   it.each(["repository", "policy"] as const)(
     "denies approval without a commit when browser authority changes during the final %s observation",
     async (boundary) => {
-      const observed = observePolicyReads(createMemoryStore());
+      const observed = observeVersionedReads(createMemoryStore());
       const f = engineeringFixture(observed.store);
       await f.eligible();
       await f.prepareProposal();
@@ -176,7 +182,7 @@ describe("engineering review final host guard over real MemoryStore services", (
   });
 
   it.each([false, true])(
-    "supplies the coordinator rejection guard for the real application's host wrapper (deny=%s)",
+    "runs the bounded rejection callback without export proof and classifies a first denial (deny=%s)",
     async (deny) => {
       const f = await engineeringAiFixture(createMemoryStore());
       await f.prepareProposal();
@@ -184,28 +190,17 @@ describe("engineering review final host guard over real MemoryStore services", (
       const actual = withoutExportProofs(f);
       const before = await f.rows();
       const transactions = f.observed.transactions.length;
-      let guardSupplied = false;
-      const hostGuard = vi.fn(async () => {
-        if (deny) throw new Error("Synthetic current browser role revoked");
+      const review = vi.fn(actual.reviewEngineeringProposal);
+      const privateFailure = new Error(
+        "PRIVATE_SYNTHETIC_BROWSER_ROLE_REVOKED",
+      );
+      const verifyBeforeCommit = vi.fn(async () => {
+        if (deny) throw privateFailure;
       });
       const engineering = createSupportDeskEngineering({
         ...f.baseOptions,
-        storageCommandAttempts: 1,
-        application: {
-          ...actual,
-          reviewEngineeringProposal(access, input, guard) {
-            guardSupplied = typeof guard === "function";
-            return actual.reviewEngineeringProposal(access, input, async () => {
-              if (guard === undefined)
-                throw new Error("Missing coordinator staff guard");
-              await guard();
-              await hostGuard();
-            });
-          },
-        },
+        application: { ...actual, reviewEngineeringProposal: review },
       });
-      // All external export proof paths are unavailable. Rejection uses only
-      // current staff authority, then this host's current-browser check.
       f.state.authorityOutcome = "unavailable";
       f.state.metadataOutcome = "unavailable";
       f.state.configurationOutcome = "disabled";
@@ -218,20 +213,33 @@ describe("engineering review final host guard over real MemoryStore services", (
         f.checksVerify.mock.calls.length,
         f.routingVerify.mock.calls.length,
       ];
+      const reviewing = engineering.reviewProposal(staff, command, {
+        verifyBeforeCommit,
+      });
       if (deny) {
-        await expect(
-          engineering.reviewProposal(staff, command),
-        ).rejects.toThrow();
+        const error: unknown = await reviewing.then(
+          () => null,
+          (failure: unknown) => failure,
+        );
+        expect(error).toBeInstanceOf(Error);
+        expect(error).toMatchObject({
+          name: "AssistantBoundaryError",
+          category: "verification_unavailable",
+          message: "Assistant processing could not be safely completed",
+        });
+        expect(error).not.toHaveProperty("failureCategory");
+        expect(error).not.toHaveProperty("cause");
+        expect(error).not.toBe(privateFailure);
+        expect(JSON.stringify(error)).not.toContain(privateFailure.message);
         expect(f.observed.transactions).toHaveLength(transactions);
         expect(await f.rows()).toEqual(before);
       } else {
-        await expect(
-          engineering.reviewProposal(staff, command),
-        ).resolves.toMatchObject({ status: "held" });
+        await expect(reviewing).resolves.toMatchObject({ status: "held" });
         expect((await f.work()).approval).toMatchObject({ decision: "reject" });
       }
-      expect(guardSupplied).toBe(true);
-      expect(hostGuard).toHaveBeenCalledOnce();
+      // The default two-attempt budget must still dispatch just one call.
+      expect(review).toHaveBeenCalledOnce();
+      expect(verifyBeforeCommit).toHaveBeenCalledOnce();
       expect([
         f.getMetadata.mock.calls.length,
         f.resolveAuthority.mock.calls.length,
@@ -245,7 +253,7 @@ describe("engineering review final host guard over real MemoryStore services", (
   it.each(["approve", "reject"] as const)(
     "recovers an exact accepted %s receipt before the guard after actual source and catalog changes",
     async (decision) => {
-      const observed = observePolicyReads(createMemoryStore());
+      const observed = observeVersionedReads(createMemoryStore());
       const f = engineeringFixture(observed.store);
       await f.eligible();
       await f.prepareProposal();
@@ -293,7 +301,9 @@ describe("engineering review final host guard over real MemoryStore services", (
       const before = await f.rows();
       const transactions = f.observed.transactions.length;
       const actual = withoutExportProofs(f);
-      const guardCalls = vi.fn();
+      const verifyBeforeCommit = vi.fn(async () => {
+        throw new Error("Accepted receipt must bypass the new host callback");
+      });
       const policy = vi.fn(async () => {
         throw new Error("Replay must not consult policy");
       });
@@ -301,15 +311,7 @@ describe("engineering review final host guard over real MemoryStore services", (
         ...f.baseOptions,
         storageCommandAttempts: 1,
         policy: { resolve: policy },
-        application: {
-          ...actual,
-          reviewEngineeringProposal(access, input, guard) {
-            return actual.reviewEngineeringProposal(access, input, async () => {
-              guardCalls();
-              if (guard !== undefined) await guard();
-            });
-          },
-        },
+        application: actual,
       });
       f.state.authorityOutcome = "unavailable";
       f.state.metadataOutcome = "unavailable";
@@ -320,10 +322,10 @@ describe("engineering review final host guard over real MemoryStore services", (
         f.checksVerify.mock.calls.length,
         f.routingVerify.mock.calls.length,
       ];
-      await expect(restarted.reviewProposal(staff, command)).resolves.toEqual(
-        accepted,
-      );
-      expect(guardCalls).not.toHaveBeenCalled();
+      await expect(
+        restarted.reviewProposal(staff, command, { verifyBeforeCommit }),
+      ).resolves.toEqual(accepted);
+      expect(verifyBeforeCommit).not.toHaveBeenCalled();
       expect(policy).not.toHaveBeenCalled();
       expect(f.observed.transactions).toHaveLength(transactions);
       expect(await f.rows()).toEqual(before);
@@ -336,6 +338,207 @@ describe("engineering review final host guard over real MemoryStore services", (
       expect(f.createIssue).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    { decision: "reject", stop: "cancelled" },
+    { decision: "approve", stop: "cancelled" },
+    { decision: "reject", stop: "deadline" },
+  ] as const)(
+    "withholds a late $decision after $stop during a real application work read",
+    async ({ decision, stop }) => {
+      const observed = observeVersionedReads(
+        createMemoryStore(),
+        supportRecords.name,
+      );
+      const f = await engineeringAiFixture(observed.store);
+      await f.prepareProposal();
+      const work = await f.work();
+      const command = await reviewCommand(f, decision);
+      const before = await f.rows();
+      const transactions = f.observed.transactions.length;
+      const barrier = engineeringBarrier();
+      const controller = new AbortController();
+      observed.afterRead(async (key) => {
+        if (key.id !== work.id || key.partition !== work.partition) return;
+        observed.afterRead(undefined);
+        await barrier.wait();
+      });
+      const underlying: Promise<unknown>[] = [];
+      const engineering = createSupportDeskEngineering({
+        ...f.baseOptions,
+        ...(stop === "deadline"
+          ? { maxOperationMilliseconds: 2_000, storageCommandAttempts: 1 }
+          : {}),
+        application: {
+          ...f.app,
+          reviewEngineeringProposal(...args) {
+            const actual = f.app.reviewEngineeringProposal(...args);
+            underlying.push(
+              actual.then(
+                () => ({ accepted: true }),
+                (error: unknown) => ({ accepted: false, error }),
+              ),
+            );
+            return actual;
+          },
+        },
+      });
+      const verifyBeforeCommit = vi.fn();
+      const result = engineering
+        .reviewProposal(staff, command, {
+          signal: controller.signal,
+          verifyBeforeCommit,
+        })
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      try {
+        expect(
+          await Promise.race([
+            barrier.reached.then(() => "read held"),
+            result.then(() => "coordinator settled first"),
+          ]),
+        ).toBe("read held");
+        if (stop === "cancelled") controller.abort();
+        expect(await result).toMatchObject({
+          category: "review_acknowledgement_unknown",
+          failureCategory: stop,
+        });
+      } finally {
+        barrier.release();
+        // Wait for the actual application call, not just the coordinator race.
+        await Promise.all(underlying);
+      }
+      expect(await Promise.all(underlying)).toMatchObject([
+        { accepted: false, error: { category: "cancelled" } },
+      ]);
+      expect(verifyBeforeCommit).not.toHaveBeenCalled();
+      expect(f.observed.transactions).toHaveLength(transactions);
+      expect(await f.rows()).toEqual(before);
+      expect((await f.work()).approval).toBeUndefined();
+    },
+  );
+
+  it("keeps an earlier transaction acknowledgement unknown when a later guard denies", async () => {
+    const f = await engineeringAiFixture(createMemoryStore());
+    await f.prepareProposal();
+    const command = await reviewCommand(f, "reject");
+    const before = await f.rows();
+    const transactions = f.observed.transactions.length;
+    const verifyBeforeCommit = vi
+      .fn(async (): Promise<void> => {
+        throw new Error("PRIVATE_SYNTHETIC_LATER_ROLE_DENIAL");
+      })
+      .mockResolvedValueOnce(undefined);
+    // Fail the first observed transaction port call before delegating. The
+    // coordinator cannot infer commitment from that transport failure.
+    f.observed.intercept(async () => {
+      throw new Error("PRIVATE_SYNTHETIC_TRANSACTION_ACK_UNAVAILABLE");
+    });
+    try {
+      const error: unknown = await f.engineering
+        .reviewProposal(staff, command, { verifyBeforeCommit })
+        .then(
+          () => null,
+          (failure: unknown) => failure,
+        );
+      expect(error).toMatchObject({
+        category: "review_acknowledgement_unknown",
+        failureCategory: "verification_unavailable",
+      });
+      expect(error).not.toHaveProperty("cause");
+      expect(JSON.stringify(error)).not.toContain("PRIVATE_SYNTHETIC_");
+    } finally {
+      f.observed.intercept(undefined);
+    }
+    expect(verifyBeforeCommit).toHaveBeenCalledTimes(2);
+    expect(f.observed.transactions).toHaveLength(transactions + 1);
+    expect(await f.rows()).toEqual(before);
+    expect((await f.work()).approval).toBeUndefined();
+  });
+
+  it("observes approval proofs before the host check and rechecks staff after it awaits", async () => {
+    const f = await engineeringAiFixture(createMemoryStore());
+    await f.prepareProposal();
+    const command = await reviewCommand(f, "approve");
+    const access = { ...staff, permissions: [...staff.permissions] };
+    const before = await f.rows();
+    const transactions = f.observed.transactions.length;
+    // The application uses its own repository resolver. This spy observes
+    // the coordinator's separate external proof after the application reads.
+    const metadataCalls = f.getMetadata.mock.calls.length;
+    const check = engineeringBarrier();
+    let metadataCallsAtGuard = 0;
+    const verifyBeforeCommit = vi.fn(async () => {
+      metadataCallsAtGuard = f.getMetadata.mock.calls.length;
+      await check.wait();
+    });
+    const result = f.engineering
+      .reviewProposal(access, command, { verifyBeforeCommit })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    try {
+      expect(
+        await Promise.race([
+          check.reached.then(() => "host check reached"),
+          result.then(() => "coordinator settled first"),
+        ]),
+      ).toBe("host check reached");
+      access.permissions = access.permissions.filter(
+        (p) => p !== supportPermissions.engineeringReview,
+      );
+    } finally {
+      check.release();
+    }
+    expect(await result).toMatchObject({ category: "authority_changed" });
+    expect(metadataCallsAtGuard).toBeGreaterThan(metadataCalls);
+    expect(metadataCallsAtGuard).toBe(f.getMetadata.mock.calls.length);
+    expect(verifyBeforeCommit).toHaveBeenCalledOnce();
+    expect(f.observed.transactions).toHaveLength(transactions);
+    expect(await f.rows()).toEqual(before);
+  });
+
+  it("rejects a non-callable JavaScript rejection guard before loading new work and preserves exact receipt replay", async () => {
+    const observed = observeVersionedReads(
+      createMemoryStore(),
+      supportRecords.name,
+    );
+    const f = engineeringFixture(observed.store);
+    await f.eligible();
+    await f.prepareProposal();
+    const command = await reviewCommand(f, "reject");
+    const before = await f.rows();
+    const transactions = f.observed.transactions.length;
+    const read = vi.fn(async () => {
+      throw new Error("Unexpected work load");
+    });
+    const rejectFromJavaScript = () =>
+      Reflect.apply(f.app.reviewEngineeringProposal, f.app, [
+        staff,
+        command,
+        null,
+      ]);
+    observed.afterRead(read);
+    const rejected = rejectFromJavaScript();
+    await expect(rejected).rejects.toThrow(TypeError);
+    await expect(rejected).rejects.toThrow(
+      "Engineering review guard must be a function",
+    );
+    expect(read).not.toHaveBeenCalled();
+    expect(f.observed.transactions).toHaveLength(transactions);
+    expect(await f.rows()).toEqual(before);
+    observed.afterRead(undefined);
+    const accepted = await f.app.reviewEngineeringProposal(staff, command);
+    const after = await f.rows();
+    observed.afterRead(read);
+    await expect(rejectFromJavaScript()).resolves.toEqual(accepted);
+    expect(read).not.toHaveBeenCalled();
+    expect(await f.rows()).toEqual(after);
+    expect(f.observed.transactions).toHaveLength(transactions + 1);
+  });
 
   it("retains verification expiry checking after a successful final guard", async () => {
     const f = engineeringFixture(createMemoryStore());

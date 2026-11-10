@@ -2087,6 +2087,8 @@ export function createEngineeringWorkerServices(
           throw new TypeError(
             "Engineering approval requires a current read-only guard",
           );
+        if (guard !== undefined && typeof guard !== "function")
+          throw new TypeError("Engineering review guard must be a function");
         const loaded = await load(command.ticketId);
         const stored = await workAt(command);
         const work = stored.value;
