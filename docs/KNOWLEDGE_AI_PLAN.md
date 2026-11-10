@@ -5,7 +5,7 @@
 Approved product decisions: 2026-11-06; scoped-agent-access decision added
 2026-11-07. The ten entries in the ledger below are merged source, including
 AUTH-01, KB-04's transport source exit, and both producers' release preparation.
-The current verified producer versions are KB `0.1.2` for all four packages
+The current verified producer versions are KB `0.1.4` for all four packages
 and Agent Access `0.1.1`, closing SD-02's KB-05 prerequisite. The dated ledger
 below is historical. Support Desk's synchronized `0.2.0` release is now
 published and strictly verified for all five packages; see the
@@ -86,11 +86,12 @@ Manual bootstrap had no OIDC provenance; the later trusted releases close the
 publication gates. Earlier registry 404s and the `a444e21` source fixture are
 historical. Current KB protocol proof uses four packed KB packages plus
 registry `@pegma/agent-access@0.1.1`. The frozen P-00 snapshot remains unchanged.
-The current four-package KB producer is the verified trusted
+The subsequent verified four-package KB producer was the trusted
 [`0.1.2` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.2),
 source `004044bfa836b74a61fb5defa49d5ebab1fe37dd`, with strict
 [registry/consumer verification](https://github.com/pegma-dev/knowledge-base/actions/runs/42436081951/job/128617897564).
-The dated `0.1.1` receipts above are retained history, not current KB pins.
+The dated `0.1.1` and `0.1.2` receipts are retained history; current producer
+versions and unchanged consumer pins are distinguished below.
 
 **Verified Support Desk publication: 2026-11-08.** The signed
 [`v0.2.0` release](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.0)
@@ -107,19 +108,34 @@ provenance and clean public imports for all five packages. Their observed
 The [release handbook](RELEASING.md#verified-sd-06-publication-2026-11-08)
 records the original artifact identities and recovery without repacking.
 
-**Current version facts and next gates:** All five Support Desk packages are
-published at verified `0.2.0`. The optional `@pegma/support-desk-ai` package uses
-exact KB `0.1.2` runtime dependencies; the base application remains independent
-of KB and providers. The [coordination design](ASSISTANT_COORDINATION.md) and
+**Current version facts and next gates:** All four KB packages have verified
+trusted [`0.1.4` releases](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.4);
+Agent Access remains verified at
+[`0.1.1`](https://github.com/pegma-dev/agent-access/releases/tag/v0.1.1).
+All five Support Desk packages are published at verified `0.2.0` as recorded
+above. The optional `@pegma/support-desk-ai@0.2.0` still uses exact KB `0.1.2`
+runtime dependencies in its
+[published manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.0/packages/ai/package.json);
+newer KB publication does not change those immutable consumer pins. The base
+application remains independent of KB and providers. Qualified Storage Core
+adapter releases include
+[Cloudflare D1 `0.4.6`](https://github.com/pegma-dev/storage-core/releases/tag/v0.4.6)
+and [DynamoDB `0.4.5`](https://github.com/pegma-dev/storage-core/releases/tag/v0.4.5);
+Core `0.4.0` and Azure Tables `0.4.0` retain their original verified archives.
+The [coordination design](ASSISTANT_COORDINATION.md) and
 [layout checkpoint](COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
-record its five public application operations, bounded same-partition turns,
+record the coordinator's five public application operations, bounded same-partition turns,
 authority/data controls, and replay contract. Public-entry memory/Azurite tests
 with the actual KB and a fake provider, Node 22/24 gates, and code/security
 review support this SDK release; they do not establish host activation.
-Existing registry versions remain immutable. PG-01/RG-01 use exact verified
-published dependencies. Actual existing-login/current-Admin consent and every
-requested client/mode on both hosts remain unproven activation gates tracked
-by P-00 and PG-01/RG-01. Publication and source/SDK results do not close them.
+Existing registry versions remain immutable. RetireGolden reference-host source
+changes have merged; pegma.dev's PG-01 source integration remains open in
+[PR #59](https://github.com/pegma-dev/pegma.dev/pull/59). These are source
+milestones, not completed PG-01/RG-01 exit criteria. Each host retains its own
+exact published dependency set, with Knowledge/agent activation disabled.
+Neither host has completed actual existing-login/current-Admin consent and
+every requested client/mode acceptance. Those remain open activation gates
+tracked by P-00 and PG-01/RG-01; publication and source/SDK results do not close them.
 Task 12, provider/ZDR/intermediary verification,
 issue-to-deployed-build mapping, operations, dual-host acceptance, and supervised
 pilots remain open. Verified SDK publication does not close
@@ -177,7 +193,7 @@ educational decision-support boundaries.
 The MIT [knowledge-base repository](https://github.com/pegma-dev/knowledge-base)
 now contains `@pegma/knowledge-base-contracts`, `@pegma/knowledge-base-core`,
 `@pegma/knowledge-base-application`, and optional `@pegma/knowledge-base-mcp`
-source. All four have verified trusted `0.1.2` registry releases; KB-04's
+source. All four have verified trusted `0.1.4` registry releases; KB-04's
 transport source exit and KB-05 release preparation remain historical source
 evidence. Any future package is created only
 when its implementation begins, with its own README, LICENSE, build-on-pack
@@ -676,9 +692,10 @@ is too large, preserving the dependency and exit criteria.
 The merged-source ledger above records completed source slices, including
 AUTH-01, SD-01, KB-04's transport source exit, and both producers' release
 preparation. The current producer publication gates are closed by strictly
-verified trusted KB `0.1.2`, Agent Access `0.1.1`, and the synchronized Support
-Desk `0.2.0` release recorded above. PG-01 and RG-01 must consume those
-published dependencies and prove actual
+verified trusted KB `0.1.4`, Agent Access `0.1.1`, and the synchronized Support
+Desk `0.2.0` release recorded above. The released Support Desk AI package keeps
+its exact KB `0.1.2` dependencies. PG-01 and RG-01 must consume their reviewed
+exact published dependency sets and prove actual
 existing-login and requested-client draft/evidence flows. KB-04's merged source
 exit closes only its source slice; retained actual two-host acceptance remains pending in P-00,
 PG-01/RG-01, and A-01 until those real runs pass. Source/SDK success cannot close

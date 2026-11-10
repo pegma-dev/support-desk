@@ -4,11 +4,11 @@
 
 **Stage:** Buildout Tasks 1–6 are complete; the first `0.1.0` set was published
 on 2026-07-29 with signed tag `v0.1.0`. Later Task 11 package work, Task 13,
-and SD-01 are merged source. The standalone KB has merged KB-01/02/03 and
+and SD-01 through SD-06 are merged source. The standalone KB has merged KB-01/02/03 and
 independent partial KB-05 preparation, KB-04's transport source exit, and
 KB-05 release preparation. AUTH-01 Agent Access source and its separate release
 preparation are also merged. The ten entries in the
-[current source ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) record
+[historical source ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) record
 the exact PRs/commits, verified gates, and remaining dependency order.
 
 Support Desk's synchronized `0.2.0` release is published and strictly verified;
@@ -16,7 +16,8 @@ see the [publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08
 It pins Audit `0.2.0`, Authorization Core `0.4.0`, Mail `0.1.1`, Spine `0.1.2`,
 and Storage Core `0.4.0`. The older base registry `0.1.1` artifacts remain
 immutable; host adoption retains its own acceptance gates. All four KB packages have strictly verified
-trusted `0.1.2` releases; Agent Access remains verified at `0.1.1`. The
+trusted [`0.1.4` releases](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.4);
+Agent Access remains verified at `0.1.1`. The
 [producer verification receipts](HOST_COMPOSITION.md#kb-authoring-producers)
 record exact release commits and strict registry/clean-consumer jobs. Earlier
 manual `0.1.0` bootstrap receipts have no OIDC provenance and remain historical;
@@ -30,11 +31,15 @@ independent of KB/providers. Read the
 [layout checkpoint](COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint).
 Changes require current-head public-entry memory/Azurite/actual-KB fake-provider
 tests, Node 22/24 gates, and code/security review. The completed SDK release
-gates are recorded in the publication receipt above. PG-01/RG-01 consume exact
-verified published dependencies. Actual
-two-host existing-login/current-Admin consent and requested-client/mode proof
-remains unproven before activation or pilots. Source and synthetic SDK results
-do not establish deployment, model calls, host acceptance, or pilots.
+gates are recorded in the publication receipt above. Qualified storage adapter
+releases now include D1 `0.4.6` and DynamoDB `0.4.5`; see the
+[current producer facts](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).
+RetireGolden reference-host source changes have merged; PG-01 remains open in
+[pegma.dev #59](https://github.com/pegma-dev/pegma.dev/pull/59). Both host task
+exit criteria remain open, with Knowledge/agent activation disabled and actual
+existing-login/current-Admin consent and requested-client/mode acceptance
+unproven. Source and synthetic SDK results do not establish model calls,
+full-workflow host acceptance, or pilots.
 
 Task 12 remains pending on both hosts' durable-store production evidence.
 Provider/ZDR/intermediary verification, deployment applicability mapping,
@@ -441,11 +446,12 @@ phase is intentionally not one large release.
 **Goal:** Compose a standalone knowledge base for product documentation and
 reviewed support knowledge on both launch hosts.
 
-**Source/release status (2026-11-07):** KB-01/02/03, partial KB-05 preparation,
+**Source/release status (2026-11-09):** KB-01/02/03, partial KB-05 preparation,
 AUTH-01 source/SDK proof, KB-04's transport source exit, and both producers'
 release preparation are merged. The four KB packages now have strictly verified
-trusted `0.1.2` releases and Agent Access has verified `0.1.1`, closing SD-02's publication prerequisite. Hosts consume
-those exact verified registry artifacts rather than source substitutes.
+trusted `0.1.4` releases and Agent Access has verified `0.1.1`, closing SD-02's publication prerequisite. The released
+Support Desk AI `0.2.0` keeps its exact KB `0.1.2` dependencies; hosts consume
+their reviewed exact verified registry sets rather than source substitutes.
 Actual two-host existing-login/current-Admin consent and Codex, Claude Code,
 Grok Bot desktop/hosted-agent, and T3 Code Codex-provider proof remains unproven
 under PG-01/RG-01 before activation or pilots. See the
