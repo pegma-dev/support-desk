@@ -1,6 +1,6 @@
 # Release operations
 
-The verified SD-06 synchronized release is **0.2.0** for all five public
+The current verified synchronized release is **0.2.1** for all five public
 packages, in dependency order:
 
 1. `@pegma/support-desk-contracts`
@@ -9,13 +9,12 @@ packages, in dependency order:
 4. `@pegma/support-desk-application`
 5. Optional `@pegma/support-desk-ai`
 
-The next patch is the synchronized **unpublished `0.2.1` candidate** for
-assistant-answering read batching. All five package versions and their internal
-Support pins advance together; the optional AI package retains exact KB
-application/contracts `0.1.2` dependencies. Its own current-head validation,
-review, trusted publication and strict registry verification remain pending.
-The verified `0.2.0` receipt below remains historical evidence for those exact
-artifacts, not qualification for the new candidate or either host.
+The synchronized `0.2.1` assistant-answering read-batching patch is published
+and strictly verified. All five package versions and internal Support pins
+advance together; optional AI retains exact KB application/contracts `0.1.2`
+dependencies. Its dated receipt follows. The verified `0.2.0` receipt remains
+historical evidence for those exact artifacts; SDK release qualification does
+not establish either host's adoption or acceptance.
 
 The original four package names retain their published `0.1.0`/`0.1.1`
 artifacts. Pre-SD-06 source also
@@ -29,6 +28,80 @@ Merging a PR, preparing tarballs, or creating a tag does not establish a
 verified release. Host adoption waits for exact published artifacts, strict
 verification, and each host's own acceptance. See [release notes](RELEASE_NOTES.md),
 [upgrading](UPGRADING.md), and [AI operations](AI_OPERATIONS.md).
+
+## Verified 0.2.1 publication: 2026-11-10
+
+The protected signed [`v0.2.1` release](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.1)
+binds reviewed main source
+[`7959d0ee6e31c2b1f9df21a8d85cb7e7c555120e`](https://github.com/pegma-dev/support-desk/commit/7959d0ee6e31c2b1f9df21a8d85cb7e7c555120e)
+and tag object `031dd9827ff67f6542477722dc33081665e960a5`.
+[Run 42821527940](https://github.com/pegma-dev/support-desk/actions/runs/42821527940)
+finished successfully on attempt 4, with all seven job records successful.
+Original Node `22.23.4` and `24.22.2` lanes each passed 2,531 tests across 55
+files with zero skips, plus formatting, types, examples and packed public
+consumers. Recovery carried the four original identity/Node/preparation
+executions; it did not rerun their gates or repack the release. Attempt 4 ran
+fresh preflight, publication and final verification jobs.
+
+| Original release binding   | Value                                                              |
+| -------------------------- | ------------------------------------------------------------------ |
+| Preparation artifact ID    | `13766827356`                                                      |
+| Preparation ZIP SHA-256    | `b13c2c10157b38132745b21f4d16f6fd642c833f54106f5602a5a1be84337b2e` |
+| Canonical manifest SHA-256 | `fd23ea992c6722038e1f39e001e5e2cf0732ff780e9d2d6466f7158e980c5fd6` |
+
+The repository retains the byte-exact [original manifest](releases/v0.2.1/package-manifest.json)
+and complete public GitHub API snapshots for the
+[preparation artifact](releases/v0.2.1/prepared-artifact.json) and
+[successful verification job](releases/v0.2.1/verification-job.json).
+The job snapshot preserves GitHub's returned step numbers and conclusions;
+no missing step records are invented or renumbered.
+
+Permanent release assets retain the unchanged original evidence:
+
+- [Original Actions ZIP](https://github.com/pegma-dev/support-desk/releases/download/v0.2.1/support-desk-v0.2.1-original-artifact-13766827356.zip):
+  asset `731731211`, 480,342 bytes; its API SHA-256 is the preparation ZIP digest
+  above. It contains exactly the original manifest and five tarballs, with 231
+  regular tar members across those packages.
+- [Original manifest](https://github.com/pegma-dev/support-desk/releases/download/v0.2.1/package-manifest.json):
+  asset `731731215`; its API SHA-256 is the canonical manifest digest above.
+- [Public verification receipt](https://github.com/pegma-dev/support-desk/releases/download/v0.2.1/registry-verification.json):
+  asset `731731216`; API SHA-256
+  `d7203df90c3fc33fda97d431e42286bca4a0fe0598dfb986666a1158f3125962`.
+  This small receipt records results and bindings; it is not raw npm audit or
+  consumer output.
+
+Hash the original ZIP before extraction and compare it with the independent
+ZIP digest above, then compare the extracted manifest with its recorded digest.
+A digest obtained only from a downloaded artifact cannot authenticate itself.
+
+Recovery preserved the original source, tag, manifest and all five tarballs.
+Attempts 1 and 3 failed bounded registry visibility confirmation; attempt 2's
+generic npm-command failure cause remains unknown. All three failures remain
+recorded. Genuine authenticated provenance binds the original physical writers:
+
+- Contracts and Core: [attempt 1 publisher 129849928539](https://github.com/pegma-dev/support-desk/actions/runs/42821527940/job/129849928539),
+  whose later visibility check failed.
+- Templates and Application: [attempt 3 publisher 129865523941](https://github.com/pegma-dev/support-desk/actions/runs/42821527940/job/129865523941),
+  whose later visibility check also failed.
+- AI: [attempt 4 publisher 129874651529](https://github.com/pegma-dev/support-desk/actions/runs/42821527940/job/129874651529),
+  which succeeded and skipped the other four exact packages.
+
+The failed jobs are not relabeled successful or replaced as original writers.
+The [final verification job 129878788518](https://github.com/pegma-dev/support-desk/actions/runs/42821527940/job/129878788518)
+and a retained independent check passed exact registry bytes/dependencies,
+genuine npm `11.18.0` signature and Sigstore verification, certificate and
+source/workflow/tag/original-writer bindings, then clean registry installation
+with lifecycle scripts disabled and all six public exports imported. The
+independent check used Node `24.18.0`; no invalid or missing signatures remained.
+Observed npm `latest` tags were `0.2.1` for all five, with AI's registration-only
+`bootstrap: 0.1.1` retained. Dist-tags are mutable observations; original bytes
+and authenticated source bindings identify the release.
+
+This receipt qualifies the SDK release. Existing `0.2.0` host-adoption evidence
+remains specific to those pins. Host KB/AI activation, actual-client acceptance,
+provider/privacy controls, evaluations, operations and supervised pilots remain
+separate gates. Grouped reads establish no universal Workers Free query or CPU
+bound.
 
 ## Verified SD-06 publication: 2026-11-08
 
@@ -117,7 +190,7 @@ staging and supervised-pilot acceptance remain separate work.
 | Path                            | Authority and artifact                                                                                                                                                                                                          |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | AI name registration            | Manual maintainer 2FA publication of only the prepared AI `0.1.1` tarball from signed `v0.1.1-ai-bootstrap` at frozen SD-05 commit `eddd3526f8bec3a1a80cc7aacd3a4cdcdb950cfe`. No GitHub release or bootstrap OIDC publish job. |
-| Advertised synchronized `0.2.0` | All five exact artifacts from reviewed main, protected signed annotated `v0.2.0`, and the environment-protected GitHub OIDC workflow, followed by strict registry verification.                                                 |
+| Advertised synchronized `0.2.1` | All five exact artifacts from reviewed main, protected signed annotated `v0.2.1`, and the environment-protected GitHub OIDC workflow, followed by strict registry verification.                                                 |
 
 The bootstrap's other four local tarballs are import-test context only. They
 are never eligible for manual publication. The existing four names do not
@@ -202,7 +275,8 @@ SD-06, and a clean memory consumer does not certify a host's durable migration.
 After the reviewed release PR is merged and every current-head gate is green,
 the authorized maintainer creates the protected signed annotated stable tag at
 the exact `origin/main` commit, pushes it, and creates its verified GitHub
-release. The verified SD-06 release identity is `v0.2.0`.
+release. The current verified release identity is `v0.2.1`; SD-06's `v0.2.0`
+identity remains historical.
 Do not create a GitHub release for `v0.1.1-ai-bootstrap`.
 
 `.github/workflows/publish.yml` prepares from the exact stable release identity.

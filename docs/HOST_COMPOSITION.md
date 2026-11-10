@@ -10,9 +10,11 @@ See also the runnable example at
 
 ## Public packages
 
-This guide describes the verified published synchronized `0.2.0` release,
-including SD-01 through SD-05; see the
-[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+This guide describes the verified published synchronized `0.2.1` release.
+Use exact `0.2.1` for the five Support Desk packages, including optional AI; see
+the [publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
+SD-01 through SD-05 first shipped in the
+[historical `0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
 The older base `0.1.1` packages remain immutable history. The
 [P-00 baseline](KNOWLEDGE_AI_P00.md) preserves earlier source and registry
 snapshots. Hosts must consume exact released packages and complete their own
@@ -119,8 +121,8 @@ writer provenance, and public consumers. The release retains the original
 prepared artifact and documents recovery without another package write.
 Agent Access `0.1.1` retains its source and strict verification receipt above.
 
-This standalone recipe does not upgrade `@pegma/support-desk-ai@0.2.0`:
-its immutable [published manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.0/packages/ai/package.json)
+This standalone recipe does not upgrade `@pegma/support-desk-ai@0.2.1`:
+its immutable [published manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.1/packages/ai/package.json)
 pins `@pegma/knowledge-base-application@0.1.2` and
 `@pegma/knowledge-base-contracts@0.1.2`. Adding a newer standalone SDK does not
 replace those dependencies or establish mixed-version host acceptance.
