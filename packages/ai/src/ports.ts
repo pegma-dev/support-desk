@@ -128,6 +128,11 @@ export interface AssistantAttemptContext {
   readonly deadline: IsoTimestamp;
   readonly signal: AbortSignal;
   readonly budgets: AssistantAttemptBudgets;
+  /** Server-only stage metadata; attempt still counts every durable claim. */
+  readonly stagedRetrieval?: {
+    readonly stage: "preparation" | "generation";
+    readonly preparationAttemptId: string;
+  };
 }
 
 export interface AssistantModelUsage {
@@ -217,10 +222,25 @@ export interface SupportDeskAssistantOptions {
   readonly commitReserveMilliseconds?: number;
   /** Identical storage command attempts, never provider attempts. At most three. */
   readonly storageCommandAttempts?: number;
+  /**
+   * Split retrieval and generation across separate physical invocations.
+   * Both application and configuration maxAttempts must be at least two.
+   * Preparation consumes attempt one; generation consumes attempt two.
+   * Defaults to false. Never resumes an ambiguous or paid preparation.
+   */
+  readonly stagedRetrieval?: boolean;
 }
 
 export type AssistantProcessResult =
   | { readonly outcome: "not_claimed" }
+  | {
+      /** Acknowledged durable no-call preparation; return before invoking again. */
+      readonly outcome: "prepared";
+      readonly ticketId: string;
+      readonly turnId: string;
+      readonly preparationAttemptId: string;
+      readonly nextAttemptAt: IsoTimestamp;
+    }
   | { readonly outcome: "completed"; readonly result: HandlingCommandResult }
   | { readonly outcome: "finished"; readonly result: AssistantTurnFinishResult }
   | {

@@ -14,6 +14,12 @@ trusted publication and strict registry verification are recorded in the
 receipt above. This does not establish host activation, live-provider acceptance
 or a universal query or CPU budget.
 
+The synchronized `0.2.2` source is an **unpublished patch candidate** for
+[opt-in staged retrieval](#opt-in-staged-retrieval-022-candidate). Its exact
+internal Support application pin is `0.2.2`; both external KB pins remain
+`0.1.2`. Source and package metadata do not publish this candidate or establish
+host activation, live-provider acceptance, or a universal query or CPU budget.
+
 The base Support Desk application works without this package, a KB, or a model.
 Customer request-person and staff takeover remain deterministic application
 commands during provider outages. Email remains human support. This package
@@ -107,9 +113,9 @@ the host persists its opaque cursor. `processTurn(command, {signal?})` accepts
 Each physical invocation generates its own fresh internal claim ID. Concurrent
 scheduler callbacks cannot replay one live execution's claim and call the
 provider twice. An invocation encountering a live owner returns `not_claimed`;
-it neither settles that owner's reservation nor finishes its attempt. The result
-is `not_claimed`, `completed`, `finished`, or `pending` with a storage stage. The
-host repeats bounded discovery; recovery waits for the prior lease to expire.
+it neither settles that owner's reservation nor finishes its attempt. The default
+path returns `not_claimed`, `completed`, `finished`, or `pending` with a storage
+stage. The host repeats bounded discovery; recovery waits for the prior lease to expire.
 Claims and jobs are durable application state, not an in-package queue or
 database. The underlying application's claim API remains idempotent for its
 trusted direct callers; the coordinator owns a separate ID for each execution.
@@ -122,6 +128,38 @@ unavailable, expired, mismatched, and unverified configurations fail closed;
 there is no retention-mode or provider fallback. The resolver must recheck
 current configuration on every invocation, including final validation. These
 typed evidence references do not independently verify a provider's settings.
+
+## Opt-in staged retrieval (0.2.2 candidate)
+
+The unpublished `0.2.2` candidate accepts `stagedRetrieval: true` in
+`createSupportDeskAssistant(options)` to split retrieval and paid generation
+across two physical invocations. Both the application's attempt limit and
+`AssistantBudgets.maxAttempts` must allow at least two attempts. Retrieval
+preparation consumes attempt one; generation consumes attempt two. The default
+is `false`, preserving the existing single-invocation path.
+
+The first invocation retrieves permitted sources and durably records the bounded
+request fingerprint and exact references without reserving paid usage or calling
+the model. It returns the named `prepared` outcome only after the exact no-call
+retry finish is durably acknowledged. The result includes `ticketId`, `turnId`,
+`preparationAttemptId`, and `nextAttemptAt`. The host returns from that physical
+invocation and schedules the next callback at or after `nextAttemptAt`.
+
+The next invocation reconstructs the request from fresh authorized source
+confirmation, checks the complete logical fingerprint and current configuration
+and customer authority, and takes its own paid reservation and fresh execution
+fence. Existing provider and completion guards still apply. Only the tagged,
+durable `not_called` preparation can be resumed; old untagged or paid
+preparations and unknown accounting retain conservative recovery. An uncertain
+preparation or finish acknowledgment is `pending`, never a claimed `prepared`
+success or permission to call the provider in that invocation. A later callback
+must inspect the actual durable state before deciding whether it can proceed.
+
+This changes no stored layout or provider, privacy, permission, token, cost,
+duration, or source-confirmation limit. Current-head validation, review, trusted
+publication and strict registry verification remain required before host
+production adoption. Source tests do not prove a native host's whole-workflow
+Free-plan call budget, CPU budget, or live activation.
 
 ## Model boundary
 
