@@ -141,7 +141,7 @@ describe("actual publication orchestration with controlled external acceptance",
     for (const { name } of publisher.uploads)
       expect(present).not.toContain(name);
     expect(publisher.state.consumerDependencies).toEqual(
-      Object.fromEntries(present.map((name) => [name, "0.2.1"])),
+      Object.fromEntries(present.map((name) => [name, "0.2.2"])),
     );
     expect(
       publisher.preflightRun.mock.calls.map(([, args]) => args[1]),
@@ -599,16 +599,16 @@ describe("registry verification of the original bytes", () => {
         repository: "pegma-dev/support-desk",
         workflow: ".github/workflows/publish.yml",
         environment: "npm-publish",
-        tag: "v0.2.1",
+        tag: "v0.2.2",
         commit: releaseVerificationCommit,
-        version: "0.2.1",
+        version: "0.2.2",
       },
       packages: releaseVerificationPackages.map(({ name }) => name),
     });
     expect(receipt.distTags).toHaveLength(5);
     for (const observation of receipt.distTags) {
-      expect(observation.version).toBe("0.2.1");
-      expect(observation.tags).toEqual({ latest: "0.2.1" });
+      expect(observation.version).toBe("0.2.2");
+      expect(observation.tags).toEqual({ latest: "0.2.2" });
       expect(Number.isFinite(Date.parse(observation.observedAt))).toBe(true);
       expect(
         registry.fetch.mock.calls.some(
@@ -618,7 +618,7 @@ describe("registry verification of the original bytes", () => {
     }
     expect(registry.state.consumerDependencies).toEqual(
       Object.fromEntries(
-        releaseVerificationPackages.map(({ name }) => [name, "0.2.1"]),
+        releaseVerificationPackages.map(({ name }) => [name, "0.2.2"]),
       ),
     );
     expect(registry.state.imports).toBe(1);
@@ -697,7 +697,7 @@ describe("registry verification of the original bytes", () => {
     expect(await preflightRegistry(verified, registry.ports)).toEqual(
       releaseVerificationPackages.map(({ name }) => ({
         name,
-        version: "0.2.1",
+        version: "0.2.2",
         action: "skip",
       })),
     );
@@ -705,7 +705,7 @@ describe("registry verification of the original bytes", () => {
     expect(registry.fetch).toHaveBeenCalledTimes(10);
   });
 
-  it.each(["0.1.1", "0.2.1"])(
+  it.each(["0.1.1", "0.2.1", "0.2.2"])(
     "records observed latest=%s without retagging or confusing it with immutable release identity",
     async (latest) => {
       const f = fixture();
@@ -716,7 +716,7 @@ describe("registry verification of the original bytes", () => {
         { ...options(f), npmCli: registry.npmCli },
         registry.ports,
       );
-      expect(receipt.identity.version).toBe("0.2.1");
+      expect(receipt.identity.version).toBe("0.2.2");
       expect(
         receipt.distTags.map(({ name, version, tags }) => ({
           name,
@@ -726,7 +726,7 @@ describe("registry verification of the original bytes", () => {
       ).toEqual(
         releaseVerificationPackages.map(({ name }) => ({
           name,
-          version: "0.2.1",
+          version: "0.2.2",
           tags: { latest },
         })),
       );
@@ -750,7 +750,7 @@ describe("registry verification of the original bytes", () => {
         Object.assign(packument, { name: "@foreign/support-desk-contracts" });
       if (failure === "too-many-tags")
         packument["dist-tags"] = Object.fromEntries(
-          Array.from({ length: 33 }, (_, index) => [`tag-${index}`, "0.2.1"]),
+          Array.from({ length: 33 }, (_, index) => [`tag-${index}`, "0.2.2"]),
         );
       if (failure === "bad-target")
         packument["dist-tags"].latest = "bad\u0000target";
@@ -776,7 +776,7 @@ describe("registry verification of the original bytes", () => {
     registry.documents.delete(registry.metadataUrl(first));
     expect((await preflightRegistry(verified, registry.ports))[0]).toEqual({
       name: first,
-      version: "0.2.1",
+      version: "0.2.2",
       action: "publish",
     });
     const missingBytes = releaseRegistryFixture(f);
@@ -1035,7 +1035,7 @@ describe("authenticated provenance policy", () => {
         statement.subject[0]!.digest.sha512 = "e".repeat(128);
       if (field === "subject-name")
         statement.subject[0]!.name =
-          "pkg:npm/%40foreign/support-desk-contracts@0.2.1";
+          "pkg:npm/%40foreign/support-desk-contracts@0.2.2";
       if (field === "source-uri")
         definition.resolvedDependencies[0]!.uri =
           "git+https://github.com/pegma-dev/support-desk@refs/heads/main";
@@ -1058,12 +1058,12 @@ describe("authenticated provenance policy", () => {
       const f = fixture();
       const registry = releaseRegistryFixture(f);
       let identity =
-        "https://github.com/pegma-dev/support-desk/.github/workflows/publish.yml@refs/tags/v0.2.1";
+        "https://github.com/pegma-dev/support-desk/.github/workflows/publish.yml@refs/tags/v0.2.2";
       if (field === "repository")
         identity = identity.replace("pegma-dev", "foreign-org");
       if (field === "workflow")
         identity = identity.replace("publish.yml", "unreviewed.yml");
-      if (field === "tag") identity = identity.replace("v0.2.1", "v0.1.1");
+      if (field === "tag") identity = identity.replace("v0.2.2", "v0.1.1");
       registry.audit.verified[0]!.attestationBundles[0]!.bundle.verificationMaterial.certificate.rawBytes =
         field === "malformed"
           ? Buffer.from("not a certificate").toString("base64")
@@ -1144,7 +1144,7 @@ describe("protected OIDC publication authority", () => {
     const verified = await verifyPreparedRelease(options(fixture()));
     expect(() =>
       assertTrustedPublishingEnvironment(
-        { NODE_AUTH_TOKEN: "synthetic-token", RELEASE_TAG: "v0.2.1" },
+        { NODE_AUTH_TOKEN: "synthetic-token", RELEASE_TAG: "v0.2.2" },
         verified.identity,
       ),
     ).toThrow();
@@ -1223,13 +1223,14 @@ describe("source-bound original release artifact", () => {
   });
 
   it("reads real gzip/tar artifacts and accepts the independently pinned exact five-package candidate", async () => {
+    expect(releaseVerificationVersion).toBe("0.2.2");
     const f = fixture();
     expect(
       f.manifest.packages.map(({ name, version }) => ({ name, version })),
     ).toEqual(
       releaseVerificationPackages.map(({ name }) => ({
         name,
-        version: "0.2.1",
+        version: "0.2.2",
       })),
     );
     for (const entry of f.packages) {
@@ -1269,7 +1270,7 @@ describe("source-bound original release artifact", () => {
     async (field) => {
       const f = fixture();
       const expected = options(f);
-      if (field === "release-tag") expected.releaseTag = "v0.2.2";
+      if (field === "release-tag") expected.releaseTag = "v0.2.1";
       if (field === "source-commit")
         expected.expectedReleaseCommit = "d".repeat(40);
       if (field === "manifest-pin") expected.manifestSha256 = "f".repeat(64);

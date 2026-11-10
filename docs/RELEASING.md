@@ -29,6 +29,18 @@ verified release. Host adoption waits for exact published artifacts, strict
 verification, and each host's own acceptance. See [release notes](RELEASE_NOTES.md),
 [upgrading](UPGRADING.md), and [AI operations](AI_OPERATIONS.md).
 
+Source versions are synchronized at **unpublished `0.2.2` candidate** for
+[opt-in durable staged retrieval](ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval);
+see the [AI package guide](../packages/ai/README.md#opt-in-staged-retrieval-022-candidate).
+The default stays monolithic. Preparation consumes an existing attempt; both
+application and verified-configuration caps must already allow at least two,
+without resetting counters or raising caps. `prepared` requires a physical host
+return and a later invocation, not same-invocation resumption. The candidate
+needs its own full Node 22/24 gates, review, signed `0.2.2` release, trusted
+publication and strict registry/consumer verification. Host invocation and CPU
+measurements remain separate; neither source nor publication proves a Free-plan
+budget. The current qualified release remains `0.2.1`, with its receipt below.
+
 ## Verified 0.2.1 publication: 2026-11-10
 
 The protected signed [`v0.2.1` release](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.1)

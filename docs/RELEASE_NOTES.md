@@ -1,5 +1,23 @@
 # Release notes
 
+## 0.2.2 — opt-in staged retrieval (unreleased)
+
+All five source packages are synchronized at `0.2.2` for this unpublished
+candidate. [Opt-in staged retrieval](ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval)
+splits preparation and paid generation across separate physical invocations;
+see the [AI package guide](../packages/ai/README.md#opt-in-staged-retrieval-022-candidate).
+Omission retains the monolithic path. Preparation consumes an existing attempt,
+so both application and verified-configuration caps must allow at least two
+attempts, without resetting counters or raising caps. After `prepared`, the
+host must return and resume only in a subsequent physical invocation.
+
+The candidate requires its own full current-head Node 22/24 gates, review,
+trusted publication and strict registry/consumer verification. Host adoption
+separately requires measured invocation/CPU acceptance; this protocol establishes
+no universal Free-plan budget.
+The current qualified release remains `0.2.1`; its receipt and history below
+are unchanged.
+
 ## 0.2.1 — assistant-answering read batching, 2026-11-10
 
 This published synchronized patch advances contracts, core, templates, application,
