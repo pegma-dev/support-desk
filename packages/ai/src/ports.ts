@@ -66,7 +66,13 @@ export interface VerifiedAssistantConfiguration {
   readonly dataControls: AssistantDataControls;
 }
 
-/** Returning ready asserts current documented ZDR compatibility on every path. */
+/**
+ * Returning ready asserts current documented ZDR compatibility on every path.
+ * Staged phases freshly validate and compare the full configuration snapshot,
+ * including dataControls.verifiedAt/validUntil, not just version labels.
+ * Re-attestation changes invalidate prepared work; never strip fields or reuse
+ * stale evidence to force a matching resume.
+ */
 export interface AssistantConfigurationPort {
   resolve(expectedVersion?: string): Promise<
     | {
@@ -88,7 +94,12 @@ export interface AssistantCustomerAuthority {
 }
 
 export interface AssistantCustomerAuthorityPort {
-  /** The host rechecks active/current principal state on every invocation. */
+  /**
+   * Recheck active/current principal state on every invocation and live guard.
+   * Staged phases compare the complete validated authority snapshot, including
+   * opaque usageScopeRef. Reissuing that scope invalidates prepared work even
+   * with unchanged versions; never cache authority or normalize the scope away.
+   */
   resolve(principalId: PrincipalId): Promise<
     | {
         readonly outcome: "ready";
@@ -152,7 +163,11 @@ export interface AssistantModelResult {
 }
 
 export interface AssistantModelPort {
-  /** Called once per newly prepared attempt, outside all Store retry callbacks. */
+  /**
+   * At most one request per paid monolithic or staged-generation attempt,
+   * outside all Store retry callbacks. Never called for retrieval preparation;
+   * that phase also reserves no usage.
+   */
   generate(
     input: AssistantModelInput,
     context: AssistantAttemptContext,
@@ -227,14 +242,23 @@ export interface SupportDeskAssistantOptions {
    * Both application and configuration maxAttempts must be at least two.
    * Preparation consumes attempt one; generation consumes attempt two.
    * Defaults to false. Never resumes an ambiguous or paid preparation.
+   * Full current configuration/authority snapshots must match across phases,
+   * including data-control times and opaque usageScopeRef. Renewals fail closed.
+   * A prepared outcome requires physical return before a later invocation.
    */
   readonly stagedRetrieval?: boolean;
 }
 
+/**
+ * The prepared member widens every caller's return union, even with staging
+ * omitted or false. Exhaustive TypeScript handlers must cover it. Only opt-in
+ * staging returns it: return physically and schedule a genuine later invocation
+ * at/after nextAttemptAt, never same-invocation recursion or waitUntil resume.
+ */
 export type AssistantProcessResult =
   | { readonly outcome: "not_claimed" }
   | {
-      /** Acknowledged durable no-call preparation; return before invoking again. */
+      /** Acknowledged durable no-call preparation; return before a later physical invocation. */
       readonly outcome: "prepared";
       readonly ticketId: string;
       readonly turnId: string;

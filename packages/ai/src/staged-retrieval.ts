@@ -37,12 +37,14 @@ export function stagedPreparation(
     claim.preparedAttempts.length !== 1 ||
     prepared === undefined ||
     prepared.attempt !== 1 ||
-    prepared.attemptId !== `${claim.fence.turnId}:1` ||
     prepared.accounting !== "not_called" ||
     prepared.processing !== undefined ||
     !isRetrievalPreparation(prepared)
   )
     throw new AssistantBoundaryError("retrieval_preparation_unavailable");
+  // The application validates its durable attempt envelope before returning
+  // a claim. Keep its identifier opaque; verification below binds the exact
+  // returned identity through the predetermined no-call reservation.
   return prepared;
 }
 
@@ -109,6 +111,8 @@ export async function verifyStagedPreparation(
  * Bind the entire logical request, excluding the physical owner, attempt,
  * lease, execution deadline and reservation that the next invocation replaces.
  * Only hashes and exact source references are persisted by the generic binding.
+ * Renewed evidence timestamps and reissued opaque authority values intentionally
+ * invalidate preparation even when their configuration versions are unchanged.
  */
 export function stagedInputFingerprint(input: {
   readonly claim: AssistantTurnClaim;

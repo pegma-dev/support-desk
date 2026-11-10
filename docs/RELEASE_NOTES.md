@@ -1,15 +1,51 @@
 # Release notes
 
-## 0.2.2 — opt-in staged retrieval (unreleased)
+## 0.2.2 — staged retrieval and exact review recovery (unreleased)
 
 All five source packages are synchronized at `0.2.2` for this unpublished
-candidate. [Opt-in staged retrieval](ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval)
+candidate. The optional AI package advances its exact KB application/contracts
+runtime dependencies to `0.1.5`; repository development/test pins use the same
+versions. The complete resolved graph and packed consumer require their own
+candidate validation. Published `0.2.1` artifacts retain their exact KB `0.1.2`
+dependencies and immutable verification history.
+
+[Opt-in staged retrieval](ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval)
 splits preparation and paid generation across separate physical invocations;
 see the [AI package guide](../packages/ai/README.md#opt-in-staged-retrieval-022-candidate).
 Omission retains the monolithic path. Preparation consumes an existing attempt,
 so both application and verified-configuration caps must allow at least two
 attempts, without resetting counters or raising caps. After `prepared`, the
 host must return and resume only in a subsequent physical invocation.
+
+`AssistantProcessResult` adds a public `prepared` union member with `ticketId`,
+`turnId`, `preparationAttemptId` and `nextAttemptAt`. Exhaustive TypeScript
+handlers must add this case when upgrading, even if `stagedRetrieval` is omitted
+or `false`: the exported return type widens independently of runtime opt-in.
+Only opt-in staging returns `prepared`. Return from that physical invocation
+and schedule a genuine later invocation at or after `nextAttemptAt`; calling
+again in the same invocation or through `waitUntil` is not a continuation.
+
+Staged resume requires identical complete validated configuration and customer-
+authority snapshots, not merely matching version labels. This includes
+`dataControls.verifiedAt`, `dataControls.validUntil` and opaque `usageScopeRef`.
+Renewed attestations or a reissued scope invalidate preparation even with
+unchanged versions and logical settings. This intentionally fails closed to
+finish/handoff before new usage reservation or a model call. Fresh live
+validation remains required; do not ignore fields or reuse stale evidence to
+force a match.
+
+The candidate also adds [exact learning review recovery](RESOLUTION_LEARNING.md#exact-review-intent-recovery-unpublished-022-candidate).
+Read-only preparation returns the actual draft and full immutable intent;
+submission, receipt read and explicit atomic cancellation share its original
+actor/command/decision binding. Historical acceptance can replay after source
+reopen/withdrawal. A null receipt read remains nonterminal. Cancellation either
+recovers acceptance or fences a late original write at the same ticket command
+key with Audit; it never revokes an accepted review or publishes guidance.
+Current human authority, new-submission proof checks and finite admission remain.
+Legacy accepted fingerprints and generic receipt rows are preserved; new intent
+commands add optional `intentBinding`, and older callers fail closed on those
+commands or cancellation fingerprints. Hosts must adopt the new union and keep
+unknown packets until an exact accepted/cancelled acknowledgement.
 
 The candidate requires its own full current-head Node 22/24 gates, review,
 trusted publication and strict registry/consumer verification. Host adoption

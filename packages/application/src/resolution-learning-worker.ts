@@ -47,6 +47,8 @@ import type {
   ResolutionLearningModelBinding,
   ResolutionLearningPreparedStep,
   ResolutionLearningProcessing,
+  ResolutionLearningReviewReceipt,
+  ReviewResolutionLearningProposalCommand,
   ResolutionLearningStepResult,
 } from "./resolution-learning-types.js";
 
@@ -159,6 +161,8 @@ type WorkerMethods = Pick<
   | "completeResolutionLearningStep"
   | "finishResolutionLearningWork"
   | "reviewResolutionLearningProposal"
+  | "readResolutionLearningReviewReceipt"
+  | "cancelResolutionLearningReview"
 >;
 function permission(access: AccessContext, review = false): void {
   text(access.principalId, "principalId");
@@ -324,6 +328,106 @@ export function createResolutionLearningWorkerServices(
   load: (ticketId: string) => Promise<Loaded>,
 ): WorkerMethods {
   const { records, clock, options } = deps;
+  async function reviewIdentity(
+    input: ReviewResolutionLearningProposalCommand,
+    actorId: string,
+  ) {
+    const command = snapshot(
+      fields(
+        input,
+        "review learning",
+        [
+          "ticketId",
+          "sourceGeneration",
+          "commandId",
+          "correlationId",
+          "expectedWorkGeneration",
+          "target",
+          "decision",
+          "policyVersion",
+        ],
+        ["reason", "intentBinding"],
+      ),
+    ) as unknown as typeof input;
+    validateResolutionTarget(command.target);
+    integer(command.expectedWorkGeneration, "expectedWorkGeneration", 1);
+    text(command.commandId, "commandId");
+    text(command.correlationId, "correlationId");
+    text(command.policyVersion, "policyVersion");
+    if (command.intentBinding !== undefined) {
+      text(command.intentBinding, "intentBinding", 64);
+      if (!/^[0-9a-f]{64}$/.test(command.intentBinding))
+        throw new TypeError("invalid review intent binding");
+    }
+    if (command.reason !== undefined) text(command.reason, "reason");
+    if (command.decision !== "approve" && command.decision !== "reject")
+      throw new TypeError("invalid review decision");
+    text(command.ticketId, "ticketId");
+    integer(command.sourceGeneration, "sourceGeneration", 1);
+    const hash = await fingerprint({ command, actorId });
+    // Preserve every existing accepted fingerprint and generic receipt shape.
+    // Older readers see the cancellation fingerprint as a conflicting command.
+    const cancellationHash = await fingerprint({
+      operation: "cancel_resolution_learning_review",
+      reviewFingerprint: hash,
+    });
+    return {
+      command,
+      hash,
+      cancellationHash,
+      key: {
+        partition: command.ticketId,
+        id: `learning-command:${command.commandId}`,
+      },
+    };
+  }
+  type ReviewIdentity = Awaited<ReturnType<typeof reviewIdentity>>;
+  async function requireReviewTicket(identity: ReviewIdentity): Promise<void> {
+    const ticket = await records.get({
+      partition: identity.command.ticketId,
+      id: "ticket",
+    });
+    if (ticket?.kind !== "ticket") throw new SupportDeskNotFoundError();
+  }
+  async function observedReview(
+    identity: ReviewIdentity,
+  ): Promise<ResolutionLearningReviewReceipt | null> {
+    const prior = await records.get(identity.key);
+    if (prior === null) return null;
+    if (prior.kind !== "resolution_learning_receipt")
+      throw new SupportDeskConflictError("Review command reused");
+    if (
+      prior.partition !== identity.key.partition ||
+      prior.id !== identity.key.id
+    )
+      throw new SupportDeskConflictError("Review receipt identity differs");
+    fields(
+      prior.result,
+      "review receipt result",
+      ["ticketId", "sourceGeneration", "resolutionCycle", "state"],
+      ["heldReason"],
+    );
+    if (
+      prior.result.ticketId !== identity.command.ticketId ||
+      !["unverified", "eligible", "held", "withdrawn"].includes(
+        prior.result.state,
+      )
+    )
+      throw new TypeError("Invalid review receipt result");
+    integer(prior.result.sourceGeneration, "sourceGeneration", 0);
+    integer(prior.result.resolutionCycle, "resolutionCycle", 1);
+    if (prior.result.heldReason !== undefined)
+      text(prior.result.heldReason, "heldReason");
+    if (prior.fingerprint === identity.hash)
+      return { outcome: "accepted", result: snapshot(prior.result) };
+    if (prior.fingerprint === identity.cancellationHash)
+      return {
+        outcome: "cancelled",
+        ticketId: identity.command.ticketId,
+        commandId: identity.command.commandId,
+      };
+    throw new SupportDeskConflictError("Review command reused");
+  }
   async function workAt(key: {
     ticketId: string;
     sourceGeneration: number;
@@ -1216,54 +1320,102 @@ export function createResolutionLearningWorkerServices(
       }
       throw new SupportDeskConflictError();
     },
+    async readResolutionLearningReviewReceipt(access, input) {
+      permission(access, true);
+      const identity = await reviewIdentity(input, access.principalId);
+      // A named staff permission still requires the actual ticket resource.
+      await requireReviewTicket(identity);
+      return observedReview(identity);
+    },
+    async cancelResolutionLearningReview(access, input, guard) {
+      permission(access, true);
+      if (typeof guard !== "function")
+        throw new TypeError(
+          "Review cancellation requires a current-authority guard",
+        );
+      const identity = await reviewIdentity(input, access.principalId);
+      const { command, key, cancellationHash } = identity;
+      for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
+        // Exact recovery needs the current ticket and human authority, not
+        // spare capacity for an operation that has already committed.
+        await requireReviewTicket(identity);
+        const prior = await observedReview(identity);
+        if (prior !== null) {
+          await guard();
+          return prior;
+        }
+        const loaded = await load(command.ticketId);
+        deps.admission(loaded.ticket.value.ticket, loaded.rows, 2);
+        const now = clock.now();
+        const result = {
+          ticketId: loaded.source.value.ticketId,
+          sourceGeneration: loaded.source.value.sourceGeneration,
+          resolutionCycle: loaded.source.value.resolutionCycle,
+          state: loaded.source.value.state,
+        };
+        await guard();
+        if (
+          (
+            await records.transact(command.ticketId, [
+              {
+                action: "putIfUnchanged",
+                version: loaded.ticket.version,
+                value: loaded.ticket.value,
+              },
+              deps.audit(
+                command,
+                loaded.ticket.value.ticket,
+                access.principalId,
+                now,
+                "support.learning.review_cancelled",
+              ),
+              {
+                action: "insert",
+                value: {
+                  kind: "resolution_learning_receipt",
+                  partition: command.ticketId,
+                  id: key.id,
+                  fingerprint: cancellationHash,
+                  result,
+                },
+              },
+            ])
+          ).committed
+        ) {
+          // Withhold a committed acknowledgement if authority was lost; do not
+          // undo the durable cancellation or reinterpret the error as absence.
+          await guard();
+          return {
+            outcome: "cancelled",
+            ticketId: command.ticketId,
+            commandId: command.commandId,
+          };
+        }
+      }
+      // A competing review/cancellation can win the last conditional attempt.
+      await requireReviewTicket(identity);
+      const prior = await observedReview(identity);
+      if (prior !== null) {
+        await guard();
+        return prior;
+      }
+      throw new SupportDeskConflictError();
+    },
     async reviewResolutionLearningProposal(access, input, guard) {
       permission(access, true);
       if (typeof guard !== "function")
         throw new TypeError(
           "KB target review requires a read-only current-target guard",
         );
-      const command = snapshot(
-        fields(
-          input,
-          "review learning",
-          [
-            "ticketId",
-            "sourceGeneration",
-            "commandId",
-            "correlationId",
-            "expectedWorkGeneration",
-            "target",
-            "decision",
-            "policyVersion",
-          ],
-          ["reason"],
-        ),
-      ) as unknown as typeof input;
-      validateResolutionTarget(command.target);
-      integer(command.expectedWorkGeneration, "expectedWorkGeneration", 1);
-      text(command.commandId, "commandId");
-      text(command.correlationId, "correlationId");
-      text(command.policyVersion, "policyVersion");
-      if (command.reason !== undefined) text(command.reason, "reason");
-      if (command.decision !== "approve" && command.decision !== "reject")
-        throw new TypeError("invalid review decision");
-      const hash = await fingerprint({ command, actorId: access.principalId });
-      const key = {
-        partition: command.ticketId,
-        id: `learning-command:${command.commandId}`,
-      };
+      const identity = await reviewIdentity(input, access.principalId);
+      const { command, hash, key } = identity;
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
         const loaded = await load(command.ticketId);
         const work = await workAt(command);
-        const prior = await records.get(key);
-        if (prior !== null) {
-          if (
-            prior.kind !== "resolution_learning_receipt" ||
-            prior.fingerprint !== hash
-          )
-            throw new SupportDeskConflictError("Review command reused");
-          return snapshot(prior.result);
-        }
+        const prior = await observedReview(identity);
+        if (prior?.outcome === "accepted") return prior.result;
+        if (prior?.outcome === "cancelled")
+          throw new SupportDeskConflictError("Review command cancelled");
         if (
           !current(loaded, work.value) ||
           work.value.workGeneration !== command.expectedWorkGeneration ||

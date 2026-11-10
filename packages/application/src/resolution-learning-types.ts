@@ -324,8 +324,21 @@ export interface ReviewResolutionLearningProposalCommand
   readonly target: ResolutionLearningTarget;
   readonly decision: "approve" | "reject";
   readonly policyVersion: string;
+  /** Optional full SDK-prepared intent hash; omission retains legacy fingerprints. */
+  readonly intentBinding?: string;
   readonly reason?: string;
 }
+/** Exact actor/command receipt; cancellation is not an approval or rollback. */
+export type ResolutionLearningReviewReceipt =
+  | {
+      readonly outcome: "accepted";
+      readonly result: ResolutionLearningSourceResult;
+    }
+  | {
+      readonly outcome: "cancelled";
+      readonly ticketId: TicketId;
+      readonly commandId: string;
+    };
 /** Read-only current authority/configuration/KB target confirmation. */
 export type ResolutionLearningCommitGuard = () => void | Promise<void>;
 export interface ResolutionLearningReconciliationView {
@@ -414,6 +427,21 @@ export interface ResolutionLearningApplication {
     command: ReviewResolutionLearningProposalCommand,
     verifyBeforeCommit: ResolutionLearningCommitGuard,
   ): Promise<ResolutionLearningSourceResult>;
+  /** Null is only an observation; an in-flight review can still commit. */
+  readResolutionLearningReviewReceipt(
+    access: AccessContext,
+    command: ReviewResolutionLearningProposalCommand,
+  ): Promise<ResolutionLearningReviewReceipt | null>;
+  /**
+   * Recover an accepted review, or atomically fence its exact command against
+   * future acceptance. The guard confirms current human authority, not the old
+   * KB target. Unknown/error results never prove cancellation.
+   */
+  cancelResolutionLearningReview(
+    access: AccessContext,
+    command: ReviewResolutionLearningProposalCommand,
+    verifyBeforeCommit: ResolutionLearningCommitGuard,
+  ): Promise<ResolutionLearningReviewReceipt>;
   confirmResolutionLearningSource(
     access: AccessContext,
     fence: ResolutionSourceFence,

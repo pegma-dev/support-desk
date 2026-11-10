@@ -16,9 +16,13 @@ or a universal query or CPU budget.
 
 The synchronized `0.2.2` source is an **unpublished patch candidate** for
 [opt-in staged retrieval](#opt-in-staged-retrieval-022-candidate). Its exact
-internal Support application pin is `0.2.2`; both external KB pins remain
-`0.1.2`. Source and package metadata do not publish this candidate or establish
-host activation, live-provider acceptance, or a universal query or CPU budget.
+internal Support application pin is `0.2.2`; both external KB application and
+contracts pins advance to exact `0.1.5`, matching the repository's development
+and test assembly. Validate the complete resolved dependency graph and packed
+consumer with these exact pins; the published `0.2.1`/KB `0.1.2` receipt does
+not qualify this changed graph. Source and package metadata do not publish this
+candidate or establish host activation, live-provider acceptance, or a universal
+query or CPU budget.
 
 The base Support Desk application works without this package, a KB, or a model.
 Customer request-person and staff takeover remain deterministic application
@@ -98,7 +102,9 @@ and explicit host ports exported from this package:
 - `AssistantCustomerAuthorityPort` independently rechecks the active customer's
   current access, audience/policy versions, collection IDs, applicability, and
   opaque usage scope. Assistant permissions never establish the KB audience.
-- `AssistantModelPort` performs one provider request outside storage retries.
+- `AssistantModelPort` performs at most one request per paid monolithic or
+  staged-generation attempt, outside storage retries. Retrieval preparation
+  never invokes it or reserves usage.
 - `AssistantUsagePort` durably reserves and reconciles operation/customer/site
   token, cost, and attempt limits. The host supplies its limiter and ledger.
 - `AssistantTokenCounter` counts locally using the selected model's tokenizer.
@@ -145,12 +151,26 @@ retry finish is durably acknowledged. The result includes `ticketId`, `turnId`,
 `preparationAttemptId`, and `nextAttemptAt`. The host returns from that physical
 invocation and schedules the next callback at or after `nextAttemptAt`.
 
+This adds a public `prepared` member to `AssistantProcessResult` regardless of
+the runtime option. Exhaustive TypeScript handlers must add a case even when
+`stagedRetrieval` is omitted or `false`; only an opted-in runtime can produce
+that outcome. Handle it by returning and arranging a genuine later physical
+invocation, never by calling again in the same invocation or through `waitUntil`.
+
 The next invocation reconstructs the request from fresh authorized source
 confirmation, checks the complete logical fingerprint and current configuration
 and customer authority, and takes its own paid reservation and fresh execution
 fence. Existing provider and completion guards still apply. Only the tagged,
 durable `not_called` preparation can be resumed; old untagged or paid
-preparations and unknown accounting retain conservative recovery. An uncertain
+preparations and unknown accounting retain conservative recovery.
+The complete validated configuration and customer-authority snapshot values
+must stay identical across phases, including `dataControls.verifiedAt`,
+`dataControls.validUntil` and opaque `usageScopeRef`. The same version labels
+alone do not suffice. Re-attestation or scope reissuance intentionally invalidates
+the preparation and fails closed to finish/handoff before new usage reservation
+or a model call, even when other logical settings match. Fresh resolver and
+within-resume live checks remain required; never hide a renewal by stripping
+fields, normalizing scope identity or caching stale trust evidence. An uncertain
 preparation or finish acknowledgment is `pending`, never a claimed `prepared`
 success or permission to call the provider in that invocation. A later callback
 must inspect the actual durable state before deciding whether it can proceed.
@@ -206,8 +226,8 @@ versioned source-grounded evaluations and host acceptance evidence.
 
 ## Durable execution and recovery
 
-The coordinator claims, resolves fresh configuration/customer authority,
-retrieves permitted approved whole articles, fingerprints the complete bounded
+On the monolithic path, the coordinator claims, resolves fresh configuration/
+customer authority, retrieves permitted approved whole articles, fingerprints the complete bounded
 request, and prepares its immutable generic binding on the existing job row.
 That binding retains versions, every full source reference, applicability/
 audience hash, deadline, fingerprint, and a predetermined usage reservation ID;

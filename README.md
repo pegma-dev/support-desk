@@ -20,6 +20,9 @@ not establish a universal query or CPU budget or close host acceptance.
 All five source packages are now synchronized at **unpublished `0.2.2` candidate**
 versions for [opt-in staged retrieval](docs/ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval),
 documented in the [AI package guide](packages/ai/README.md#opt-in-staged-retrieval-022-candidate).
+The candidate moves the optional AI package's exact KB application/contracts
+runtime pins and the matching repository development/test pins to `0.1.5`.
+The published `0.2.1`/KB `0.1.2` artifacts and receipts remain unchanged.
 The default remains monolithic. Preparation uses an existing attempt, so both
 application and verified-configuration caps must allow at least two attempts;
 no counters or caps reset. After `prepared`, return from the physical invocation

@@ -192,6 +192,10 @@ grouped reads do not establish a universal query or CPU budget.
 All five source packages are synchronized at **unpublished `0.2.2` candidate**
 versions for [opt-in durable staged retrieval](docs/ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval);
 see the [AI package guide](packages/ai/README.md#opt-in-staged-retrieval-022-candidate).
+The candidate's optional AI package uses exact KB application/contracts `0.1.5`
+runtime pins, with matching repository development/test pins. The published
+`0.2.1` artifacts retain their original KB `0.1.2` dependencies; their receipt
+does not qualify the candidate's changed dependency graph.
 The default remains monolithic. Staged preparation consumes an existing attempt;
 both application and verified-configuration attempt caps must permit at least
 two attempts without resetting or raising them. After `prepared`, the host

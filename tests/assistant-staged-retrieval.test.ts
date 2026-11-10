@@ -2,7 +2,10 @@ import {
   createSupportDeskAssistant,
   type SupportDeskAssistantOptions,
 } from "@pegma/support-desk-ai";
-import { createSupportDeskApplication } from "@pegma/support-desk-application";
+import {
+  createSupportDeskApplication,
+  supportRecords,
+} from "@pegma/support-desk-application";
 import { describe, expect, it, vi } from "vitest";
 import { assistantAiFixture } from "../test/assistant-ai-fixtures.js";
 import {
@@ -254,6 +257,9 @@ describe("staged retrieval acknowledgment and fail-closed boundaries", () => {
       );
       expect(result.outcome).toBe("finished");
       expect(await turn(f)).toMatchObject({ status: "escalated", attempt: 1 });
+      expect(await application.readHandoffWork(staff, "ticket")).toMatchObject([
+        { reason: "capacity" },
+      ]);
       expect(f.reserve).not.toHaveBeenCalled();
       expect(f.generate).not.toHaveBeenCalled();
     },
@@ -307,6 +313,55 @@ describe("staged retrieval acknowledgment and fail-closed boundaries", () => {
     });
     expect((await staged(f).processTurn(command)).outcome).toBe("completed");
     expect(f.generate).toHaveBeenCalledOnce();
+  });
+
+  it("does not reconcile an unknown no-call marker as paid usage after staging is disabled", async () => {
+    const f = await assistantAiFixture();
+    const command = await f.nextCommand();
+    const first = await staged(f, {
+      application: {
+        ...f.app,
+        async prepareAssistantTurnAttempt(...args) {
+          await f.app.prepareAssistantTurnAttempt(...args);
+          throw new Error("Synthetic lost no-call preparation ACK");
+        },
+      },
+    }).processTurn(command);
+    expect(first).toEqual({ outcome: "pending", stage: "prepare" });
+    expect(await turn(f)).toMatchObject({
+      preparedAttempts: [
+        {
+          accounting: "unknown",
+          binding: {
+            versions: { supportAnswerStage: "support-answer-retrieval-1" },
+          },
+        },
+      ],
+    });
+    f.advance(31_000);
+    expect((await f.assistant.processTurn(command)).outcome).toBe("completed");
+    expect(f.generate).toHaveBeenCalledOnce();
+    expect(f.reserve).toHaveBeenCalledOnce();
+    expect(f.reconcile).toHaveBeenCalledOnce();
+    expect(f.reconcile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        usageReservationId: f.generate.mock.calls[0]![1].usageReservationId,
+      }),
+      expect.objectContaining({ state: "known" }),
+    );
+    expect(f.reconcile.mock.calls[0]![0].usageReservationId).toMatch(
+      /^usage:/u,
+    );
+    expect(await turn(f)).toMatchObject({
+      preparedAttempts: [
+        { accounting: "unknown" },
+        {
+          binding: {
+            versions: { configuration: f.state.configuration.version },
+          },
+        },
+      ],
+    });
   });
 
   it("does not resume a failed no-call finish or relabel its unknown preparation", async () => {
@@ -496,6 +551,221 @@ describe("staged retrieval acknowledgment and fail-closed boundaries", () => {
       expect(await assistantMessages(f)).toEqual([]);
     },
   );
+
+  it.each(["verifiedAt", "validUntil", "usageScopeRef"] as const)(
+    "requires the unchanged full trusted snapshot when only %s is renewed",
+    async (field) => {
+      const f = await assistantAiFixture();
+      const retrieve = vi.fn(f.knowledge.app.retrieveAnswerSources);
+      const confirm = vi.fn(f.knowledge.app.confirmAnswerSources);
+      const knowledge = {
+        retrieveAnswerSources: retrieve,
+        confirmAnswerSources: confirm,
+      };
+      const configuration = structuredClone(f.state.configuration);
+      const authority = structuredClone(f.state.authority);
+      const command = await f.nextCommand();
+      expect(
+        (await staged(f, { knowledge }).processTurn(command)).outcome,
+      ).toBe("prepared");
+      f.advance(1_000);
+      if (field === "usageScopeRef")
+        f.state.authority = {
+          ...authority,
+          usageScopeRef: "PRIVATE_REISSUED_USAGE_SCOPE",
+        };
+      else
+        f.state.configuration = {
+          ...configuration,
+          dataControls: {
+            ...configuration.dataControls,
+            [field]:
+              field === "verifiedAt"
+                ? f.clock.now()
+                : new Date(
+                    Date.parse(configuration.dataControls.validUntil) + 1_000,
+                  ).toISOString(),
+          },
+        };
+      expect(f.state.configuration.version).toBe(configuration.version);
+      expect(f.state.authority.audienceVersion).toBe(authority.audienceVersion);
+      expect(f.state.authority.policyVersion).toBe(authority.policyVersion);
+      expect(f.state.authority.access).toEqual(authority.access);
+      expect(
+        (await staged(f, { knowledge }).processTurn(command)).outcome,
+      ).toBe("finished");
+      expect(retrieve).toHaveBeenCalledOnce();
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(f.reserve).not.toHaveBeenCalled();
+      expect(f.generate).not.toHaveBeenCalled();
+      expect((await turn(f)).preparedAttempts).toHaveLength(1);
+      expect(await turn(f)).toMatchObject({
+        status: "escalated",
+        preparedAttempts: [{ accounting: "not_called" }],
+      });
+      expect(await assistantMessages(f)).toEqual([]);
+    },
+  );
+
+  it.each([
+    "malformed-json",
+    "namespace",
+    "resource-id",
+    "revision",
+    "noncanonical-json",
+    "duplicate-article",
+    "empty",
+    "too-many",
+  ] as const)(
+    "rejects stored %s reference metadata before dispatching any KB confirmation or paid work",
+    async (variant) => {
+      const f = await assistantAiFixture();
+      const retrieve = vi.fn(f.knowledge.app.retrieveAnswerSources);
+      const confirm = vi.fn(f.knowledge.app.confirmAnswerSources);
+      const knowledge = {
+        retrieveAnswerSources: retrieve,
+        confirmAnswerSources: confirm,
+      };
+      const command = await f.nextCommand();
+      expect(
+        (await staged(f, { knowledge }).processTurn(command)).outcome,
+      ).toBe("prepared");
+      const preparedTurn = await turn(f);
+      const prepared = preparedTurn.preparedAttempts[0]!;
+      const reference = prepared.binding.references[0]!;
+      let references = [...prepared.binding.references];
+      if (variant === "malformed-json")
+        references = [{ ...reference, binding: "{" }];
+      if (variant === "namespace")
+        references = [{ ...reference, namespace: "foreign.knowledge-base" }];
+      if (variant === "resource-id")
+        references = [{ ...reference, resourceId: "article/other" }];
+      if (variant === "revision")
+        references = [{ ...reference, revision: "999" }];
+      if (variant === "noncanonical-json")
+        references = [
+          { ...reference, binding: "{ " + reference.binding.slice(1) },
+        ];
+      if (variant === "duplicate-article") references = [reference, reference];
+      if (variant === "empty") references = [];
+      if (variant === "too-many")
+        references = Array.from({ length: 6 }, () => reference);
+      // The real application's generic binding codec admits this bounded
+      // metadata. The coordinator must reject it before crossing the KB port,
+      // even when a later source/fingerprint guard would also reject it.
+      await f.backing.collection(supportRecords).put({
+        ...preparedTurn,
+        preparedAttempts: [
+          { ...prepared, binding: { ...prepared.binding, references } },
+        ],
+      });
+      expect(
+        (await staged(f, { knowledge }).processTurn(command)).outcome,
+      ).toBe("finished");
+      expect(retrieve).toHaveBeenCalledOnce();
+      expect(confirm).not.toHaveBeenCalled();
+      expect(f.reserve).not.toHaveBeenCalled();
+      expect(f.generate).not.toHaveBeenCalled();
+      expect(await turn(f)).toMatchObject({ status: "escalated", attempt: 2 });
+      expect(await assistantMessages(f)).toEqual([]);
+    },
+  );
+
+  it.each(["missing", "extra"] as const)(
+    "rejects a %s prepared-attempt envelope returned by the application port",
+    async (variant) => {
+      const f = await assistantAiFixture();
+      const command = await f.nextCommand();
+      expect((await staged(f).processTurn(command)).outcome).toBe("prepared");
+      const confirm = vi.fn(f.knowledge.app.confirmAnswerSources);
+      const result = await staged(f, {
+        knowledge: { ...f.knowledge.app, confirmAnswerSources: confirm },
+        application: {
+          ...f.app,
+          async claimAssistantTurn(...args) {
+            const claim = await f.app.claimAssistantTurn(...args);
+            if (claim === null) return null;
+            return {
+              ...claim,
+              preparedAttempts:
+                variant === "missing"
+                  ? []
+                  : [...claim.preparedAttempts, ...claim.preparedAttempts],
+            };
+          },
+        },
+      }).processTurn(command);
+      expect(result.outcome).toBe("finished");
+      expect(confirm).not.toHaveBeenCalled();
+      expect(f.reserve).not.toHaveBeenCalled();
+      expect(f.generate).not.toHaveBeenCalled();
+      expect((await turn(f)).preparedAttempts).toHaveLength(1);
+      expect(await turn(f)).toMatchObject({ status: "escalated", attempt: 2 });
+    },
+  );
+
+  it("rejects staged resumption on a third supported application claim without resetting its budget", async () => {
+    const f = await assistantAiFixture();
+    const application = createSupportDeskApplication({
+      store: f.store,
+      clock: f.clock,
+      assistantHandlingEnabled: true,
+      assistantTurns: { maxAttempts: 3 },
+    });
+    f.state.configuration = {
+      ...f.state.configuration,
+      budgets: { ...f.state.configuration.budgets, maxAttempts: 3 },
+    };
+    const ticketId = "three-attempt-ticket";
+    await application.createCustomerTicket(
+      customer,
+      f.createInput(true, ticketId),
+    );
+    const access = await f.serviceAccess();
+    const page = await application.scanAssistantTurnCandidates(access, {
+      limit: 1_000,
+    });
+    const candidate = page.candidates.find(
+      (entry) => entry.ticketId === ticketId,
+    );
+    if (candidate === undefined)
+      throw new Error("Missing three-attempt candidate");
+    const command = {
+      ...candidate,
+      workerId: "synthetic-three-attempt-worker",
+      leaseMilliseconds: 30_000,
+    };
+    expect(
+      (await staged(f, { application }).processTurn(command)).outcome,
+    ).toBe("prepared");
+    const second = await application.claimAssistantTurn(access, {
+      ...command,
+      claimId: "synthetic-no-provider-second-owner",
+    });
+    if (second === null) throw new Error("Missing second application claim");
+    expect(second.fence.attempt).toBe(2);
+    await application.finishAssistantTurnAttempt(access, {
+      ...second.fence,
+      disposition: "retry",
+      accounting: "not_called",
+    });
+    expect(
+      (await staged(f, { application }).processTurn(command)).outcome,
+    ).toBe("finished");
+    const row = (await f.rows(ticketId)).find(
+      (entry) => entry.kind === "assistant_turn",
+    );
+    expect(row).toMatchObject({
+      status: "escalated",
+      attempt: 3,
+      claimGeneration: 3,
+      maxAttempts: 3,
+      preparedAttempts: [{ attempt: 1, accounting: "not_called" }],
+    });
+    expect(f.reserve).not.toHaveBeenCalled();
+    expect(f.generate).not.toHaveBeenCalled();
+    expect(await application.readHandoffWork(staff, ticketId)).toHaveLength(1);
+  });
 
   it("retains the authority guard after the resumed usage reservation", async () => {
     const f = await assistantAiFixture();

@@ -287,7 +287,7 @@ export function createSupportDeskAssistant(
           if (prepared.accounting !== "unknown") continue;
           // The tagged first stage has no usage reservation or provider path.
           // Unknown acknowledgment still cannot make it eligible for resume.
-          if (stagedRetrieval && isRetrievalPreparation(prepared)) continue;
+          if (isRetrievalPreparation(prepared)) continue;
           try {
             await within(() =>
               options.usage.reconcile(
@@ -547,7 +547,7 @@ export function createSupportDeskAssistant(
           // A successful preparation ACK alone retains accounting:"unknown".
           // Only this exact no-call finish releases the claim for another
           // physical invocation; terminal or ambiguous finishes stay distinct.
-          const released = await finish("other", "retry");
+          const released = await finish("capacity", "retry");
           ensure();
           if (
             released.outcome === "finished" &&

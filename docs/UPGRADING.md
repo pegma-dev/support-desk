@@ -36,6 +36,66 @@ Store/namespace, mail transport, model and usage ports, KB authority, GitHub
 installation, release proof, schedulers, retention, and UI. Package methods
 grant no roles, Admin inheritance, or Agent Access scopes.
 
+## Source migration for the unpublished 0.2.2 candidate
+
+The candidate's optional AI runtime dependencies on KB application/contracts
+advance to exact `0.1.5`, with matching repository development/test pins. Keep
+the complete resolved KB dependency graph coherent when validating and packing
+the candidate; structural type compatibility alone does not establish runtime
+error identity across different KB versions. The published `0.2.1` package
+manifests and their KB `0.1.2` dependencies remain immutable. Their verification
+does not qualify the candidate's changed graph. Hosts wait for trusted `0.2.2`
+publication and strict registry/consumer verification before adopting it.
+
+The current qualified release remains `0.2.1`. The unpublished `0.2.2` candidate
+adds [opt-in staged retrieval](ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval)
+while retaining the monolithic runtime default. Its exported
+`AssistantProcessResult` return union always includes the new `prepared` member;
+exhaustive TypeScript switches or matchers must add a case even when callers
+omit `stagedRetrieval` or set it to `false`. Runtime opt-in does not narrow the
+public return type.
+
+Only opt-in staging can produce `prepared`, with `ticketId`, `turnId`,
+`preparationAttemptId` and `nextAttemptAt`. Return from that physical invocation
+and schedule a genuine later request, queue delivery or scheduler invocation
+at or after `nextAttemptAt`. Do not call `processTurn` again or use `waitUntil`
+inside the same invocation as a substitute. Both existing attempt caps must
+allow at least two attempts; preparation consumes one without resetting counters
+or raising caps, and staging permits only one paid opportunity.
+
+Both resolvers must freshly validate current inputs while preserving full
+validated configuration and customer-authority snapshot values across phases.
+Matching version labels are insufficient: `dataControls.verifiedAt`,
+`dataControls.validUntil` and opaque `usageScopeRef` all participate. Re-attestation
+or scope renewal changes intentionally fail closed to finish/handoff before
+new usage reservation or a model call, even with unchanged logical settings.
+Do not normalize these fields away or cache stale evidence; the paid phase's
+live configuration, authority, source and final-CAS checks still apply.
+
+The candidate also adds [exact learning review intent recovery](RESOLUTION_LEARNING.md#exact-review-intent-recovery-unpublished-022-candidate).
+Use read-only `prepareReviewIntent`, then retain the entire intent and original
+command/decision packet before submission. `submitReviewIntent`,
+`readReviewReceipt` and explicit `cancelReview` accept that exact packet.
+Receipt recovery precedes stale source/target checks; a null read is not a
+terminal refusal. Cancellation competes atomically with approval, returns the
+accepted winner when already committed, and never undoes it. Keep unknown
+packets until an exact accepted/cancelled acknowledgement; never clear them
+from a 409, GET or elapsed deadline alone. New submissions retain current proof
+and authority guards; cancellation requires its current-human guard and bounded
+Audit/receipt admission. Existing full-command `reviewProposal` remains usable.
+
+No receipt rewrite is required. Legacy accepted command fingerprints and the
+generic receipt layout remain unchanged; new intent commands add optional
+`intentBinding`, and cancellation occupies the same command key with a separate
+fingerprint domain. Older `0.2.1` reviewers reject the new field or cancellation
+fingerprint, rather than accepting a cancelled review. They cannot interpret
+the new acknowledgement union. Preserve receipts and rehearse actual downgrade
+behavior instead of deleting them or claiming universal rollback compatibility.
+
+Candidate review, full current-head gates, trusted publication and strict
+verification remain required. Host invocation/CPU measurements and activation
+retain their separate gates; source migration is not live acceptance.
+
 ## Rehearse the actual 0.1.1-to-0.2.0 upgrade
 
 The SD-06 rehearsal below is retained as historical migration evidence. For

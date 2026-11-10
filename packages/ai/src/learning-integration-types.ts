@@ -11,6 +11,10 @@ import type {
   ClaimResolutionLearningWorkCommand,
   ResolutionLearningApplication,
   ResolutionLearningCandidate,
+  ResolutionLearningCommitGuard,
+  ResolutionLearningKey,
+  ResolutionLearningReviewReceipt,
+  ResolutionLearningTarget,
   ResolutionLearningReconciliationView,
   ResolutionLearningSourceResult,
   ResolutionLearningStepResult,
@@ -24,6 +28,7 @@ import type {
   LearningModelExecutorOptions,
   LearningModelProcessResult,
   LearningServiceAccessPort,
+  VerifiedLearningCheckPolicy,
 } from "./learning-ports.js";
 
 /** Use the released direct authoring contract, without a copied draft schema. */
@@ -163,6 +168,31 @@ export interface LearningRunOptions {
   readonly signal?: AbortSignal;
 }
 
+/** Immutable reviewed coordinates, not an approval or a reusable authority grant. */
+export interface LearningReviewIntent {
+  readonly reviewerId: string;
+  readonly ticketId: string;
+  readonly sourceGeneration: number;
+  readonly expectedWorkGeneration: number;
+  readonly target: ResolutionLearningTarget;
+  readonly policy: VerifiedLearningCheckPolicy;
+}
+export interface LearningReviewPreparation {
+  readonly intent: LearningReviewIntent;
+  readonly draft: DraftArticleDto;
+}
+export interface LearningReviewCommand {
+  readonly intent: LearningReviewIntent;
+  readonly commandId: string;
+  readonly correlationId: string;
+  readonly decision: "approve" | "reject";
+  readonly reason?: string;
+}
+export interface LearningReviewCancellationOptions extends LearningRunOptions {
+  /** Trusted read-only current human authority; cancellation needs no old KB proof. */
+  readonly verifyBeforeCommit: ResolutionLearningCommitGuard;
+}
+
 export type LearningProcessResult =
   | LearningModelProcessResult
   | { readonly outcome: "not_claimed" }
@@ -200,6 +230,30 @@ export interface SupportDeskLearning {
     command: ReviewResolutionLearningProposalCommand,
     options?: LearningRunOptions,
   ): Promise<ResolutionLearningSourceResult>;
+  /** Read-only preparation; retain the entire intent before any review submission. */
+  prepareReviewIntent(
+    access: AccessContext,
+    key: ResolutionLearningKey,
+    options?: LearningRunOptions,
+  ): Promise<LearningReviewPreparation>;
+  /** Exact receipt recovery precedes current checks; new approvals recheck all proofs. */
+  submitReviewIntent(
+    access: AccessContext,
+    command: LearningReviewCommand,
+    options?: LearningRunOptions,
+  ): Promise<ResolutionLearningSourceResult>;
+  /** Null never establishes that an older in-flight call cannot still commit. */
+  readReviewReceipt(
+    access: AccessContext,
+    command: LearningReviewCommand,
+    options?: LearningRunOptions,
+  ): Promise<ResolutionLearningReviewReceipt | null>;
+  /** Explicitly settle the original intent; never cancel an accepted review. */
+  cancelReview(
+    access: AccessContext,
+    command: LearningReviewCommand,
+    options: LearningReviewCancellationOptions,
+  ): Promise<ResolutionLearningReviewReceipt>;
   /**
    * Durable destinations drive conditional retirement and authoritative proofs.
    * Equal KB observations reuse the same command; newer generations fence old
