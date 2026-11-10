@@ -3,10 +3,10 @@
 SD-04's source merged in [PR #40](https://github.com/pegma-dev/support-desk/pull/40)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current synchronized release is `0.2.1`; see its
-[publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
-This handbook describes its contracts and host responsibilities, not host
-activation. There is no runnable host recipe here. Scope comes from the
+The current synchronized release is `0.2.2`; see its
+[publication receipt](RELEASING.md#verified-022-publication-2026-11-10).
+This handbook describes released contracts, explicitly marked source-candidate
+changes, and host responsibilities, not host activation. There is no runnable host recipe here. Scope comes from the
 [approved plan](KNOWLEDGE_AI_PLAN.md#bug-evaluation-routing-and-github-export)
 and the [collection checkpoint](COLLECTIONS.md#sd-04-engineering-layout-checkpoint).
 
@@ -153,6 +153,21 @@ proposal. Approval binds its content and request hashes, source generation,
 repository identity/current metadata and visibility, policy, routing, and check
 results. Editing any bound fact requires fresh checks and review. The coordinator
 rechecks current authority and remote facts immediately before dispatch.
+
+**Unpublished `0.2.3` source candidate:** The following final-guard ordering
+and guarded-rejection behavior are not part of published `0.2.2`. For a new
+approval, the application finishes its current repository and policy
+observations before awaiting the supplied commit guard. It then checks the
+original reviewer permissions and verification expiry before the existing
+partition CAS. A supplied rejection guard runs at the same final boundary;
+rejection itself needs no repository, routing, model, processing-service, or
+other external export proof. The coordinator supplies a current-staff guard for
+rejection so a host wrapper can append its fresh original-session and role check
+after all SDK work. Direct application callers may still omit a rejection guard.
+An exact accepted receipt is returned before either guard or external proof,
+subject to current review/queue authorization. These are bounded fresh
+observations around a partition transaction, not a cross-store atomicity or
+continuous-authority guarantee.
 
 `link_existing_issue` records a private Support association with the approved
 existing issue. It sends no comment, changes no external issue, and grants no

@@ -1,5 +1,11 @@
 # @pegma/support-desk-core
 
+The current verified synchronized registry release is `0.2.2`; see the
+[publication receipt](../../docs/RELEASING.md#verified-022-publication-2026-11-10).
+This checkout is synchronized at unpublished `0.2.3` for the application/AI
+[engineering review guard correction](../../docs/RELEASE_NOTES.md). Source version
+alignment does not publish a package or qualify a host.
+
 Pure ticket creation and revisioned workflow transitions. This package performs
 no I/O, authorization, mail delivery, or persistence.
 
@@ -51,7 +57,7 @@ application's explicit assistant creation sets that reserve marker.
 closed work first; ownership and visible-message evidence are application
 checks. Pure functions grant no permission, perform no model/KB work, and
 commit no Audit, receipt, or handoff row. These SD-01 changes first shipped in
-verified synchronized `0.2.0` and remain in current `0.2.1`; see its
-[publication receipt](../../docs/RELEASING.md#verified-021-publication-2026-11-10).
+verified synchronized `0.2.0` and remain in current `0.2.2`; see its
+[publication receipt](../../docs/RELEASING.md#verified-022-publication-2026-11-10).
 Existing registry `0.1.1` artifacts remain immutable; host activation retains
 its own acceptance gates.

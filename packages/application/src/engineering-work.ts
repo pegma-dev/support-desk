@@ -2136,10 +2136,12 @@ export function createEngineeringWorkerServices(
         deps.admission(loaded.ticket.value.ticket, loaded.rows, 2);
         const result = outcome(next);
         if (command.decision === "approve") {
-          await guard!();
           await currentRepository(proposal.request);
           await freshPolicy(access, proposal);
         }
+        // The host's current-browser guard follows every SDK external proof
+        // await. Rejection needs no export proof, but honors a supplied guard.
+        if (guard !== undefined) await guard();
         permission(access, true, actorId);
         if (!current(loaded, work) || runNow() >= deadline)
           throw new SupportDeskConflictError(

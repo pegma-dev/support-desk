@@ -11,8 +11,8 @@ preparation are also merged. The ten entries in the
 [historical source ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) record
 the exact PRs/commits, verified gates, and remaining dependency order.
 
-Support Desk's current synchronized `0.2.1` release is published and strictly verified;
-see the [publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
+Support Desk's current synchronized `0.2.2` release is published and strictly verified;
+see the [publication receipt](RELEASING.md#verified-022-publication-2026-11-10).
 It pins Audit `0.2.0`, Authorization Core `0.4.0`, Mail `0.1.1`, Spine `0.1.2`,
 and Storage Core `0.4.0`. The older base registry `0.1.1` artifacts remain
 immutable; host adoption retains its own acceptance gates. All four KB packages have strictly verified
@@ -24,7 +24,7 @@ manual `0.1.0` bootstrap receipts have no OIDC provenance and remain historical;
 the later trusted releases close the KB-05/Agent Access publication gates.
 
 SD-02's optional coordinator first shipped as `@pegma/support-desk-ai@0.2.0`.
-The current `@pegma/support-desk-ai@0.2.1` retains exact KB `0.1.2` runtime
+The current `@pegma/support-desk-ai@0.2.2` pins exact KB `0.1.5` runtime
 dependencies and bounded turn jobs in the existing ticket partition. The base application remains
 independent of KB/providers. Read the
 [coordination guide](ASSISTANT_COORDINATION.md) and
@@ -454,7 +454,8 @@ reviewed support knowledge on both launch hosts.
 AUTH-01 source/SDK proof, KB-04's transport source exit, and both producers'
 release preparation are merged. The four KB packages now have strictly verified
 trusted `0.1.4` releases and Agent Access has verified `0.1.1`, closing SD-02's publication prerequisite. The released
-Support Desk AI `0.2.1` keeps its exact KB `0.1.2` dependencies. New standalone
+Support Desk AI `0.2.2` pins exact KB application/contracts `0.1.5`; older
+`0.2.1`/KB `0.1.2` manifests remain immutable. Standalone
 authoring recipes select all four KB `0.1.4` packages plus Agent Access `0.1.1`
 from the [producer handoff](HOST_COMPOSITION.md#kb-authoring-producers),
 separately from that AI consumer. Host adoption requires its own reviewed exact
@@ -488,7 +489,7 @@ human handoff, reviewed learning, and safe engineering follow-up.
 **Source status:** SD-01 through SD-05 are merged, covering handling/handoff,
 optional answer coordination, resolution learning, engineering export, and
 release follow-up. They first shipped in verified synchronized `0.2.0` and
-remain in current `0.2.1`, whose publication receipt is linked above. This phase's
+remain in current `0.2.2`, whose publication receipt is linked above. This phase's
 host/production acceptance remains open.
 See [assistant coordination](ASSISTANT_COORDINATION.md).
 

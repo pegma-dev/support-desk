@@ -1,8 +1,8 @@
-# Upgrading to the synchronized 0.2.1 release
+# Upgrading to the synchronized 0.2.2 release
 
-`0.2.1` is the current verified published synchronized release; it does not
+`0.2.2` is the current verified published synchronized release; it does not
 certify a host's deployment or acceptance. See the
-[publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
+[publication receipt](RELEASING.md#verified-022-publication-2026-11-10).
 The original SD-06 `0.2.0` release has its separate
 [historical receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
 The original four Support Desk packages were published at `0.1.1`. Before
@@ -21,13 +21,13 @@ dependency tree.
 ## Package and host boundary
 
 The released inventory is `@pegma/support-desk-contracts`, `-core`,
-`-templates`, `-application`, and optional `-ai`, all at exact `0.2.1` with
+`-templates`, `-application`, and optional `-ai`, all at exact `0.2.2` with
 matching internal pins. Keep one coherent set. The base application remains
 usable without AI, KB, a model provider, or GitHub.
 
 Current ecosystem pins are Spine `0.1.2`, Storage Core `0.4.0`, Authorization
 Core `0.4.0`, Audit `0.2.0`, and Mail `0.1.1`. Only the optional AI package
-uses the verified KB application/contracts `0.1.2`. A host must independently
+uses the verified KB application/contracts `0.1.5`. A host must independently
 verify its complete published lockfile and consumer before deployment.
 
 The source changes are described in [release notes](RELEASE_NOTES.md).
@@ -36,19 +36,19 @@ Store/namespace, mail transport, model and usage ports, KB authority, GitHub
 installation, release proof, schedulers, retention, and UI. Package methods
 grant no roles, Admin inheritance, or Agent Access scopes.
 
-## Source migration for the unpublished 0.2.2 candidate
+## Migration to published 0.2.2
 
-The candidate's optional AI runtime dependencies on KB application/contracts
-advance to exact `0.1.5`, with matching repository development/test pins. Keep
-the complete resolved KB dependency graph coherent when validating and packing
-the candidate; structural type compatibility alone does not establish runtime
-error identity across different KB versions. The published `0.2.1` package
-manifests and their KB `0.1.2` dependencies remain immutable. Their verification
-does not qualify the candidate's changed graph. Hosts wait for trusted `0.2.2`
-publication and strict registry/consumer verification before adopting it.
+The optional AI runtime dependencies on KB application/contracts advance to
+exact `0.1.5`, with matching repository development/test pins. Keep the resolved
+KB graph coherent; structural type compatibility does not establish runtime
+error identity across versions or duplicate module instances. Remove obsolete
+KB `0.1.2` constructor aliases or translation shims when adopting the verified
+`0.2.2` graph, and test the actual host installation and bundle. Published
+`0.2.1` manifests and their KB `0.1.2` dependencies remain immutable history.
+The [0.2.2 receipt](RELEASING.md#verified-022-publication-2026-11-10) qualifies
+the exact SDK artifacts; host adoption is a separate observed result.
 
-The current qualified release remains `0.2.1`. The unpublished `0.2.2` candidate
-adds [opt-in staged retrieval](ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval)
+The release adds [opt-in staged retrieval](ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval)
 while retaining the monolithic runtime default. Its exported
 `AssistantProcessResult` return union always includes the new `prepared` member;
 exhaustive TypeScript switches or matchers must add a case even when callers
@@ -72,7 +72,7 @@ new usage reservation or a model call, even with unchanged logical settings.
 Do not normalize these fields away or cache stale evidence; the paid phase's
 live configuration, authority, source and final-CAS checks still apply.
 
-The candidate also adds [exact learning review intent recovery](RESOLUTION_LEARNING.md#exact-review-intent-recovery-unpublished-022-candidate).
+The release also adds [exact learning review intent recovery](RESOLUTION_LEARNING.md#exact-review-intent-recovery-022).
 Use read-only `prepareReviewIntent`, then retain the entire intent and original
 command/decision packet before submission. `submitReviewIntent`,
 `readReviewReceipt` and explicit `cancelReview` accept that exact packet.
@@ -92,14 +92,28 @@ fingerprint, rather than accepting a cancelled review. They cannot interpret
 the new acknowledgement union. Preserve receipts and rehearse actual downgrade
 behavior instead of deleting them or claiming universal rollback compatibility.
 
-Candidate review, full current-head gates, trusted publication and strict
-verification remain required. Host invocation/CPU measurements and activation
-retain their separate gates; source migration is not live acceptance.
+SDK `0.2.2` publication and strict verification are complete. Host invocation/CPU
+measurements and activation retain their separate gates; an SDK migration is
+not live acceptance.
+
+## Unpublished 0.2.3 engineering guard candidate
+
+This checkout synchronizes all five source packages and internal Support pins
+at `0.2.3`, retaining exact AI KB application/contracts `0.1.5`. The candidate
+finishes repository/policy observations before the supplied approval commit
+guard and honors a supplied final rejection guard. The coordinator supplies a
+current-staff rejection guard; direct application rejection may still omit one.
+Accepted receipts remain receipt-first under current review/queue authority.
+These are bounded observations around the existing partition CAS, not
+cross-store atomicity or continuous authority. See the
+[engineering guide](ENGINEERING_EXPORT.md). This correction is not in `0.2.2`;
+full current-head gates, review, trusted publication and strict verification
+remain required before hosts rely on `0.2.3`.
 
 ## Rehearse the actual 0.1.1-to-0.2.0 upgrade
 
 The SD-06 rehearsal below is retained as historical migration evidence. For
-current `0.2.1` adoption, repeat the rehearsal against the exact selected `0.2.1`
+current `0.2.2` adoption, repeat the rehearsal against the exact selected `0.2.2`
 artifacts and record a new receipt; a `0.2.0` result does not qualify changed
 artifacts or a host's durable-store migration.
 

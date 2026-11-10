@@ -21,9 +21,9 @@ All four KB packages now have strictly verified trusted `0.1.4` registry
 releases; Agent Access remains verified at `0.1.1`, closing SD-02's producer
 publication prerequisite. The optional AI package includes bounded turn work,
 first shipped in verified synchronized `0.2.0` and retained in the current
-`0.2.1` release; see the
-[publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
-The current AI release keeps its exact KB `0.1.2` dependencies; the standalone-authoring
+`0.2.2` release; see the
+[publication receipt](RELEASING.md#verified-022-publication-2026-11-10).
+The current AI release pins exact KB application/contracts `0.1.5`; the standalone-authoring
 recipe selects KB `0.1.4` and Agent Access `0.1.1` separately in the producer
 handoff below.
 PG-01/RG-01 consume exact verified published dependencies. Actual
@@ -97,7 +97,7 @@ simulate them.
 | `@pegma/identity` and authorization identity adapters             | pegma.dev host concerns. Only a trusted `PrincipalId` and resolved `AccessContext` cross into Support Desk.                                                                                                                                                                                                      |
 | `@pegma/agent-access@0.1.1`                                       | Verified trusted registry producer after [release PR #4](https://github.com/pegma-dev/agent-access/pull/4); strict [registry/consumer verification](https://github.com/pegma-dev/agent-access/actions/runs/42420302775/job/128549453970) closed its publication gate. Host login/client acceptance remains open. |
 | Standalone authoring KB package set at exact `0.1.4`              | All four packages and Agent Access `0.1.1` are the new authoring-recipe selection; exact source and strict verification are in the [producer receipts](HOST_COMPOSITION.md#kb-authoring-producers). This does not assert adoption by either reference host.                                                      |
-| Optional Support Desk AI `0.2.1` KB dependencies at exact `0.1.2` | The immutable [published AI manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.1/packages/ai/package.json) retains KB application/contracts `0.1.2`; the base application has no KB dependency. Newer producer availability does not upgrade this released consumer.                                  |
+| Optional Support Desk AI `0.2.2` KB dependencies at exact `0.1.5` | The verified [published AI manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.2/packages/ai/package.json) pins KB application/contracts `0.1.5`; the base application has no KB dependency. Older `0.2.1`/KB `0.1.2` manifests remain immutable; host adoption is separate.                           |
 | `@pegma/webhooks`                                                 | Do not substitute it for Support Desk inbound-mail or delivery-callback receipts. Its generic sequential ledger permits overlapping processing and lacks Support Desk's channel, message, and result bindings.                                                                                                   |
 | Pegma logger adapters and health                                  | Host composition concerns. Support Desk emits through Spine `Logger`; hosts expose worker and dependency health.                                                                                                                                                                                                 |
 
@@ -644,8 +644,8 @@ P-00, KB-01 through KB-04, AUTH-01, SD-01, partial KB-05 source preparation
 ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and both producers'
 final release preparation are already merged. The four KB packages have since
 passed strict verified trusted `0.1.4` publication and Agent Access has verified
-`0.1.1`. Support Desk's current synchronized `0.2.1` release is published and strictly
-verified; see the [publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
+`0.1.1`. Support Desk's current synchronized `0.2.2` release is published and strictly
+verified; see the [publication receipt](RELEASING.md#verified-022-publication-2026-11-10).
 Follow its [coordination checkpoint](ASSISTANT_COORDINATION.md).
 PG-01/RG-01 consume both exact verified published producers and retain actual two-host
 existing-login/Admin consent and requested-client acceptance before activation

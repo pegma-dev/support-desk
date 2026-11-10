@@ -231,7 +231,13 @@ export function createSupportDeskEngineering(
               options.application.reviewEngineeringProposal(
                 access,
                 command,
-                command.decision === "approve" ? guard : undefined,
+                command.decision === "approve"
+                  ? guard
+                  : async () => {
+                      // Hosts can append their current-browser guard to either
+                      // decision. Rejection needs no external export proof.
+                      ensureStaffCurrent();
+                    },
               ),
             );
             ensureStaffCurrent();
