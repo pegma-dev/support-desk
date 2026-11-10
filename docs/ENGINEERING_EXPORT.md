@@ -1,8 +1,10 @@
 # Engineering assessment and export: SD-04 source contracts
 
 SD-04's source merged in [PR #40](https://github.com/pegma-dev/support-desk/pull/40)
-and shipped in the verified published synchronized `0.2.0` release; see the
-[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+and first shipped in the verified synchronized
+[`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
+The current synchronized release is `0.2.1`; see its
+[publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
 This handbook describes its contracts and host responsibilities, not host
 activation. There is no runnable host recipe here. Scope comes from the
 [approved plan](KNOWLEDGE_AI_PLAN.md#bug-evaluation-routing-and-github-export)

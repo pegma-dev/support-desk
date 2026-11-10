@@ -1,8 +1,10 @@
-# Upgrading to the synchronized 0.2.0 release
+# Upgrading to the synchronized 0.2.1 release
 
-`0.2.0` is the verified published SD-06 release; it does not certify a host's
-deployment or acceptance. See the
-[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+`0.2.1` is the current verified published synchronized release; it does not
+certify a host's deployment or acceptance. See the
+[publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
+The original SD-06 `0.2.0` release has its separate
+[historical receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
 The original four Support Desk packages were published at `0.1.1`. Before
 SD-06, source also used `0.1.1` while accumulating additional behavior; those
 source changes shipped in `0.2.0`. Registry versions are immutable.
@@ -19,7 +21,7 @@ dependency tree.
 ## Package and host boundary
 
 The released inventory is `@pegma/support-desk-contracts`, `-core`,
-`-templates`, `-application`, and optional `-ai`, all at exact `0.2.0` with
+`-templates`, `-application`, and optional `-ai`, all at exact `0.2.1` with
 matching internal pins. Keep one coherent set. The base application remains
 usable without AI, KB, a model provider, or GitHub.
 
@@ -35,6 +37,11 @@ installation, release proof, schedulers, retention, and UI. Package methods
 grant no roles, Admin inheritance, or Agent Access scopes.
 
 ## Rehearse the actual 0.1.1-to-0.2.0 upgrade
+
+The SD-06 rehearsal below is retained as historical migration evidence. For
+current `0.2.1` adoption, repeat the rehearsal against the exact selected `0.2.1`
+artifacts and record a new receipt; a `0.2.0` result does not qualify changed
+artifacts or a host's durable-store migration.
 
 The required migration proof starts with records produced by the actual
 published `0.1.1` application, then reads and mutates them with the packed

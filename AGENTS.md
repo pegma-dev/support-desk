@@ -168,10 +168,12 @@ collision hints. Customer DTOs and automatic customer mail omit these fields.
 Calendars and presence stay host-owned. Task 12 remains pending on both hosts'
 durable-store production evidence. Source work does not publish a package.
 
-All five packages have verified published `0.2.1` versions; earlier `0.2.0`
-and `0.1.1` artifacts remain immutable history, including the AI name's
-registration-only bootstrap. Follow `docs/RELEASING.md` for the publication receipt and release
-operations. Customer services return safe DTOs; staff
+All five packages have verified published `0.2.1` versions. The synchronized
+`0.2.0` artifacts remain immutable history. The original four names also retain
+their published `0.1.0`/`0.1.1` artifacts; the AI name's `0.1.1` is a separate
+registration-only bootstrap. Follow the
+[publication receipt](docs/RELEASING.md#verified-021-publication-2026-11-10)
+and release operations. Customer services return safe DTOs; staff
 services return the authoritative ticket for authorized staff only, and the
 staff queue scans a confirmed projection that is never authorization evidence.
 Authorization Core is pinned to exact `0.4.0` and accepted-change history uses
@@ -193,8 +195,8 @@ defaults legacy tickets to human support, explicitly attributes assistant
 messages with exact completion fences, and adds deterministic owned
 request-person, staff takeover, private success evidence, human queue
 selection, and bounded atomic handoff work. It adds no model, KB dependency,
-or package; its behavior shipped in synchronized `0.2.0`;
-do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
+or package; its behavior first shipped in synchronized `0.2.0` and remains in
+current `0.2.1`. Do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
 activation gates after verified SDK publication.
 Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
 preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and

@@ -13,15 +13,15 @@ and `packages/ai/src/ports.ts` when changing this boundary.
 
 The optional `@pegma/support-desk-ai` package owns coordination and exact KB
 `0.1.2` dependencies after SD-03's verified KB producer update. The base application remains usable without AI and
-contains no KB or model-provider dependency. The synchronized `0.2.0` release
-is published and strictly verified; see the
-[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+contains no KB or model-provider dependency. The current synchronized `0.2.1`
+release is published and strictly verified; see the
+[publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
 Host activation retains its own acceptance gates. Existing registry versions
 remain immutable.
 
-### Candidate read scheduling (`0.2.1`)
+### Released read scheduling (`0.2.1`)
 
-The unpublished candidate groups keyed observations for claim/preparation,
+The published `0.2.1` patch groups keyed observations for claim/preparation,
 closed completion and queue projection. `finishAssistantTurnAttempt` retains
 its turn-then-ticket sequence: an exact historical finish or terminal result
 can return without starting a ticket read. Further finish batching is outside
@@ -38,7 +38,7 @@ Speculation can perform extra bounded work: completion may start a receipt read
 before rejecting an unavailable ticket, and claim may start a ticket read before
 returning an already-terminal turn. Unused observations grant no authority and
 supply no returned private data. Not every path performs fewer Store reads;
-complete supported host profiles require measurement. This candidate establishes
+complete supported host profiles require measurement. This release establishes
 no universal Workers Free query or CPU allowance, host activation or live-provider
 acceptance.
 
@@ -253,8 +253,8 @@ respect the tighter phase deadline. Each subsequent change requires its own
 current-head gates.
 Current-head Node 22/24 format/check/test gates and actual code/security review
 remain required for changes; historical SD-01 or producer results do not
-certify SD-02. The completed `0.2.0` release gates are recorded in the
-[publication receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
+certify changed source. The completed `0.2.1` release gates are recorded in the
+[publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
 
 Both hosts still need their own existing-login/current-Admin consent and
 actual Codex, Claude Code, Grok Bot installed desktop/hosted-agent, and T3 Code

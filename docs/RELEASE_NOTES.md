@@ -1,8 +1,8 @@
 # Release notes
 
-## 0.2.1 — assistant-answering read batching (unreleased)
+## 0.2.1 — assistant-answering read batching, 2026-11-10
 
-This synchronized candidate advances contracts, core, templates, application,
+This published synchronized patch advances contracts, core, templates, application,
 and optional `@pegma/support-desk-ai` to `0.2.1`, with matching exact internal
 Support pins. The application groups independent answering reads for Store
 adapters that can batch them while retaining current authority, ticket and
@@ -11,12 +11,14 @@ assistant-turn fences and customer/private-message boundaries.
 The base application remains independent of KB and model providers. The
 optional AI package retains exact KB application and contracts `0.1.2` pins.
 No universal query or CPU budget, host activation, or live-provider acceptance
-is established by this source change.
+is established by SDK publication.
 
-The candidate still requires its own current-head Node 22/24 validation,
-review, packed-consumer checks, trusted publication and strict registry
-verification. The current verified release remains `0.2.0`; its dated receipts
-and earlier immutable artifacts below are unchanged.
+All five exact `0.2.1` packages completed Node 22/24 validation, review,
+packed-consumer checks, trusted publication and strict registry verification.
+The [2026-11-10 publication receipt](RELEASING.md#verified-021-publication-2026-11-10)
+binds their signed source, original prepared artifacts and final verification.
+The dated `0.2.0` receipt and earlier immutable artifacts below are unchanged;
+host adoption and activation retain their own acceptance gates.
 
 ## 0.2.0 — synchronized optional AI workflows (SD-06), 2026-11-08
 

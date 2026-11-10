@@ -1657,6 +1657,13 @@ describe("inbound mail: deduplication and idempotency", () => {
       actor: { kind: "system", systemId: inboundEmailSystemActorId },
       sequence: 1,
     });
+    const queuePage = await f.store.collection(queueIndex).scan({ limit: 100 });
+    expect(queuePage.records).toHaveLength(1);
+    expect(queuePage.records[0]).toMatchObject({
+      key: { partition: winner.ticketId, id: "queue" },
+      value: { ticketId: winner.ticketId, id: "queue" },
+    });
+    expect(queuePage.nextCursor ?? null).toBeNull();
     const queue = await f.application.listStaffQueue(staff, {
       association: "unverified",
     });
