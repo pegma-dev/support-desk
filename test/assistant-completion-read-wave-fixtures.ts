@@ -5,6 +5,7 @@ import type {
   Store,
   TransactionOutcome,
 } from "@pegma/storage-core";
+import { ConcurrencyError } from "@pegma/storage-core";
 import {
   createSupportDeskApplication,
   projectTicketToQueue,
@@ -19,6 +20,8 @@ import {
   assistantTurnFixture,
 } from "./assistant-turn-fixtures.js";
 import { engineeringFixture } from "./engineering-fixtures.js";
+import { delegateCollection } from "./delegating-collection.js";
+import { reached, settled, signal } from "./read-interleaving.js";
 import {
   handlingAgent as agent,
   handlingCustomer as customer,
@@ -32,50 +35,18 @@ interface Read {
 }
 const queueKey = { partition: "ticket", id: "queue" };
 
-function signal() {
-  let release = () => {};
-  const ready = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return { ready, release };
-}
-function settled<T>(operation: Promise<T>) {
-  return operation.then(
-    (value) => ({ outcome: "returned" as const, value }),
-    (error: unknown) => ({ outcome: "threw" as const, error }),
-  );
-}
-async function reached(ready: Promise<unknown>, pending: Promise<unknown>) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      ready,
-      pending.then(() => {
-        throw new Error("Operation missed its real read barrier");
-      }),
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(new Error("Independent completion reads did not complete")),
-          2_000,
-        );
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 /** Observe/defer actual public Store operations; no parallel persistence. */
 function observe(backing: Store) {
   const reads: Read[] = [];
+  let beforeRead: ((read: Read) => Promise<void>) | undefined;
+  let sampled: ((read: Read, value: unknown) => Promise<void>) | undefined;
   let afterRead: ((read: Read) => Promise<void>) | undefined;
   let beforeProjectionWrite: (() => Promise<void>) | undefined;
+  let projectionResult: ((written: boolean) => Promise<void>) | undefined;
   const store: Store = {
     collection<T>(definition: CollectionDefinition<T>): CollectionStore<T> {
       const target = backing.collection(definition);
-      return {
-        ...target,
+      return delegateCollection(target, {
         async get(key) {
           const value = await target.get(key);
           const read: Read = {
@@ -84,17 +55,20 @@ function observe(backing: Store) {
             key,
           };
           reads.push(read);
+          await sampled?.(read, value);
           await afterRead?.(read);
           return value;
         },
         async getVersioned(key) {
-          const value = await target.getVersioned(key);
           const read: Read = {
             collection: definition.name,
             method: "getVersioned",
             key,
           };
+          await beforeRead?.(read);
+          const value = await target.getVersioned(key);
           reads.push(read);
+          await sampled?.(read, value);
           await afterRead?.(read);
           return value;
         },
@@ -124,7 +98,10 @@ function observe(backing: Store) {
         async putIfUnchanged(value, version) {
           if (definition.name === queueIndex.name)
             await beforeProjectionWrite?.();
-          return target.putIfUnchanged(value, version);
+          const written = await target.putIfUnchanged(value, version);
+          if (definition.name === queueIndex.name)
+            await projectionResult?.(written);
+          return written;
         },
         async insertIfAbsent(value) {
           if (definition.name === queueIndex.name)
@@ -136,17 +113,26 @@ function observe(backing: Store) {
             await beforeProjectionWrite?.();
           return target.deleteIfUnchanged(key, version);
         },
-      };
+      });
     },
   };
   return {
     store,
     reads,
+    beforeSample(value: typeof beforeRead) {
+      beforeRead = value;
+    },
+    onSample(value: typeof sampled) {
+      sampled = value;
+    },
     onRead(value: typeof afterRead) {
       afterRead = value;
     },
     onProjectionWrite(value: typeof beforeProjectionWrite) {
       beforeProjectionWrite = value;
+    },
+    onProjectionResult(value: typeof projectionResult) {
+      projectionResult = value;
     },
     hold(
       primary: (read: Read) => boolean,
@@ -185,6 +171,10 @@ type Options = {
   readonly enrolled?: boolean;
   readonly descendants?: boolean;
   readonly constrained?: boolean;
+  readonly maxConflictAttempts?: number;
+  readonly logger?: Parameters<
+    typeof createSupportDeskApplication
+  >[0]["logger"];
 };
 async function world(factory: Factory, options: Options = {}) {
   const backing = await factory();
@@ -197,9 +187,10 @@ async function world(factory: Factory, options: Options = {}) {
     ? { maxRecordsPerTicket: 22, maxMessagesPerTicket: 3 }
     : {};
   const f = assistantTurnFixture(observed.store, {
-    maxConflictAttempts: 1,
+    maxConflictAttempts: options.maxConflictAttempts ?? 1,
     queueTerminalRetentionMilliseconds: 1_000,
     limits,
+    ...(options.logger === undefined ? {} : { logger: options.logger }),
     ...(enrolled
       ? {
           resolutionLearning: { enabled: true },
@@ -256,6 +247,145 @@ export function registerAssistantCompletionReadWaveCases(
   factory: Factory,
 ) {
   describe(`S2 closed completion read waves (${name})`, () => {
+    it.each(["answer", "escalate"] as const)(
+      "recovers a speculative absent receipt when the delayed ticket samples the exact winning %s completion",
+      async (outcome) => {
+        const w = await world(factory);
+        const command =
+          outcome === "answer"
+            ? w.command
+            : {
+                ...w.command,
+                outcome: {
+                  kind: "escalate" as const,
+                  reason: "other" as const,
+                  summary: "Synthetic exact competing escalation.",
+                },
+              };
+        const records = w.backing.collection(supportRecords);
+        const ticketWaiting = signal();
+        const receiptSampled = signal();
+        const releaseTicket = signal();
+        let held = false;
+        let sampledAbsentReceipt = false;
+        let released = false;
+        let sampledWinningTicket = false;
+        let originalGuards = 0;
+        let winnerGuards = 0;
+        w.observed.beforeSample(async (read) => {
+          if (isTicket(read) && read.method === "getVersioned" && !held) {
+            held = true;
+            ticketWaiting.release();
+            // Pause BEFORE the real adapter samples Ticket, not after it has
+            // captured an older version. The receipt companion remains live.
+            await releaseTicket.ready;
+          }
+        });
+        w.observed.onSample(async (read, value) => {
+          if (read.collection !== supportRecords.name) return;
+          if (
+            read.method === "get" &&
+            read.key.id === `command:${command.commandId}` &&
+            !sampledAbsentReceipt
+          ) {
+            expect(value).toBeNull();
+            sampledAbsentReceipt = true;
+            receiptSampled.release();
+          }
+          if (released && isTicket(read) && read.method === "getVersioned") {
+            expect(value).toMatchObject({
+              value: {
+                kind: "ticket",
+                ticket: {
+                  revision: command.expectedRevision + 1,
+                },
+              },
+            });
+            sampledWinningTicket = true;
+          }
+        });
+        const pending = settled(
+          w.f.app.completeAssistantTurn(agent, command, () => {
+            originalGuards += 1;
+          }),
+        );
+        let winner: Awaited<ReturnType<typeof w.complete>> | undefined;
+        let committed: readonly SupportRecord[] = [];
+        try {
+          await reached(
+            Promise.all([ticketWaiting.ready, receiptSampled.ready]),
+            pending,
+            "Speculative receipt and ticket observations did not complete",
+          );
+          expect(sampledAbsentReceipt).toBe(true);
+          expect(
+            await records.get({
+              partition: "ticket",
+              id: `command:${command.commandId}`,
+            }),
+          ).toBeNull();
+          // A separate real public application wins the exact command while
+          // the original receipt observation is already irrevocably absent.
+          w.observed.beforeSample(undefined);
+          winner = await w.f
+            .freshApplication()
+            .completeAssistantTurn(agent, command, () => {
+              winnerGuards += 1;
+            });
+          committed = await records.list("ticket");
+          expect(winner).toMatchObject({
+            ticketId: "ticket",
+            revision: command.expectedRevision + 1,
+          });
+          expect(committed).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                kind: "command",
+                commandId: command.commandId,
+              }),
+              expect.objectContaining({
+                kind: "assistant_turn",
+                status: outcome === "answer" ? "completed" : "escalated",
+                terminalResult: winner,
+              }),
+            ]),
+          );
+          released = true;
+          releaseTicket.release();
+          expect(await pending).toEqual({ outcome: "returned", value: winner });
+          expect(sampledWinningTicket).toBe(true);
+          expect(originalGuards).toBe(0);
+          expect(winnerGuards).toBe(1);
+          expect(await records.list("ticket")).toEqual(committed);
+          expect(
+            committed.filter(
+              (row) =>
+                row.kind === "command" && row.commandId === command.commandId,
+            ),
+          ).toHaveLength(1);
+          expect(
+            committed.filter(
+              (row) =>
+                row.kind === "audit" && row.event.id === command.commandId,
+            ),
+          ).toHaveLength(1);
+          expect(
+            committed.filter((row) =>
+              outcome === "answer"
+                ? row.kind === "message" &&
+                  row.message.authorKind === "assistant"
+                : row.kind === "handoff_work",
+            ),
+          ).toHaveLength(1);
+        } finally {
+          w.observed.beforeSample(undefined);
+          w.observed.onSample(undefined);
+          releaseTicket.release();
+          await pending;
+        }
+      },
+    );
+
     it("completes independent S2 ticket and receipt reads before awaiting the ticket", async () => {
       const w = await world(factory);
       const pause = w.observed.hold(isTicket, [
@@ -266,7 +396,11 @@ export function registerAssistantCompletionReadWaveCases(
       ]);
       const pending = settled(w.complete());
       try {
-        await reached(pause.reached, pending);
+        await reached(
+          pause.reached,
+          pending,
+          "Independent completion reads did not complete",
+        );
       } finally {
         pause.release();
         await pending;
@@ -289,7 +423,11 @@ export function registerAssistantCompletionReadWaveCases(
       const pause = w.observed.hold(matches(source), companions.map(matches));
       const pending = settled(w.complete());
       try {
-        await reached(pause.reached, pending);
+        await reached(
+          pause.reached,
+          pending,
+          "Independent completion reads did not complete",
+        );
       } finally {
         pause.release();
         await pending;
@@ -455,7 +593,11 @@ export function registerAssistantCompletionReadWaveCases(
         const pending = settled(w.complete());
         let afterEnrollment: readonly SupportRecord[] = [];
         try {
-          await reached(pause.reached, pending);
+          await reached(
+            pause.reached,
+            pending,
+            "Independent completion reads did not complete",
+          );
           const app = createSupportDeskApplication({
             store: w.backing,
             clock: w.f.clock,
@@ -587,7 +729,11 @@ export function registerAssistantCompletionReadWaveCases(
       const pause = w.observed.hold(isTicket, [isProjection]);
       const pending = settled(w.project());
       try {
-        await reached(pause.reached, pending);
+        await reached(
+          pause.reached,
+          pending,
+          "Independent completion reads did not complete",
+        );
       } finally {
         pause.release();
         await pending;
@@ -704,6 +850,183 @@ export function registerAssistantCompletionReadWaveCases(
       expect(await w.project()).toBe("deleted");
       expect(await records.get(row)).toBeNull();
       expect(await w.backing.collection(queueIndex).get(queueKey)).toBeNull();
+    });
+
+    it("preserves real Core projection exhaustion, a committed ACK and repair convergence", async () => {
+      const events: {
+        level: string;
+        event: string;
+        fields?: Readonly<Record<string, unknown>> | undefined;
+      }[] = [];
+      const w = await world(factory, {
+        maxConflictAttempts: 2,
+        logger: {
+          log(level, event, fields) {
+            events.push({ level, event, fields });
+          },
+        },
+      });
+      const projections = w.backing.collection(queueIndex);
+      const records = w.backing.collection(supportRecords);
+      const initial = await projections.getVersioned(queueKey);
+      if (initial === null)
+        throw new Error("Expected a genuine initial projection");
+      expect(w.f.app.queueProjectionHealth().consecutiveFailures).toBe(0);
+      const versionWrites: { before: string; after: string }[] = [];
+      const lostWrites: boolean[] = [];
+      async function competingRewrite() {
+        const current = await projections.getVersioned(queueKey);
+        if (current === null) throw new Error("Competing row disappeared");
+        // Preserve the actual SDK-created payload. Only its adapter-issued
+        // opaque version changes before the original real CAS is delegated.
+        expect(
+          await projections.putIfUnchanged(current.value, current.version),
+        ).toBe(true);
+        const rewritten = await projections.getVersioned(queueKey);
+        if (rewritten === null)
+          throw new Error("Competing rewrite disappeared");
+        expect(rewritten.value).toEqual(current.value);
+        expect(rewritten.version).not.toBe(current.version);
+        versionWrites.push({
+          before: current.version,
+          after: rewritten.version,
+        });
+      }
+      w.observed.onProjectionWrite(competingRewrite);
+      w.observed.onProjectionResult(async (written) => {
+        lostWrites.push(written);
+      });
+      let authoritative: readonly SupportRecord[] = [];
+      const expected = new ConcurrencyError(queueIndex.name, queueKey, 2);
+      try {
+        const accepted = await w.complete();
+        expect(versionWrites).toHaveLength(2);
+        expect(lostWrites).toEqual([false, false]);
+        expect(accepted).toMatchObject({
+          ticketId: "ticket",
+          messageId: w.command.outcome.messageId,
+        });
+        authoritative = await records.list("ticket");
+        expect(authoritative).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              kind: "assistant_turn",
+              status: "completed",
+              terminalResult: accepted,
+            }),
+            expect.objectContaining({ kind: "ticket_quota", messageCount: 2 }),
+          ]),
+        );
+        expect(
+          authoritative.filter(
+            (row) =>
+              row.kind === "command" && row.commandId === w.command.commandId,
+          ),
+        ).toHaveLength(1);
+        expect(
+          authoritative.filter(
+            (row) =>
+              row.kind === "audit" && row.event.id === w.command.commandId,
+          ),
+        ).toHaveLength(1);
+        expect(
+          authoritative.filter(
+            (row) =>
+              row.kind === "message" && row.message.authorKind === "assistant",
+          ),
+        ).toHaveLength(1);
+        const currentTicket = (await w.f.app.readStaffTicket(staff, "ticket"))
+          .ticket;
+        expect(currentTicket.revision).toBeGreaterThan(
+          initial.value.projectedRevision,
+        );
+        expect((await projections.get(queueKey))?.projectedRevision).toBe(
+          initial.value.projectedRevision,
+        );
+        expect(w.f.app.queueProjectionHealth()).toMatchObject({
+          consecutiveFailures: 1,
+          lastFailureTicketId: "ticket",
+          lastFailureMessage: expected.message,
+        });
+        expect(
+          events.filter(
+            (entry) => entry.event === "support-desk.queue.projection_failed",
+          ),
+        ).toEqual([
+          {
+            level: "error",
+            event: "support-desk.queue.projection_failed",
+            fields: { ticketId: "ticket", message: expected.message },
+          },
+        ]);
+        // Exact receipt recovery does not repeat the already accepted effect
+        // or convert its best-effort projection failure into command failure.
+        expect(await w.complete()).toEqual(accepted);
+        expect(await records.list("ticket")).toEqual(authoritative);
+        expect(versionWrites).toHaveLength(2);
+        const direct = await settled(w.project());
+        expect(direct.outcome).toBe("threw");
+        if (
+          direct.outcome !== "threw" ||
+          !(direct.error instanceof ConcurrencyError)
+        )
+          throw new Error(
+            "Direct repair did not expose the genuine Core ConcurrencyError",
+          );
+        expect(direct.error).toMatchObject({
+          collection: queueIndex.name,
+          key: queueKey,
+          attempts: 2,
+          message: expected.message,
+        });
+        expect(versionWrites).toHaveLength(4);
+        expect(lostWrites).toEqual([false, false, false, false]);
+        expect(await records.list("ticket")).toEqual(authoritative);
+        w.observed.onProjectionWrite(undefined);
+        w.observed.onProjectionResult(undefined);
+        // This is the old public update contract itself, with two genuine
+        // competing version changes inside its async decider, not a fake false.
+        const core = await settled(
+          projections.update(
+            queueKey,
+            async (current) => {
+              if (current === null)
+                throw new Error("Core oracle needs the existing real row");
+              await competingRewrite();
+              return { action: "write", value: current };
+            },
+            { maxAttempts: 2 },
+          ),
+        );
+        expect(core.outcome).toBe("threw");
+        if (
+          core.outcome !== "threw" ||
+          !(core.error instanceof ConcurrencyError)
+        )
+          throw new Error(
+            "Actual public Core update did not exhaust by throwing",
+          );
+        expect(core.error).toMatchObject({
+          collection: queueIndex.name,
+          key: queueKey,
+          attempts: 2,
+        });
+        expect(versionWrites).toHaveLength(6);
+        const failedHealth = w.f.app.queueProjectionHealth();
+        expect(await w.project()).toBe("written");
+        expect(await projections.get(queueKey)).toMatchObject({
+          projectedRevision: currentTicket.revision,
+          status: currentTicket.status,
+          priority: currentTicket.priority,
+          handling: currentTicket.handling,
+        });
+        expect(await records.list("ticket")).toEqual(authoritative);
+        // Direct repair does not mutate this application's health observation.
+        expect(w.f.app.queueProjectionHealth()).toEqual(failedHealth);
+      } finally {
+        w.observed.onProjectionWrite(undefined);
+        w.observed.onProjectionResult(undefined);
+      }
     });
 
     it("keeps the durable ACK when a real postcommit projection read fails", async () => {

@@ -1,6 +1,6 @@
 # Release notes
 
-## 0.2.1 - assistant-answering read batching (unreleased)
+## 0.2.1 — assistant-answering read batching (unreleased)
 
 This synchronized candidate advances contracts, core, templates, application,
 and optional `@pegma/support-desk-ai` to `0.2.1`, with matching exact internal

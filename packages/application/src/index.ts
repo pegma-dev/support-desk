@@ -5048,6 +5048,39 @@ export function createSupportDeskApplication(options: {
         throw new SupportDeskConflictError(
           "Command ID reused with different input",
         );
+      if (
+        parallel &&
+        (ticket.channel !== "web" ||
+          isTerminalTicketStatus(ticket.status) ||
+          effectiveTicketHandling(ticket).state !== "assistant" ||
+          ticket.revision !== command.expectedRevision ||
+          effectiveTicketHandling(ticket).generation !==
+            command.expectedHandlingGeneration)
+      ) {
+        // The speculative receipt may predate a concurrent exact completion
+        // that this Ticket observation already contains. Recover its receipt
+        // before rejecting the now-stale live fence; ordinary paired reads
+        // retain their existing cost and original whole-attempt CAS versions.
+        const accepted = await records.get(
+          commandKey(command.ticketId, command.commandId),
+        );
+        if (
+          duplicateMatches(accepted, operation, command.messageId, fingerprint)
+        ) {
+          if (
+            accepted?.kind !== "command" ||
+            accepted.resultTicket === undefined
+          )
+            throw new SupportDeskConflictError(
+              "Handling receipt is incomplete",
+            );
+          return accepted.resultTicket;
+        }
+        if (accepted !== null)
+          throw new SupportDeskConflictError(
+            "Command ID reused with different input",
+          );
+      }
       if (operation === "assistant_reply" && !assistantHandlingEnabled)
         throw new SupportDeskConflictError("Assistant handling is disabled");
       const rows = await records.list(command.ticketId);

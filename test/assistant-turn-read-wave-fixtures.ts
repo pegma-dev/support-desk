@@ -19,17 +19,11 @@ import {
   handlingStaff as staff,
 } from "./handling-fixtures.js";
 
+import { reached, settled, signal } from "./read-interleaving.js";
+
 type Key = Parameters<CollectionStore<SupportRecord>["getVersioned"]>[0];
 const phases = ["claim", "prepare"] as const;
 type Phase = (typeof phases)[number];
-
-function signal() {
-  let release = () => {};
-  const ready = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return { ready, release };
-}
 
 function sameKey(left: Key, right: Key) {
   return left.partition === right.partition && left.id === right.id;
@@ -112,34 +106,6 @@ function observeReads(backing: Store) {
   };
 }
 
-function settled<T>(operation: Promise<T>) {
-  return operation.then(
-    (value) => ({ outcome: "returned" as const, value }),
-    (error: unknown) => ({ outcome: "threw" as const, error }),
-  );
-}
-
-async function reached(ready: Promise<unknown>, operation: Promise<unknown>) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      ready,
-      operation.then(() => {
-        throw new Error("Public operation missed its read barrier");
-      }),
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(new Error("Independent keyed reads did not both complete")),
-          2_000,
-        );
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 async function world(factory: () => Store | Promise<Store>, phase: Phase) {
   const backing = await factory();
   const observer = observeReads(backing);
@@ -189,7 +155,11 @@ export function registerAssistantTurnReadWaveCases(
         const pause = w.observer.hold(w.turn, w.ticket);
         const pending = settled(w.run());
         try {
-          await reached(pause.reached, pending);
+          await reached(
+            pause.reached,
+            pending,
+            "Independent keyed reads did not both complete",
+          );
         } finally {
           pause.release();
           await pending;
@@ -232,7 +202,11 @@ export function registerAssistantTurnReadWaveCases(
         const pending = settled(w.run());
         let afterTakeover: readonly SupportRecord[] = [];
         try {
-          await reached(pause.reached, pending);
+          await reached(
+            pause.reached,
+            pending,
+            "Independent keyed reads did not both complete",
+          );
           await w.f.app.takeOverTicket(staff, {
             ...w.f.command("takeover"),
             expectedRevision: w.ticket.ticket.revision,
@@ -264,7 +238,11 @@ export function registerAssistantTurnReadWaveCases(
       const pause = w.observer.hold(w.turn, w.ticket);
       const pending = settled(w.run());
       try {
-        await reached(pause.reached, pending);
+        await reached(
+          pause.reached,
+          pending,
+          "Independent keyed reads did not both complete",
+        );
         w.f.advance(10_001);
       } finally {
         pause.release();
@@ -350,7 +328,11 @@ export function registerAssistantTurnReadWaveCases(
         const pending = settled(w.run());
         let restored: readonly SupportRecord[] = [];
         try {
-          await reached(pause.reached, pending);
+          await reached(
+            pause.reached,
+            pending,
+            "Independent keyed reads did not both complete",
+          );
           const inserted = await records.insertIfAbsent(existing.value);
           expect(inserted.inserted).toBe(true);
           expect(inserted.value).toEqual(existing.value);
