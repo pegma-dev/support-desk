@@ -1,5 +1,29 @@
 # Release notes
 
+## 0.2.6 candidate — guarded engineering controls
+
+**Unpublished source candidate.** All five local package versions and internal
+Support pins target `0.2.6`; the current verified registry release remains
+[`0.2.5`](RELEASING.md#verified-025-publication-2026-11-11).
+
+Seven engineering application controls accept an optional third
+`EngineeringMutationOptions` argument: enrollment, evidence submission,
+repository selection, withdrawal, invalidation, policy update and emergency
+export disable. A caller can provide an `AbortSignal` and a trusted read-only
+`verifyBeforeCommit` callback. For a new write, the callback runs after SDK
+proof/planning awaits; its optional synchronous `() => true` assertion and the
+original signal are checked at the conditional transaction boundary. Each OCC
+retry obtains a fresh callback result. Existing callers can omit the options.
+
+Exact accepted receipts retain their current permission checks and return
+without invoking new guard/proof work. Cancellation before transaction handoff
+excludes a new commit; an uncertain handoff still needs exact-command recovery.
+This does not make independent host authority stores part of the Support
+transaction. See the [engineering contract](ENGINEERING_EXPORT.md#026-candidate-guarded-engineering-controls)
+and [upgrade guide](UPGRADING.md#unpublished-026-guarded-engineering-controls).
+There is no new layout, model/provider dependency or AI coordinator method;
+exact KB `0.1.5` pins and existing publication/host-qualification gates remain.
+
 <a id="025-candidate--attachments-and-staged-human-learning-reviews"></a>
 
 ## 0.2.5 — attachments and staged human learning reviews, 2026-11-11

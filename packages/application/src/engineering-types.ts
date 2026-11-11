@@ -123,10 +123,12 @@ export interface EngineeringPolicyApplication {
   putRepositoryPolicy(
     access: AccessContext,
     command: PutEngineeringPolicyCommand,
+    options?: EngineeringMutationOptions,
   ): Promise<EngineeringPolicyResult>;
   disableEngineeringExports(
     access: AccessContext,
     command: EngineeringPolicyCommand,
+    options?: EngineeringMutationOptions,
   ): Promise<EngineeringPolicyResult>;
   pruneRepositoryPolicyHistory(
     access: AccessContext,
@@ -513,22 +515,32 @@ export type EngineeringCommitGuard = () => void | Promise<void>;
 export type EngineeringReviewCommitGuard = () =>
   void | (() => true) | Promise<void | (() => true)>;
 
+/** Optional live host fence for the seven documented engineering controls. */
+export interface EngineeringMutationOptions {
+  readonly signal?: AbortSignal;
+  readonly verifyBeforeCommit?: EngineeringReviewCommitGuard;
+}
+
 export interface EngineeringApplication {
   enrollEngineeringSource(
     access: AccessContext,
     command: EnrollEngineeringSourceCommand,
+    options?: EngineeringMutationOptions,
   ): Promise<EngineeringSourceResult>;
   submitEngineeringEvidence(
     access: AccessContext,
     command: SubmitEngineeringEvidenceCommand,
+    options?: EngineeringMutationOptions,
   ): Promise<EngineeringSourceResult>;
   invalidateEngineeringSource(
     access: AccessContext,
     command: InvalidateEngineeringSourceCommand,
+    options?: EngineeringMutationOptions,
   ): Promise<EngineeringSourceResult>;
   withdrawEngineeringSource(
     access: AccessContext,
     command: WithdrawEngineeringSourceCommand,
+    options?: EngineeringMutationOptions,
   ): Promise<EngineeringSourceResult>;
   readEngineeringSource(
     access: AccessContext,
@@ -570,6 +582,7 @@ export interface EngineeringApplication {
   selectEngineeringRepository(
     access: AccessContext,
     command: SelectEngineeringRepositoryCommand,
+    options?: EngineeringMutationOptions,
   ): Promise<EngineeringStepResult>;
   prepareEngineeringProposal(
     access: AccessContext,

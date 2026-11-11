@@ -10,6 +10,12 @@ A composable, open-source support queue for web and email.
 > packages are published and strictly verified. Hosts consume exact published
 > versions and retain their own adoption and activation gates.
 
+The local synchronized **`0.2.6` source candidate is unpublished**. It adds
+optional final host guards and caller cancellation to seven engineering
+application controls. See the [candidate release notes](docs/RELEASE_NOTES.md#026-candidate--guarded-engineering-controls).
+Use verified published artifacts for host adoption; candidate metadata is not a
+publication or host-qualification receipt.
+
 The current [verified `0.2.5` release](docs/RELEASING.md#verified-025-publication-2026-11-11)
 adds attachments and opt-in staged human learning reviews. It retains admitted
 customer intake, edited-draft learning review and final host checks from

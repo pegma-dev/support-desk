@@ -18,6 +18,31 @@ registry application dependency lacks the new source exports. The five local
 bootstrap tarballs prove an isolated source assembly, not a usable registry
 dependency tree.
 
+## Unpublished 0.2.6 guarded engineering controls
+
+The local five-package `0.2.6` tuple is a source candidate. Continue using the
+verified published tuple above until `0.2.6` is published and its original
+artifacts are verified. When adopting that future release, synchronize all
+five Support package versions and exact internal pins. External KB
+application/contracts stay at `0.1.5`.
+
+The seven controls listed in the
+[engineering guide](ENGINEERING_EXPORT.md#026-candidate-guarded-engineering-controls)
+accept optional `EngineeringMutationOptions` as their third argument. Existing
+callers that omit options keep their behavior. Browser hosts can supply a
+bounded read-only current-session/role guard and a deadline-backed signal; the
+guard can return a synchronous `() => true` assertion checked at the final
+transaction call. Refresh authority on every invocation and OCC retry. Do not
+retain a prior guard result as permission for a later command.
+
+Keep the exact original command through cancellation or an uncertain response.
+A transaction already handed to the Store cannot be undone by aborting the
+caller. Exact accepted receipts do not invoke the new callback or proof, but
+current method permissions and the host's current admission/delivery checks
+still apply. Invalid JavaScript option/guard shapes fail closed. Qualification
+must include the host's real authority reads and storage budget; this candidate
+establishes no universal query/CPU allowance.
+
 ## Published 0.2.4 intake and final checks
 
 The synchronized `0.2.4` release is published and strictly verified. Hosts

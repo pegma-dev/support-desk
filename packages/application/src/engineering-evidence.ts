@@ -1,3 +1,4 @@
+import { engineeringMutationBoundary } from "./engineering-mutation-guard.js";
 import { hasPermission, type AccessContext } from "@pegma/authorization-core";
 import type { Clock } from "@pegma/spine";
 import type { CollectionStore } from "@pegma/storage-core";
@@ -47,6 +48,7 @@ import type {
   EngineeringEvidence,
   EngineeringIssueAcknowledgement,
   EngineeringMismatch,
+  EngineeringMutationOptions,
   EngineeringProductContext,
   EngineeringSecurity,
   EngineeringSourceResult,
@@ -69,10 +71,17 @@ type EvidenceMethods = Pick<
 class EngineeringTrustUnavailable extends Error {}
 
 /** One original clock/elapsed-time budget covers every awaited trust port. */
-function trustWindow(clock: Clock, milliseconds: number) {
+function trustWindow(
+  clock: Clock,
+  milliseconds: number,
+  callerSignal?: AbortSignal,
+) {
   const started = performance.now();
   const initial = timestamp(clock.now(), "now");
   const controller = new AbortController();
+  const cancel = () => controller.abort();
+  callerSignal?.addEventListener("abort", cancel, { once: true });
+  if (callerSignal?.aborted) cancel();
   const now = (): number =>
     Math.max(
       timestamp(clock.now(), "now"),
@@ -85,10 +94,14 @@ function trustWindow(clock: Clock, milliseconds: number) {
   };
   return {
     now,
-    close: () => controller.abort(),
+    close: () => {
+      callerSignal?.removeEventListener("abort", cancel);
+      controller.abort();
+    },
     async within<T>(action: (signal: AbortSignal) => Promise<T>): Promise<T> {
       ensure();
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let onAbort: (() => void) | undefined;
       try {
         const value = await Promise.race([
           Promise.resolve().then(() => {
@@ -104,11 +117,24 @@ function trustWindow(clock: Clock, milliseconds: number) {
               Math.max(1, Math.ceil(remaining())),
             );
           }),
+          ...(callerSignal === undefined
+            ? []
+            : [
+                new Promise<never>((_resolve, reject) => {
+                  onAbort = () => reject(new EngineeringTrustUnavailable());
+                  controller.signal.addEventListener("abort", onAbort, {
+                    once: true,
+                  });
+                  if (controller.signal.aborted) onAbort();
+                }),
+              ]),
         ]);
         ensure();
         return value;
       } finally {
         if (timer !== undefined) clearTimeout(timer);
+        if (onAbort !== undefined)
+          controller.signal.removeEventListener("abort", onAbort);
       }
     },
   };
@@ -470,7 +496,9 @@ export function createEngineeringEvidenceServices(
     input:
       InvalidateEngineeringSourceCommand | WithdrawEngineeringSourceCommand,
     privacy: boolean,
+    control?: EngineeringMutationOptions,
   ): Promise<EngineeringSourceResult> {
+    const mutation = engineeringMutationBoundary(control);
     const name = privacy
       ? supportPermissions.engineeringWithdraw
       : supportPermissions.engineeringEvidenceSubmit;
@@ -511,6 +539,7 @@ export function createEngineeringEvidenceServices(
         hash,
       );
       if (previous !== null) return previous;
+      mutation?.ensure();
       const loaded = await load(command.ticketId);
       if (loaded.source.value.state === "withdrawn") {
         permission(access, name, actorId);
@@ -628,7 +657,10 @@ export function createEngineeringEvidenceServices(
         ),
         receipt(command, hash, result(next)),
       );
+      const assertHostCurrent =
+        mutation === undefined ? undefined : await mutation.verify();
       permission(access, name, actorId);
+      assertHostCurrent?.();
       if ((await records.transact(command.ticketId, actions)).committed) {
         permission(access, name, actorId);
         return result(next);
@@ -646,7 +678,8 @@ export function createEngineeringEvidenceServices(
   }
 
   const application: EvidenceMethods = {
-    async enrollEngineeringSource(access, input) {
+    async enrollEngineeringSource(access, input, control) {
+      const mutation = engineeringMutationBoundary(control);
       const name = supportPermissions.engineeringEvidenceSubmit;
       permission(access, name);
       const actorId = access.principalId;
@@ -670,6 +703,7 @@ export function createEngineeringEvidenceServices(
           hash,
         );
         if (previous !== null) return previous;
+        mutation?.ensure();
         const ticket = await records.getVersioned({
           partition: command.ticketId,
           id: "ticket",
@@ -710,7 +744,10 @@ export function createEngineeringEvidenceServices(
           ),
           receipt(command, hash, result(created)),
         ];
+        const assertHostCurrent =
+          mutation === undefined ? undefined : await mutation.verify();
         permission(access, name, actorId);
+        assertHostCurrent?.();
         if ((await records.transact(command.ticketId, actions)).committed) {
           permission(access, name, actorId);
           return result(created);
@@ -727,7 +764,8 @@ export function createEngineeringEvidenceServices(
       throw new SupportDeskConflictError();
     },
 
-    async submitEngineeringEvidence(access, input) {
+    async submitEngineeringEvidence(access, input, control) {
+      const mutation = engineeringMutationBoundary(control);
       const name = supportPermissions.engineeringEvidenceSubmit;
       permission(access, name);
       const actorId = access.principalId;
@@ -771,6 +809,7 @@ export function createEngineeringEvidenceServices(
           hash,
         );
         if (previous !== null) return previous;
+        mutation?.ensure();
         const loaded = await load(command.ticketId);
         const source = loaded.source.value;
         const ticket = loaded.ticket.value.ticket;
@@ -826,7 +865,11 @@ export function createEngineeringEvidenceServices(
           reproductionSteps: command.evidence.reproductionSteps,
           visibleMessageIds: command.evidence.visibleMessageIds,
         };
-        const window = trustWindow(clock, options.trustTimeoutMilliseconds);
+        const window = trustWindow(
+          clock,
+          options.trustTimeoutMilliseconds,
+          mutation?.signal,
+        );
         let product: EngineeringProductContext | null = null;
         let evidence: EngineeringEvidence | null = null;
         let heldReason = "product_context_unavailable";
@@ -898,6 +941,7 @@ export function createEngineeringEvidenceServices(
         } finally {
           window.close();
         }
+        mutation?.ensure();
 
         const stableProduct =
           product === null
@@ -1096,6 +1140,9 @@ export function createEngineeringEvidenceServices(
           ),
           receipt(command, hash, result(next)),
         );
+        const assertHostCurrent =
+          mutation === undefined ? undefined : await mutation.verify();
+        assertHostCurrent?.();
         permission(access, name, actorId);
         if (clearing)
           permission(
@@ -1116,6 +1163,7 @@ export function createEngineeringEvidenceServices(
           throw new SupportDeskConflictError(
             "Engineering evidence expired before commit",
           );
+        mutation?.ensure();
         if ((await records.transact(command.ticketId, actions)).committed) {
           permission(access, name, actorId);
           if (clearing)
@@ -1138,10 +1186,10 @@ export function createEngineeringEvidenceServices(
       throw new SupportDeskConflictError();
     },
 
-    invalidateEngineeringSource: (access, command) =>
-      invalidate(access, command, false),
-    withdrawEngineeringSource: (access, command) =>
-      invalidate(access, command, true),
+    invalidateEngineeringSource: (access, command, control) =>
+      invalidate(access, command, false, control),
+    withdrawEngineeringSource: (access, command, control) =>
+      invalidate(access, command, true, control),
 
     async readEngineeringSource(access, ticketId) {
       const actorId = access.principalId;
