@@ -146,7 +146,7 @@ first publish and later OIDC releases.
 
 ## Where things stand
 
-Buildout Task 14 attachments are implemented in source as additive `0.1.1` APIs: host-owned immutable blobs, transactional message metadata, digest-bound scan callbacks, authorized clean-only downloads, deletion fences, bounded expiration and fenced orphan reconciliation. Inbound mail still drops attachments. See `docs/ATTACHMENTS.md`; host activation remains gated on private isolated storage, scanner and retention wiring.
+Buildout Task 14 attachments are implemented as unpublished source additions: host-owned immutable blobs, transactional message metadata, digest-bound scan callbacks, authorized clean-only downloads, deletion fences, bounded expiration and fenced orphan reconciliation. Inbound mail still drops attachments. See `docs/ATTACHMENTS.md`; host activation remains gated on private isolated storage, scanner and retention wiring.
 
 Foundation plus the customer-facing Phase 1/2 application services, staff
 detail/mutation services (Buildout Task 4), the staff queue repairable

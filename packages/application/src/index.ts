@@ -289,7 +289,6 @@ export async function cleanupUnreferencedAttachmentBlobs(options: {
   });
 }
 
-
 export type * from "./engineering-types.js";
 export type * from "./engineering-followup-types.js";
 export type {
@@ -1683,7 +1682,6 @@ export interface SupportDeskApplication
     input: AttachmentStateCommand,
   ): Promise<void>;
 
-
   readHandoffWork(
     access: AccessContext,
     ticketId: TicketId,
@@ -2368,6 +2366,7 @@ function snapshotCustomerTicketAdmission(
     "body",
     "category",
     "requesterEmail",
+    "attachments",
     "preference",
     "disclosureVersion",
   ];
@@ -2581,9 +2580,11 @@ function toCustomerMessage(message: TicketMessage): CustomerMessage {
 }
 
 /** Assistant ports remain body-only even when browser views include safe attachments. */
-function assistantConversationMessages(records: readonly SupportRecord[]): readonly CustomerMessage[] {
-  return customerMessages(records).map(({ attachments: _attachments, ...message }) =>
-    Object.freeze(message),
+function assistantConversationMessages(
+  records: readonly SupportRecord[],
+): readonly CustomerMessage[] {
+  return customerMessages(records).map(
+    ({ attachments: _attachments, ...message }) => Object.freeze(message),
   );
 }
 
@@ -5723,7 +5724,10 @@ export function createSupportDeskApplication(options: {
       if (operation === "assistant_reply" && !assistantHandlingEnabled)
         throw new SupportDeskConflictError("Assistant handling is disabled");
       const rows = await records.list(command.ticketId);
-      enforcePartitionRecordLimit(partitionSizeWithAttachmentReserve(rows), limits.maxRecordsPerTicket);
+      enforcePartitionRecordLimit(
+        partitionSizeWithAttachmentReserve(rows),
+        limits.maxRecordsPerTicket,
+      );
       const latest = latestVisibleRecord(rows);
       if (operation === "assistant_reply" || operation === "assistant_escalate")
         requireAssistantTurn(ticket, rows, command as AssistantTurnFence);
@@ -5835,6 +5839,7 @@ export function createSupportDeskApplication(options: {
               command.lastSeenVisibleMessageId!,
               command.commandId,
               rows,
+              partitionSizeWithAttachmentReserve(rows),
             )
           : { actions: [], additionalRows: 0 };
       const newRows =
@@ -6053,6 +6058,7 @@ export function createSupportDeskApplication(options: {
   return {
     async downloadAttachment(access, input) {
       requireIdentifier(access.principalId, "principalId");
+      const actorId = access.principalId;
       const staff = hasPermission(access, supportPermissions.queueRead);
       if (!staff) requirePermission(access, supportPermissions.readOwn);
       const source = boundaryObject(input, "attachment download");
@@ -6072,12 +6078,12 @@ export function createSupportDeskApplication(options: {
       });
       for (const [field, value] of Object.entries(input))
         requireIdentifier(value, field);
-      const ticket = await records.get(ticketKey(input.ticketId));
+      const ticket = await records.getVersioned(ticketKey(input.ticketId));
       if (
-        ticket?.kind !== "ticket" ||
+        ticket?.value.kind !== "ticket" ||
         (!staff &&
-          (ticket.ticket.requester.association !== "authenticated" ||
-            ticket.ticket.requester.principalId !== access.principalId))
+          (ticket.value.ticket.requester.association !== "authenticated" ||
+            ticket.value.ticket.requester.principalId !== actorId))
       )
         throw new SupportDeskNotFoundError();
       const key = {
@@ -6110,8 +6116,19 @@ export function createSupportDeskApplication(options: {
         (await attachmentDigest(bytes)) !== attachment.sha256
       )
         throw new SupportDeskConflictError("Stored attachment digest mismatch");
-      const current = await records.getVersioned(key);
+      const [currentTicket, current] = await Promise.all([
+        records.getVersioned(ticketKey(input.ticketId)),
+        records.getVersioned(key),
+      ]);
+      // Blob I/O and hashing may outlive the original resource or access snapshot.
+      // These final observations withhold bytes; they do not lock either record.
+      requirePermission(
+        access,
+        staff ? supportPermissions.queueRead : supportPermissions.readOwn,
+      );
+      if (access.principalId !== actorId) throw new SupportDeskNotFoundError();
       if (
+        currentTicket?.version !== ticket.version ||
         current?.version !== row.version ||
         attachment.expiresAt <= clock.now()
       )
@@ -6188,7 +6205,7 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(access.principalId, "principalId");
       requireIdentifier(ticketId, "ticketId");
       const rows = await records.list(ticketId);
-      enforcePartitionRecordLimit(partitionSizeWithAttachmentReserve(rows), limits.maxRecordsPerTicket);
+      enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket);
       if (!rows.some((row) => row.kind === "ticket"))
         throw new SupportDeskNotFoundError();
       return rows
@@ -6217,7 +6234,7 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(access.principalId, "principalId");
       requireIdentifier(ticketId, "ticketId");
       const rows = await records.list(ticketId);
-      enforcePartitionRecordLimit(partitionSizeWithAttachmentReserve(rows), limits.maxRecordsPerTicket);
+      enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket);
       const ticket = rows.find(
         (row): row is TicketRecord => row.kind === "ticket",
       )?.ticket;
@@ -6366,7 +6383,7 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(access.principalId, "principalId");
       requireIdentifier(ticketId, "ticketId");
       const rows = await records.list(ticketId);
-      enforcePartitionRecordLimit(partitionSizeWithAttachmentReserve(rows), limits.maxRecordsPerTicket);
+      enforcePartitionRecordLimit(rows.length, limits.maxRecordsPerTicket);
       if (!rows.some((row) => row.kind === "ticket"))
         throw new SupportDeskNotFoundError();
       return rows
@@ -6851,7 +6868,10 @@ export function createSupportDeskApplication(options: {
           action.action === "insert" ? [action.value] : [],
         );
         enforceManagedAdmission(
-          ticket, initialRows, limits, attachmentInputs.length * 6,
+          ticket,
+          initialRows,
+          limits,
+          attachmentInputs.length * 6,
         );
       }
       const beforeAttachmentCommit = async (): Promise<() => true> => {
@@ -6864,14 +6884,22 @@ export function createSupportDeskApplication(options: {
           authorizeAdmitted();
           if (assistantAccess !== undefined)
             authorizeAdmitted(assistantAccess, true);
-          if (admitted !== undefined &&
-            (typeof assertCurrent !== "function" || assertCurrent() !== true))
-            throw new SupportDeskConflictError("Admitted create authority changed");
+          if (
+            admitted !== undefined &&
+            (typeof assertCurrent !== "function" || assertCurrent() !== true)
+          )
+            throw new SupportDeskConflictError(
+              "Admitted create authority changed",
+            );
           return true;
         };
       };
       const outcome = await transactWithAttachments(
-        command.ticketId, actions, attachmentInputs, descriptors, beforeAttachmentCommit,
+        command.ticketId,
+        actions,
+        attachmentInputs,
+        descriptors,
+        beforeAttachmentCommit,
       );
       if (!outcome.committed) {
         const existing = await records.get(
@@ -7028,13 +7056,17 @@ export function createSupportDeskApplication(options: {
         enforcePartitionRecordLimit(
           partitionSizeWithAttachmentReserve(partitionRows),
           limits.maxRecordsPerTicket,
-          addedReplyRows + learningMutation.additionalRows + attachmentInputs.length * 6,
+          addedReplyRows +
+            learningMutation.additionalRows +
+            attachmentInputs.length * 6,
         );
         enforceManagedAdmission(
           versioned.value.ticket,
           projectFollowupRows(partitionRows, learningMutation.nextWorkRows),
           limits,
-          addedReplyRows + learningMutation.additionalRows + attachmentInputs.length * 6,
+          addedReplyRows +
+            learningMutation.additionalRows +
+            attachmentInputs.length * 6,
           true,
         );
         const message: TicketMessage = {
@@ -7075,56 +7107,61 @@ export function createSupportDeskApplication(options: {
                 now,
                 command.notification,
               );
-        const outcome = await transactWithAttachments(command.ticketId, [
-          ...learningMutation.actions,
-          {
-            action: "putIfUnchanged",
-            version: quota.version,
-            value: {
-              ...quota.value,
-              messageCount: quota.value.messageCount + 1,
+        const outcome = await transactWithAttachments(
+          command.ticketId,
+          [
+            ...learningMutation.actions,
+            {
+              action: "putIfUnchanged",
+              version: quota.version,
+              value: {
+                ...quota.value,
+                messageCount: quota.value.messageCount + 1,
+              },
             },
-          },
-          {
-            action: "insert",
-            value: {
-              kind: "message",
-              partition: command.ticketId,
-              id: `message:${command.messageId}`,
-              ordinal: updated.revision,
-              message,
-              ...(notificationContent === undefined
-                ? {}
-                : { deliveryContent: notificationContent }),
+            {
+              action: "insert",
+              value: {
+                kind: "message",
+                partition: command.ticketId,
+                id: `message:${command.messageId}`,
+                ordinal: updated.revision,
+                message,
+                ...(notificationContent === undefined
+                  ? {}
+                  : { deliveryContent: notificationContent }),
+              },
             },
-          },
-          ticketAuditAction({
-            commandId: command.commandId,
-            correlationId: command.correlationId,
-            ticketId: command.ticketId,
-            revision: updated.revision,
-            actorId: access.principalId,
-            occurredAt: now,
-            action: supportTicketAuditActions.customerReplied,
-          }),
-          {
-            action: "insert",
-            value: {
-              kind: "command",
-              partition: command.ticketId,
-              id: `command:${command.commandId}`,
+            ticketAuditAction({
               commandId: command.commandId,
-              commandType: "reply_customer_ticket",
-              messageId: command.messageId,
-              requestFingerprint: fingerprint,
-              completedAt: now,
+              correlationId: command.correlationId,
+              ticketId: command.ticketId,
+              revision: updated.revision,
+              actorId: access.principalId,
+              occurredAt: now,
+              action: supportTicketAuditActions.customerReplied,
+            }),
+            {
+              action: "insert",
+              value: {
+                kind: "command",
+                partition: command.ticketId,
+                id: `command:${command.commandId}`,
+                commandId: command.commandId,
+                commandType: "reply_customer_ticket",
+                messageId: command.messageId,
+                requestFingerprint: fingerprint,
+                completedAt: now,
+              },
             },
-          },
-          ...(notificationJob === undefined ? [] : [notificationJob]),
-          ...(assistantIngress === undefined
-            ? []
-            : [{ action: "insert" as const, value: assistantIngress }]),
-        ], attachmentInputs, descriptors);
+            ...(notificationJob === undefined ? [] : [notificationJob]),
+            ...(assistantIngress === undefined
+              ? []
+              : [{ action: "insert" as const, value: assistantIngress }]),
+          ],
+          attachmentInputs,
+          descriptors,
+        );
         if (outcome.committed) {
           return customerViewAfterChange(
             access.principalId,
@@ -7461,14 +7498,16 @@ export function createSupportDeskApplication(options: {
           partitionSizeWithAttachmentReserve(partitionRows),
           limits.maxRecordsPerTicket,
           (command.notification === undefined ? 3 : 4) +
-            learningMutation.additionalRows + attachmentInputs.length * 6,
+            learningMutation.additionalRows +
+            attachmentInputs.length * 6,
         );
         enforceManagedAdmission(
           versioned.value.ticket,
           projectFollowupRows(partitionRows, learningMutation.nextWorkRows),
           limits,
           (command.notification === undefined ? 3 : 4) +
-            learningMutation.additionalRows + attachmentInputs.length * 6,
+            learningMutation.additionalRows +
+            attachmentInputs.length * 6,
           true,
           true,
         );
@@ -7493,54 +7532,59 @@ export function createSupportDeskApplication(options: {
                 now,
                 command.notification,
               );
-        const outcome = await transactWithAttachments(command.ticketId, [
-          ...learningMutation.actions,
-          {
-            action: "putIfUnchanged",
-            version: quota.version,
-            value: {
-              ...quota.value,
-              messageCount: quota.value.messageCount + 1,
+        const outcome = await transactWithAttachments(
+          command.ticketId,
+          [
+            ...learningMutation.actions,
+            {
+              action: "putIfUnchanged",
+              version: quota.version,
+              value: {
+                ...quota.value,
+                messageCount: quota.value.messageCount + 1,
+              },
             },
-          },
-          {
-            action: "insert",
-            value: {
-              kind: "message",
-              partition: command.ticketId,
-              id: `message:${command.messageId}`,
-              ordinal: updated.revision,
-              message,
-              ...(notificationContent === undefined
-                ? {}
-                : { deliveryContent: notificationContent }),
+            {
+              action: "insert",
+              value: {
+                kind: "message",
+                partition: command.ticketId,
+                id: `message:${command.messageId}`,
+                ordinal: updated.revision,
+                message,
+                ...(notificationContent === undefined
+                  ? {}
+                  : { deliveryContent: notificationContent }),
+              },
             },
-          },
-          ticketAuditAction({
-            commandId: command.commandId,
-            correlationId: command.correlationId,
-            ticketId: command.ticketId,
-            revision: updated.revision,
-            actorId: access.principalId,
-            occurredAt: now,
-            action: supportTicketAuditActions.staffReplied,
-          }),
-          {
-            action: "insert",
-            value: {
-              kind: "command",
-              partition: command.ticketId,
-              id: `command:${command.commandId}`,
+            ticketAuditAction({
               commandId: command.commandId,
-              commandType: "staff_reply",
-              messageId: command.messageId,
-              requestFingerprint: fingerprint,
-              completedAt: now,
-              resultTicket: updated,
+              correlationId: command.correlationId,
+              ticketId: command.ticketId,
+              revision: updated.revision,
+              actorId: access.principalId,
+              occurredAt: now,
+              action: supportTicketAuditActions.staffReplied,
+            }),
+            {
+              action: "insert",
+              value: {
+                kind: "command",
+                partition: command.ticketId,
+                id: `command:${command.commandId}`,
+                commandId: command.commandId,
+                commandType: "staff_reply",
+                messageId: command.messageId,
+                requestFingerprint: fingerprint,
+                completedAt: now,
+                resultTicket: updated,
+              },
             },
-          },
-          ...(notificationJob === undefined ? [] : [notificationJob]),
-        ], attachmentInputs, descriptors);
+            ...(notificationJob === undefined ? [] : [notificationJob]),
+          ],
+          attachmentInputs,
+          descriptors,
+        );
         if (outcome.committed) {
           return staffCommandResult(
             command.ticketId,
@@ -8179,7 +8223,11 @@ export function createSupportDeskApplication(options: {
         if (command.tags.some((tag) => !allowedTags.has(tag)))
           throw new TypeError("tags must be on the host allowlist");
         const rows = await records.list(command.ticketId);
-        enforcePartitionRecordLimit(partitionSizeWithAttachmentReserve(rows), limits.maxRecordsPerTicket, 2);
+        enforcePartitionRecordLimit(
+          partitionSizeWithAttachmentReserve(rows),
+          limits.maxRecordsPerTicket,
+          2,
+        );
         enforceManagedAdmission(versioned.value.ticket, rows, limits, 2);
         const now = clampTicketTime(
           clock.now(),

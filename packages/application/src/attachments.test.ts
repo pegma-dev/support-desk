@@ -101,6 +101,251 @@ async function fixture(
 }
 
 describe("attachments public services", () => {
+  it("holds optional learning evidence without blocking confirmation or attachment cleanup at capacity", async () => {
+    const f = await fixture();
+    const configuration = {
+      enabled: true,
+      productContext: {
+        async resolve(context: { readonly acceptedAt: string }) {
+          return {
+            productId: "synthetic-product",
+            version: "1",
+            buildId: "build-1",
+            binding: "synthetic-product:1",
+            contextVersion: "policy-1",
+            receiptId: "synthetic-product-receipt",
+            verifiedAt: context.acceptedAt,
+            validUntil: new Date(
+              Date.parse(context.acceptedAt) + 60_000,
+            ).toISOString(),
+          };
+        },
+      },
+    };
+    const app = createSupportDeskApplication({
+      store: f.store,
+      clock: f.clock,
+      attachments: { blobs: f.blobs },
+      resolutionLearning: configuration,
+    });
+    const created = await app.createCustomerTicket(customer, f.create);
+    await app.resolveTicket(staff, {
+      ticketId: base.ticketId,
+      commandId: "resolve",
+      correlationId: "resolve",
+    });
+    const records = f.store.collection(supportRecords);
+    const before = await records.list(base.ticketId);
+    expect(
+      before.some((row) => row.kind === "resolution_learning_source"),
+    ).toBe(true);
+    // Six reserved attachment lifecycle rows, three confirmation rows, and two
+    // source-withdrawal rows fit; an optional learning-work row does not.
+    const maximum = before.length + 6 + 3 + 2;
+    const limited = createSupportDeskApplication({
+      store: f.store,
+      clock: f.clock,
+      attachments: { blobs: f.blobs },
+      resolutionLearning: configuration,
+      limits: { maxRecordsPerTicket: maximum },
+    });
+    const command = {
+      ticketId: base.ticketId,
+      commandId: "confirm",
+      correlationId: "confirm",
+      lastSeenVisibleMessageId: base.messageId,
+    };
+    const actor = {
+      ...customer,
+      permissions: [...customer.permissions, supportPermissions.confirmSuccess],
+    };
+    const result = await limited.confirmCustomerSuccess(actor, command);
+    expect(result.ticket.status).toBe("resolved");
+    const after = await records.list(base.ticketId);
+    expect(after).toHaveLength(before.length + 3);
+    expect(
+      after.find((row) => row.kind === "resolution_learning_source"),
+    ).toMatchObject({ state: "held", heldReason: "learning_capacity" });
+    expect(after.some((row) => row.kind === "resolution_learning_work")).toBe(
+      false,
+    );
+    expect(await limited.confirmCustomerSuccess(actor, command)).toEqual(
+      result,
+    );
+    expect(await records.list(base.ticketId)).toEqual(after);
+    await limited.deleteAttachment(
+      staff,
+      f.state(created.messages[0]!.attachments![0]!.id, "delete"),
+    );
+    expect(f.data.size).toBe(0);
+    expect((await records.list(base.ticketId)).length).toBeLessThanOrEqual(
+      maximum,
+    );
+  });
+
+  it("rechecks admitted human intake after the host blob await", async () => {
+    const f = await fixture();
+    let current = true;
+    f.blobs.put.mockImplementationOnce(async (key, bytes) => {
+      f.data.set(key, new Uint8Array(bytes));
+      current = false;
+    });
+    const verifyBeforeCommit = vi.fn(() => {
+      if (!current) throw new Error("intake authority revoked");
+      return () => {
+        if (!current) throw new Error("intake authority revoked");
+        return true as const;
+      };
+    });
+    await expect(
+      f.app.createAdmittedCustomerTicket(
+        customer,
+        { ...f.create, preference: "human" },
+        { verifyBeforeCommit },
+      ),
+    ).rejects.toThrow("intake authority revoked");
+    expect(verifyBeforeCommit).toHaveBeenCalledTimes(1);
+    expect(f.blobs.put).toHaveBeenCalledTimes(1);
+    expect(f.blobs.delete).toHaveBeenCalledTimes(1);
+    expect(f.data.size).toBe(0);
+    const rows = await f.store.collection(supportRecords).list(base.ticketId);
+    expect(
+      rows.filter((row) =>
+        ["ticket", "message", "command", "audit", "mail"].includes(row.kind),
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps attachment metadata out of actual assistant reads and turn claims", async () => {
+    const f = await fixture();
+    const app = createSupportDeskApplication({
+      store: f.store,
+      clock: f.clock,
+      attachments: { blobs: f.blobs },
+      assistantHandlingEnabled: true,
+      assistantTurns: { maxAttempts: 2 },
+    });
+    const created = await app.createCustomerTicket(
+      {
+        ...customer,
+        permissions: [
+          ...customer.permissions,
+          supportPermissions.assistantStart,
+        ],
+      },
+      { ...f.create, initialHandling: "assistant" },
+    );
+    expect(created.messages[0]!.attachments).toHaveLength(1);
+    const service: AccessContext = {
+      ...customer,
+      principalId: "assistant-service",
+      permissions: [
+        supportPermissions.assistantRead,
+        supportPermissions.assistantReply,
+        supportPermissions.assistantEscalate,
+      ],
+    };
+    // Physical rows are readable even if current cleanup admission reserves exceed
+    // the lowered limit. The claim below uses the original mutation capacity.
+    const limited = createSupportDeskApplication({
+      store: f.store,
+      clock: f.clock,
+      limits: { maxRecordsPerTicket: 10 },
+      assistantHandlingEnabled: true,
+    });
+    const conversation = await limited.readAssistantConversation(
+      service,
+      base.ticketId,
+    );
+    expect(conversation.messages[0]!.body).toBe(base.body);
+    expect(conversation.messages[0]).not.toHaveProperty("attachments");
+    await expect(
+      limited.readHandoffWork(staff, base.ticketId),
+    ).resolves.toEqual([]);
+    await expect(
+      limited.readCustomerSuccessConfirmations(staff, base.ticketId),
+    ).resolves.toEqual([]);
+    const page = await app.scanAssistantTurnCandidates(service, { limit: 100 });
+    expect(page.candidates).toHaveLength(1);
+    const claimed = await app.claimAssistantTurn(service, {
+      ...page.candidates[0]!,
+      workerId: "worker",
+      claimId: "claim",
+      leaseMilliseconds: 30_000,
+    });
+    expect(claimed).not.toBeNull();
+    expect(claimed!.conversation.messages[0]!.body).toBe(base.body);
+    expect(claimed!.conversation.messages[0]).not.toHaveProperty("attachments");
+    for (const value of [conversation, claimed!.conversation]) {
+      const encoded = JSON.stringify(value);
+      expect(encoded).not.toContain("blobKey");
+      expect(encoded).not.toContain(f.input.sha256);
+      expect(encoded).not.toContain(
+        created.messages[0]!.attachments![0]!.filename,
+      );
+    }
+  });
+
+  it.each(["ticket", "message"] as const)(
+    "withholds downloaded bytes after the actual %s resource disappears",
+    async (resource) => {
+      const f = await fixture();
+      const created = await f.app.createCustomerTicket(customer, f.create);
+      const id = created.messages[0]!.attachments![0]!.id;
+      await f.app.recordAttachmentScanResult(staff, {
+        ...f.state(id),
+        sha256: f.input.sha256,
+        verdict: "clean",
+      });
+      const records = f.store.collection(supportRecords);
+      const key = {
+        partition: base.ticketId,
+        id: resource === "ticket" ? "ticket" : `message:${base.messageId}`,
+      };
+      const before = await records.getVersioned(key);
+      expect(before).not.toBeNull();
+      f.blobs.get.mockImplementationOnce(async (blobKey) => {
+        expect(await records.deleteIfUnchanged(key, before!.version)).toBe(
+          true,
+        );
+        return new Uint8Array(f.data.get(blobKey)!);
+      });
+      await expect(
+        f.app.downloadAttachment(customer, f.state(id)),
+      ).rejects.toThrow("Attachment changed during download");
+      expect(f.blobs.get).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(["customer", "staff"] as const)(
+    "withholds bytes when the original %s read permission changes during blob I/O",
+    async (kind) => {
+      const f = await fixture();
+      const created = await f.app.createCustomerTicket(customer, f.create);
+      const id = created.messages[0]!.attachments![0]!.id;
+      await f.app.recordAttachmentScanResult(staff, {
+        ...f.state(id),
+        sha256: f.input.sha256,
+        verdict: "clean",
+      });
+      const permissions = [
+        ...(kind === "customer" ? customer.permissions : staff.permissions),
+      ];
+      const access: AccessContext = {
+        ...(kind === "customer" ? customer : staff),
+        permissions,
+      };
+      f.blobs.get.mockImplementationOnce(async (key) => {
+        permissions.length = 0;
+        return new Uint8Array(f.data.get(key)!);
+      });
+      await expect(
+        f.app.downloadAttachment(access, f.state(id)),
+      ).rejects.toThrow("Permission required:");
+      expect(f.blobs.get).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("keeps filename and byte replay identity stable after host limits change", async () => {
     const f = await fixture({ maxBytes: 16, maxFilenameCharacters: 120 });
     const command = {

@@ -1,6 +1,7 @@
 # Attachments (Buildout Task 14)
 
-Implemented in source as additive APIs at exact `0.1.1`. No blob implementation,
+These additive APIs are unpublished source work. A separately verified release
+is required before host adoption. No blob implementation,
 cloud SDK, new dependency, package, or release is supplied. Hosts opt in with
 `createSupportDeskApplication({ store, clock, attachments: { blobs, ...limits } })`.
 The composition example includes a synthetic in-memory host blob adapter and
@@ -92,7 +93,8 @@ the attachment stays unavailable until the callback transaction commits.
 3. **Authorized download:** `downloadAttachment` requires queue-read for staff,
    or read-own plus authenticated ticket ownership for customers. Customers can
    only read non-internal messages. Only clean, unexpired attachments are returned.
-   Downloads verify size/digest and recheck the message version after fetching.
+   Downloads verify size/digest, then recheck Ticket and Message versions and
+   the original named read permission after fetching.
    Hosts must bind AccessContext to a verified session and apply rate limits.
 4. **Preview isolation:** there is no preview API. Apply every returned header:
    `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, and

@@ -46,7 +46,7 @@ hardening remain later buildout tasks. Task 12 stays pending on host durable-sto
 evidence; the current verified package release is `0.2.3`.
 
 Buildout Task 14 [attachment APIs](docs/ATTACHMENTS.md) are also implemented
-in source at `0.1.1`: a host blob port, transactional message metadata,
+as unpublished source additions: a host blob port, transactional message metadata,
 digest-bound scan callbacks, authorized downloads, deletion and bounded sweeps.
 Hosts supply private isolated storage, scanners and retention operations.
 Inbound email continues dropping attachments.

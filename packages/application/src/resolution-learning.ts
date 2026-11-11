@@ -422,6 +422,7 @@ export function createResolutionLearningServices(deps: Dependencies): {
     lastVisibleMessageId: string,
     commandId: string,
     rows: readonly SupportRecord[],
+    capacityRows?: number,
   ): Promise<{
     readonly actions: readonly Action[];
     readonly additionalRows: number;
@@ -1256,6 +1257,7 @@ export function createResolutionLearningServices(deps: Dependencies): {
       lastVisibleMessageId,
       commandId,
       rows,
+      capacityRows = rows.length,
     ) {
       if (source === null) return { actions: [], additionalRows: 0 };
       const trusted = await context(
@@ -1279,7 +1281,7 @@ export function createResolutionLearningServices(deps: Dependencies): {
         ticket.updatedAt,
         trusted.product,
         `success:${commandId}`,
-        rows.length + 4 <= deps.limits.maxRecordsPerTicket - humanTail,
+        capacityRows + 4 <= deps.limits.maxRecordsPerTicket - humanTail,
         rows,
       );
       return { actions: plan.actions, additionalRows: plan.additionalRows };
