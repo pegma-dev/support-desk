@@ -78,9 +78,16 @@ at that handoff are:
 | [registry-verification.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.4/registry-verification.json)                                                       | `734714127` | `e9f3ee884ac9e11fd41f61f5a93b17f4d73692344a72dffca078b788e9866147` |
 | [qualified-release-notes.md](https://github.com/pegma-dev/support-desk/releases/download/v0.2.4/qualified-release-notes.md)                                                       | `734714124` | `a11dadc757bb383ff3198b20daf80151ffcebc8fedbc9794ec250c8997ab02ed` |
 
-This `0.2.4` handoff references permanent public assets. The 16 checked-in
-historical snapshots cover `0.2.0` through `0.2.3`; the existing
-`release:check` checksum table pins the five `0.2.2` and five `0.2.3` copies.
+The five small public `0.2.4` assets are also retained byte-for-byte in
+[`docs/releases/v0.2.4/`](releases/v0.2.4/). The 21 checked-in historical
+snapshots cover `0.2.0` through `0.2.4`. The existing `release:check` checksum
+table pins the five copies for each of `0.2.2`, `0.2.3` and `0.2.4`.
+
+The original ZIP remains the permanent public asset linked above. Its digest is
+recorded in the checked-in [preparation receipt](releases/v0.2.4/prepared-artifact.json)
+at `originalArtifact.sha256` and in the [registry receipt](releases/v0.2.4/registry-verification.json)
+at `originalPreparation.archiveSha256`. The package manifest retains the exact
+five original tarball identities.
 
 Observed npm `latest` tags were `0.2.4` for all five packages at
 `2026-11-11T08:13:46Z`, with AI's `bootstrap: 0.1.1` retained. Dist-tags are
