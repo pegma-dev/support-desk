@@ -1,3 +1,4 @@
+import { engineeringMutationBoundary } from "./engineering-mutation-guard.js";
 import {
   auditEvent,
   auditRecordId,
@@ -30,6 +31,7 @@ import {
 } from "./assistant-turn-records.js";
 import type {
   EngineeringPolicyApplication,
+  EngineeringMutationOptions,
   EngineeringPolicyCommand,
   EngineeringPolicyPort,
   EngineeringPolicyResult,
@@ -498,7 +500,9 @@ export function createEngineeringPolicyServices(
     access: AccessContext,
     raw: EngineeringPolicyCommand | PutEngineeringPolicyCommand,
     disable: boolean,
+    control?: EngineeringMutationOptions,
   ): Promise<EngineeringPolicyResult> => {
+    const mutation = engineeringMutationBoundary(control);
     const actorId = text(access.principalId, "principalId");
     authorizeManage(access, actorId);
     const input = command(raw, !disable);
@@ -523,6 +527,7 @@ export function createEngineeringPolicyServices(
         authorizeManage(access, actorId);
         return previous;
       }
+      mutation?.ensure();
       const head = await readHead();
       const current = head === null ? await empty() : snapshot(head.value);
       if (current.generation !== input.expectedGeneration)
@@ -609,7 +614,10 @@ export function createEngineeringPolicyServices(
         audit,
         { action: "insert", value: receipt },
       ];
+      const assertHostCurrent =
+        mutation === undefined ? undefined : await mutation.verify();
       authorizeManage(access, actorId);
+      assertHostCurrent?.();
       if ((await records.transact(partition, actions)).committed) {
         authorizeManage(access, actorId);
         return accepted;
@@ -801,8 +809,10 @@ export function createEngineeringPolicyServices(
     };
   const application = Object.freeze<EngineeringPolicyApplication>({
     readRepositoryPolicy: read,
-    putRepositoryPolicy: (access, input) => mutate(access, input, false),
-    disableEngineeringExports: (access, input) => mutate(access, input, true),
+    putRepositoryPolicy: (access, input, control) =>
+      mutate(access, input, false, control),
+    disableEngineeringExports: (access, input, control) =>
+      mutate(access, input, true, control),
     pruneRepositoryPolicyHistory: prune,
   });
   return Object.freeze({ application, resolve: read });

@@ -1,3 +1,7 @@
+import {
+  engineeringMutationBoundary,
+  type EngineeringMutationBoundary,
+} from "./engineering-mutation-guard.js";
 import { hasPermission, type AccessContext } from "@pegma/authorization-core";
 import { MAX_SCAN_PAGE_SIZE } from "@pegma/storage-core";
 import {
@@ -458,6 +462,7 @@ export function createEngineeringWorkerServices(
     source: EngineeringSourceRecord = loaded.source.value,
     extra: readonly EngineeringAction[] = [],
     beforeCommit?: () => void,
+    mutation?: EngineeringMutationBoundary,
   ): Promise<boolean> {
     const securityRestriction =
       (source !== loaded.source.value && source.state === "restricted") ||
@@ -475,7 +480,10 @@ export function createEngineeringWorkerServices(
       : { actions: [], nextWorkRows: [] };
     checkEngineeringRecordCapacity(work);
     checkEngineeringRecordCapacity(source);
+    const assertHostCurrent =
+      mutation === undefined ? undefined : await mutation.verify();
     beforeCommit?.();
+    assertHostCurrent?.();
     return (
       await records.transact(work.ticketId, [
         {
@@ -1646,7 +1654,8 @@ export function createEngineeringWorkerServices(
       }
       throw new SupportDeskConflictError();
     },
-    async selectEngineeringRepository(access, input) {
+    async selectEngineeringRepository(access, input, control) {
+      const mutation = engineeringMutationBoundary(control);
       permission(access, true);
       const actorId = access.principalId;
       const command = snapshot(
@@ -1682,6 +1691,7 @@ export function createEngineeringWorkerServices(
           permission(access, true, actorId);
           return previous;
         }
+        mutation?.ensure();
         const loaded = await load(command.ticketId);
         const stored = await workAt(command);
         const work = stored.value;
@@ -1740,16 +1750,26 @@ export function createEngineeringWorkerServices(
         const result = outcome(next);
         permission(access, true, actorId);
         if (
-          await save(loaded, stored, next, loaded.source.value, [
-            deps.audit(
-              command,
-              loaded.ticket.value.ticket,
-              actorId,
-              now,
-              "support.engineering.repository_selected",
-            ),
-            receipt(command, hash, result),
-          ])
+          await save(
+            loaded,
+            stored,
+            next,
+            loaded.source.value,
+            [
+              deps.audit(
+                command,
+                loaded.ticket.value.ticket,
+                actorId,
+                now,
+                "support.engineering.repository_selected",
+              ),
+              receipt(command, hash, result),
+            ],
+            mutation === undefined
+              ? undefined
+              : () => permission(access, true, actorId),
+            mutation,
+          )
         ) {
           permission(access, true, actorId);
           return result;

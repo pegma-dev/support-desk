@@ -8,6 +8,41 @@ routes, cookies, or provider SDKs.
 See also the runnable example at
 [examples/composition](../examples/composition/README.md).
 
+## Unreleased guarded engineering controls
+
+The current source adds an optional third `EngineeringMutationOptions` argument
+to `enrollEngineeringSource`, `submitEngineeringEvidence`,
+`selectEngineeringRepository`, `withdrawEngineeringSource`,
+`invalidateEngineeringSource`, `putRepositoryPolicy` and
+`disableEngineeringExports`. Hosts can supply a deadline-backed `AbortSignal`
+and `verifyBeforeCommit` using the existing `EngineeringReviewCommitGuard`
+representation. The [focused public-entry tests](../tests/engineering-mutation-guard.test.ts)
+exercise these options with Memory and Azurite. Hosts adopt this source addition
+through a subsequent verified release.
+
+The SDK captures the signal and callback once at entry. Each new transaction
+attempt runs the live host callback after its SDK proof and planning awaits.
+The callback may return a synchronous `() => true` assertion for its authority
+or deadline fence. That assertion and the original signal are checked at the
+transaction call. Every OCC retry refreshes the callback. An exact accepted
+receipt returns ahead of mutable proof, callback execution and cancellation,
+under the method's current permission requirements. Hosts retain their current
+browser, actor and permission checks when delivering that receipt.
+
+Caller cancellation reaches the evidence product/test signals and bounds the
+asynchronous host-guard wait. Existing policy observation ports keep their
+SDK trust timeout and the final cancellation fence. A host callback uses its
+own deadline-backed signal for bounded external authority reads. Cancellation
+before transaction entry excludes a new commit. Once the Store accepts the
+transaction handoff, hosts retain uncertain outcomes and recover them with the
+exact original command. Support rows share their existing partition OCC
+transaction. Host authority stores have their independent transaction boundary.
+
+Hosts supply fresh original-account/session/role decisions and keep the
+original command's action and target ceiling. The additional guard can perform
+host storage reads. Each host measures those reads within its complete physical
+request budget and qualifies its deployment separately.
+
 ## Public packages
 
 This guide describes the verified published synchronized `0.2.5` release.
