@@ -247,7 +247,8 @@ ID. One partition contains:
 - `message:<message-id>`: canonical customer or internal messages, including
   an immutable Support-owned outbound-content snapshot when applicable;
 - `audit|<event-id>`: `@pegma/audit@0.2.0` accepted-change events keyed by
-  `auditRecordId(event.id)` (command ID is the event ID);
+  `auditRecordId(event.id)` (ordinary commands use their command ID as the event
+  ID, with the staged review admission convention described below).
 - `command:<command-id>`: idempotency receipts with request fingerprints
   (inbound mail uses `inbound:<receipt location>` command IDs); an older
   nonqualifying reply route may reserve this key with a bounded reroute fence;
@@ -873,6 +874,22 @@ Saturated admission retains prior ownership and reports the bounded limit
 error. Ticket capacity and exact-review-binding limits also apply. The complete
 attempt and largest legal later claim/proof envelope must fit the existing
 60,000-byte conservative serialized limit before admission.
+
+Admission uses logical Audit event ID
+`\u0000support.learning.review.requested:<commandId>`. Final review or
+cancellation uses the original `<commandId>` as its event ID. The leading
+escaped control character gives admission a distinct identity because caller
+command IDs exclude controls. Recovery tooling locates each event using its
+complete logical ID and the public `auditRecordId` mapper.
+
+Published Audit `0.2.0` maps the admission prefix to physical key
+`audit|%00support.learning.review.requested:<commandId>`. Its injective escaping
+maps a caller's literal `%00` to `%2500`. Support serializes the event wrapper as
+JSON, which escapes the logical control character in stored bytes and restores
+it when decoded. The actual Memory/Azurite staged-review cases check distinct
+admission and terminal history, mapped keys and serialized round trips. The
+host's Native D1 qualification checks the corresponding physical row and JSON
+readback through its adapter. [Audit identifier encoding](https://github.com/pegma-dev/audit/blob/v0.2.0/packages/audit/src/index.ts#L94-L145).
 
 `stagedResolutionLearningReviews` exposes guarded admission, exact status and
 cancellation, process-authorized `readPending`/`scanPending`, human claim, P1

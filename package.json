@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@azure/data-tables": "^13.3.2",
+    "@pegma/audit": "0.2.0",
     "@pegma/authorization-core": "0.4.0",
     "@pegma/knowledge-base-application": "0.1.5",
     "@pegma/knowledge-base-contracts": "0.1.5",

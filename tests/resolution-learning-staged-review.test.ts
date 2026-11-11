@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { auditRecordId } from "@pegma/audit";
 import { describe, expect, it } from "vitest";
 import {
   supportRecords,
@@ -194,6 +195,26 @@ for (const [name, createStore] of learningKbStores) {
       );
       expect(audit).toHaveLength(2);
       expect(new Set(audit.map((row) => row.id)).size).toBe(2);
+      const admissionId = `\u0000support.learning.review.requested:${x.command.commandId}`;
+      const literalPercentId = `%00support.learning.review.requested:${x.command.commandId}`;
+      expect(auditRecordId(admissionId)).toBe(
+        `audit|%00support.learning.review.requested:${x.command.commandId}`,
+      );
+      expect(auditRecordId(literalPercentId)).toBe(
+        `audit|%2500support.learning.review.requested:${x.command.commandId}`,
+      );
+      expect(auditRecordId(literalPercentId)).not.toBe(
+        auditRecordId(admissionId),
+      );
+      for (const row of audit) {
+        expect(row.id).toBe(auditRecordId(row.event.id));
+        expect(row.id).not.toContain("\u0000");
+        const encoded = supportRecords.codec.encode(row);
+        expect(typeof encoded.payload).toBe("string");
+        expect(encoded.payload).not.toContain("\u0000");
+        expect(JSON.stringify(encoded)).not.toContain("\u0000");
+        expect(supportRecords.codec.decode(encoded)).toEqual(row);
+      }
       expect(audit.map((row) => row.event.id)).toEqual(
         expect.arrayContaining([
           x.command.commandId,
