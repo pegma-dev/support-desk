@@ -859,10 +859,14 @@ stamp. The row retains phase (`proof` or `commit`), pending/held/terminal state,
 claim generation and lease, optional compact P1 binding/expiry and original
 expiry. Workers resolve current authorization for each physical stage.
 
-Admission atomically adds the attempt and its Audit action, reserving a further
-three rows for the eventual review, Audit and canonical terminal receipt.
-Ordinary admission accounts for `completionRows: 3` alongside human, withdrawal
-and other workflow reserves. Accepted/cancelled attempts set the reserve to
+Admission atomically adds the attempt, its Audit action and a
+`resolution_learning_review_reservation` at the canonical
+`learning-command:<commandId>` key. The reservation holds actor, fingerprint
+and expiry coordinates. Final review or cancellation conditionally replaces
+that reservation with the canonical terminal receipt. Admission reserves two
+further rows for the eventual review and Audit, keeping five total rows across
+admission and completion. Ordinary admission accounts for `completionRows: 2`
+alongside human, withdrawal and other workflow reserves. Accepted/cancelled attempts set the reserve to
 zero. `maxStagedReviewAttempts` defaults to eight with a hard maximum of 24,
 counting all retained pending, held, accepted and cancelled attempt rows.
 Saturated admission retains prior ownership and reports the bounded limit

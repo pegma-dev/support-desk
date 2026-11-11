@@ -77,15 +77,26 @@ their ownership and history.
 
 Typed handlers for `SupportDeskLimitError.field` must handle the added
 `staged_review_attempts` value. It reports the configured retained-attempt
-admission limit. Typed consumers of the optional factory must also handle
-`not_pending`, `not_claimed`, `prepared`, `completed`, `pending` and `held`.
-`not_pending` supplies authoritative terminal/missing dispatch metadata.
+admission limit. Stored-record consumers must handle
+`resolution_learning_review_reservation`, the canonical command slot created
+with the pending attempt and Audit. Completion conditionally replaces this
+slot with the terminal receipt. The attempt reserves two future review/Audit
+rows after its three-row admission. Typed consumers of the optional factory
+must also handle `not_pending`, `not_claimed`, `prepared`, `completed`, `pending`
+and `held`.
+`not_pending` carries its outcome string as the queue-settlement signal.
+The host pairs it with the retained dispatch key and uses `readReviewStatus`
+for the canonical human result.
 `completed` carries the canonical accepted/cancelled receipt. Pending, busy and
 held outcomes retain the original command and queue pointer, while `prepared`
-requires a later physical invocation.
+requires a later physical invocation. `pending.phase` includes `dispatch` for
+pre-claim availability and authority-resolution failures. Authorization failures
+retain the coarse `authorization_unavailable` reason. `prepared.status` contains
+a pending status, and a terminal P1 result returns `completed` with its receipt.
 
 The optional `readScheduling: "sdk"` mode schedules bounded read waves for the
-known real read-only SDK graph. Custom structural ports execute serial
+known real read-only SDK graph. All three learning factories validate the
+runtime option as `"sdk"` or omission. Custom structural ports execute serial
 callbacks by default. Follow the
 [full staged-review contract](RESOLUTION_LEARNING.md#opt-in-staged-human-review-source-candidate)
 and [declared attempt layout](COLLECTIONS.md#staged-human-review-attempts-source-candidate).

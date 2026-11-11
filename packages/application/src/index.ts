@@ -18,6 +18,8 @@ export type {
 } from "./attachments.js";
 import {
   assertResolutionLearningReviewAttempt,
+  assertResolutionLearningReviewReservation,
+  type ResolutionLearningReviewReservationRecord,
   type ResolutionLearningReviewAttemptRecord,
 } from "./resolution-learning-staged-records.js";
 import { auditRecordId, defineAudit, type AuditEvent } from "@pegma/audit";
@@ -144,7 +146,10 @@ import {
 } from "./resolution-learning.js";
 export type * from "./resolution-learning-types.js";
 export type * from "./resolution-learning-staged-types.js";
-export type { ResolutionLearningReviewAttemptRecord } from "./resolution-learning-staged-records.js";
+export type {
+  ResolutionLearningReviewAttemptRecord,
+  ResolutionLearningReviewReservationRecord,
+} from "./resolution-learning-staged-records.js";
 export type {
   ResolutionLearningReviewRecord,
   ResolutionLearningSourceRecord,
@@ -689,6 +694,7 @@ interface TicketReservationRecord {
 
 export type SupportRecord =
   | ResolutionLearningReviewAttemptRecord
+  | ResolutionLearningReviewReservationRecord
   | EngineeringFollowupRecord
   | EngineeringSourceRecord
   | EngineeringWorkRecord
@@ -741,6 +747,7 @@ export const supportTicketAuditActions = Object.freeze({
   learningEvidenceRecorded: "support.learning.evidence_recorded",
   learningEvidenceInvalidated: "support.learning.evidence_invalidated",
   learningWithdrawn: "support.learning.withdrawn",
+  learningReviewRequested: "support.learning.review_requested",
   learningReviewed: "support.learning.reviewed",
   learningReviewCancelled: "support.learning.review_cancelled",
   engineeringEnrolled: "support.engineering.enrolled",
@@ -1006,6 +1013,13 @@ function jsonCodec<T>(key: (value: T) => EntityKey): Codec<T> {
       )
         assertResolutionLearningReviewAttempt(value, location);
       if (
+        (value as { kind?: unknown }).kind ===
+          "resolution_learning_review_reservation" ||
+        (location.id.startsWith("learning-command:") &&
+          (value as { kind?: unknown }).kind !== "resolution_learning_receipt")
+      )
+        assertResolutionLearningReviewReservation(value, location);
+      if (
         [
           "resolution_learning_source",
           "resolution_learning_work",
@@ -1104,6 +1118,26 @@ function jsonCodec<T>(key: (value: T) => EntityKey): Codec<T> {
         )
           throw new TypeError("Review attempt has invalid physical envelope");
         assertResolutionLearningReviewAttempt(decoded, {
+          partition: record.partition,
+          id: record.id,
+        });
+      }
+      if (
+        (decoded as { kind?: unknown })?.kind ===
+          "resolution_learning_review_reservation" ||
+        (typeof record.id === "string" &&
+          record.id.startsWith("learning-command:") &&
+          (decoded as { kind?: unknown })?.kind !==
+            "resolution_learning_receipt")
+      ) {
+        if (
+          typeof record.partition !== "string" ||
+          typeof record.id !== "string"
+        )
+          throw new TypeError(
+            "Review reservation has invalid physical envelope",
+          );
+        assertResolutionLearningReviewReservation(decoded, {
           partition: record.partition,
           id: record.id,
         });
@@ -5577,8 +5611,7 @@ export function createSupportDeskApplication(options: {
         revision: ticket.revision,
         actorId,
         occurredAt: now,
-        action:
-          action as (typeof supportTicketAuditActions)[keyof typeof supportTicketAuditActions],
+        action,
       }),
   });
 

@@ -382,8 +382,10 @@ requires release qualification and host integration before activation.
 The host first prepares and retains the complete `LearningReviewCommand`.
 `admitReviewIntent(access, command, {verifyBeforeCommit})` requires a fresh
 original-browser guard checking the same actor's current review, queue and KB
-permissions. Admission records the pending request and Audit together. A host
-returns **202 pending** after durable admission to acknowledge the recorded
+permissions. Admission records the pending request, Audit and canonical command
+reservation together. Final review or cancellation replaces the reservation
+with the terminal receipt. A host returns **202 pending** after durable
+admission to acknowledge the recorded
 human command. Unknown admission ACKs recover that exact command.
 
 A durably admitted human command remains active across browser logout until
@@ -424,9 +426,13 @@ accepted/cancelled receipts precede live source, policy and KB checks. Current
 human review/queue authority governs recovery. Cancellation and P2 contend in
 the same partition. An accepted review retains its accepted result. Missing
 receipts, pending responses, timeouts and conflicts retain unknown ownership.
-`not_pending` supplies authoritative terminal/missing dispatch metadata.
-`not_claimed`, `pending` and `held` retain the queue pointer. `prepared` schedules
-a later invocation, and `completed` carries the terminal receipt. KB review and
+`not_pending` carries its outcome string as the queue-settlement signal.
+Hosts pair it with the retained dispatch key and recover human results through
+`readReviewStatus`.
+`not_claimed`, `pending` and `held` retain the queue pointer. A `pending` result
+uses phase `dispatch` before a claim and preserves a coarse authorization or
+availability reason. `held` reports an authoritative dispatch hold. `prepared`
+schedules a later invocation, and `completed` carries the terminal receipt. KB review and
 publication proceed through their separate staff-authorized workflow.
 
 For the known real SDK read-only graph, optional `readScheduling: "sdk"` enables

@@ -6,9 +6,11 @@ import {
   type ResolutionLearningStagedReviewApplication,
 } from "@pegma/support-desk-application";
 import {
+  createSupportDeskLearning,
   createSupportDeskStagedLearningReviews,
   createSupportDeskLearningSourceVerifier,
   type LearningReviewCommand,
+  type SupportDeskLearningOptions,
   type SupportDeskStagedLearningReviewOptions,
 } from "@pegma/support-desk-ai";
 import { describe, expect, it, vi } from "vitest";
@@ -149,6 +151,62 @@ for (const [name, store] of learningKbStores)
       expect(f.app.stagedResolutionLearningReviews).toBeDefined();
     });
 
+    it("validates runtime read scheduling consistently across all learning factories", async () => {
+      const f = await fixture(store());
+      const inline: SupportDeskLearningOptions = {
+        ...f.options,
+        knowledgeAccess: { resolve: f.ports.resolveKnowledge },
+        retirementAccess: { resolve: f.ports.resolveRetirement },
+        configuration: { resolve: f.ports.resolveConfiguration },
+        model: { generate: f.ports.generate },
+        usage: { reserve: f.ports.reserve, reconcile: f.ports.reconcileUsage },
+        tokenCounter: {
+          count: (text) => new TextEncoder().encode(text).byteLength,
+        },
+        targets: { resolveScope: f.ports.resolveScope, select: f.ports.select },
+      };
+      const sourceOptions = {
+        application: f.app,
+        serviceAccess: f.options.serviceAccess,
+        reviewPolicy: f.checks,
+        clock: f.support.clock,
+      };
+      for (const value of ["SDK", "serial", null, false, 0, {}, []]) {
+        expect(() =>
+          Reflect.apply(createSupportDeskLearning, undefined, [
+            { ...inline, readScheduling: value },
+          ]),
+        ).toThrow("Unknown learning read scheduling");
+        expect(() =>
+          Reflect.apply(createSupportDeskStagedLearningReviews, undefined, [
+            { ...f.options, readScheduling: value },
+          ]),
+        ).toThrow("Unknown learning read scheduling");
+        expect(() =>
+          Reflect.apply(createSupportDeskLearningSourceVerifier, undefined, [
+            { ...sourceOptions, readScheduling: value },
+          ]),
+        ).toThrow("Unknown learning read scheduling");
+      }
+      for (const value of [undefined, "sdk"]) {
+        expect(
+          Reflect.apply(createSupportDeskLearning, undefined, [
+            { ...inline, readScheduling: value },
+          ]),
+        ).toHaveProperty("submitReviewIntent");
+        expect(
+          Reflect.apply(createSupportDeskStagedLearningReviews, undefined, [
+            { ...f.options, readScheduling: value },
+          ]),
+        ).toHaveProperty("processReview");
+        expect(
+          Reflect.apply(createSupportDeskLearningSourceVerifier, undefined, [
+            { ...sourceOptions, readScheduling: value },
+          ]),
+        ).toHaveProperty("isCurrent");
+      }
+    });
+
     it("durably admits exact intent, then requires two distinct worker invocations and independent complete proofs", async () => {
       const f = await fixture(store());
       const packet = await f.packet();
@@ -246,10 +304,102 @@ for (const [name, store] of learningKbStores)
       });
       const before = await f.support.rows();
       expect(await f.process(packet)).toMatchObject({
-        outcome: "held",
+        outcome: "pending",
+        phase: "dispatch",
         reason: "authority_unavailable",
       });
       expect(await f.support.rows()).toEqual(before);
+      expect(reviews(await f.support.rows())).toHaveLength(0);
+    });
+
+    it.each(["dispatch read", "actor resolver"] as const)(
+      "retains dispatch-pending ownership through a transient %s failure",
+      async (failure) => {
+        const f = await fixture(store());
+        const packet = await f.packet();
+        await f.staged.admitReviewIntent(f.access.staff, packet, {
+          verifyBeforeCommit: f.admission,
+        });
+        const capability = f.app.stagedResolutionLearningReviews;
+        if (capability === undefined)
+          throw new Error("Missing actual staged capability");
+        const fault: ResolutionLearningStagedReviewApplication = {
+          ...capability,
+          async readPending(...args) {
+            const value = await capability.readPending(...args);
+            if (failure === "dispatch read")
+              throw new Error("Transient dispatch response loss");
+            return value;
+          },
+        };
+        if (failure === "actor resolver")
+          f.resolveActor.mockRejectedValueOnce(
+            new Error("Transient current-actor resolution failure"),
+          );
+        const worker = createSupportDeskStagedLearningReviews({
+          ...f.options,
+          application: { ...f.app, stagedResolutionLearningReviews: fault },
+        });
+        const before = await f.support.rows();
+        expect(
+          await worker.processReview({
+            ticketId: packet.intent.ticketId,
+            commandId: packet.commandId,
+            workerId: "retry-dispatch",
+            leaseMilliseconds: 30_000,
+          }),
+        ).toEqual({
+          outcome: "pending",
+          phase: "dispatch",
+          reason: "review_unavailable",
+        });
+        expect(await f.support.rows()).toEqual(before);
+        expect(
+          await f.staged.readReviewStatus(f.access.staff, packet),
+        ).toMatchObject({
+          outcome: "pending",
+          phase: "proof",
+          claimed: false,
+          held: false,
+        });
+        expect(await f.process(packet)).toMatchObject({ outcome: "prepared" });
+      },
+    );
+
+    it("preserves actual authorization failure diagnostics before a claim", async () => {
+      const f = await fixture(store());
+      const packet = await f.packet();
+      await f.staged.admitReviewIntent(f.access.staff, packet, {
+        verifyBeforeCommit: f.admission,
+      });
+      f.revoke(supportPermissions.queueRead);
+      const before = await f.support.rows();
+      expect(await f.process(packet)).toEqual({
+        outcome: "pending",
+        phase: "dispatch",
+        reason: "authorization_unavailable",
+      });
+      expect(await f.support.rows()).toEqual(before);
+      expect(reviews(await f.support.rows())).toHaveLength(0);
+    });
+
+    it("reports a real privacy-withdrawal hold from authoritative dispatch metadata", async () => {
+      const f = await fixture(store());
+      const packet = await f.packet();
+      await f.staged.admitReviewIntent(f.access.staff, packet, {
+        verifyBeforeCommit: f.admission,
+      });
+      await f.app.withdrawResolutionLearningSource(f.access.staff, {
+        ...f.support.command("privacy-hold"),
+        reason: "privacy_withdrawal",
+      });
+      const before = await f.support.rows();
+      expect(await f.process(packet)).toEqual({
+        outcome: "held",
+        reason: "review_held",
+      });
+      expect(await f.support.rows()).toEqual(before);
+      expect(f.resolveActor).not.toHaveBeenCalled();
       expect(reviews(await f.support.rows())).toHaveLength(0);
     });
 
@@ -317,6 +467,41 @@ for (const [name, store] of learningKbStores)
       expect(await f.staged.readReviewStatus(f.access.staff, packet)).toEqual(
         cancelled,
       );
+      expect(reviews(await f.support.rows())).toHaveLength(0);
+    });
+
+    it("returns a completed receipt when cancellation settles P1 before prepare", async () => {
+      const f = await fixture(store());
+      const packet = await f.packet();
+      await f.staged.admitReviewIntent(f.access.staff, packet, {
+        verifyBeforeCommit: f.admission,
+      });
+      const gate = learningKbBarrier();
+      let drafts = 0;
+      f.interceptKnowledge(async (call, invoke) => {
+        const result = await invoke();
+        if (call.operation === "getDraft" && ++drafts === 3) await gate.wait();
+        return result;
+      });
+      const pending = f.process(packet);
+      let cancelled;
+      let afterCancel: Awaited<ReturnType<typeof f.support.rows>> | undefined;
+      try {
+        await gateReached(gate, pending);
+        cancelled = await f.staged.cancelReview(f.access.staff, packet, {
+          verifyBeforeCommit: f.human,
+        });
+        expect(cancelled).toMatchObject({ outcome: "cancelled" });
+        afterCancel = await f.support.rows();
+      } finally {
+        gate.release();
+        f.interceptKnowledge(undefined);
+      }
+      expect(await pending).toEqual({
+        outcome: "completed",
+        receipt: cancelled,
+      });
+      expect(await f.support.rows()).toEqual(afterCancel);
       expect(reviews(await f.support.rows())).toHaveLength(0);
     });
 
@@ -448,6 +633,95 @@ for (const [name, store] of learningKbStores)
         ),
       ).rejects.toThrow();
       expect(await f.support.rows()).toEqual(rows);
+    });
+
+    it.each(["proof", "commit"] as const)(
+      "rejects changed source-read authority at the final %s draft handoff",
+      async (phase) => {
+        const f = await fixture(store());
+        const packet = await f.packet();
+        await f.staged.admitReviewIntent(f.access.staff, packet, {
+          verifyBeforeCommit: f.admission,
+        });
+        if (phase === "commit")
+          expect(await f.process(packet)).toMatchObject({
+            outcome: "prepared",
+          });
+        const gate = learningKbBarrier();
+        let draftReads = 0;
+        f.interceptKnowledge(async (call, invoke) => {
+          const result = await invoke();
+          if (call.operation === "getDraft" && ++draftReads === 3)
+            await gate.wait();
+          return result;
+        });
+        const pending = f.process(packet);
+        let rowsAtFinalRead:
+          Awaited<ReturnType<typeof f.support.rows>> | undefined;
+        try {
+          await gateReached(gate, pending);
+          expect(draftReads).toBe(3);
+          rowsAtFinalRead = await f.support.rows();
+          f.revoke(supportPermissions.learningRead);
+        } finally {
+          gate.release();
+          f.interceptKnowledge(undefined);
+        }
+        expect(await pending).toMatchObject({
+          outcome: "pending",
+          phase,
+          reason: "authority_changed",
+        });
+        expect(await f.support.rows()).toEqual(rowsAtFinalRead);
+        expect(reviews(await f.support.rows())).toHaveLength(0);
+        expect(
+          await f.learning.readReviewReceipt(f.access.staff, packet),
+        ).toBeNull();
+        expect(
+          await f.staged.readReviewStatus(f.access.staff, packet),
+        ).toMatchObject({
+          outcome: "pending",
+          phase,
+        });
+      },
+    );
+
+    it("accepts normalized authority ordering and grants outside the fixed proof ceiling", async () => {
+      const f = await fixture(store());
+      const packet = await f.packet();
+      const original: AccessContext = {
+        ...f.access.staff,
+        roles: ["synthetic-review-role-A", "synthetic-review-role-B"],
+        entitlements: [
+          "synthetic-review-entitlement-A",
+          "synthetic-review-entitlement-B",
+        ],
+      };
+      f.setActor(original);
+      await f.staged.admitReviewIntent(f.access.staff, packet, {
+        verifyBeforeCommit: f.admission,
+      });
+      expect(await f.process(packet)).toMatchObject({ outcome: "prepared" });
+      let draftReads = 0;
+      f.interceptKnowledge(async (call, invoke) => {
+        const result = await invoke();
+        if (call.operation === "getDraft" && ++draftReads === 3)
+          f.setActor({
+            ...original,
+            roles: [...original.roles].reverse(),
+            entitlements: [...original.entitlements].reverse(),
+            permissions: [...original.permissions]
+              .reverse()
+              .concat("synthetic.unrelated.permission"),
+          });
+        return result;
+      });
+      expect(await f.process(packet)).toMatchObject({
+        outcome: "completed",
+        receipt: { outcome: "accepted" },
+      });
+      expect(draftReads).toBe(3);
+      expect(reviews(await f.support.rows())).toHaveLength(1);
     });
 
     it("denies a live actor revoked during the actual P2 proof without any review commit", async () => {

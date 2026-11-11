@@ -7,6 +7,8 @@ import {
   resolutionLearningReviewIdentity,
   requireResolutionLearningReviewTicket,
   observeResolutionLearningReview,
+  readResolutionLearningReviewSlot,
+  resolutionLearningReviewReceiptAction,
   type ResolutionLearningReviewIdentity,
 } from "./resolution-learning-review-identity.js";
 import { hasPermission, type AccessContext } from "@pegma/authorization-core";
@@ -1251,7 +1253,8 @@ export function createResolutionLearningWorkerServices(
         // Exact recovery needs the current ticket and human authority, not
         // spare capacity for an operation that has already committed.
         await requireReviewTicket(identity);
-        const prior = await observedReview(identity);
+        const slot = await readResolutionLearningReviewSlot(records, identity);
+        const prior = slot.receipt;
         if (prior !== null) {
           await guard();
           return prior;
@@ -1281,12 +1284,24 @@ export function createResolutionLearningWorkerServices(
             stored.value.reviewerId !== access.principalId
           )
             throw new SupportDeskConflictError("Review command reused");
+          if (
+            stored.value.state === "accepted" ||
+            stored.value.state === "cancelled" ||
+            slot.reservation === null
+          )
+            throw new SupportDeskConflictError(
+              "Terminal review receipt is unavailable",
+            );
           const { claim: _claim, leaseUntil: _lease, ...rest } = stored.value;
           staged = {
             version: stored.version,
             value: { ...rest, state: "cancelled", completionRows: 0 },
           };
         }
+        if (staged === undefined && slot.reservation !== null)
+          throw new SupportDeskConflictError(
+            "Review reservation has no retained attempt",
+          );
         deps.admission(
           loaded.ticket.value.ticket,
           staged === undefined
@@ -1294,7 +1309,7 @@ export function createResolutionLearningWorkerServices(
             : loaded.rows.map((row) =>
                 row.id === staged.value.id ? staged.value : row,
               ),
-          2,
+          slot.reservation === null ? 2 : 1,
         );
         const now = clock.now();
         const result = {
@@ -1328,16 +1343,13 @@ export function createResolutionLearningWorkerServices(
                 now,
                 "support.learning.review_cancelled",
               ),
-              {
-                action: "insert",
-                value: {
-                  kind: "resolution_learning_receipt",
-                  partition: command.ticketId,
-                  id: key.id,
-                  fingerprint: cancellationHash,
-                  result,
-                },
-              },
+              resolutionLearningReviewReceiptAction(slot, {
+                kind: "resolution_learning_receipt",
+                partition: command.ticketId,
+                id: key.id,
+                fingerprint: cancellationHash,
+                result,
+              }),
             ])
           ).committed
         ) {

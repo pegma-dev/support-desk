@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   supportRecords,
+  supportTicketAuditActions,
   supportPermissions,
   type ReviewResolutionLearningProposalCommand,
 } from "@pegma/support-desk-application";
@@ -132,7 +133,24 @@ for (const [name, createStore] of learningKbStores) {
         claimed: false,
       });
       const admitted = await x.f.support.rows();
-      expect(admitted).toHaveLength(before.length + 2);
+      expect(admitted).toHaveLength(before.length + 3);
+      expect(
+        admitted.find(
+          (row) => row.id === `learning-command:${x.command.commandId}`,
+        ),
+      ).toMatchObject({
+        kind: "resolution_learning_review_reservation",
+        fingerprint: digest({
+          command: x.command,
+          actorId: x.f.access.staff.principalId,
+        }),
+      });
+      const reservation = admitted.find(
+        (row) => row.kind === "resolution_learning_review_reservation",
+      );
+      expect(reservation).not.toHaveProperty("command");
+      expect(reservation).not.toHaveProperty("intent");
+      expect(JSON.stringify(reservation)).not.toContain("PRIVATE_STAGE_REASON");
       expect(
         admitted.filter((row) => row.kind === "resolution_learning_review"),
       ).toEqual(
@@ -501,7 +519,7 @@ for (const [name, createStore] of learningKbStores) {
       const row = (await x.f.support.rows()).find(
         (row) => row.kind === "resolution_learning_review_attempt",
       );
-      expect(row).toMatchObject({ state: "held", completionRows: 3 });
+      expect(row).toMatchObject({ state: "held", completionRows: 2 });
       expect(JSON.stringify(row)).not.toContain("PRIVATE_STAGE_REASON");
       expect(row).not.toHaveProperty("claim");
       expect(row).not.toHaveProperty("leaseUntil");
@@ -623,6 +641,428 @@ for (const [name, createStore] of learningKbStores) {
         leaseMilliseconds: 1000,
       });
       expect(owner?.fence.workerId).toHaveLength(200);
+    });
+    describe("r1 application regressions", () => {
+      async function removeTerminalRows(
+        x: Awaited<ReturnType<typeof fixture>>,
+      ) {
+        const records = x.f.support.store.collection(supportRecords);
+        await records.delete({
+          partition: x.command.ticketId,
+          id: `learning-command:${x.command.commandId}`,
+        });
+        for (const row of await x.f.support.rows()) {
+          if (row.kind === "audit" && row.event.id === x.command.commandId)
+            await records.delete({ partition: row.partition, id: row.id });
+        }
+      }
+      it.each(["accepted", "cancelled"] as const)(
+        "retains %s unknown ownership when canonical receipt and final Audit are absent",
+        async (winner) => {
+          const x = await fixture();
+          const owner = await x.prepare();
+          if (winner === "accepted")
+            await x.stage.complete(x.f.access.staff, owner.fence, x.guard);
+          else
+            await x.stage.cancel(x.f.access.staff, x.command, async () => {});
+          await removeTerminalRows(x);
+          const before = await x.f.support.rows();
+          expect(
+            await x.stage.readPending(x.f.access.service, {
+              ticketId: x.command.ticketId,
+              commandId: x.command.commandId,
+            }),
+          ).toMatchObject({ held: true });
+          await expect(
+            x.stage.readStatus(x.f.access.staff, x.command),
+          ).rejects.toThrow();
+          expect(await x.f.support.rows()).toEqual(before);
+        },
+      );
+      it.each(["staged", "legacy"] as const)(
+        "refuses %s cancellation after an accepted receipt and final Audit were removed",
+        async (api) => {
+          const x = await fixture();
+          const owner = await x.prepare();
+          await x.stage.complete(x.f.access.staff, owner.fence, x.guard);
+          await removeTerminalRows(x);
+          const before = await x.f.support.rows();
+          let calls = 0;
+          const cancelled =
+            api === "staged"
+              ? x.stage.cancel(x.f.access.staff, x.command, async () => {
+                  calls++;
+                })
+              : x.app.cancelResolutionLearningReview(
+                  x.f.access.staff,
+                  x.command,
+                  async () => {
+                    calls++;
+                  },
+                );
+          await expect(cancelled).rejects.toThrow();
+          expect(calls).toBe(0);
+          expect(await x.f.support.rows()).toEqual(before);
+          expect(
+            before.some(
+              (row) =>
+                row.kind === "resolution_learning_review" &&
+                row.decision === "approve",
+            ),
+          ).toBe(true);
+        },
+      );
+      it("prevents another learning operation from stealing an admitted canonical command", async () => {
+        const x = await fixture();
+        await x.admit();
+        const before = await x.f.support.rows();
+        await expect(
+          x.app.withdrawResolutionLearningSource(x.f.access.staff, {
+            ticketId: x.command.ticketId,
+            commandId: x.command.commandId,
+            correlationId: x.command.correlationId,
+            reason: "privacy_withdrawal",
+          }),
+        ).rejects.toThrow();
+        expect(await x.f.support.rows()).toEqual(before);
+        expect(
+          await x.stage.readStatus(x.f.access.staff, x.command),
+        ).toMatchObject({ outcome: "pending" });
+        expect(
+          (await x.stage.cancel(x.f.access.staff, x.command, async () => {}))
+            .outcome,
+        ).toBe("cancelled");
+      });
+      it("does not steal a canonical command already accepted by another learning operation", async () => {
+        const x = await fixture();
+        const command = {
+          ticketId: x.command.ticketId,
+          commandId: x.command.commandId,
+          correlationId: x.command.correlationId,
+          reason: "privacy_withdrawal" as const,
+        };
+        await x.app.withdrawResolutionLearningSource(x.f.access.staff, command);
+        const before = await x.f.support.rows();
+        let called = 0;
+        await expect(
+          x.stage.admit(x.f.access.staff, x.command, x.intent, async () => {
+            called++;
+          }),
+        ).rejects.toThrow();
+        expect(called).toBe(0);
+        expect(await x.f.support.rows()).toEqual(before);
+      });
+      it("reserves the canonical key against a real suspended competing learning transaction", async () => {
+        const x = await fixture();
+        const gate = learningKbBarrier();
+        let first = true;
+        x.f.support.observed.intercept(async (trace, commit) => {
+          if (
+            first &&
+            trace.actions.some(
+              (action) =>
+                "value" in action &&
+                typeof action.value === "object" &&
+                action.value !== null &&
+                "kind" in action.value &&
+                action.value.kind === "audit" &&
+                "event" in action.value &&
+                typeof action.value.event === "object" &&
+                action.value.event !== null &&
+                "action" in action.value.event &&
+                action.value.event.action === "support.learning.withdrawn",
+            )
+          ) {
+            first = false;
+            await gate.wait();
+          }
+          return commit();
+        });
+        const competing = x.app.withdrawResolutionLearningSource(
+          x.f.access.staff,
+          {
+            ticketId: x.command.ticketId,
+            commandId: x.command.commandId,
+            correlationId: x.command.correlationId,
+            reason: "privacy_withdrawal",
+          },
+        );
+        try {
+          await barrierReached(gate, competing);
+          await x.admit();
+          gate.release();
+          await expect(competing).rejects.toThrow();
+          expect(
+            await x.stage.readStatus(x.f.access.staff, x.command),
+          ).toMatchObject({ outcome: "pending" });
+          expect(
+            (await x.f.support.rows()).filter(
+              (row) =>
+                row.kind === "audit" &&
+                row.event.action === "support.learning.withdrawn",
+            ),
+          ).toEqual([]);
+        } finally {
+          gate.release();
+          await competing.catch(() => {});
+          x.f.support.observed.intercept(undefined);
+        }
+      });
+      it("holds a retained canonical reservation when the attempt is missing rather than recreating ownership", async () => {
+        const x = await fixture();
+        await x.admit();
+        const records = x.f.support.store.collection(supportRecords);
+        const attempt = (await x.f.support.rows()).find(
+          (row) => row.kind === "resolution_learning_review_attempt",
+        );
+        if (attempt?.kind !== "resolution_learning_review_attempt")
+          throw new Error("Missing genuine admitted attempt");
+        await records.delete({ partition: attempt.partition, id: attempt.id });
+        const before = await x.f.support.rows();
+        expect(
+          await x.stage.readPending(x.f.access.service, {
+            ticketId: x.command.ticketId,
+            commandId: x.command.commandId,
+          }),
+        ).toMatchObject({
+          reviewerId: x.f.access.staff.principalId,
+          held: true,
+        });
+        await expect(
+          x.stage.readStatus(x.f.access.staff, x.command),
+        ).rejects.toThrow();
+        await expect(x.admit()).rejects.toThrow();
+        await expect(
+          x.stage.cancel(x.f.access.staff, x.command, async () => {}),
+        ).rejects.toThrow();
+        expect(await x.f.support.rows()).toEqual(before);
+      });
+      it("uses the canonical reservation opaque version in the final transaction with one CAS attempt", async () => {
+        const x = await fixture();
+        const owner = await x.prepare();
+        const gate = learningKbBarrier();
+        let attempts = 0;
+        x.f.support.observed.intercept(async (trace, commit) => {
+          if (hasReview(trace) && attempts++ === 0) await gate.wait();
+          return commit();
+        });
+        const pending = x.stage.complete(
+          x.f.access.staff,
+          owner.fence,
+          x.guard,
+        );
+        try {
+          await barrierReached(gate, pending);
+          const records = x.f.support.store.collection(supportRecords);
+          const key = {
+            partition: x.command.ticketId,
+            id: `learning-command:${x.command.commandId}`,
+          };
+          const reservation = await records.getVersioned(key);
+          if (
+            reservation?.value.kind !== "resolution_learning_review_reservation"
+          )
+            throw new Error("Expected actual canonical reservation");
+          expect(
+            await records.putIfUnchanged(
+              reservation.value,
+              reservation.version,
+            ),
+          ).toBe(true);
+          expect((await records.getVersioned(key))?.version).not.toBe(
+            reservation.version,
+          );
+          gate.release();
+          await expect(pending).rejects.toThrow();
+          expect(attempts).toBe(1);
+          expect(
+            await x.app.readResolutionLearningReviewReceipt(
+              x.f.access.staff,
+              x.command,
+            ),
+          ).toBeNull();
+          expect(
+            (await x.stage.complete(x.f.access.staff, owner.fence, x.guard))
+              .outcome,
+          ).toBe("accepted");
+        } finally {
+          gate.release();
+          await pending.catch(() => {});
+          x.f.support.observed.intercept(undefined);
+        }
+      });
+      it("validates canonical reservation physical identity and keeps it free of intent and reason bodies", async () => {
+        const x = await fixture();
+        await x.admit();
+        const reservation = (await x.f.support.rows()).find(
+          (row) => row.kind === "resolution_learning_review_reservation",
+        );
+        if (reservation?.kind !== "resolution_learning_review_reservation")
+          throw new Error("Missing actual canonical reservation");
+        expect(() =>
+          supportRecords.codec.decode({
+            partition: "wrong-ticket",
+            id: reservation.id,
+            json: JSON.stringify(reservation),
+          }),
+        ).toThrow();
+        expect(() =>
+          supportRecords.codec.decode({
+            partition: reservation.partition,
+            id: "learning-command:wrong-command",
+            json: JSON.stringify(reservation),
+          }),
+        ).toThrow();
+        expect(reservation).not.toHaveProperty("intent");
+        expect(reservation).not.toHaveProperty("command");
+        expect(JSON.stringify(reservation)).not.toContain(
+          "PRIVATE_STAGE_REASON",
+        );
+      });
+      it("marks a shorter expired P1 proof held and stops dispatch without releasing its command", async () => {
+        const x = await fixture();
+        await x.admit();
+        const owner = await x.claim("short-proof");
+        const validUntil = new Date(
+          Date.parse(x.f.support.clock.now()) + 1000,
+        ).toISOString();
+        await x.stage.prepare(
+          x.f.access.staff,
+          {
+            fence: owner.fence,
+            proof: { binding: digest(x.intent), validUntil },
+          },
+          x.guard,
+        );
+        x.f.support.advance(1001);
+        const before = await x.f.support.rows();
+        expect(
+          await x.stage.readStatus(x.f.access.staff, x.command),
+        ).toMatchObject({ outcome: "pending", held: true });
+        expect(
+          await x.stage.readPending(x.f.access.service, {
+            ticketId: x.command.ticketId,
+            commandId: x.command.commandId,
+          }),
+        ).toMatchObject({ held: true });
+        let cursor: string | undefined;
+        const ids: string[] = [];
+        do {
+          const page = await x.stage.scanPending(x.f.access.service, {
+            limit: 20,
+            ...(cursor === undefined ? {} : { cursor }),
+          });
+          ids.push(...page.candidates.map((row) => row.commandId));
+          cursor = page.nextCursor ?? undefined;
+        } while (cursor !== undefined);
+        expect(ids).not.toContain(x.command.commandId);
+        expect(await x.f.support.rows()).toEqual(before);
+        expect(
+          (await x.stage.cancel(x.f.access.staff, x.command, async () => {}))
+            .outcome,
+        ).toBe("cancelled");
+      });
+      it("exports the actual durable admission Audit action in the closed registry", async () => {
+        const x = await fixture();
+        await x.admit();
+        const event = (await x.f.support.rows()).find(
+          (row) =>
+            row.kind === "audit" &&
+            row.event.action === "support.learning.review_requested",
+        );
+        if (event?.kind !== "audit")
+          throw new Error("Missing actual admission Audit");
+        expect(Object.values(supportTicketAuditActions)).toContain(
+          event.event.action,
+        );
+      });
+      it("rejects a saturated new exact review binding before admitting a durable attempt", async () => {
+        const x = await fixture();
+        await x.app.reviewResolutionLearningProposal(
+          x.f.access.staff,
+          { ...x.command, commandId: "first-review-binding" },
+          x.guard,
+        );
+        const draft = await x.f.kb.getDraft(x.f.access.guideAuthor, {
+          articleId: x.intent.target.articleId,
+        });
+        await x.f.kb.updateDraft(x.f.access.draftService, {
+          ...x.f.command("different-binding", draft.generation),
+          articleId: draft.articleId,
+          collectionId: draft.revision.collectionId,
+          draft: {
+            kind: draft.revision.kind,
+            title: "A new exact draft binding",
+            summary: draft.revision.summary,
+            content: draft.revision.content,
+            tags: draft.revision.tags,
+            applicability: draft.revision.applicability,
+          },
+        });
+        const fresh = await x.f.learning.prepareReviewIntent(x.f.access.staff, {
+          ticketId: x.command.ticketId,
+          sourceGeneration: x.command.sourceGeneration,
+        });
+        const command = {
+          ...x.command,
+          commandId: "new-binding-at-cap",
+          target: fresh.intent.target,
+          intentBinding: digest(fresh.intent),
+        };
+        const stage = x.f.support.freshApplication({
+          resolutionLearning: { stagedReviews: true, maxReviewBindings: 1 },
+        }).stagedResolutionLearningReviews!;
+        const before = await x.f.support.rows();
+        let guards = 0;
+        await expect(
+          stage.admit(x.f.access.staff, command, fresh.intent, async () => {
+            guards++;
+          }),
+        ).rejects.toThrow();
+        expect(guards).toBe(0);
+        expect(await x.f.support.rows()).toEqual(before);
+      });
+      it("allows replacement of an already retained exact review binding at the binding cap", async () => {
+        const x = await fixture();
+        await x.app.reviewResolutionLearningProposal(
+          x.f.access.staff,
+          { ...x.command, commandId: "existing-review-binding" },
+          x.guard,
+        );
+        const stage = x.f.support.freshApplication({
+          resolutionLearning: { stagedReviews: true, maxReviewBindings: 1 },
+        }).stagedResolutionLearningReviews!;
+        expect(
+          await stage.admit(x.f.access.staff, x.command, x.intent, x.guard),
+        ).toMatchObject({ outcome: "pending" });
+      });
+      it.each(["true", "number", "function"] as const)(
+        "preserves ignored %s return values in a typed legacy void guard",
+        async (result) => {
+          const x = await fixture();
+          await x.guard();
+          let assertionCalls = 0;
+          const guard: () => void = () =>
+            result === "true"
+              ? true
+              : result === "number"
+                ? 7
+                : () => {
+                    assertionCalls++;
+                    throw new Error(
+                      "Legacy returned function is not a staged assertion",
+                    );
+                  };
+          expect(
+            await x.app.reviewResolutionLearningProposal(
+              x.f.access.staff,
+              x.command,
+              guard,
+            ),
+          ).toMatchObject({ ticketId: x.command.ticketId });
+          expect(assertionCalls).toBe(0);
+        },
+      );
     });
   });
 }

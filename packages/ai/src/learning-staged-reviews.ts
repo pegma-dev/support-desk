@@ -346,12 +346,20 @@ export function createSupportDeskStagedLearningReviews(
                 current,
                 { fence: currentClaim.fence, proof },
                 async () => {
-                  await actor(currentClaim.reviewerId, runtime, deadline);
+                  const confirmed = await actor(
+                    currentClaim.reviewerId,
+                    runtime,
+                    deadline,
+                  );
+                  if (canonical(confirmed) !== canonical(current))
+                    throw new AssistantBoundaryError("authority_changed");
                   return finalFence(runtime, deadline);
                 },
               ),
             deadline,
           );
+          if (status.outcome !== "pending")
+            return { outcome: "completed", receipt: status };
           // The caller must end this invocation, even if commit work is immediately discoverable.
           return { outcome: "prepared", status };
         }
@@ -374,7 +382,13 @@ export function createSupportDeskStagedLearningReviews(
               );
               if (proof.binding !== preparedProof.binding)
                 throw new AssistantBoundaryError("review_proof_changed");
-              await actor(currentClaim.reviewerId, runtime, deadline);
+              const confirmed = await actor(
+                currentClaim.reviewerId,
+                runtime,
+                deadline,
+              );
+              if (canonical(confirmed) !== canonical(current))
+                throw new AssistantBoundaryError("authority_changed");
               return finalFence(runtime, deadline);
             }),
           deadline,
@@ -384,11 +398,11 @@ export function createSupportDeskStagedLearningReviews(
         const reason =
           error instanceof AssistantBoundaryError
             ? error.category
-            : "review_unavailable";
-        const phase = claim?.phase ?? attemptedPhase;
-        return phase === undefined
-          ? { outcome: "held", reason }
-          : { outcome: "pending", phase, reason };
+            : error instanceof SupportDeskAuthorizationError
+              ? "authorization_unavailable"
+              : "review_unavailable";
+        const phase = claim?.phase ?? attemptedPhase ?? "dispatch";
+        return { outcome: "pending", phase, reason };
       } finally {
         runtime.close();
       }

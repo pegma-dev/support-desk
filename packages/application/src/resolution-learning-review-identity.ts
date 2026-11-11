@@ -1,4 +1,12 @@
-import type { CollectionStore } from "@pegma/storage-core";
+import {
+  assertResolutionLearningReviewReservation,
+  type ResolutionLearningReviewReservationRecord,
+} from "./resolution-learning-staged-records.js";
+import type {
+  CollectionStore,
+  VersionedRecord,
+  TransactionAction,
+} from "@pegma/storage-core";
 import {
   SupportDeskConflictError,
   SupportDeskNotFoundError,
@@ -63,6 +71,7 @@ export async function resolutionLearningReviewIdentity(
   });
   return {
     command,
+    actorId,
     hash,
     cancellationHash,
     key: {
@@ -84,12 +93,20 @@ export async function requireResolutionLearningReviewTicket(
   });
   if (ticket?.kind !== "ticket") throw new SupportDeskNotFoundError();
 }
-export async function observeResolutionLearningReview(
-  records: CollectionStore<SupportRecord>,
+export function resolutionLearningReviewReceiptValue(
   identity: ResolutionLearningReviewIdentity,
-): Promise<ResolutionLearningReviewReceipt | null> {
-  const prior = await records.get(identity.key);
+  prior: SupportRecord | null,
+): ResolutionLearningReviewReceipt | null {
   if (prior === null) return null;
+  if (prior.kind === "resolution_learning_review_reservation") {
+    assertResolutionLearningReviewReservation(prior, identity.key);
+    if (
+      prior.fingerprint !== identity.hash ||
+      prior.reviewerId !== identity.actorId
+    )
+      throw new SupportDeskConflictError("Review command reused");
+    return null;
+  }
   if (prior.kind !== "resolution_learning_receipt")
     throw new SupportDeskConflictError("Review command reused");
   if (
@@ -123,4 +140,42 @@ export async function observeResolutionLearningReview(
       commandId: identity.command.commandId,
     };
   throw new SupportDeskConflictError("Review command reused");
+}
+
+export interface ResolutionLearningReviewSlot {
+  readonly receipt: ResolutionLearningReviewReceipt | null;
+  readonly reservation: VersionedRecord<ResolutionLearningReviewReservationRecord> | null;
+}
+/** One physical observation supplies both terminal receipt and opaque reservation version. */
+export async function readResolutionLearningReviewSlot(
+  records: CollectionStore<SupportRecord>,
+  identity: ResolutionLearningReviewIdentity,
+): Promise<ResolutionLearningReviewSlot> {
+  const stored = await records.getVersioned(identity.key);
+  const receipt = resolutionLearningReviewReceiptValue(
+    identity,
+    stored?.value ?? null,
+  );
+  return {
+    receipt,
+    reservation:
+      stored?.value.kind === "resolution_learning_review_reservation"
+        ? { value: stored.value, version: stored.version }
+        : null,
+  };
+}
+export async function observeResolutionLearningReview(
+  records: CollectionStore<SupportRecord>,
+  identity: ResolutionLearningReviewIdentity,
+): Promise<ResolutionLearningReviewReceipt | null> {
+  return (await readResolutionLearningReviewSlot(records, identity)).receipt;
+}
+
+export function resolutionLearningReviewReceiptAction(
+  slot: ResolutionLearningReviewSlot,
+  value: Extract<SupportRecord, { kind: "resolution_learning_receipt" }>,
+): TransactionAction<SupportRecord> {
+  return slot.reservation === null
+    ? { action: "insert", value }
+    : { action: "putIfUnchanged", version: slot.reservation.version, value };
 }

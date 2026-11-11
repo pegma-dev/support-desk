@@ -6,6 +6,7 @@ import {
   SupportDeskLimitError,
   SupportDeskNotFoundError,
   supportPermissions,
+  supportTicketAuditActions,
   type SupportRecord,
 } from "./index.js";
 import {
@@ -19,9 +20,12 @@ import {
 import {
   safeLearningSnapshot as snapshot,
   resolutionLearningWorkKey,
+  resolutionLearningReviewKey,
 } from "./resolution-learning-records.js";
 import {
   assertResolutionLearningReviewAttempt,
+  assertResolutionLearningReviewReservation,
+  type ResolutionLearningReviewReservationRecord,
   maximumResolutionLearningReviewAttemptBytes,
   resolutionLearningReviewAttemptKey,
   validateStagedReviewFence,
@@ -32,7 +36,9 @@ import {
 import {
   resolutionLearningReviewIdentity,
   requireResolutionLearningReviewTicket,
-  observeResolutionLearningReview,
+  readResolutionLearningReviewSlot,
+  resolutionLearningReviewReceiptValue,
+  resolutionLearningReviewReceiptAction,
   type ResolutionLearningReviewIdentity,
 } from "./resolution-learning-review-identity.js";
 import { commitResolutionLearningReview } from "./resolution-learning-review-commit.js";
@@ -133,6 +139,15 @@ export function createResolutionLearningStagedReviewServices(
     if (identity.hash !== row.fingerprint)
       throw new SupportDeskConflictError("Review command reused");
   }
+  function held(row: ResolutionLearningReviewAttemptRecord): boolean {
+    return (
+      row.state !== "pending" ||
+      timestamp(row.expiresAt, "expiresAt") <= now() ||
+      (row.phase === "commit" &&
+        (row.proof === undefined ||
+          timestamp(row.proof.validUntil, "proof.validUntil") <= now()))
+    );
+  }
   function pending(
     row: ResolutionLearningReviewAttemptRecord,
   ): ResolutionLearningStagedReviewStatus {
@@ -144,15 +159,13 @@ export function createResolutionLearningStagedReviewServices(
       claimed:
         row.claim !== undefined &&
         timestamp(row.leaseUntil, "leaseUntil") > now(),
-      held:
-        row.state === "held" || timestamp(row.expiresAt, "expiresAt") <= now(),
+      held: held(row),
       expiresAt: row.expiresAt,
     });
   }
   function hint(
     row: ResolutionLearningReviewAttemptRecord,
-  ): ResolutionLearningStagedReviewHint | null {
-    if (row.state === "accepted" || row.state === "cancelled") return null;
+  ): ResolutionLearningStagedReviewHint {
     return snapshot({
       ticketId: row.ticketId,
       commandId: row.command.commandId,
@@ -160,8 +173,7 @@ export function createResolutionLearningStagedReviewServices(
       phase: row.phase,
       expiresAt: row.expiresAt,
       ...(row.leaseUntil === undefined ? {} : { leaseUntil: row.leaseUntil }),
-      held:
-        row.state === "held" || timestamp(row.expiresAt, "expiresAt") <= now(),
+      held: held(row),
     });
   }
   function live(
@@ -206,9 +218,9 @@ export function createResolutionLearningStagedReviewServices(
       }),
     };
   }
-  async function terminal(identity: ResolutionLearningReviewIdentity) {
+  async function reviewSlot(identity: ResolutionLearningReviewIdentity) {
     await requireResolutionLearningReviewTicket(records, identity);
-    return observeResolutionLearningReview(records, identity);
+    return readResolutionLearningReviewSlot(records, identity);
   }
   async function currentWork(
     loaded: Loaded,
@@ -257,7 +269,8 @@ export function createResolutionLearningStagedReviewServices(
         throw new SupportDeskConflictError(
           "Review intent differs from command",
         );
-      const prior = await terminal(identity);
+      const slot = await reviewSlot(identity);
+      const prior = slot.receipt;
       if (prior !== null) return prior;
       const previous = await at(
         identity.command.ticketId,
@@ -266,8 +279,16 @@ export function createResolutionLearningStagedReviewServices(
       if (previous !== null) {
         owner(access, previous.value);
         exact(identity, previous.value);
+        if (slot.reservation === null)
+          throw new SupportDeskConflictError(
+            "Review canonical receipt/reservation is unavailable",
+          );
         return pending(previous.value);
       }
+      if (slot.reservation !== null)
+        throw new SupportDeskConflictError(
+          "Review reservation has no retained attempt",
+        );
       const row: ResolutionLearningReviewAttemptRecord = {
         kind: "resolution_learning_review_attempt",
         partition: identity.command.ticketId,
@@ -283,7 +304,7 @@ export function createResolutionLearningStagedReviewServices(
         state: "pending",
         phase: "proof",
         claimGeneration: 0,
-        completionRows: 3,
+        completionRows: 2,
         createdAt: clock.now(),
         expiresAt: intent.policy.validUntil,
       };
@@ -299,7 +320,37 @@ export function createResolutionLearningStagedReviewServices(
           options.maxStagedReviewAttempts,
         );
       const work = await currentWork(loaded, row);
-      // Admission creates an attempt and Audit; reserve the later review/Audit/receipt too.
+      const bindingKey = await resolutionLearningReviewKey(
+        loaded.source.value,
+        identity.command.target,
+        identity.command.policyVersion,
+      );
+      const existingBinding = await records.get(bindingKey);
+      if (
+        existingBinding !== null &&
+        existingBinding.kind !== "resolution_learning_review"
+      )
+        throw new SupportDeskConflictError("Review binding key collision");
+      if (
+        existingBinding === null &&
+        loaded.source.value.reviewBindingCount >= options.maxReviewBindings
+      )
+        throw new SupportDeskLimitError(
+          "ticket_partition",
+          deps.limits.maxRecordsPerTicket,
+        );
+      const reservation: ResolutionLearningReviewReservationRecord = {
+        kind: "resolution_learning_review_reservation",
+        partition: row.ticketId,
+        id: identity.key.id,
+        ticketId: row.ticketId,
+        commandId: row.command.commandId,
+        reviewerId: row.reviewerId,
+        fingerprint: row.fingerprint,
+        expiresAt: row.expiresAt,
+      };
+      assertResolutionLearningReviewReservation(reservation, identity.key);
+      // Attempt, admission Audit and canonical reservation plus two future rows.
       deps.admission(loaded.ticket.value.ticket, loaded.rows, 5);
       const assert = await checkedGuard(guard);
       if (
@@ -327,12 +378,13 @@ export function createResolutionLearningStagedReviewServices(
               value: work.value,
             },
             { action: "insert", value: row },
+            { action: "insert", value: reservation },
             deps.audit(
               identity.command,
               loaded.ticket.value.ticket,
               access.principalId,
               row.createdAt,
-              "support.learning.review_requested",
+              supportTicketAuditActions.learningReviewRequested,
               "\u0000support.learning.review.requested:" +
                 identity.command.commandId,
             ),
@@ -348,13 +400,20 @@ export function createResolutionLearningStagedReviewServices(
         input,
         access.principalId,
       );
-      const prior = await terminal(identity);
+      const slot = await reviewSlot(identity);
+      const prior = slot.receipt;
       if (prior !== null) return prior;
       const stored = await at(
         identity.command.ticketId,
         identity.command.commandId,
       );
-      if (stored === null) return null;
+      if (stored === null) {
+        if (slot.reservation !== null)
+          throw new SupportDeskConflictError(
+            "Review reservation has no retained attempt",
+          );
+        return null;
+      }
       owner(access, stored.value);
       exact(identity, stored.value);
       if (
@@ -364,16 +423,60 @@ export function createResolutionLearningStagedReviewServices(
         throw new SupportDeskConflictError(
           "Terminal review receipt is unavailable",
         );
+      if (slot.reservation === null)
+        throw new SupportDeskConflictError(
+          "Review canonical receipt/reservation is unavailable",
+        );
       return pending(stored.value);
     },
     async readPending(access, key) {
       permission(access, true);
       const value = fields(key, "review key", ["ticketId", "commandId"]);
-      const stored = await at(
-        value.ticketId as string,
-        value.commandId as string,
+      const ticketId = value.ticketId as string;
+      const commandId = value.commandId as string;
+      resolutionLearningReviewAttemptKey(ticketId, commandId);
+      // Both exact keys are derived from the validated request, never decoded data.
+      // Observe every result; the same Store may coalesce these independent reads.
+      const [attemptRead, slotRead] = await Promise.allSettled([
+        at(ticketId, commandId),
+        records.getVersioned({
+          partition: ticketId,
+          id: `learning-command:${commandId}`,
+        }),
+      ]);
+      if (attemptRead.status === "rejected") throw attemptRead.reason;
+      if (slotRead.status === "rejected") throw slotRead.reason;
+      const stored = attemptRead.value;
+      const canonical = slotRead.value;
+      if (stored === null) {
+        if (canonical?.value.kind !== "resolution_learning_review_reservation")
+          return null;
+        const reservation = canonical.value;
+        assertResolutionLearningReviewReservation(reservation, {
+          partition: ticketId,
+          id: `learning-command:${commandId}`,
+        });
+        return snapshot({
+          ticketId,
+          commandId,
+          reviewerId: reservation.reviewerId,
+          phase: "proof" as const,
+          expiresAt: reservation.expiresAt,
+          held: true,
+        });
+      }
+      const identity = await retainedIdentity(stored.value);
+      const receipt = resolutionLearningReviewReceiptValue(
+        identity,
+        canonical?.value ?? null,
       );
-      return stored === null ? null : hint(stored.value);
+      if (receipt !== null) return null;
+      const metadata = hint(stored.value);
+      // A retained terminal attempt without its canonical receipt is unknown,
+      // never authoritative absence and never permission to relabel acceptance.
+      return canonical === null
+        ? snapshot({ ...metadata, held: true })
+        : metadata;
     },
     async scanPending(access, input) {
       permission(access, true);
@@ -390,6 +493,7 @@ export function createResolutionLearningStagedReviewServices(
       for (const entry of page.records) {
         if (entry.value.kind !== "resolution_learning_review_attempt") continue;
         assertResolutionLearningReviewAttempt(entry.value, entry.key);
+        if (entry.value.state !== "pending") continue;
         const value = hint(entry.value);
         if (
           value !== null &&
@@ -433,7 +537,12 @@ export function createResolutionLearningStagedReviewServices(
       const row = stored.value;
       owner(access, row);
       const identity = await retainedIdentity(row);
-      if ((await terminal(identity)) !== null) return null;
+      const slot = await reviewSlot(identity);
+      if (slot.receipt !== null) return null;
+      if (slot.reservation === null)
+        throw new SupportDeskConflictError(
+          "Review canonical receipt/reservation is unavailable",
+        );
       if (
         row.state !== "pending" ||
         timestamp(row.expiresAt, "expiresAt") <= now() ||
@@ -487,6 +596,11 @@ export function createResolutionLearningStagedReviewServices(
         !(
           await records.transact(row.ticketId, [
             { action: "putIfUnchanged", version: stored.version, value: next },
+            {
+              action: "putIfUnchanged",
+              version: slot.reservation.version,
+              value: slot.reservation.value,
+            },
           ])
         ).committed
       )
@@ -508,8 +622,13 @@ export function createResolutionLearningStagedReviewServices(
       const row = stored.value;
       owner(access, row);
       const identity = await retainedIdentity(row);
-      const prior = await terminal(identity);
+      const slot = await reviewSlot(identity);
+      const prior = slot.receipt;
       if (prior !== null) return prior;
+      if (slot.reservation === null)
+        throw new SupportDeskConflictError(
+          "Review canonical receipt/reservation is unavailable",
+        );
       live(row, fence, "proof");
       if (
         timestamp(proof.validUntil, "proof.validUntil") >
@@ -548,6 +667,11 @@ export function createResolutionLearningStagedReviewServices(
               value: work.value,
             },
             { action: "putIfUnchanged", version: stored.version, value: next },
+            {
+              action: "putIfUnchanged",
+              version: slot.reservation.version,
+              value: slot.reservation.value,
+            },
           ])
         ).committed
       )
@@ -564,8 +688,13 @@ export function createResolutionLearningStagedReviewServices(
       const row = stored.value;
       owner(access, row);
       const identity = await retainedIdentity(row);
-      const prior = await terminal(identity);
+      const slot = await reviewSlot(identity);
+      const prior = slot.receipt;
       if (prior !== null) return prior;
+      if (slot.reservation === null)
+        throw new SupportDeskConflictError(
+          "Review canonical receipt/reservation is unavailable",
+        );
       const next: ResolutionLearningReviewAttemptRecord = {
         ...unclaim(row),
         state: "accepted",
@@ -593,7 +722,8 @@ export function createResolutionLearningStagedReviewServices(
         input,
         access.principalId,
       );
-      const prior = await terminal(identity);
+      const slot = await reviewSlot(identity);
+      const prior = slot.receipt;
       if (prior !== null) {
         (await checkedGuard(guard))();
         return prior;
@@ -605,7 +735,18 @@ export function createResolutionLearningStagedReviewServices(
       if (stored !== null) {
         owner(access, stored.value);
         exact(identity, stored.value);
-      }
+        if (
+          stored.value.state === "accepted" ||
+          stored.value.state === "cancelled" ||
+          slot.reservation === null
+        )
+          throw new SupportDeskConflictError(
+            "Terminal review receipt is unavailable",
+          );
+      } else if (slot.reservation !== null)
+        throw new SupportDeskConflictError(
+          "Review reservation has no retained attempt",
+        );
       const loaded = await load(identity.command.ticketId);
       const next: ResolutionLearningReviewAttemptRecord | undefined =
         stored === null
@@ -617,7 +758,7 @@ export function createResolutionLearningStagedReviewServices(
         next === undefined
           ? loaded.rows
           : loaded.rows.map((row) => (row.id === next.id ? next : row)),
-        2,
+        slot.reservation === null ? 2 : 1,
       );
       const result = {
         ticketId: loaded.source.value.ticketId,
@@ -652,16 +793,13 @@ export function createResolutionLearningStagedReviewServices(
                   },
                 ]),
             audit,
-            {
-              action: "insert",
-              value: {
-                kind: "resolution_learning_receipt",
-                partition: identity.command.ticketId,
-                id: identity.key.id,
-                fingerprint: identity.cancellationHash,
-                result,
-              },
-            },
+            resolutionLearningReviewReceiptAction(slot, {
+              kind: "resolution_learning_receipt",
+              partition: identity.command.ticketId,
+              id: identity.key.id,
+              fingerprint: identity.cancellationHash,
+              result,
+            }),
           ])
         ).committed
       )

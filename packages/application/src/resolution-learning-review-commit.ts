@@ -20,8 +20,8 @@ import {
 import { encodedBytes, text, timestamp } from "./assistant-turn-records.js";
 import {
   resolutionLearningReviewIdentity,
-  observeResolutionLearningReview,
-  type ResolutionLearningReviewIdentity,
+  readResolutionLearningReviewSlot,
+  resolutionLearningReviewReceiptAction,
 } from "./resolution-learning-review-identity.js";
 import type {
   ResolutionLearningDependencies,
@@ -81,8 +81,7 @@ export async function commitResolutionLearningReview(
 ): Promise<ResolutionLearningSourceResult> {
   const { records, clock, options } = deps;
   const reviewIdentity = resolutionLearningReviewIdentity;
-  const observedReview = (identity: ResolutionLearningReviewIdentity) =>
-    observeResolutionLearningReview(records, identity);
+
   const workAt = async (key: {
     ticketId: string;
     sourceGeneration: number;
@@ -104,7 +103,8 @@ export async function commitResolutionLearningReview(
   const once = async (): Promise<ResolutionLearningSourceResult | null> => {
     const loaded = await load(command.ticketId);
     const work = await workAt(command);
-    const prior = await observedReview(identity);
+    const slot = await readResolutionLearningReviewSlot(records, identity);
+    const prior = slot.receipt;
     if (prior?.outcome === "accepted") return prior.result;
     if (prior?.outcome === "cancelled")
       throw new SupportDeskConflictError("Review command cancelled");
@@ -149,6 +149,10 @@ export async function commitResolutionLearningReview(
         };
       }
     }
+    if ((finalStage === undefined) !== (slot.reservation === null))
+      throw new SupportDeskConflictError(
+        "Review canonical reservation/attempt is unavailable",
+      );
     finalStage?.ensure();
     if (
       !current(loaded, work.value) ||
@@ -184,7 +188,7 @@ export async function commitResolutionLearningReview(
         : loaded.rows.map((row) =>
             row.id === finalStage.value.id ? finalStage.value : row,
           ),
-      previousReview === null ? 3 : 2,
+      (previousReview === null ? 3 : 2) - (slot.reservation === null ? 0 : 1),
     );
     const now = clock.now();
     const review: ResolutionLearningReviewRecord = {
@@ -218,6 +222,7 @@ export async function commitResolutionLearningReview(
     };
     const assertion = await guard();
     if (
+      stage !== undefined &&
       assertion !== undefined &&
       (typeof assertion !== "function" || assertion() !== true)
     )
@@ -264,16 +269,13 @@ export async function commitResolutionLearningReview(
             now,
             "support.learning.reviewed",
           ),
-          {
-            action: "insert",
-            value: {
-              kind: "resolution_learning_receipt",
-              partition: command.ticketId,
-              id: key.id,
-              fingerprint: hash,
-              result: outcome,
-            },
-          },
+          resolutionLearningReviewReceiptAction(slot, {
+            kind: "resolution_learning_receipt",
+            partition: command.ticketId,
+            id: key.id,
+            fingerprint: hash,
+            result: outcome,
+          }),
         ])
       ).committed
     )

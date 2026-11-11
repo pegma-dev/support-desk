@@ -33,8 +33,8 @@ export interface ResolutionLearningReviewAttemptRecord {
   readonly proof?: ResolutionLearningStagedReviewProof;
   readonly createdAt: IsoTimestamp;
   readonly expiresAt: IsoTimestamp;
-  /** Rows reserved for a new review, Audit and canonical terminal receipt. */
-  readonly completionRows: 0 | 3;
+  /** New exact-review and final Audit rows; the canonical slot is already reserved. */
+  readonly completionRows: 0 | 2;
 }
 export function resolutionLearningReviewAttemptKey(
   ticketId: string,
@@ -192,7 +192,7 @@ export function assertResolutionLearningReviewAttempt(
     throw new TypeError("Invalid staged review state");
   if (
     row.completionRows !==
-    (row.state === "accepted" || row.state === "cancelled" ? 0 : 3)
+    (row.state === "accepted" || row.state === "cancelled" ? 0 : 2)
   )
     throw new TypeError("Invalid review completion reserve");
   if ((row.claim === undefined) !== (row.leaseUntil === undefined))
@@ -235,7 +235,7 @@ export function maximumResolutionLearningReviewAttemptBytes(
     ...row,
     state: "pending",
     phase: "commit",
-    completionRows: 3,
+    completionRows: 2,
     claimGeneration: Number.MAX_SAFE_INTEGER,
     claim: {
       ticketId: row.ticketId,
@@ -247,4 +247,43 @@ export function maximumResolutionLearningReviewAttemptBytes(
     leaseUntil: "9999-12-31T23:59:59.999Z",
     proof: { binding: "f".repeat(64), validUntil: "9999-12-31T23:59:59.999Z" },
   });
+}
+
+/** Canonical command ownership, without staff reason, intent or source bodies. */
+export interface ResolutionLearningReviewReservationRecord {
+  readonly kind: "resolution_learning_review_reservation";
+  readonly partition: string;
+  readonly id: string;
+  readonly ticketId: string;
+  readonly commandId: string;
+  readonly reviewerId: PrincipalId;
+  readonly fingerprint: string;
+  readonly expiresAt: IsoTimestamp;
+}
+export function assertResolutionLearningReviewReservation(
+  value: unknown,
+  key: EntityKey,
+): asserts value is ResolutionLearningReviewReservationRecord {
+  const row = fields(value, "review reservation", [
+    "kind",
+    "partition",
+    "id",
+    "ticketId",
+    "commandId",
+    "reviewerId",
+    "fingerprint",
+    "expiresAt",
+  ]);
+  for (const name of ["ticketId", "commandId", "reviewerId"])
+    text(row[name], name);
+  hash(row.fingerprint, "fingerprint");
+  timestamp(row.expiresAt, "expiresAt");
+  if (
+    row.kind !== "resolution_learning_review_reservation" ||
+    row.partition !== key.partition ||
+    row.ticketId !== key.partition ||
+    row.id !== key.id ||
+    key.id !== `learning-command:${row.commandId as string}`
+  )
+    throw new TypeError("Review reservation envelope mismatch");
 }

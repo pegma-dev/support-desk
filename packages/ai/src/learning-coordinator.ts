@@ -55,6 +55,8 @@ class LearningReviewGuardFailure extends AssistantBoundaryError {}
 export function createSupportDeskLearning(
   options: SupportDeskLearningOptions,
 ): SupportDeskLearning {
+  if (options.readScheduling !== undefined && options.readScheduling !== "sdk")
+    throw new TypeError("Unknown learning read scheduling");
   const attempts = count(options.storageCommandAttempts ?? 2, 3, 1);
   count(options.maxPublishedMatches ?? 5, 5, 1);
   count(options.maxExplicitDrafts ?? 5, 5);

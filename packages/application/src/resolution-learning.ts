@@ -1,3 +1,4 @@
+import type { supportTicketAuditActions } from "./index.js";
 import { createResolutionLearningStagedReviewServices } from "./resolution-learning-staged.js";
 import { hasPermission, type AccessContext } from "@pegma/authorization-core";
 import type { Clock } from "@pegma/spine";
@@ -68,7 +69,7 @@ interface Dependencies {
     ticket: Ticket,
     actorId: string,
     now: string,
-    action: string,
+    action: (typeof supportTicketAuditActions)[keyof typeof supportTicketAuditActions],
     eventId?: string,
   ): Action;
   admission(

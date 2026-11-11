@@ -46,7 +46,10 @@ export type LearningStagedReviewProcessResult =
   | { readonly outcome: "not_claimed" }
   | {
       readonly outcome: "prepared";
-      readonly status: ResolutionLearningStagedReviewStatus;
+      readonly status: Extract<
+        ResolutionLearningStagedReviewStatus,
+        { readonly outcome: "pending" }
+      >;
     }
   | {
       readonly outcome: "completed";
@@ -54,7 +57,7 @@ export type LearningStagedReviewProcessResult =
     }
   | {
       readonly outcome: "pending";
-      readonly phase: "proof" | "commit";
+      readonly phase: "dispatch" | "proof" | "commit";
       readonly reason: string;
     }
   | { readonly outcome: "held"; readonly reason: string };
