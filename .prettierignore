@@ -9,3 +9,4 @@ pnpm-lock.yaml
 /docs/releases/v0.2.1/package-manifest.json
 # Published release evidence is retained byte for byte.
 /docs/releases/v0.2.2/
+/docs/releases/v0.2.3/

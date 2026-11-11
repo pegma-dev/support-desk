@@ -11,8 +11,8 @@ preparation are also merged. The ten entries in the
 [historical source ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) record
 the exact PRs/commits, verified gates, and remaining dependency order.
 
-Support Desk's current synchronized `0.2.2` release is published and strictly verified;
-see the [publication receipt](RELEASING.md#verified-022-publication-2026-11-10).
+Support Desk's current synchronized `0.2.3` release is published and strictly verified;
+see the [publication receipt](RELEASING.md#verified-023-publication-2026-11-10).
 It pins Audit `0.2.0`, Authorization Core `0.4.0`, Mail `0.1.1`, Spine `0.1.2`,
 and Storage Core `0.4.0`. The older base registry `0.1.1` artifacts remain
 immutable. Host adoption retains its own acceptance gates. All four KB packages
@@ -24,7 +24,7 @@ manual `0.1.0` bootstrap receipts have no OIDC provenance and remain historical;
 the later trusted releases close the KB-05/Agent Access publication gates.
 
 SD-02's optional coordinator first shipped as `@pegma/support-desk-ai@0.2.0`.
-The current `@pegma/support-desk-ai@0.2.2` pins exact KB `0.1.5` runtime
+The current `@pegma/support-desk-ai@0.2.3` pins exact KB `0.1.5` runtime
 dependencies and bounded turn jobs in the existing ticket partition. The base application remains
 independent of KB/providers. Read the
 [coordination guide](ASSISTANT_COORDINATION.md) and
@@ -44,6 +44,11 @@ exit criteria remain open, with Knowledge/agent activation disabled and actual
 existing-login/current-Admin consent and requested-client/mode acceptance
 unproven. Source and synthetic SDK results do not establish deployment, model calls,
 full-workflow host acceptance, or pilots.
+
+The synchronized `0.2.4` source candidate adds admitted customer intake,
+final current-draft checks for learning, bounded assistant finish reads and
+final staff checks for release follow-up. Combined gates, review and verified
+publication remain required before host adoption.
 
 Task 12 remains pending on both hosts' durable-store production evidence.
 Provider/ZDR/intermediary verification, deployment applicability mapping,
@@ -459,7 +464,7 @@ SD-02's publication prerequisite at that checkpoint.
 The current standalone authoring recipe selects all four strictly verified KB
 `0.1.5` packages and Agent Access `0.1.1` from the
 [producer handoff](HOST_COMPOSITION.md#kb-authoring-producers). Released
-Support Desk AI `0.2.2` pins exact KB application/contracts `0.1.5`. Older
+Support Desk AI `0.2.3` pins exact KB application/contracts `0.1.5`. Older
 `0.2.1`/KB `0.1.2` manifests remain immutable. Host adoption requires its own
 reviewed exact registry set.
 Actual two-host existing-login/current-Admin consent and Codex, Claude Code,
@@ -491,7 +496,7 @@ human handoff, reviewed learning, and safe engineering follow-up.
 **Source status:** SD-01 through SD-05 are merged, covering handling/handoff,
 optional answer coordination, resolution learning, engineering export, and
 release follow-up. They first shipped in verified synchronized `0.2.0` and
-remain in current `0.2.2`, whose publication receipt is linked above. This phase's
+remain in current `0.2.3`, whose publication receipt is linked above. This phase's
 host/production acceptance remains open.
 See [assistant coordination](ASSISTANT_COORDINATION.md).
 

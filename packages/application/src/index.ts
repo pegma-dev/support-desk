@@ -103,6 +103,7 @@ import {
 } from "./engineering-followup-records.js";
 import {
   engineeringFollowupNow,
+  engineeringFollowupTrusted,
   engineeringFollowupVersionsCurrent,
 } from "./engineering-followup-source.js";
 import {
@@ -390,6 +391,7 @@ interface AuditMemberRecord {
 
 type SupportCommandType =
   | "create_customer_ticket"
+  | "create_admitted_customer_ticket"
   | "reply_customer_ticket"
   | "staff_reply"
   | "add_note"
@@ -422,6 +424,7 @@ interface CommandRecord {
   readonly completedAt: IsoTimestamp;
   /** New staff commands retain their result; messages are selected by revision. */
   readonly resultTicket?: Ticket;
+  readonly initialMode?: CustomerTicketAdmissionMode;
 }
 
 interface InboundReplyRerouteFenceRecord {
@@ -1172,6 +1175,42 @@ export interface CreateCustomerTicketCommand {
   readonly requesterEmail?: string;
   readonly notification?: NotificationInput;
   readonly initialHandling?: "assistant";
+}
+
+export type CustomerTicketAdmissionMode = "human" | "assistant";
+
+export interface CreateAdmittedCustomerTicketCommand extends Omit<
+  CreateCustomerTicketCommand,
+  "initialHandling" | "notification"
+> {
+  readonly preference: "human" | "assistant_if_available";
+  readonly disclosureVersion?: string;
+}
+
+export interface CreateAdmittedCustomerTicketOptions {
+  readonly signal?: AbortSignal;
+  /** Called only for fresh AI-eligible intake. Null selects human support. */
+  readonly resolveAssistantStart?: () =>
+    AccessContext | null | Promise<AccessContext | null>;
+  /**
+   * Fresh trusted, read-only check of the original actor and selected mode.
+   * The returned synchronous assertion checks remaining authority and deadlines.
+   */
+  readonly verifyBeforeCommit: (
+    mode: CustomerTicketAdmissionMode,
+  ) => (() => true) | Promise<() => true>;
+}
+
+export interface AdmittedCustomerTicketApplication {
+  /** Omitting options permits exact accepted receipt recovery only. */
+  createAdmittedCustomerTicket(
+    access: AccessContext,
+    command: CreateAdmittedCustomerTicketCommand,
+    options?: CreateAdmittedCustomerTicketOptions,
+  ): Promise<{
+    readonly view: CustomerTicketView;
+    readonly initialMode: CustomerTicketAdmissionMode;
+  }>;
 }
 
 /**
@@ -2033,7 +2072,7 @@ async function applyResponseTargets(
 }
 
 function snapshotCreateCustomerTicketCommand(
-  input: CreateCustomerTicketCommand,
+  input: unknown,
 ): CreateCustomerTicketCommand {
   const source = boundaryObject(input, "create command");
   const raw = {
@@ -2095,6 +2134,109 @@ function snapshotCreateCustomerTicketCommand(
     ...(notification === undefined ? {} : { notification }),
     ...(initialHandling === undefined ? {} : { initialHandling }),
   });
+}
+
+function snapshotCustomerTicketAdmission(
+  input: CreateAdmittedCustomerTicketCommand,
+): {
+  readonly command: object;
+  readonly intent: Pick<
+    CreateAdmittedCustomerTicketCommand,
+    "preference" | "disclosureVersion"
+  >;
+} {
+  const source = boundaryObject(input, "admitted create command");
+  const allowed = [
+    "commandId",
+    "correlationId",
+    "ticketId",
+    "messageId",
+    "subject",
+    "body",
+    "category",
+    "requesterEmail",
+    "preference",
+    "disclosureVersion",
+  ];
+  const keys = Reflect.ownKeys(source);
+  if (
+    Array.isArray(source) ||
+    keys.some((key) => typeof key !== "string" || !allowed.includes(key))
+  )
+    throw new TypeError("Invalid admitted create command fields");
+  const command = Object.freeze(
+    Object.fromEntries(
+      keys.map((key) => [
+        key,
+        ownDataProperty(source, key, "admitted create command field"),
+      ]),
+    ),
+  );
+  const preference = ownDataProperty(command, "preference", "preference");
+  if (preference !== "human" && preference !== "assistant_if_available")
+    throw new TypeError("Invalid admitted create preference");
+  const raw = ownDataProperty(
+    command,
+    "disclosureVersion",
+    "disclosureVersion",
+    true,
+  );
+  const disclosureVersion =
+    raw === undefined ? undefined : boundaryString(raw, "disclosureVersion");
+  if (disclosureVersion !== undefined)
+    requireIdentifier(disclosureVersion, "disclosureVersion");
+  return {
+    command,
+    intent: Object.freeze({
+      preference,
+      ...(disclosureVersion === undefined ? {} : { disclosureVersion }),
+    }),
+  };
+}
+
+function customerCreateMethods(
+  create: (
+    access: AccessContext,
+    input: unknown,
+    admitted?: {
+      readonly intent: ReturnType<
+        typeof snapshotCustomerTicketAdmission
+      >["intent"];
+      readonly options?: CreateAdmittedCustomerTicketOptions;
+    },
+  ) => ReturnType<
+    AdmittedCustomerTicketApplication["createAdmittedCustomerTicket"]
+  >,
+): Pick<SupportDeskApplication, "createCustomerTicket"> &
+  AdmittedCustomerTicketApplication {
+  return {
+    async createCustomerTicket(access, input) {
+      return (await create(access, input)).view;
+    },
+
+    async createAdmittedCustomerTicket(access, input, options) {
+      requirePermission(access, supportPermissions.create);
+      requirePermission(access, supportPermissions.readOwn);
+      const { command, intent } = snapshotCustomerTicketAdmission(input);
+      return create(access, command, {
+        intent,
+        ...(options === undefined ? {} : { options }),
+      });
+    },
+  };
+}
+
+function admittedCreateMode(
+  record: SupportRecord | null,
+): CustomerTicketAdmissionMode {
+  if (
+    record?.kind !== "command" ||
+    (record.initialMode !== "human" && record.initialMode !== "assistant")
+  )
+    throw new SupportDeskConflictError(
+      "Admitted create receipt mode is invalid",
+    );
+  return record.initialMode;
 }
 
 function snapshotReplyToCustomerTicketCommand(
@@ -3910,7 +4052,7 @@ export function createSupportDeskApplication(options: {
     readonly maxRecords?: number;
     readonly historyRetentionMilliseconds?: number;
   };
-}): SupportDeskApplication {
+}): SupportDeskApplication & AdmittedCustomerTicketApplication {
   const source = boundaryObject(options, "application options");
   const engineeringFollowupOptions = resolveEngineeringFollowupOptions(
     ownDataProperty(
@@ -4652,9 +4794,12 @@ export function createSupportDeskApplication(options: {
   );
 
   const approveAndPostEngineeringFollowupWebUpdate: EngineeringFollowupApplication["approveAndPostEngineeringFollowupWebUpdate"] =
-    async (access, input, guard) => {
+    async (access, input, guard, options = {}) => {
       const actorId = access.principalId;
+      const { signal, verifyBeforeCommit } = options;
       const authorize = () => {
+        if (signal?.aborted)
+          throw new SupportDeskConflictError("Follow-up posting cancelled");
         requireIdentifier(access.principalId, "principalId");
         if (access.principalId !== actorId)
           throw new SupportDeskAuthorizationError(
@@ -4768,7 +4913,7 @@ export function createSupportDeskApplication(options: {
         requireNonempty(body, "body");
         enforceLimit(body, "body", limits.maxMessageCharacters);
         const bodyHash = await requestFingerprint({ body });
-        await guard();
+        const assertProofCurrent = await guard();
         authorize();
         const occurredAt = clampTicketTime(clock.now(), ticket.updatedAt);
         const updated = applyTicketEvent(ticket, {
@@ -4878,13 +5023,36 @@ export function createSupportDeskApplication(options: {
         )
           continue;
         authorize();
+        const proofDeadline = Math.min(
+          Date.parse(work.deadline),
+          checked.deadline,
+          Date.parse(current.proof.attestation.validUntil),
+        );
+        if (now() >= proofDeadline)
+          throw new SupportDeskConflictError("Follow-up posting proof expired");
+        if (verifyBeforeCommit !== undefined) {
+          const authorityDeadline = Math.min(
+            proofDeadline,
+            now() + engineeringFollowupOptions.trustTimeoutMilliseconds,
+          );
+          await engineeringFollowupTrusted(
+            followupDependencies,
+            async () => {
+              authorize();
+              await verifyBeforeCommit();
+            },
+            signal,
+          );
+          authorize();
+          if (now() >= authorityDeadline)
+            throw new SupportDeskConflictError(
+              "Follow-up posting authority or proof expired",
+            );
+        }
         if (
-          now() >=
-          Math.min(
-            Date.parse(work.deadline),
-            checked.deadline,
-            Date.parse(current.proof.attestation.validUntil),
-          )
+          assertProofCurrent !== undefined &&
+          (typeof assertProofCurrent !== "function" ||
+            assertProofCurrent() !== true)
         )
           throw new SupportDeskConflictError("Follow-up posting proof expired");
         const outcome = await records.transact(command.ticketId, [
@@ -5016,7 +5184,8 @@ export function createSupportDeskApplication(options: {
         : { assistantTurnFingerprint: assistantTurnCommit.fingerprint }),
     });
     const completion = assistantTurnCommit;
-    const parallel = completion?.kind === "complete";
+    const parallel =
+      completion?.kind === "complete" || completion?.kind === "finish";
     for (let attempt = 0; attempt < maxConflictAttempts; attempt += 1) {
       const ticketRead = records.getVersioned(ticketKey(command.ticketId));
       const duplicateRead = parallel
@@ -5058,8 +5227,8 @@ export function createSupportDeskApplication(options: {
           effectiveTicketHandling(ticket).generation !==
             command.expectedHandlingGeneration)
       ) {
-        // The speculative receipt may predate a concurrent exact completion
-        // that this Ticket observation already contains. Recover its receipt
+        // The speculative receipt may predate a concurrent completion or
+        // finish already reflected in this Ticket. Recover its exact receipt
         // before rejecting the now-stale live fence; ordinary paired reads
         // retain their existing cost and original whole-attempt CAS versions.
         const accepted = await records.get(
@@ -5625,19 +5794,70 @@ export function createSupportDeskApplication(options: {
           Object.freeze(proof),
         );
     },
-    async createCustomerTicket(access, input) {
+    ...customerCreateMethods(async (access, input, admitted) => {
       requirePermission(access, supportPermissions.create);
       requireIdentifier(access.principalId, "principalId");
+      const actorId = access.principalId;
+      const principal = () =>
+        admitted === undefined ? access.principalId : actorId;
+      const signal = admitted?.options?.signal;
+      function authorizeAdmitted(current = access, assistant = false): void {
+        if (admitted === undefined) return;
+        if (signal?.aborted)
+          throw new SupportDeskConflictError("Admitted create was cancelled");
+        if (current.principalId !== actorId)
+          throw new SupportDeskAuthorizationError(supportPermissions.create);
+        requirePermission(current, supportPermissions.create);
+        requirePermission(current, supportPermissions.readOwn);
+        if (assistant)
+          requirePermission(current, supportPermissions.assistantStart);
+      }
+      async function waitForAdmission<T>(
+        check: () => T | Promise<T>,
+      ): Promise<T> {
+        authorizeAdmitted();
+        if (signal === undefined) return check();
+        let onAbort: (() => void) | undefined;
+        try {
+          return await Promise.race([
+            Promise.resolve().then(() => {
+              authorizeAdmitted();
+              return check();
+            }),
+            new Promise<never>((_resolve, reject) => {
+              onAbort = () =>
+                reject(
+                  new SupportDeskConflictError("Admitted create was cancelled"),
+                );
+              signal.addEventListener("abort", onAbort, { once: true });
+              if (signal.aborted) onAbort();
+            }),
+          ]);
+        } finally {
+          if (onAbort !== undefined)
+            signal.removeEventListener("abort", onAbort);
+        }
+      }
+      authorizeAdmitted();
       const command = snapshotCreateCustomerTicketCommand(input);
-      if (command.initialHandling === "assistant") {
+      let initialHandling = command.initialHandling;
+      if (admitted === undefined && initialHandling === "assistant") {
         requirePermission(access, supportPermissions.assistantStart);
       }
       requireIdentifier(command.ticketId, "ticketId");
       requireIdentifier(command.messageId, "messageId");
       requireIdentifier(command.commandId, "commandId");
       requireIdentifier(command.correlationId, "correlationId");
-      enforceLimit(command.subject, "subject", limits.maxSubjectCharacters);
-      enforceLimit(command.body, "body", limits.maxMessageCharacters);
+      // Admitted replay keeps fixed ceilings when later instance limits shrink.
+      // Fresh admission applies the configured limits after receipt recovery.
+      const inputLimits =
+        admitted === undefined ? limits : supportDeskLimitMaximums;
+      enforceLimit(
+        command.subject,
+        "subject",
+        inputLimits.maxSubjectCharacters,
+      );
+      enforceLimit(command.body, "body", inputLimits.maxMessageCharacters);
       const fingerprintPayload = {
         type: "create_customer_ticket" as const,
         ticketId: command.ticketId,
@@ -5654,7 +5874,23 @@ export function createSupportDeskApplication(options: {
           ? {}
           : { initialHandling: command.initialHandling }),
       };
-      const fingerprint = await requestFingerprint(fingerprintPayload);
+      const commandType =
+        admitted === undefined
+          ? "create_customer_ticket"
+          : "create_admitted_customer_ticket";
+      const fingerprint = await requestFingerprint(
+        admitted === undefined
+          ? fingerprintPayload
+          : {
+              ...fingerprintPayload,
+              type: commandType,
+              version: 1,
+              actorId,
+              commandId: command.commandId,
+              preference: admitted.intent.preference,
+              disclosureVersion: admitted.intent.disclosureVersion ?? null,
+            },
+      );
       const createThreading: ThreadingHint = {
         ticketNumber: true,
         ...(command.notification === undefined
@@ -5667,13 +5903,15 @@ export function createSupportDeskApplication(options: {
       const existingCreate = await records.get(
         commandKey(command.ticketId, command.commandId),
       );
+      authorizeAdmitted();
       let createIsReplay = duplicateMatches(
         existingCreate,
-        "create_customer_ticket",
+        commandType,
         command.messageId,
         fingerprint,
       );
       if (
+        admitted === undefined &&
         !createIsReplay &&
         command.initialHandling === undefined &&
         existingCreate?.kind === "command" &&
@@ -5707,32 +5945,40 @@ export function createSupportDeskApplication(options: {
       }
       if (createIsReplay) {
         const current = await records.get(ticketKey(command.ticketId));
-        if (
-          current?.kind !== "ticket" ||
-          !owns(current.ticket, access.principalId)
-        )
+        authorizeAdmitted();
+        if (current?.kind !== "ticket" || !owns(current.ticket, principal()))
           throw new SupportDeskNotFoundError();
+        const initialMode =
+          admitted === undefined
+            ? (initialHandling ?? "human")
+            : admittedCreateMode(existingCreate);
         // A crash after ticket commit and before index confirmation must still
         // converge the principal hint on retry.
         const fence = await records.get(ticketReservationKey(command.ticketId));
+        authorizeAdmitted();
         if (
           fence?.kind === "ticket_reservation" &&
           fence.state === "committed"
         ) {
           await confirmCustomerTicket(
-            access.principalId,
+            principal(),
             command.ticketId,
             fence.token,
             fence.generation,
           );
         }
-        return customerViewAfterChange(
-          access.principalId,
+        authorizeAdmitted();
+        const view = await customerViewAfterChange(
+          principal(),
           command.ticketId,
           createThreading,
         );
+        authorizeAdmitted();
+        return { view, initialMode };
       }
-      if (command.initialHandling === "assistant" && !assistantHandlingEnabled)
+      if (admitted !== undefined && existingCreate !== null)
+        throw new SupportDeskConflictError("Admitted create command changed");
+      if (initialHandling === "assistant" && !assistantHandlingEnabled)
         throw new SupportDeskConflictError("Assistant handling is disabled");
       if (command.category !== undefined) {
         if (
@@ -5745,6 +5991,34 @@ export function createSupportDeskApplication(options: {
         }
       }
 
+      const verifyBeforeCommit = admitted?.options?.verifyBeforeCommit;
+      let assistantAccess: AccessContext | undefined;
+      if (admitted !== undefined) {
+        enforceLimit(command.subject, "subject", limits.maxSubjectCharacters);
+        enforceLimit(command.body, "body", limits.maxMessageCharacters);
+        if (typeof verifyBeforeCommit !== "function")
+          throw new SupportDeskConflictError(
+            "Fresh create admission is required",
+          );
+        const resolveAssistantStart = admitted.options?.resolveAssistantStart;
+        if (
+          admitted.intent.preference === "assistant_if_available" &&
+          admitted.intent.disclosureVersion !== undefined &&
+          assistantHandlingEnabled &&
+          assistantTurnOptions !== undefined &&
+          resolveAssistantStart !== undefined
+        ) {
+          const current = await waitForAdmission(resolveAssistantStart);
+          authorizeAdmitted();
+          if (current !== null) {
+            authorizeAdmitted(current, true);
+            assistantAccess = current;
+            initialHandling = "assistant";
+          }
+        }
+      }
+      let initialMode: CustomerTicketAdmissionMode = initialHandling ?? "human";
+
       // Fail closed before durable number/index reservation so a too-small
       // partition budget cannot exhaust the principal ticket index with
       // reserved-but-never-created tickets.
@@ -5753,8 +6027,7 @@ export function createSupportDeskApplication(options: {
         (resolutionLearningOptions.enabled ? 1 : 0) +
         (engineeringOptions.enabled ? 1 : 0) +
         (command.notification === undefined ? 0 : 1) +
-        (assistantTurnOptions !== undefined &&
-        command.initialHandling === "assistant"
+        (assistantTurnOptions !== undefined && initialHandling === "assistant"
           ? 1
           : 0);
       enforcePartitionRecordLimit(
@@ -5763,13 +6036,13 @@ export function createSupportDeskApplication(options: {
         estimatedCreateRows +
           (resolutionLearningOptions.enabled ? 2 : 0) +
           (engineeringOptions.enabled ? 2 : 0) +
-          (command.initialHandling === "assistant"
+          (initialHandling === "assistant"
             ? assistantHumanReserveRows +
               (resolutionLearningOptions.enabled ? 1 : 0)
             : 0),
       );
       if (
-        command.initialHandling === "assistant" &&
+        initialHandling === "assistant" &&
         limits.maxMessagesPerTicket < 1 + assistantHumanReserveMessages
       )
         throw new SupportDeskLimitError(
@@ -5792,15 +6065,13 @@ export function createSupportDeskApplication(options: {
           number: ticketNumber,
           subject: command.subject,
           channel: "web",
-          ...(command.initialHandling === undefined
-            ? {}
-            : { initialHandling: command.initialHandling }),
+          ...(initialHandling === undefined ? {} : { initialHandling }),
           ...(command.category === undefined
             ? {}
             : { category: command.category }),
           requester: {
             association: "authenticated",
-            principalId: access.principalId,
+            principalId: principal(),
             ...(command.requesterEmail === undefined
               ? {}
               : { email: command.requesterEmail }),
@@ -5814,7 +6085,7 @@ export function createSupportDeskApplication(options: {
         id: command.messageId,
         ticketId: command.ticketId,
         authorKind: "customer",
-        authorPrincipalId: access.principalId,
+        authorPrincipalId: principal(),
         channel: "web",
         visibility: "customer",
         format: "plain_text",
@@ -5822,8 +6093,7 @@ export function createSupportDeskApplication(options: {
         createdAt: now,
       };
       const assistantTurn =
-        assistantTurnOptions !== undefined &&
-        command.initialHandling === "assistant"
+        assistantTurnOptions !== undefined && initialHandling === "assistant"
           ? await createAssistantTurnRecord(
               ticket,
               message,
@@ -5842,7 +6112,7 @@ export function createSupportDeskApplication(options: {
             );
       const notificationContent = deliveryContent(notification);
       const reservation = await reserveCustomerTicket(
-        access.principalId,
+        principal(),
         command.ticketId,
         now,
       );
@@ -5926,7 +6196,7 @@ export function createSupportDeskApplication(options: {
             partition: command.ticketId,
             id: "quota",
             messageCount: 1,
-            ...(command.initialHandling === "assistant"
+            ...(initialHandling === "assistant"
               ? { assistantManaged: true as const }
               : {}),
           },
@@ -5950,7 +6220,7 @@ export function createSupportDeskApplication(options: {
           correlationId: command.correlationId,
           ticketId: command.ticketId,
           revision: ticket.revision,
-          actorId: access.principalId,
+          actorId: principal(),
           occurredAt: now,
           action: supportTicketAuditActions.created,
         }),
@@ -5961,10 +6231,11 @@ export function createSupportDeskApplication(options: {
             partition: command.ticketId,
             id: `command:${command.commandId}`,
             commandId: command.commandId,
-            commandType: "create_customer_ticket",
+            commandType,
             messageId: command.messageId,
             requestFingerprint: fingerprint,
             completedAt: now,
+            ...(admitted === undefined ? {} : { initialMode }),
           },
         },
         ...(notificationJob === undefined ? [] : [notificationJob]),
@@ -5979,6 +6250,19 @@ export function createSupportDeskApplication(options: {
         limits.maxRecordsPerTicket,
         actions.length,
       );
+      if (admitted !== undefined && verifyBeforeCommit !== undefined) {
+        authorizeAdmitted();
+        const assertCurrent = await waitForAdmission(() =>
+          verifyBeforeCommit(initialMode),
+        );
+        authorizeAdmitted();
+        if (assistantAccess !== undefined)
+          authorizeAdmitted(assistantAccess, true);
+        if (typeof assertCurrent !== "function" || assertCurrent() !== true)
+          throw new SupportDeskConflictError(
+            "Admitted create authority changed",
+          );
+      }
       const outcome = await records.transact(command.ticketId, actions);
       if (!outcome.committed) {
         const existing = await records.get(
@@ -5987,27 +6271,34 @@ export function createSupportDeskApplication(options: {
         if (
           !duplicateMatches(
             existing,
-            "create_customer_ticket",
+            commandType,
             command.messageId,
             fingerprint,
           )
         ) {
           throw new SupportDeskConflictError();
         }
+        // An exact competing commit recovers the winner's historical mode,
+        // using the same create/read-own authority as the early receipt path.
+        if (admitted !== undefined) initialMode = admittedCreateMode(existing);
       }
 
+      authorizeAdmitted();
       await confirmCustomerTicket(
-        access.principalId,
+        principal(),
         command.ticketId,
         reservation.reservationToken,
         reservation.reservationGeneration,
       );
-      return customerViewAfterChange(
-        access.principalId,
+      authorizeAdmitted();
+      const view = await customerViewAfterChange(
+        principal(),
         command.ticketId,
         createThreading,
       );
-    },
+      authorizeAdmitted();
+      return { view, initialMode };
+    }),
 
     async replyToCustomerTicket(access, input) {
       requirePermission(access, supportPermissions.replyOwn);

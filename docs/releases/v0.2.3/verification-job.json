@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "repository": "pegma-dev/support-desk",
+  "tag": "v0.2.3",
+  "sourceCommit": "9b728afbed4e4072e0e8775ccf22f075ab736b0c",
+  "runId": 42940216396,
+  "runAttempt": 3,
+  "job": {
+    "id": 130271492355,
+    "name": "Verify registry signatures, source provenance and consumer",
+    "head_sha": "9b728afbed4e4072e0e8775ccf22f075ab736b0c",
+    "status": "completed",
+    "conclusion": "success",
+    "started_at": "2026-11-11T02:07:12Z",
+    "completed_at": "2026-11-11T02:07:26Z",
+    "html_url": "https://github.com/pegma-dev/support-desk/actions/runs/42940216396/job/130271492355"
+  },
+  "steps": [
+    {
+      "number": 1,
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-11T02:07:13Z",
+      "completed_at": "2026-11-11T02:07:13Z"
+    },
+    {
+      "number": 2,
+      "name": "Check out the exact verified source",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-11T02:07:13Z",
+      "completed_at": "2026-11-11T02:07:15Z"
+    },
+    {
+      "number": 3,
+      "name": "Set up Node.js without package-manager configuration",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-11T02:07:15Z",
+      "completed_at": "2026-11-11T02:07:18Z"
+    },
+    {
+      "number": 4,
+      "name": "Verify and extract the reviewed npm CLI",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-11T02:07:18Z",
+      "completed_at": "2026-11-11T02:07:19Z"
+    },
+    {
+      "number": 5,
+      "name": "Download the same original immutable preparation artifact",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-11T02:07:19Z",
+      "completed_at": "2026-11-11T02:07:19Z"
+    },
+    {
+      "number": 6,
+      "name": "Verify registry bytes, provenance and clean public imports",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-11T02:07:19Z",
+      "completed_at": "2026-11-11T02:07:24Z"
+    },
+    {
+      "number": 11,
+      "name": "Post Set up Node.js without package-manager configuration",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-11T02:07:24Z",
+      "completed_at": "2026-11-11T02:07:24Z"
+    },
+    {
+      "number": 12,
+      "name": "Post Check out the exact verified source",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-11T02:07:24Z",
+      "completed_at": "2026-11-11T02:07:24Z"
+    },
+    {
+      "number": 13,
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-11T02:07:24Z",
+      "completed_at": "2026-11-11T02:07:24Z"
+    }
+  ]
+}

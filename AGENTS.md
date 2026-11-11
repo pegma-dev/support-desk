@@ -168,11 +168,11 @@ collision hints. Customer DTOs and automatic customer mail omit these fields.
 Calendars and presence stay host-owned. Task 12 remains pending on both hosts'
 durable-store production evidence. Source work does not publish a package.
 
-All five packages have verified published `0.2.2` versions. The synchronized
+All five packages have verified published `0.2.3` versions. The synchronized
 `0.2.1` and `0.2.0` artifacts remain immutable history. The original four names also retain
 their published `0.1.0`/`0.1.1` artifacts; the AI name's `0.1.1` is a separate
 registration-only bootstrap. Follow the
-[publication receipt](docs/RELEASING.md#verified-022-publication-2026-11-10)
+[publication receipt](docs/RELEASING.md#verified-023-publication-2026-11-10)
 and release operations. Customer services return safe DTOs; staff
 services return the authoritative ticket for authorized staff only, and the
 staff queue scans a confirmed projection that is never authorization evidence.
@@ -201,15 +201,18 @@ only in a subsequent one. Stable complete configuration/authority snapshots and
 fresh live guards remain required. Publication does not establish Free-plan or
 host invocation/CPU acceptance.
 
-All five source packages are synchronized at **unpublished `0.2.3` candidate**
-versions for the [engineering review guard correction](docs/ENGINEERING_EXPORT.md).
+Published `0.2.3` contains the [engineering review guard correction](docs/ENGINEERING_EXPORT.md).
 Approval runs the supplied commit guard after current repository/policy
 observations; supplied rejection guards run at the final mutation boundary.
 Direct application rejection may still omit its guard, and receipt-first replay
-retains current review/queue authority. These bounded observations are not
-cross-store atomicity. The correction is not in published `0.2.2`; full
-current-head gates, review, trusted publication and strict verification remain
-required before hosts rely on it. No provider, client or activation gate closes.
+retains current review/queue authority. The release receipt records its original
+preparation, registry propagation failures, and verified attempt-three recovery.
+
+All five source packages now target **unpublished `0.2.4` candidate** versions
+for admitted customer intake, review of edited learning drafts with current
+provenance, final KB draft and staff follow-up checks, and grouped assistant
+finish reads. Its combined current-head gates, review, trusted publication and
+strict registry verification remain required before host adoption.
 
 SD-01 is implemented in source via
 [PR #34](https://github.com/pegma-dev/support-desk/pull/34): optional handling
@@ -218,7 +221,7 @@ messages with exact completion fences, and adds deterministic owned
 request-person, staff takeover, private success evidence, human queue
 selection, and bounded atomic handoff work. It adds no model, KB dependency,
 or package; its behavior first shipped in synchronized `0.2.0` and remains in
-current `0.2.2`. Do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
+current `0.2.3`. Do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
 activation gates after verified SDK publication.
 Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
 preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
@@ -243,7 +246,7 @@ signed `v0.2.0` at `efc9d733b3d305d24cf4197444e1d76c99bdb777`; see
 the migration and operations handbooks are `docs/UPGRADING.md` and
 `docs/AI_OPERATIONS.md`. The base application has no KB or provider dependency; actual KB
 `0.1.5` application/contracts dependencies belong only to the current
-optional AI `0.2.2` package and unpublished `0.2.3` candidate. Older `0.2.0` and
+optional AI `0.2.3` package and unpublished `0.2.4` candidate. Older `0.2.0` and
 `0.2.1` AI manifests retain their original `0.1.2` pins. See [assistant coordination](docs/ASSISTANT_COORDINATION.md)
 and its [layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint).
 PG-01/RG-01 consume exact verified published producers and still require actual

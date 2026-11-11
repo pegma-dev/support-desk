@@ -370,6 +370,51 @@ export function registerAssistantTurnReadWaveCases(
       expect(await w.f.rows()).toEqual(before);
     });
 
+    it("starts the finish read wave and replays an accepted finish despite a failed speculative ticket read", async () => {
+      const w = await world(factory, "prepare");
+      await w.f.prepare(w.claim!);
+      const command = {
+        ...w.claim!.fence,
+        disposition: "retry" as const,
+        accounting: "not_called" as const,
+      };
+      const pause = w.observer.hold(w.turn, w.ticket);
+      const pending = settled(
+        w.f.app.finishAssistantTurnAttempt(agent, command),
+      );
+      try {
+        await reached(
+          pause.reached,
+          pending,
+          "Finish did not start both actual keyed reads",
+        );
+      } finally {
+        pause.release();
+        await pending;
+      }
+      const accepted = await pending;
+      expect(accepted).toMatchObject({
+        outcome: "returned",
+        value: { outcome: "retry_scheduled" },
+      });
+      if (accepted.outcome !== "returned") throw accepted.error;
+      const rows = await w.f.rows();
+      expect(rows).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "assistant_turn",
+            status: "retry",
+            lastFinish: expect.objectContaining({ result: accepted.value }),
+          }),
+        ]),
+      );
+      w.observer.failRead(w.ticket, new Error("Unused finish ticket failed"));
+      expect(await w.f.app.finishAssistantTurnAttempt(agent, command)).toEqual(
+        accepted.value,
+      );
+      expect(await w.f.rows()).toEqual(rows);
+    });
+
     it("preserves missing-turn error precedence over an unused ticket failure", async () => {
       const w = await world(factory, "claim");
       const before = await w.f.rows();

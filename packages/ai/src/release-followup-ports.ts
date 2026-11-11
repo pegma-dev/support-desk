@@ -19,6 +19,7 @@ import type {
   EngineeringFollowupProofContext,
   EngineeringFollowupReleaseEvidencePort,
   EngineeringFollowupResult,
+  EngineeringFollowupWebUpdateOptions,
   VerifiedEngineeringFollowupContext,
 } from "@pegma/support-desk-application";
 import type {
@@ -283,7 +284,7 @@ export interface SupportDeskReleaseFollowup {
   approveAndPostWebUpdate(
     access: AccessContext,
     command: ApproveAndPostEngineeringFollowupWebUpdateCommand,
-    options?: { readonly signal?: AbortSignal },
+    options?: EngineeringFollowupWebUpdateOptions,
   ): ReturnType<
     EngineeringFollowupApplication["approveAndPostEngineeringFollowupWebUpdate"]
   >;

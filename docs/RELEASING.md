@@ -1,6 +1,6 @@
 # Release operations
 
-The current verified synchronized release is **0.2.2** for all five public
+The current verified synchronized release is **0.2.3** for all five public
 packages, in dependency order:
 
 1. `@pegma/support-desk-contracts`
@@ -9,18 +9,19 @@ packages, in dependency order:
 4. `@pegma/support-desk-application`
 5. Optional `@pegma/support-desk-ai`
 
-The exact `0.2.2` release adds opt-in durable staged retrieval and immutable
-learning review-intent recovery. Its optional AI package pins exact KB
+The exact `0.2.3` release adds final engineering review guards and preserves
+the opt-in staged retrieval and immutable learning review-intent recovery
+introduced in `0.2.2`. Its optional AI package pins exact KB
 application/contracts `0.1.5`; the base application has no KB or provider
 dependency. The dated receipt below qualifies these SDK artifacts, not either
 host's adoption, deployment, provider, client or activation.
 
 This checkout's source packages and internal Support pins are synchronized at
-**unpublished `0.2.3` candidate** versions for the
-[engineering review guard correction](ENGINEERING_EXPORT.md). The correction
-is not in `0.2.2` and still requires its own full current-head Node 22/24 gates,
-review, protected signed tag, trusted publication and strict verification.
-Source, package versions and focused tests do not publish a candidate.
+**unpublished `0.2.4` candidate** versions for admitted customer intake, final
+current-draft checks for learning, bounded assistant finish reads and final
+staff checks for release follow-up. See the [release notes](RELEASE_NOTES.md).
+Combined current-head Node 22/24 gates, review, a protected signed tag, trusted
+publication and strict verification remain required before host adoption.
 
 The published `0.2.1`/KB `0.1.2` and `0.2.0` artifacts remain immutable. The
 original four names also retain their `0.1.0`/`0.1.1` artifacts. The separate
@@ -37,6 +38,69 @@ checks run. Publication establishes no universal query or CPU budget. See
 [assistant coordination](ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval),
 [release notes](RELEASE_NOTES.md), [upgrading](UPGRADING.md) and
 [AI operations](AI_OPERATIONS.md).
+
+## Verified 0.2.3 publication: 2026-11-10
+
+The protected signed [`v0.2.3` release](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.3)
+binds reviewed main source
+[`9b728afbed4e4072e0e8775ccf22f075ab736b0c`](https://github.com/pegma-dev/support-desk/commit/9b728afbed4e4072e0e8775ccf22f075ab736b0c),
+tree `33c3c0daf5e04ac4991851f869df007f343a613f` and tag object
+`f617b93b50db51f56508cad6f256a7a989fdbab8`.
+[Run 42940216396](https://github.com/pegma-dev/support-desk/actions/runs/42940216396)
+completed successfully on attempt 3. The original attempt-1 Node 22 and 24 lanes
+each passed **2,623 tests across 58 files, with zero skips**, alongside the
+release gates. Recovery preserved those original gate executions and the exact
+original preparation. The release date uses America/New_York; independent
+verification completed at `2026-11-11T02:08:36.038Z` in UTC.
+
+Attempt 1 stopped when uploaded packages did not become visible within its
+verification window. Attempt 2 stopped during its registry check. Attempt 3
+authenticated all five already-present original packages and skipped every
+upload, with zero new uploads. Its successful workflow job records carry the
+original identity, Node and preparation executions.
+
+The [publisher job 130270228153](https://github.com/pegma-dev/support-desk/actions/runs/42940216396/job/130270228153)
+completed that authenticated recovery. The
+[verification job 130271492355](https://github.com/pegma-dev/support-desk/actions/runs/42940216396/job/130271492355)
+completed strict registry-byte, signature, source-provenance and clean-consumer
+verification. An independent check also passed four actual commands on Node
+`24.18.0` with npm `11.18.0`, covering npm version, a fresh registry install with
+lifecycle scripts disabled, signature/provenance audit and all public entry-point
+imports. The [registry receipt](releases/v0.2.3/registry-verification.json)
+records the original failed attempts, original preparation, successful recovery
+and that independent command evidence.
+
+The repository copies the five small public assets exactly. The
+[original manifest](releases/v0.2.3/package-manifest.json),
+[preparation API snapshot](releases/v0.2.3/prepared-artifact.json),
+[verification job API snapshot](releases/v0.2.3/verification-job.json),
+[registry receipt](releases/v0.2.3/registry-verification.json) and
+[qualified release summary](releases/v0.2.3/qualified-release-notes.md) accompany
+the preserved original ZIP on the public release.
+
+| Public release asset                                                                                                                                                              | Asset ID    | SHA-256                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------ |
+| [support-desk-v0.2.3-original-artifact-13819953097.zip](https://github.com/pegma-dev/support-desk/releases/download/v0.2.3/support-desk-v0.2.3-original-artifact-13819953097.zip) | `733781113` | `063bb10ec8ff568e80246242f2454c9619665f97368a71600eee5f01fc7e8720` |
+| [package-manifest.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.3/package-manifest.json)                                                                 | `733781102` | `be449daa4a02857775954beafcf64d60893d870482d06059e98197c4eff87c05` |
+| [prepared-artifact.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.3/prepared-artifact.json)                                                               | `733781098` | `1936ab65f5d26e9791a5b1af17ef9eb36a2c3a74045b8af51b1f43283806f65e` |
+| [verification-job.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.3/verification-job.json)                                                                 | `733781100` | `185392ccbd17ff6e8dcdf8bf2033fa8ccd3a4ca612175cb7470975189a4323ff` |
+| [registry-verification.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.3/registry-verification.json)                                                       | `733781099` | `a95fe344a462801e74c901fb0a784bdd4844a6822843e7906127e2b892552e39` |
+| [qualified-release-notes.md](https://github.com/pegma-dev/support-desk/releases/download/v0.2.3/qualified-release-notes.md)                                                       | `733781107` | `b9c92a88aabafa3e3f0a0f1ce8eab9741300d6b599c2802165b29558245969ae` |
+
+Hash the unchanged original ZIP against
+`063bb10ec8ff568e80246242f2454c9619665f97368a71600eee5f01fc7e8720`
+before extraction. Its original artifact ID is `13819953097`; the 492,329-byte
+archive came from attempt 1. Then verify the extracted manifest against
+`be449daa4a02857775954beafcf64d60893d870482d06059e98197c4eff87c05`.
+The strict six-file inventory contains that manifest and the five original
+package tarballs. Preserve the manifest and tarball bytes when inspecting them.
+
+Observed npm `latest` tags were `0.2.3` for all five packages at verification on
+2026-11-10 (America/New_York); AI's registration-only `bootstrap: 0.1.1` remained.
+These dist-tag observations are mutable. Host deployment, requested-client
+acceptance, provider/privacy qualification, evaluation, supervised pilots and
+actual invocation/Free CPU measurements retain their separate gates. All
+earlier release receipts and artifacts remain immutable.
 
 ## Verified 0.2.2 publication: 2026-11-10
 
@@ -275,7 +339,7 @@ staging and supervised-pilot acceptance remain separate work.
 | Path                            | Authority and artifact                                                                                                                                                                                                          |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | AI name registration            | Manual maintainer 2FA publication of only the prepared AI `0.1.1` tarball from signed `v0.1.1-ai-bootstrap` at frozen SD-05 commit `eddd3526f8bec3a1a80cc7aacd3a4cdcdb950cfe`. No GitHub release or bootstrap OIDC publish job. |
-| Advertised synchronized `0.2.2` | All five exact artifacts from reviewed main, protected signed annotated `v0.2.2`, and the environment-protected GitHub OIDC workflow, followed by strict registry verification.                                                 |
+| Advertised synchronized `0.2.3` | All five exact artifacts from reviewed main, protected signed annotated `v0.2.3`, and the environment-protected GitHub OIDC workflow, followed by strict registry verification.                                                 |
 
 The bootstrap's other four local tarballs are import-test context only. They
 are never eligible for manual publication. The existing four names do not
@@ -360,9 +424,9 @@ SD-06, and a clean memory consumer does not certify a host's durable migration.
 After the reviewed release PR is merged and every current-head gate is green,
 the authorized maintainer creates the protected signed annotated stable tag at
 the exact `origin/main` commit, pushes it, and creates its verified GitHub
-release. The current verified release identity is `v0.2.2`; `v0.2.1` and SD-06's
-`v0.2.0` identities remain historical. The source `0.2.3` candidate has no
-qualified release identity yet.
+release. The current verified release identity is `v0.2.3`; the earlier
+`v0.2.2`, `v0.2.1` and SD-06 `v0.2.0` identities remain historical. The source
+`0.2.4` candidate has no qualified release identity yet.
 Do not create a GitHub release for `v0.1.1-ai-bootstrap`.
 
 `.github/workflows/publish.yml` prepares from the exact stable release identity.

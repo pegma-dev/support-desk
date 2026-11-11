@@ -79,6 +79,25 @@ export function createSupportDeskLearning(
         throw new SupportDeskAuthorizationError(name);
     return staff;
   }
+  async function confirmCurrentDraft(
+    access: AccessContext,
+    target: Awaited<ReturnType<typeof readLearningKBTarget>>,
+    runtime: ReturnType<typeof createLearningRuntime>,
+    deadline: number,
+  ): Promise<void> {
+    const latest = snapshot(
+      await runtime.within(
+        () =>
+          options.knowledge.getDraft(access, {
+            articleId: target.draft.articleId,
+          }),
+        deadline,
+      ),
+    );
+    if (canonical(latest) !== canonical(target.draft))
+      throw new AssistantBoundaryError("target_changed");
+  }
+
   async function reviewCommand(
     access: AccessContext,
     input: LearningReviewCommand,
@@ -233,6 +252,7 @@ export function createSupportDeskLearning(
           ) !== canonical(policy)
         )
           throw new AssistantBoundaryError("check_policy_changed");
+        await confirmCurrentDraft(staff, actual, runtime, deadline);
         runtime.ensure(deadline);
       };
       await verifyTarget();
@@ -401,17 +421,29 @@ export function createSupportDeskLearning(
           runtime,
           deadline,
         );
+        const target = await learningTargetBinding(
+          actual.draft.revision,
+          actual.provenance.snapshot,
+        );
+        const delivered = work.target;
+        // Ordinary edits can advance a completed delivery's revision while
+        // retaining its article, collection, and complete provenance.
+        const contentEdit =
+          work.stage === "kb_delivery" &&
+          work.status === "completed" &&
+          actual.draft.state === "draft" &&
+          target.articleId === delivered.articleId &&
+          target.collectionId === delivered.collectionId &&
+          target.articleRevision > delivered.articleRevision &&
+          target.sourceSnapshotGeneration ===
+            delivered.sourceSnapshotGeneration &&
+          target.sourceSnapshotHash === delivered.sourceSnapshotHash &&
+          target.orderedReferencesHash === delivered.orderedReferencesHash;
+        const sourceReference = canonical(learningSourceReference(source));
         if (
-          canonical(
-            await learningTargetBinding(
-              actual.draft.revision,
-              actual.provenance.snapshot,
-            ),
-          ) !== canonical(work.target) ||
+          (canonical(target) !== canonical(delivered) && !contentEdit) ||
           !actual.provenance.snapshot.references.some(
-            (reference) =>
-              canonical(reference) ===
-              canonical(learningSourceReference(source)),
+            (reference) => canonical(reference) === sourceReference,
           )
         )
           throw new AssistantBoundaryError("target_changed");
@@ -464,13 +496,14 @@ export function createSupportDeskLearning(
           ) !== canonical(service)
         )
           throw new AssistantBoundaryError("authority_changed");
+        await confirmCurrentDraft(staff, actual, runtime, deadline);
         return snapshot({
           intent: {
             reviewerId: staff.principalId,
             ticketId: key.ticketId,
             sourceGeneration: key.sourceGeneration,
             expectedWorkGeneration: work.workGeneration,
-            target: work.target,
+            target,
             policy,
           },
           draft: actual.draft,

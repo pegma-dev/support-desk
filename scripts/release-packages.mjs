@@ -13,18 +13,28 @@ const NODE_RANGE = ">=22";
 const REVIEWED_PNPM_VERSION = "10.34.5";
 const REVIEWED_NPM_VERSION = "11.18.0";
 const STABLE_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
-// GitHub asset digests verified at the v0.2.2 release handoff.
+// GitHub asset digests verified at each published release handoff.
 const RELEASE_EVIDENCE_SHA256 = {
-  "package-manifest.json":
+  "v0.2.2/package-manifest.json":
     "3fd79ca5400e57f6c0edb8657441f38bb16043a3a0ea1d0cfda595dcc848853d",
-  "prepared-artifact.json":
+  "v0.2.2/prepared-artifact.json":
     "42b064bd6c2f2182cbd51f768d64322b12d4c682f9ebd261eff292a5771d19ad",
-  "qualified-release-notes.md":
+  "v0.2.2/qualified-release-notes.md":
     "1a9d600dc06772cc9f6f2ee9b9d9e7c41b0106b8ae4682142fd41aed7a0217cc",
-  "registry-verification.json":
+  "v0.2.2/registry-verification.json":
     "0d5d1c7e0763ccc02eab94367c259fc009403fe6c608c4e7c6675da54c99d4a4",
-  "verification-job.json":
+  "v0.2.2/verification-job.json":
     "fc0fa9bc339c97aa1db813d203ad758679e3346ec2b9d1ce3a6e129aa7147050",
+  "v0.2.3/package-manifest.json":
+    "be449daa4a02857775954beafcf64d60893d870482d06059e98197c4eff87c05",
+  "v0.2.3/prepared-artifact.json":
+    "1936ab65f5d26e9791a5b1af17ef9eb36a2c3a74045b8af51b1f43283806f65e",
+  "v0.2.3/qualified-release-notes.md":
+    "b9c92a88aabafa3e3f0a0f1ce8eab9741300d6b599c2802165b29558245969ae",
+  "v0.2.3/registry-verification.json":
+    "a95fe344a462801e74c901fb0a784bdd4844a6822843e7906127e2b892552e39",
+  "v0.2.3/verification-job.json":
+    "185392ccbd17ff6e8dcdf8bf2033fa8ccd3a4ca612175cb7470975189a4323ff",
 };
 const DEPENDENCY_SECTIONS = [
   "dependencies",
@@ -872,7 +882,7 @@ function defaultRoot() {
 
 async function validateReleaseEvidence(root) {
   for (const [name, expected] of Object.entries(RELEASE_EVIDENCE_SHA256)) {
-    const path = `docs/releases/v0.2.2/${name}`;
+    const path = `docs/releases/${name}`;
     const bytes = await readFile(join(root, path)).catch((error) => {
       if (error.code === "ENOENT") {
         fail(`published release evidence is missing: ${path}`);

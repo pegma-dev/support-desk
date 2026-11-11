@@ -3,8 +3,8 @@
 SD-04's source merged in [PR #40](https://github.com/pegma-dev/support-desk/pull/40)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current synchronized release is `0.2.2`; see its
-[publication receipt](RELEASING.md#verified-022-publication-2026-11-10).
+The current synchronized release is `0.2.3`; see its
+[publication receipt](RELEASING.md#verified-023-publication-2026-11-10).
 This handbook describes released contracts, explicitly marked source-candidate
 changes, and host responsibilities, not host activation. There is no runnable host recipe here. Scope comes from the
 [approved plan](KNOWLEDGE_AI_PLAN.md#bug-evaluation-routing-and-github-export)
@@ -154,7 +154,7 @@ repository identity/current metadata and visibility, policy, routing, and check
 results. Editing any bound fact requires fresh checks and review. The coordinator
 rechecks current authority and remote facts immediately before dispatch.
 
-**Unpublished `0.2.3` source candidate.** For a new decision, pass a trusted
+**Published `0.2.3` review guard.** For a new decision, pass a trusted
 read-only `verifyBeforeCommit` callback in the coordinator's
 `reviewProposal(access, command, { signal, verifyBeforeCommit })` options. Use
 it to check the original browser session and current staff role. Approval

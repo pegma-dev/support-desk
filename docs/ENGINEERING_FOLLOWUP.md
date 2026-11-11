@@ -3,8 +3,8 @@
 SD-05's source merged in [PR #41](https://github.com/pegma-dev/support-desk/pull/41)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current synchronized release is `0.2.2`; see its
-[publication receipt](RELEASING.md#verified-022-publication-2026-11-10).
+The current synchronized release is `0.2.3`; see its
+[publication receipt](RELEASING.md#verified-023-publication-2026-11-10).
 This handbook describes its contracts and host responsibilities, not deployment
 or host acceptance. SD-04 merged in
 [PR #40](https://github.com/pegma-dev/support-desk/pull/40). Scope comes from the
@@ -187,6 +187,22 @@ It requires current review, queue, and staff reply authority. Its read-only
 commit guard rechecks release applicability and independent whole-bundle proof
 after awaited work. Guards never perform a provider call or external mutation
 inside a storage retry.
+
+The optional web update options accept a signal and a trusted, read-only
+verifyBeforeCommit callback. Hosts use this callback to refresh the original
+staff session and permissions for a new notice after the last awaited
+application version read. The application bounds the callback with its trust
+timeout, then checks named permissions and proof expiry before invoking the
+ticket transaction. The AI coordinator's release guard supplies a synchronous
+final proof assertion. It checks the exact verified proof, check receipt,
+check policy and invocation deadline after the late authority result reaches
+the application. Direct trusted release guards may still return void. A
+delegating adapter forwards the guard's result unchanged. Exact accepted
+replay skips new-write authority and proof checks under the normal current
+receipt grants. Hosts still authenticate the original browser
+on admission and before returning results. A session read and the ticket
+transaction are separate operations. Cancellation during a transaction can
+leave an unknown acknowledgement and requires exact-command recovery.
 
 Approval and posting form one ticket transaction: the canonical web message,
 message quota, Audit, replay receipt, and delivered work marker commit together.

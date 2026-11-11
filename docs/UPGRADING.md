@@ -1,8 +1,8 @@
-# Upgrading to the synchronized 0.2.2 release
+# Upgrading to the synchronized 0.2.3 release
 
-`0.2.2` is the current verified published synchronized release; it does not
-certify a host's deployment or acceptance. See the
-[publication receipt](RELEASING.md#verified-022-publication-2026-11-10).
+`0.2.3` is the current verified published synchronized release. Hosts retain
+their own deployment and acceptance gates. See the
+[publication receipt](RELEASING.md#verified-023-publication-2026-11-10).
 The original SD-06 `0.2.0` release has its separate
 [historical receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
 The original four Support Desk packages were published at `0.1.1`. Before
@@ -18,10 +18,45 @@ registry application dependency lacks the new source exports. The five local
 bootstrap tarballs prove an isolated source assembly, not a usable registry
 dependency tree.
 
+## Unpublished 0.2.4 intake and final checks
+
+The synchronized `0.2.4` source candidate requires its combined gates and
+verified release before host adoption.
+
+The optional `createAdmittedCustomerTicket` capability returns
+`{view, initialMode}`. Fresh intake needs current create/read-own authority
+and a trusted late `verifyBeforeCommit(mode)` callback returning a synchronous
+`() => true` assertion. Preserve the closed original packet through unknown
+acknowledgements and recover it before another assistant decision. Accepted
+replay can omit options and returns the historical initial mode with the
+current owned view. The existing two-argument create API and its historical
+fingerprints keep their behavior. See the
+[application contract](../packages/application/README.md#admitted-customer-intake-next-candidate).
+
+The factory's return type includes the additive capability. Existing
+`SupportDeskApplication` implementations keep their interface, while mocks
+typed from the factory's full return type may need the added method. Exhaustive
+switches over stored command types must cover `create_admitted_customer_ticket`;
+its accepted receipt includes `initialMode`.
+
+Staff can prepare a fresh intent for an edited draft of the same delivered
+article and collection when its complete ordered provenance still matches.
+Retain each intent's exact revision and content hash through submission and
+unknown acknowledgements. See the [learning guide](RESOLUTION_LEARNING.md).
+
+The candidate also confirms the complete current KB draft after late policy
+and authority reads during learning intent preparation and new review proofs.
+A changed draft stops the new operation. Exact accepted receipt recovery keeps
+its original precedence. The
+[release follow-up guide](ENGINEERING_FOLLOWUP.md) describes the added optional
+late staff check and synchronous proof assertion for posting. A follow-up
+adapter must forward the supplied release proof guard's return value to the
+application.
+
 ## Package and host boundary
 
 The released inventory is `@pegma/support-desk-contracts`, `-core`,
-`-templates`, `-application`, and optional `-ai`, all at exact `0.2.2` with
+`-templates`, `-application`, and optional `-ai`, all at exact `0.2.3` with
 matching internal pins. Keep one coherent set. The base application remains
 usable without AI, KB, a model provider, or GitHub.
 
@@ -96,24 +131,26 @@ SDK `0.2.2` publication and strict verification are complete. Host invocation/CP
 measurements and activation retain their separate gates; an SDK migration is
 not live acceptance.
 
-## Unpublished 0.2.3 engineering guard candidate
+## Migration to published 0.2.3 engineering guards
 
-This checkout synchronizes all five source packages and internal Support pins
-at `0.2.3`, retaining exact AI KB application/contracts `0.1.5`. The candidate
-finishes repository/policy observations before the supplied approval commit
-guard and honors a supplied final rejection guard. The coordinator supplies a
-current-staff rejection guard; direct application rejection may still omit one.
-Accepted receipts remain receipt-first under current review/queue authority.
-These are bounded observations around the existing partition CAS, not
-cross-store atomicity or continuous authority. See the
-[engineering guide](ENGINEERING_EXPORT.md). This correction is not in `0.2.2`;
-full current-head gates, review, trusted publication and strict verification
-remain required before hosts rely on `0.2.3`.
+The five verified packages and internal Support pins use exact `0.2.3`,
+retaining exact AI KB application/contracts `0.1.5`. The application finishes
+repository/policy observations before the supplied approval commit guard and
+honors a supplied final rejection guard. The coordinator supplies a current-staff
+rejection guard; direct application rejection may still omit one. Approval
+retains the earliest verified proof expiry across the awaited host check and
+the synchronous assertion at the existing partition CAS. Forward that assertion
+when wrapping the application guard. Accepted receipts remain receipt-first
+under current review/queue authority. See the
+[engineering guide](ENGINEERING_EXPORT.md) and
+[verified release receipt](RELEASING.md#verified-023-publication-2026-11-10).
+Hosts must validate their exact installed graph and current session/role
+boundaries before exposing the review surface.
 
 ## Rehearse the actual 0.1.1-to-0.2.0 upgrade
 
 The SD-06 rehearsal below is retained as historical migration evidence. For
-current `0.2.2` adoption, repeat the rehearsal against the exact selected `0.2.2`
+current `0.2.3` adoption, repeat the rehearsal against the exact selected `0.2.3`
 artifacts and record a new receipt; a `0.2.0` result does not qualify changed
 artifacts or a host's durable-store migration.
 

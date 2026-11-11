@@ -368,9 +368,9 @@ previous limits. All admission remains under the hard partition cap.
 See [declared collections](COLLECTIONS.md#sd-01-handling-and-handoff-layout-checkpoint)
 for row, serialized-byte, and capacity bounds before changing durable work.
 
-Changes need their own tests/review. The current synchronized `0.2.2` release is
+Changes need their own tests/review. The current synchronized `0.2.3` release is
 published and strictly verified; its
-[publication receipt](RELEASING.md#verified-022-publication-2026-11-10)
+[publication receipt](RELEASING.md#verified-023-publication-2026-11-10)
 records the exact artifacts. Older base registry `0.1.1` artifacts remain
 immutable history. AUTH-01, KB-04 transport source/SDK proof, partial KB-05
 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
@@ -387,7 +387,7 @@ activation, and pilot gates remain pending. Follow the
 
 ### SD-02 optional coordination
 
-The optional `@pegma/support-desk-ai@0.2.2` package composes exact published KB
+The optional `@pegma/support-desk-ai@0.2.3` package composes exact published KB
 `0.1.5` APIs with five fixed turn operations on the base application. The
 application has no KB/provider dependency. Causal signed-in web ingress writes
 bounded `assistant_turn` work in the existing ticket partition with its

@@ -1,0 +1,290 @@
+{
+  "schemaVersion": 1,
+  "status": "QUALIFIED_TRUSTED_RELEASE",
+  "qualifiedAt": "2026-11-11T02:08:36.038Z",
+  "repository": "pegma-dev/support-desk",
+  "tag": "v0.2.3",
+  "tagObject": "f617b93b50db51f56508cad6f256a7a989fdbab8",
+  "sourceCommit": "9b728afbed4e4072e0e8775ccf22f075ab736b0c",
+  "sourceTree": "33c3c0daf5e04ac4991851f869df007f343a613f",
+  "workflow": ".github/workflows/publish.yml",
+  "environment": "npm-publish",
+  "releaseId": 441135679,
+  "runId": 42940216396,
+  "runAttempt": 3,
+  "publisherJobId": 130270228153,
+  "verificationJobId": 130271492355,
+  "workflowResult": {
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 130270091852,
+        "name": "Authenticate existing registry release artifacts",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 130270091966,
+        "name": "Release gate / Node.js 22",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 130270092546,
+        "name": "Release gate / Node.js 24",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 130270092913,
+        "name": "Prepare immutable signed-tag artifacts",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 130270131772,
+        "name": "Verify signed release identity",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 130270228153,
+        "name": "Publish exact prepared artifacts",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 130271492355,
+        "name": "Verify registry signatures, source provenance and consumer",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "successfulSteps": 94
+  },
+  "originalPreparation": {
+    "runAttempt": 1,
+    "artifactId": 13819953097,
+    "archiveSha256": "063bb10ec8ff568e80246242f2454c9619665f97368a71600eee5f01fc7e8720",
+    "manifestSha256": "be449daa4a02857775954beafcf64d60893d870482d06059e98197c4eff87c05"
+  },
+  "originalExecutedGates": {
+    "nodeVersions": [
+      22,
+      24
+    ],
+    "testsPerLane": 2623,
+    "filesPerLane": 58,
+    "skipsPerLane": 0,
+    "attempt": 1,
+    "carriedIntoSuccessfulAttempt": 3
+  },
+  "recovery": {
+    "priorFailedAttempts": [
+      {
+        "attempt": 1,
+        "conclusion": "failure",
+        "failedJobId": 130261958378,
+        "skippedJobId": 130267862219
+      },
+      {
+        "attempt": 2,
+        "conclusion": "failure",
+        "failedJobId": 130268476016,
+        "skippedJobId": 130268571518
+      }
+    ],
+    "authenticatedExistingPackages": [
+      "@pegma/support-desk-contracts",
+      "@pegma/support-desk-core",
+      "@pegma/support-desk-templates",
+      "@pegma/support-desk-application",
+      "@pegma/support-desk-ai"
+    ],
+    "newUploadsOnAttempt3": []
+  },
+  "independentPostflight": {
+    "completedAt": "2026-11-11T02:08:36.038Z",
+    "node": "24.18.0",
+    "npm": "11.18.0",
+    "commands": [
+      {
+        "ordinal": "01",
+        "status": 0,
+        "stdoutSha256": "324f52ea836cd47edb7932f3992fa50b67fc7fec13a6950e1a1ddf720afab6d2",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "retainedFiles": []
+      },
+      {
+        "ordinal": "02",
+        "status": 0,
+        "stdoutSha256": "23a99653960f8b39d2cdee77427e5c76ebd3c463eac108b9afc6ac3d29b448bc",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "retainedFiles": [
+          {
+            "name": "package.json",
+            "sha256": "0cc989501b1d3f3be8f157dd90c38569c0e3bd18f91b964345316947688ee808"
+          },
+          {
+            "name": "package-lock.json",
+            "sha256": "1bda0a2f63b857755cba753b3ec38bb5244a96ba75340a9500728d866d202729"
+          }
+        ]
+      },
+      {
+        "ordinal": "03",
+        "status": 0,
+        "stdoutSha256": "42c5f2f38552c130f88aaa97d22cc64d6c3151874a47109c430ef1a90e5e6ab0",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "retainedFiles": [
+          {
+            "name": "package.json",
+            "sha256": "0cc989501b1d3f3be8f157dd90c38569c0e3bd18f91b964345316947688ee808"
+          },
+          {
+            "name": "package-lock.json",
+            "sha256": "1bda0a2f63b857755cba753b3ec38bb5244a96ba75340a9500728d866d202729"
+          }
+        ]
+      },
+      {
+        "ordinal": "04",
+        "status": 0,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "retainedFiles": [
+          {
+            "name": "package.json",
+            "sha256": "0cc989501b1d3f3be8f157dd90c38569c0e3bd18f91b964345316947688ee808"
+          },
+          {
+            "name": "package-lock.json",
+            "sha256": "1bda0a2f63b857755cba753b3ec38bb5244a96ba75340a9500728d866d202729"
+          },
+          {
+            "name": "consumer.mjs",
+            "sha256": "39ddfb8275b8e2e960073cfca62913f980b37eb36dd2dc8ea26e8fe1f621ebcd"
+          }
+        ]
+      }
+    ]
+  },
+  "packages": [
+    {
+      "name": "@pegma/support-desk-contracts",
+      "version": "0.2.3",
+      "bytes": 6081,
+      "sha256": "5073676af84fd60b49d94e2b0ac471ed160872ecdd7e00ebfafe3746b2153583",
+      "shasum": "65016c7523b61444ed8032821499323f2beb5a10",
+      "integrity": "sha512-Xa4jHOpe30s+tAlJB1ZGfY/kIEZ0eCKg5bbo3oVqsPqRVtTtUU/dXP25KldrNOG3RFUDQo3ASjbjXzLsgDsvhA==",
+      "dependencies": {
+        "@pegma/spine": "0.1.2"
+      },
+      "fileCount": 7
+    },
+    {
+      "name": "@pegma/support-desk-core",
+      "version": "0.2.3",
+      "bytes": 8925,
+      "sha256": "e5647ba40b979a2da2fccc243bc3efb99a8b2afe611bc8e1c77a3dee9a7e9a2c",
+      "shasum": "dc86c3956d7f09a3a93c4a2371e4981578236549",
+      "integrity": "sha512-BgF2/WnDXW5dbqShOHRhwQ0i/cWHuNlUkWVxfW8abZ5/qN2wW9MqAO3dci3hjK6DT5i4SpzKgnT7Zzx0a9f5IA==",
+      "dependencies": {
+        "@pegma/support-desk-contracts": "0.2.3"
+      },
+      "fileCount": 7
+    },
+    {
+      "name": "@pegma/support-desk-templates",
+      "version": "0.2.3",
+      "bytes": 7613,
+      "sha256": "bd12c1f98feb2c5ced178e9d07e1632c0e7a87f057899e6baf11ba43be268f38",
+      "shasum": "8dc67565b489a00fb78e7c680637f75acf4d4ead",
+      "integrity": "sha512-VMXt8BsVI8p74b9EfJzW9Y1EaUXMhKnY/RWW/k46EEH0qKIYz6f6WIq6iRaVL8z+fh2AbTaA6WsGjMWF56nDLw==",
+      "dependencies": {},
+      "fileCount": 11
+    },
+    {
+      "name": "@pegma/support-desk-application",
+      "version": "0.2.3",
+      "bytes": 324857,
+      "sha256": "dc90fadc41fe13d32e38c30c57938bb1d392bb3cd0bad3340c5bb05b6f311026",
+      "shasum": "a55040d6670d85930c20d2d6fc5085fc0db10f6f",
+      "integrity": "sha512-Ul64+A+5ccIcdFiAnzVdjnm7L3hXSPbz7U/g5ZREkEPMDs3uX/c9/pMpBy7yZIAJvrYLIizbctEv5NpoAuARsg==",
+      "dependencies": {
+        "@pegma/audit": "0.2.0",
+        "@pegma/authorization-core": "0.4.0",
+        "@pegma/mail": "0.1.1",
+        "@pegma/spine": "0.1.2",
+        "@pegma/storage-core": "0.4.0",
+        "@pegma/support-desk-contracts": "0.2.3",
+        "@pegma/support-desk-core": "0.2.3"
+      },
+      "fileCount": 87
+    },
+    {
+      "name": "@pegma/support-desk-ai",
+      "version": "0.2.3",
+      "bytes": 140936,
+      "sha256": "c5c3b7de382c394cd9ac63627d5188edac12df6bdc660e96cb50db261b9cf87c",
+      "shasum": "aba2f6ba5a4b2e631982066238ae0fb7a3c46137",
+      "integrity": "sha512-6xkWXPuOAyPboqvnpybP4bMLMmxpOMw5WQAr9NypL18iEKr5E3J/AJbDPaVWSNr03ossPHLSD+JrIJCbkuQRFg==",
+      "dependencies": {
+        "@pegma/authorization-core": "0.4.0",
+        "@pegma/knowledge-base-application": "0.1.5",
+        "@pegma/knowledge-base-contracts": "0.1.5",
+        "@pegma/spine": "0.1.2",
+        "@pegma/support-desk-application": "0.2.3"
+      },
+      "fileCount": 123
+    }
+  ],
+  "runtimeKnowledgeDependencies": {
+    "@pegma/knowledge-base-application": "0.1.5",
+    "@pegma/knowledge-base-contracts": "0.1.5"
+  },
+  "distTagsAsObserved": [
+    {
+      "name": "@pegma/support-desk-contracts",
+      "version": "0.2.3",
+      "observedAt": "2026-11-11T02:08:34.894Z",
+      "tags": {
+        "latest": "0.2.3"
+      }
+    },
+    {
+      "name": "@pegma/support-desk-core",
+      "version": "0.2.3",
+      "observedAt": "2026-11-11T02:08:35.077Z",
+      "tags": {
+        "latest": "0.2.3"
+      }
+    },
+    {
+      "name": "@pegma/support-desk-templates",
+      "version": "0.2.3",
+      "observedAt": "2026-11-11T02:08:35.276Z",
+      "tags": {
+        "latest": "0.2.3"
+      }
+    },
+    {
+      "name": "@pegma/support-desk-application",
+      "version": "0.2.3",
+      "observedAt": "2026-11-11T02:08:35.470Z",
+      "tags": {
+        "latest": "0.2.3"
+      }
+    },
+    {
+      "name": "@pegma/support-desk-ai",
+      "version": "0.2.3",
+      "observedAt": "2026-11-11T02:08:35.672Z",
+      "tags": {
+        "bootstrap": "0.1.1",
+        "latest": "0.2.3"
+      }
+    }
+  ],
+  "developedBy": "RetireGolden, LLC"
+}
