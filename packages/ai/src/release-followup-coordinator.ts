@@ -561,11 +561,7 @@ export function createSupportDeskReleaseFollowup(
             ensureStaff();
             if (verifyBeforeCommit !== undefined) {
               await runtime.within(async () => {
-                try {
-                  await verifyBeforeCommit();
-                } catch {
-                  throw new AssistantBoundaryError("verification_unavailable");
-                }
+                await verifyBeforeCommit();
               }, proofDeadline);
             }
             runtime.ensure(proofDeadline);

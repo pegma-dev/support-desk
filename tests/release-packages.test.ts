@@ -147,7 +147,14 @@ describe("release package metadata", () => {
     const checkout = process.cwd();
     const root = mkdtempSync(join(tmpdir(), "support-desk-release-check-"));
     const script = join(checkout, "scripts", "release-packages.mjs");
-    const evidence = join("docs", "releases", "v0.2.2");
+    const versions = ["v0.2.2", "v0.2.3"];
+    const evidenceFiles = [
+      "package-manifest.json",
+      "prepared-artifact.json",
+      "qualified-release-notes.md",
+      "registry-verification.json",
+      "verification-job.json",
+    ];
     const check = () =>
       run(process.execPath, [script, "check", "--root", root]);
     try {
@@ -162,15 +169,34 @@ describe("release package metadata", () => {
         }
       }
       mkdirSync(join(root, "docs", "releases"), { recursive: true });
-      cpSync(join(checkout, evidence), join(root, evidence), {
-        recursive: true,
-      });
+      for (const version of versions) {
+        const evidence = join("docs", "releases", version);
+        cpSync(join(checkout, evidence), join(root, evidence), {
+          recursive: true,
+        });
+      }
 
       expect(check()).toBe("Release metadata is valid.");
-      writeFileSync(join(root, evidence, "verification-job.json"), "{}\n");
-      expect(check).toThrow(
-        "published release evidence SHA-256 mismatch: docs/releases/v0.2.2/verification-job.json",
-      );
+      for (const version of versions) {
+        for (const name of evidenceFiles) {
+          const relative = `docs/releases/${version}/${name}`;
+          const path = join(root, relative);
+          const original = readFileSync(path);
+
+          writeFileSync(path, "{}\n");
+          expect(check).toThrow(
+            `published release evidence SHA-256 mismatch: ${relative}`,
+          );
+          writeFileSync(path, original);
+
+          rmSync(path);
+          expect(check).toThrow(
+            `published release evidence is missing: ${relative}`,
+          );
+          writeFileSync(path, original);
+        }
+      }
+      expect(check()).toBe("Release metadata is valid.");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -85,13 +85,14 @@ export async function engineeringFollowupTrusted<T>(
     );
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let onAbort: (() => void) | undefined;
+  let removeAbortListener = (): void => {};
   try {
     return await Promise.race([
       Promise.resolve().then(() => action(controller.signal)),
       new Promise<never>((_resolve, reject) => {
         if (signal !== undefined) {
-          onAbort = () => {
+          const onAbort = () => {
+            removeAbortListener();
             controller.abort();
             reject(
               new SupportDeskConflictError(
@@ -100,8 +101,11 @@ export async function engineeringFollowupTrusted<T>(
             );
           };
           signal.addEventListener("abort", onAbort, { once: true });
+          removeAbortListener = () =>
+            signal.removeEventListener("abort", onAbort);
         }
         timer = setTimeout(() => {
+          removeAbortListener();
           controller.abort();
           reject(
             new SupportDeskConflictError(
@@ -113,7 +117,7 @@ export async function engineeringFollowupTrusted<T>(
     ]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
-    if (onAbort !== undefined) signal?.removeEventListener("abort", onAbort);
+    removeAbortListener();
   }
 }
 export function engineeringFollowupResult(

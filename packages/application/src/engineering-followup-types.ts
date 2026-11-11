@@ -344,13 +344,27 @@ export interface ApproveAndPostEngineeringFollowupWebUpdateCommand
   readonly bundleHash: string;
   readonly messageId: MessageId;
 }
-/** A trusted release check may supply a synchronous final proof assertion. */
+/**
+ * A trusted release check may supply a synchronous final proof assertion.
+ * Returning void selects the application's stored proof and work deadlines.
+ * Returning an assertion adds the guard's policy and invocation deadline checks.
+ * Existing void guards remain supported.
+ * Forward an AI coordinator guard's returned assertion unchanged through any
+ * adapter so its shorter proof, policy and invocation limits are checked again
+ * after the final awaited staff-authority observation.
+ */
 export type EngineeringFollowupWebUpdateProofGuard = () =>
   void | (() => true) | Promise<void | (() => true)>;
 
 export interface EngineeringFollowupWebUpdateOptions {
   readonly signal?: AbortSignal;
-  /** Trusted, read-only current staff authority check for a new notice. */
+  /**
+   * Trusted, read-only current staff authority check for a new notice.
+   * The AI coordinator preserves a SupportDeskAuthorizationError as its
+   * existing authorization_unavailable category. Use signal for cancellation;
+   * unclassified host errors remain coarse verification_unavailable failures.
+   * A failed observation does not establish absence of an earlier commit.
+   */
   readonly verifyBeforeCommit?: EngineeringCommitGuard;
 }
 export interface EngineeringFollowupPostResult extends EngineeringFollowupKey {

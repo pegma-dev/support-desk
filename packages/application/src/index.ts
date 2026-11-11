@@ -5812,6 +5812,32 @@ export function createSupportDeskApplication(options: {
         if (assistant)
           requirePermission(current, supportPermissions.assistantStart);
       }
+      async function waitForAdmission<T>(
+        check: () => T | Promise<T>,
+      ): Promise<T> {
+        authorizeAdmitted();
+        if (signal === undefined) return check();
+        let onAbort: (() => void) | undefined;
+        try {
+          return await Promise.race([
+            Promise.resolve().then(() => {
+              authorizeAdmitted();
+              return check();
+            }),
+            new Promise<never>((_resolve, reject) => {
+              onAbort = () =>
+                reject(
+                  new SupportDeskConflictError("Admitted create was cancelled"),
+                );
+              signal.addEventListener("abort", onAbort, { once: true });
+              if (signal.aborted) onAbort();
+            }),
+          ]);
+        } finally {
+          if (onAbort !== undefined)
+            signal.removeEventListener("abort", onAbort);
+        }
+      }
       authorizeAdmitted();
       const command = snapshotCreateCustomerTicketCommand(input);
       let initialHandling = command.initialHandling;
@@ -5822,6 +5848,8 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(command.messageId, "messageId");
       requireIdentifier(command.commandId, "commandId");
       requireIdentifier(command.correlationId, "correlationId");
+      // Admitted replay keeps fixed ceilings when later instance limits shrink.
+      // Fresh admission applies the configured limits after receipt recovery.
       const inputLimits =
         admitted === undefined ? limits : supportDeskLimitMaximums;
       enforceLimit(
@@ -5980,7 +6008,7 @@ export function createSupportDeskApplication(options: {
           assistantTurnOptions !== undefined &&
           resolveAssistantStart !== undefined
         ) {
-          const current = await resolveAssistantStart();
+          const current = await waitForAdmission(resolveAssistantStart);
           authorizeAdmitted();
           if (current !== null) {
             authorizeAdmitted(current, true);
@@ -6224,7 +6252,9 @@ export function createSupportDeskApplication(options: {
       );
       if (admitted !== undefined && verifyBeforeCommit !== undefined) {
         authorizeAdmitted();
-        const assertCurrent = await verifyBeforeCommit(initialMode);
+        const assertCurrent = await waitForAdmission(() =>
+          verifyBeforeCommit(initialMode),
+        );
         authorizeAdmitted();
         if (assistantAccess !== undefined)
           authorizeAdmitted(assistantAccess, true);
@@ -6248,6 +6278,8 @@ export function createSupportDeskApplication(options: {
         ) {
           throw new SupportDeskConflictError();
         }
+        // An exact competing commit recovers the winner's historical mode,
+        // using the same create/read-own authority as the early receipt path.
         if (admitted !== undefined) initialMode = admittedCreateMode(existing);
       }
 

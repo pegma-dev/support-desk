@@ -1,5 +1,6 @@
 import { createSupportDeskReleaseFollowup } from "@pegma/support-desk-ai";
 import {
+  SupportDeskAuthorizationError,
   supportPermissions,
   supportRecords,
 } from "@pegma/support-desk-application";
@@ -493,6 +494,138 @@ for (const [name, createStore] of engineeringFollowupStores) {
         expect((await f.work()).delivered).toBeUndefined();
       },
     );
+
+    it.each([false, true])(
+      "supports legacy void release guards while enforcing app expiry %s",
+      async (expire) => {
+        const f = await engineeringFollowupAiFixture(createStore());
+        await f.prepareBundle();
+        const command = await f.postCommand("legacy-void-release-guard");
+        const beforeRows = await f.rows();
+        const guard = vi.fn(() => {
+          if (expire) f.advance(60_001);
+        });
+        const pending = f.app.approveAndPostEngineeringFollowupWebUpdate(
+          engineeringFollowupStaff,
+          command,
+          guard,
+        );
+        if (expire) {
+          await expect(pending).rejects.toThrow("proof expired");
+          expect(await f.rows()).toEqual(beforeRows);
+          expect((await f.work()).status).toBe("bundle_prepared");
+        } else {
+          await expect(pending).resolves.toMatchObject({
+            ticketId: command.ticketId,
+            messageId: command.messageId,
+          });
+          expect((await f.work()).status).toBe("delivered");
+        }
+        expect(guard).toHaveBeenCalledOnce();
+        expect(f.generate).toHaveBeenCalledOnce();
+      },
+    );
+
+    it.each(["denied", "unavailable"] as const)(
+      "preserves the existing safe category for a %s late host observation",
+      async (failure) => {
+        const f = await engineeringFollowupAiFixture(createStore());
+        await f.prepareBundle();
+        const command = await f.postCommand("late-host-category-" + failure);
+        const beforeRows = await f.rows();
+        const verifyBeforeCommit = vi.fn(() => {
+          if (failure === "denied")
+            throw new SupportDeskAuthorizationError(
+              supportPermissions.engineeringFollowupReview,
+            );
+          throw new Error("Synthetic host observation failed");
+        });
+        await expect(
+          f.followup.approveAndPostWebUpdate(
+            engineeringFollowupStaff,
+            command,
+            {
+              verifyBeforeCommit,
+            },
+          ),
+        ).rejects.toMatchObject({
+          category:
+            failure === "denied"
+              ? "authorization_unavailable"
+              : "verification_unavailable",
+        });
+        expect(verifyBeforeCommit).toHaveBeenCalledOnce();
+        expect(await f.rows()).toEqual(beforeRows);
+        expect((await f.work()).status).toBe("bundle_prepared");
+        expect(f.generate).toHaveBeenCalledOnce();
+      },
+    );
+
+    it("preserves run cancellation while a late host observation is pending", async () => {
+      const f = await engineeringFollowupAiFixture(createStore());
+      await f.prepareBundle();
+      const command = await f.postCommand("late-host-run-cancelled");
+      const beforeRows = await f.rows();
+      const controller = new AbortController();
+      const barrier = engineeringFollowupBarrier();
+      const verifyBeforeCommit = vi.fn(() => barrier.wait());
+      const pending = f.followup.approveAndPostWebUpdate(
+        engineeringFollowupStaff,
+        command,
+        { signal: controller.signal, verifyBeforeCommit },
+      );
+      try {
+        await waitForFollowupHook(barrier, pending);
+        controller.abort();
+        await expect(pending).rejects.toMatchObject({ category: "cancelled" });
+      } finally {
+        barrier.release();
+      }
+      await verifyBeforeCommit.mock.results[0]!.value;
+      expect(verifyBeforeCommit).toHaveBeenCalledOnce();
+      expect(await f.rows()).toEqual(beforeRows);
+      expect((await f.work()).status).toBe("bundle_prepared");
+      expect(f.generate).toHaveBeenCalledOnce();
+    });
+
+    it("detaches the caller listener during abort dispatch before the late host callback unwinds", async () => {
+      const f = await engineeringFollowupAiFixture(createStore());
+      await f.prepareBundle();
+      const command = await f.postCommand("late-host-listener-cleanup");
+      const beforeRows = await f.rows();
+      const barrier = engineeringFollowupBarrier();
+      const controller = new AbortController();
+      const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+      const verifyBeforeCommit = vi.fn(() => barrier.wait());
+      const pending = f.app.approveAndPostEngineeringFollowupWebUpdate(
+        engineeringFollowupStaff,
+        command,
+        () => {},
+        { signal: controller.signal, verifyBeforeCommit },
+      );
+      let removedDuringDispatch = false;
+      try {
+        await waitForFollowupHook(barrier, pending);
+        controller.signal.addEventListener(
+          "abort",
+          () => {
+            removedDuringDispatch = removeListener.mock.calls.some(
+              ([event]) => event === "abort",
+            );
+          },
+          { once: true },
+        );
+        controller.abort();
+        expect(removedDuringDispatch).toBe(true);
+        await expect(pending).rejects.toThrow("cancelled");
+      } finally {
+        barrier.release();
+        removeListener.mockRestore();
+      }
+      await verifyBeforeCommit.mock.results[0]!.value;
+      expect(await f.rows()).toEqual(beforeRows);
+      expect((await f.work()).status).toBe("bundle_prepared");
+    });
 
     it("checks live staff authority after the final awaited store read", async () => {
       const f = await engineeringFollowupAiFixture(createStore());

@@ -23,7 +23,7 @@ const standard = {
     (permission) => permission !== supportPermissions.assistantStart,
   ),
 };
-const verified = () => (): true => true;
+const createAuthorityAssertion = () => (): true => true;
 type Fixture = ReturnType<typeof handlingFixture>;
 
 function packet(f: Fixture, ticketId = "ticket") {
@@ -78,7 +78,7 @@ for (const [backend, createStore] of handlingStores) {
       });
       const input = { ...packet(f), category: "product" };
       const resolveAssistantStart = vi.fn(() => customer);
-      const verifyBeforeCommit = vi.fn(verified);
+      const verifyBeforeCommit = vi.fn(createAuthorityAssertion);
       f.observed.intercept(async (trace, commit) => {
         const result = await commit();
         if (result.committed && containsFirstMessage(trace))
@@ -163,7 +163,7 @@ for (const [backend, createStore] of handlingStores) {
       const accepted = await f.app.createAdmittedCustomerTicket(
         standard,
         inspected,
-        { verifyBeforeCommit: verified },
+        { verifyBeforeCommit: createAuthorityAssertion },
       );
 
       expect(fields).toEqual(Reflect.ownKeys(input));
@@ -182,7 +182,7 @@ for (const [backend, createStore] of handlingStores) {
       await expect(
         f.app.createAdmittedCustomerTicket(standard, input),
       ).rejects.toThrow("Fresh create admission");
-      const verifyBeforeCommit = vi.fn(verified);
+      const verifyBeforeCommit = vi.fn(createAuthorityAssertion);
       await expect(
         f.app.createAdmittedCustomerTicket(standard, input, {
           resolveAssistantStart: () => standard,
@@ -227,10 +227,9 @@ for (const [backend, createStore] of handlingStores) {
       const resolveAssistantStart = vi.fn(() =>
         reason === "unqualified" ? null : customer,
       );
-      const verifyBeforeCommit =
-        vi.fn<CreateAdmittedCustomerTicketOptions["verifyBeforeCommit"]>(
-          verified,
-        );
+      const verifyBeforeCommit = vi.fn<
+        CreateAdmittedCustomerTicketOptions["verifyBeforeCommit"]
+      >(createAuthorityAssertion);
       const result = await f.app.createAdmittedCustomerTicket(
         standard,
         command,
@@ -267,11 +266,11 @@ for (const [backend, createStore] of handlingStores) {
       });
       const input = packet(f);
       await f.app.createAdmittedCustomerTicket(standard, input, {
-        verifyBeforeCommit: verified,
+        verifyBeforeCommit: createAuthorityAssertion,
       });
       const priorNumber = await number(f);
       const rows = await f.rows();
-      const verifyBeforeCommit = vi.fn(verified);
+      const verifyBeforeCommit = vi.fn(createAuthorityAssertion);
       for (const different of [
         { ...input, body: "different" },
         { ...input, messageId: "different" },
@@ -340,7 +339,7 @@ for (const [backend, createStore] of handlingStores) {
         ticketId: input.ticketId,
       });
       const result = await f.app.createAdmittedCustomerTicket(standard, input, {
-        verifyBeforeCommit: verified,
+        verifyBeforeCommit: createAuthorityAssertion,
       });
       expect(result.initialMode).toBe("human");
       expect(result.view.messages).toHaveLength(1);
@@ -365,7 +364,7 @@ for (const [backend, createStore] of handlingStores) {
       const next = packet(f, "next");
       await expect(
         f.app.createAdmittedCustomerTicket(standard, next, {
-          verifyBeforeCommit: verified,
+          verifyBeforeCommit: createAuthorityAssertion,
         }),
       ).rejects.toMatchObject({ field: "customer_tickets" });
       f.advance(60_000);
@@ -378,7 +377,7 @@ for (const [backend, createStore] of handlingStores) {
         [],
       );
       const result = await f.app.createAdmittedCustomerTicket(standard, next, {
-        verifyBeforeCommit: verified,
+        verifyBeforeCommit: createAuthorityAssertion,
       });
       expect(result.view.ticket.id).toBe(next.ticketId);
       expect((await reservation(f))?.entries).toHaveLength(1);
@@ -411,6 +410,155 @@ for (const [backend, createStore] of handlingStores) {
       expect(f.observed.transactions).toEqual([]);
     });
 
+    it.each([
+      ["assistant resolver", "cancellation"],
+      ["assistant resolver", "host deadline"],
+      ["commit verifier", "cancellation"],
+      ["commit verifier", "host deadline"],
+    ] as const)(
+      "settles a held %s on %s without a late create",
+      async (boundary, stop) => {
+        const f = handlingFixture(createStore(), {
+          assistantTurns: { maxAttempts: 2 },
+        });
+        const input = packet(f);
+        const gate = handlingBarrier();
+        const controller = new AbortController();
+        const resolveAssistantStart = vi.fn(async () => {
+          if (boundary === "assistant resolver") await gate.wait();
+          return customer;
+        });
+        const verifyBeforeCommit = vi.fn(async () => {
+          if (boundary === "commit verifier") await gate.wait();
+          return createAuthorityAssertion();
+        });
+        const pending = f.app.createAdmittedCustomerTicket(standard, input, {
+          signal: controller.signal,
+          resolveAssistantStart,
+          verifyBeforeCommit,
+        });
+        const observed = pending.then(
+          () => ({ accepted: true as const }),
+          (error: unknown) => ({ error }),
+        );
+        let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+        let watchdog: ReturnType<typeof setTimeout> | undefined;
+        let reserved: Awaited<ReturnType<typeof reservation>> = null;
+        try {
+          await waitFor(gate, pending);
+          reserved = await reservation(f);
+          if (stop === "host deadline")
+            deadlineTimer = setTimeout(() => controller.abort(), 10);
+          else controller.abort();
+          const stopped = await Promise.race([
+            observed,
+            new Promise<{ stillWaiting: true }>((resolve) => {
+              watchdog = setTimeout(
+                () => resolve({ stillWaiting: true }),
+                1_000,
+              );
+            }),
+          ]);
+          expect(stopped).toMatchObject({
+            error: {
+              name: "SupportDeskConflictError",
+              message: "Admitted create was cancelled",
+            },
+          });
+          // The callback is still held. Cancellation must settle before it can return.
+          expect(await f.rows()).toEqual([]);
+          expect(f.observed.transactions).toEqual([]);
+        } finally {
+          if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+          if (watchdog !== undefined) clearTimeout(watchdog);
+          gate.release();
+          await observed;
+        }
+        expect(await f.rows()).toEqual([]);
+        expect(f.observed.transactions).toEqual([]);
+        if (boundary === "assistant resolver") {
+          expect(await number(f)).toBeNull();
+          expect(await reservation(f)).toBeNull();
+          expect(verifyBeforeCommit).not.toHaveBeenCalled();
+        } else {
+          expect(reserved).not.toBeNull();
+          expect((await reservation(f))?.entries).toEqual(reserved?.entries);
+          expect(verifyBeforeCommit).toHaveBeenCalledOnce();
+        }
+        const retried = await f.app.createAdmittedCustomerTicket(
+          standard,
+          input,
+          {
+            verifyBeforeCommit: createAuthorityAssertion,
+          },
+        );
+        expect(retried.initialMode).toBe("human");
+        expect(retried.view.messages).toHaveLength(1);
+        if (reserved !== null)
+          expect((await reservation(f))?.entries).toEqual(
+            reserved.entries.map((entry) => ({ ...entry, state: "confirmed" })),
+          );
+      },
+    );
+
+    it("recovers an assistant winner from a human-only contender as a historical receipt", async () => {
+      const f = handlingFixture(createStore(), {
+        assistantTurns: { maxAttempts: 2 },
+      });
+      const input = packet(f);
+      const gate = handlingBarrier();
+      let paused = false;
+      f.observed.intercept(async (trace, commit) => {
+        if (!paused && containsFirstMessage(trace)) {
+          paused = true;
+          await gate.wait();
+        }
+        return commit();
+      });
+      const humanResolution = vi.fn(() => null);
+      const humanVerification = vi.fn(createAuthorityAssertion);
+      const losing = f.app.createAdmittedCustomerTicket(standard, input, {
+        resolveAssistantStart: humanResolution,
+        verifyBeforeCommit: humanVerification,
+      });
+      let winner:
+        | Awaited<ReturnType<typeof f.app.createAdmittedCustomerTicket>>
+        | undefined;
+      let acceptedRows: Awaited<ReturnType<typeof f.rows>> | undefined;
+      const assistantVerification = vi.fn(createAuthorityAssertion);
+      try {
+        await waitFor(gate, losing);
+        winner = await f.app.createAdmittedCustomerTicket(standard, input, {
+          resolveAssistantStart: () => customer,
+          verifyBeforeCommit: assistantVerification,
+        });
+        acceptedRows = await f.rows();
+      } finally {
+        gate.release();
+      }
+      expect(await losing).toEqual(winner);
+      expect(winner?.initialMode).toBe("assistant");
+      expect(standard.permissions).not.toContain(
+        supportPermissions.assistantStart,
+      );
+      expect(humanResolution).toHaveBeenCalledOnce();
+      expect(humanVerification).toHaveBeenCalledOnce();
+      expect(humanVerification).toHaveBeenCalledWith("human");
+      expect(assistantVerification).toHaveBeenCalledOnce();
+      expect(assistantVerification).toHaveBeenCalledWith("assistant");
+      expect(await f.rows()).toEqual(acceptedRows);
+      expect(
+        acceptedRows?.filter((row) => row.kind === "message"),
+      ).toHaveLength(1);
+      expect(
+        acceptedRows?.filter((row) => row.kind === "command"),
+      ).toHaveLength(1);
+      expect(
+        acceptedRows?.filter((row) => row.kind === "assistant_turn"),
+      ).toHaveLength(1);
+      expect((await reservation(f))?.entries).toHaveLength(1);
+    });
+
     it("replays the one atomic winner when exact contenders choose different modes", async () => {
       const f = handlingFixture(createStore(), {
         assistantTurns: { maxAttempts: 2 },
@@ -427,13 +575,13 @@ for (const [backend, createStore] of handlingStores) {
       });
       const first = f.app.createAdmittedCustomerTicket(standard, input, {
         resolveAssistantStart: () => customer,
-        verifyBeforeCommit: verified,
+        verifyBeforeCommit: createAuthorityAssertion,
       });
       let second;
       try {
         await waitFor(gate, first);
         second = await f.app.createAdmittedCustomerTicket(standard, input, {
-          verifyBeforeCommit: verified,
+          verifyBeforeCommit: createAuthorityAssertion,
         });
       } finally {
         gate.release();
