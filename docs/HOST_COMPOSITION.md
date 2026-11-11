@@ -20,6 +20,16 @@ representation. The [focused public-entry tests](../tests/engineering-mutation-g
 exercise these options with Memory and Azurite. Hosts adopt this source addition
 through a subsequent verified release.
 
+Options use a plain object with the two named, enumerable own data fields.
+Unknown keys, accessors and inherited options fail validation. The optional
+synchronous proof succeeds with the literal `true` value. Hosts keep async
+work in the callback that prepares that final synchronous assertion.
+
+The scope is the seven controls listed above. `pruneRepositoryPolicyHistory`
+is a separate maintenance API. Engineering follow-up ingestion, preparation,
+review and delivery retain their own application and guard contracts. Hosts
+resolve the current authority required by each separately invoked surface.
+
 The SDK captures the signal and callback once at entry. Each new transaction
 attempt runs the live host callback after its SDK proof and planning awaits.
 The callback may return a synchronous `() => true` assertion for its authority
@@ -30,7 +40,10 @@ under the method's current permission requirements. Hosts retain their current
 browser, actor and permission checks when delivering that receipt.
 
 Caller cancellation reaches the evidence product/test signals and bounds the
-asynchronous host-guard wait. Existing policy observation ports keep their
+asynchronous host-guard wait. Hosts own bounded failure reporting inside their
+authority callback, including work that finishes after the caller wait has
+aborted. The SDK observes the callback's eventual rejection safely while the
+caller retains its cancellation outcome. Existing policy observation ports keep their
 SDK trust timeout and the final cancellation fence. A host callback uses its
 own deadline-backed signal for bounded external authority reads. Cancellation
 before transaction entry excludes a new commit. Once the Store accepts the

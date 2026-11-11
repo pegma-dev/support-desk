@@ -126,7 +126,9 @@ async function bounded<T>(operation: Promise<T>): Promise<T> {
         timer = setTimeout(
           () =>
             reject(
-              new Error("Caller cancellation did not settle the SDK operation"),
+              new Error(
+                "Bounded SDK test operation did not settle within its deadline",
+              ),
             ),
           1_000,
         );
@@ -511,7 +513,6 @@ for (const [backend, createStore] of engineeringStores) {
           },
         });
         const controller = new AbortController();
-        let signal = controller.signal;
         const denied = new SupportDeskAuthorizationError(
           supportPermissions.queueRead,
         );
@@ -519,19 +520,10 @@ for (const [backend, createStore] of engineeringStores) {
           throw denied;
         });
         const replacement = vi.fn(async () => {});
-        let guard: () => Promise<void> = originalGuard;
-        let signalReads = 0;
-        let guardReads = 0;
-        const options = {
-          get signal() {
-            signalReads += 1;
-            return signal;
-          },
-          get verifyBeforeCommit() {
-            guardReads += 1;
-            return guard;
-          },
-        };
+        const options: {
+          signal: AbortSignal;
+          verifyBeforeCommit: () => Promise<void>;
+        } = { signal: controller.signal, verifyBeforeCommit: originalGuard };
         const before = await command.rows();
         const transactions = f.observed.transactions.length;
         const pending = command
@@ -539,9 +531,9 @@ for (const [backend, createStore] of engineeringStores) {
           .catch((error: unknown) => error);
         await barrier.reached;
         try {
-          if (change === "guard") guard = replacement;
+          if (change === "guard") options.verifyBeforeCommit = replacement;
           else {
-            signal = new AbortController().signal;
+            options.signal = new AbortController().signal;
             controller.abort();
           }
         } finally {
@@ -549,8 +541,8 @@ for (const [backend, createStore] of engineeringStores) {
         }
         if (change === "guard") expect(await pending).toBe(denied);
         else expect(await pending).toMatchObject({ name: "AbortError" });
-        expect(signalReads).toBe(1);
-        expect(guardReads).toBe(1);
+        if (change === "guard") expect(originalGuard).toHaveBeenCalledOnce();
+        else expect(originalGuard).not.toHaveBeenCalled();
         expect(replacement).not.toHaveBeenCalled();
         expect(await command.rows()).toEqual(before);
         expect(f.observed.transactions).toHaveLength(transactions);
@@ -573,6 +565,292 @@ for (const [backend, createStore] of engineeringStores) {
         }),
       ).rejects.toMatchObject({ name: "AbortError" });
       expect(proof).toHaveBeenCalledOnce();
+      expect(await command.rows()).toEqual(before);
+      expect(f.observed.transactions).toHaveLength(transactions);
+    });
+    it.each(["product", "test"] as const)(
+      "refuses an SDK %s attestation expired by a successful returned host proof",
+      async (kind) => {
+        const f = engineeringFixture(createStore());
+        await f.create(false);
+        const ticket = (await f.app.readStaffTicket(staff, "ticket")).ticket;
+        const report = await f.reportInput();
+        const {
+          kind: _kind,
+          verificationReference: _reference,
+          ...mismatch
+        } = report;
+        const command = {
+          ...f.command("sdk-expiry-in-sync-proof"),
+          expectedRevision: ticket.revision,
+          security: "ordinary" as const,
+          evidence:
+            kind === "product"
+              ? report
+              : {
+                  ...mismatch,
+                  kind: "failed_test" as const,
+                  receipt: "qualified-expiring-test",
+                },
+        };
+        const product = f.engineeringOptions.productContext!;
+        const tests = f.engineeringOptions.testReceipts!;
+        let attestationUntil = "";
+        const app = f.freshApplication({
+          engineering:
+            kind === "product"
+              ? {
+                  productContext: {
+                    async resolve(...args) {
+                      const value = await product.resolve(...args);
+                      if (value === null)
+                        throw new Error("Actual product fixture missing");
+                      attestationUntil = value.validUntil;
+                      return value;
+                    },
+                  },
+                }
+              : {
+                  testReceipts: {
+                    async verify(...args) {
+                      const [receipt, context] = args;
+                      const proof = f.trust.issueTest(receipt, context, {
+                        validUntil: new Date(
+                          Date.parse(f.clock.now()) + 30_000,
+                        ).toISOString(),
+                      });
+                      attestationUntil = proof.validUntil;
+                      return tests.verify(...args);
+                    },
+                  },
+                },
+        });
+        const before = await f.rows();
+        const transactions = f.observed.transactions.length;
+        const proof = vi.fn((): true => {
+          expect(Date.parse(attestationUntil)).toBeGreaterThan(
+            Date.parse(f.clock.now()),
+          );
+          f.advance(
+            Date.parse(attestationUntil) - Date.parse(f.clock.now()) + 1,
+          );
+          return true;
+        });
+        await expect(
+          app.submitEngineeringEvidence(staff, command, {
+            verifyBeforeCommit: async () => proof,
+          }),
+        ).rejects.toThrow("Engineering evidence expired before commit");
+        expect(proof).toHaveBeenCalledOnce();
+        expect(await f.rows()).toEqual(before);
+        expect(f.observed.transactions).toHaveLength(transactions);
+      },
+    );
+    it.each(operations)(
+      "commits one %s mutation under a successful literal-true proof",
+      async (operation) => {
+        const f = engineeringFixture(createStore());
+        const command = await mutation(f, operation);
+        const before = await command.rows();
+        const transactions = f.observed.transactions.length;
+        const proof = vi.fn((): true => true);
+        const guard = vi.fn(async () => proof);
+        const accepted = await command.invoke({ verifyBeforeCommit: guard });
+        const after = await command.rows();
+        expect(after).not.toEqual(before);
+        expect(proof).toHaveBeenCalledOnce();
+        expect(guard).toHaveBeenCalledOnce();
+        expect(f.observed.transactions).toHaveLength(transactions + 1);
+        expect(
+          await command.invoke({
+            verifyBeforeCommit: async () => {
+              throw new Error("Exact accepted receipt already exists");
+            },
+          }),
+        ).toEqual(accepted);
+        expect(await command.rows()).toEqual(after);
+        expect(f.observed.transactions).toHaveLength(transactions + 1);
+      },
+    );
+
+    it.each(operations)(
+      "commits one %s mutation with a live signal and no callback",
+      async (operation) => {
+        const f = engineeringFixture(createStore());
+        const command = await mutation(f, operation);
+        const before = await command.rows();
+        const transactions = f.observed.transactions.length;
+        const controller = new AbortController();
+        const accepted = await command.invoke({ signal: controller.signal });
+        const after = await command.rows();
+        expect(after).not.toEqual(before);
+        expect(f.observed.transactions).toHaveLength(transactions + 1);
+        expect(await command.invoke({ signal: controller.signal })).toEqual(
+          accepted,
+        );
+        expect(await command.rows()).toEqual(after);
+        expect(f.observed.transactions).toHaveLength(transactions + 1);
+      },
+    );
+
+    it.each([
+      "false",
+      "noncallable",
+      "undefined",
+      "async",
+      "rejecting_async",
+    ] as const)(
+      "refuses a JavaScript %s returned proof without a transaction",
+      async (kind) => {
+        const f = engineeringFixture(createStore());
+        const command = await mutation(f, "enroll");
+        const before = await command.rows();
+        const transactions = f.observed.transactions.length;
+        const hostFailure = new Error(
+          "Synthetic invalid asynchronous proof failure",
+        );
+        const unhandled: unknown[] = [];
+        const listener = (error: unknown) => {
+          unhandled.push(error);
+        };
+        process.on("unhandledRejection", listener);
+        const guard =
+          kind === "false"
+            ? () => () => false
+            : kind === "noncallable"
+              ? () => ({ current: true })
+              : kind === "undefined"
+                ? () => () => undefined
+                : kind === "async"
+                  ? () => async () => true
+                  : () => async () => {
+                      throw hostFailure;
+                    };
+        try {
+          await expect(
+            Reflect.apply(command.invoke, undefined, [
+              { verifyBeforeCommit: guard },
+            ]),
+          ).rejects.toBeInstanceOf(SupportDeskConflictError);
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          expect(unhandled).toEqual([]);
+        } finally {
+          process.removeListener("unhandledRejection", listener);
+        }
+        expect(await command.rows()).toEqual(before);
+        expect(f.observed.transactions).toHaveLength(transactions);
+      },
+    );
+
+    it.each([
+      "null",
+      "primitive",
+      "array",
+      "guard",
+      "null_signal",
+      "signal_shape",
+      "unknown",
+      "accessor",
+      "prototype",
+      "symbol",
+      "hidden",
+    ] as const)(
+      "rejects %s JavaScript options before any new mutation",
+      async (kind) => {
+        const f = engineeringFixture(createStore());
+        const command = await mutation(f, "enroll");
+        const before = await command.rows();
+        const transactions = f.observed.transactions.length;
+        let reads = 0;
+        const options: unknown =
+          kind === "null"
+            ? null
+            : kind === "primitive"
+              ? 1
+              : kind === "array"
+                ? []
+                : kind === "guard"
+                  ? { verifyBeforeCommit: true }
+                  : kind === "null_signal"
+                    ? { signal: null }
+                    : kind === "signal_shape"
+                      ? { signal: { aborted: false } }
+                      : kind === "unknown"
+                        ? { ...{ verifyBeforeComit: () => {} } }
+                        : kind === "accessor"
+                          ? Object.defineProperty({}, "verifyBeforeCommit", {
+                              enumerable: true,
+                              get() {
+                                reads += 1;
+                                return () => {};
+                              },
+                            })
+                          : kind === "prototype"
+                            ? Object.create({ verifyBeforeCommit: () => {} })
+                            : kind === "symbol"
+                              ? { [Symbol("unknown-option")]: true }
+                              : Object.defineProperty(
+                                  {},
+                                  "verifyBeforeCommit",
+                                  { enumerable: false, value: () => {} },
+                                );
+        await expect(
+          Reflect.apply(command.invoke, undefined, [options]),
+        ).rejects.toBeInstanceOf(TypeError);
+        expect(reads).toBe(0);
+        expect(await command.rows()).toEqual(before);
+        expect(f.observed.transactions).toHaveLength(transactions);
+      },
+    );
+
+    it("lets the host observe its late guard failure after the SDK caller has aborted", async () => {
+      const f = engineeringFixture(createStore());
+      const command = await mutation(f, "enroll");
+      const before = await command.rows();
+      const transactions = f.observed.transactions.length;
+      const barrier = engineeringBarrier();
+      const controller = new AbortController();
+      const failure = new Error("Synthetic late host authority outage");
+      const reported: unknown[] = [];
+      const unhandled: unknown[] = [];
+      const listener = (error: unknown) => {
+        unhandled.push(error);
+      };
+      process.on("unhandledRejection", listener);
+      let finish = () => {};
+      const finished = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const pending = command
+        .invoke({
+          signal: controller.signal,
+          verifyBeforeCommit: async () => {
+            try {
+              await barrier.wait();
+              throw failure;
+            } catch (error) {
+              reported.push(error);
+              throw error;
+            } finally {
+              finish();
+            }
+          },
+        })
+        .catch((error: unknown) => error);
+      await barrier.reached;
+      try {
+        controller.abort();
+        expect(await bounded(pending)).toMatchObject({ name: "AbortError" });
+        expect(reported).toEqual([]);
+        barrier.release();
+        await bounded(finished);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(reported).toEqual([failure]);
+        expect(unhandled).toEqual([]);
+      } finally {
+        barrier.release();
+        process.removeListener("unhandledRejection", listener);
+      }
       expect(await command.rows()).toEqual(before);
       expect(f.observed.transactions).toHaveLength(transactions);
     });

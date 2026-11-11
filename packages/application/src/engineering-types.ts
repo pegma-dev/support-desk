@@ -515,7 +515,7 @@ export type EngineeringCommitGuard = () => void | Promise<void>;
 export type EngineeringReviewCommitGuard = () =>
   void | (() => true) | Promise<void | (() => true)>;
 
-/** Optional live host fence for a new human mutation and its proof work. */
+/** Optional live host fence for the seven documented engineering controls. */
 export interface EngineeringMutationOptions {
   readonly signal?: AbortSignal;
   readonly verifyBeforeCommit?: EngineeringReviewCommitGuard;

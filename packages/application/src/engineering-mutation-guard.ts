@@ -1,3 +1,4 @@
+import { fields } from "./assistant-turn-records.js";
 import { SupportDeskConflictError } from "./index.js";
 import type { EngineeringMutationOptions } from "./engineering-types.js";
 
@@ -6,8 +7,12 @@ export function engineeringMutationBoundary(
   options?: EngineeringMutationOptions,
 ) {
   if (options === undefined) return undefined;
-  if (options === null || typeof options !== "object")
-    throw new TypeError("Engineering mutation options must be an object");
+  fields(
+    options,
+    "Engineering mutation options",
+    [],
+    ["signal", "verifyBeforeCommit"],
+  );
   const signal = options.signal;
   const guard = options.verifyBeforeCommit;
   if (guard !== undefined && typeof guard !== "function")
@@ -50,19 +55,26 @@ export function engineeringMutationBoundary(
                 }),
               ]);
       } finally {
-        if (onAbort !== undefined)
-          signal!.removeEventListener("abort", onAbort);
+        if (signal !== undefined && onAbort !== undefined)
+          signal.removeEventListener("abort", onAbort);
       }
       ensure();
       return () => {
         ensure();
-        if (
-          proof !== undefined &&
-          (typeof proof !== "function" || proof() !== true)
-        )
-          throw new SupportDeskConflictError(
-            "Engineering mutation proof is not current",
-          );
+        if (proof !== undefined) {
+          if (typeof proof !== "function")
+            throw new SupportDeskConflictError(
+              "Engineering mutation proof is not current",
+            );
+          const current: unknown = proof();
+          if (current !== true) {
+            // Observe a malformed async return while refusing it synchronously.
+            void Promise.resolve(current).catch(() => {});
+            throw new SupportDeskConflictError(
+              "Engineering mutation proof is not current",
+            );
+          }
+        }
         ensure();
       };
     },

@@ -1142,6 +1142,7 @@ export function createEngineeringEvidenceServices(
         );
         const assertHostCurrent =
           mutation === undefined ? undefined : await mutation.verify();
+        assertHostCurrent?.();
         permission(access, name, actorId);
         if (clearing)
           permission(
@@ -1162,7 +1163,7 @@ export function createEngineeringEvidenceServices(
           throw new SupportDeskConflictError(
             "Engineering evidence expired before commit",
           );
-        assertHostCurrent?.();
+        mutation?.ensure();
         if ((await records.transact(command.ticketId, actions)).committed) {
           permission(access, name, actorId);
           if (clearing)
