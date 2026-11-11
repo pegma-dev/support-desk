@@ -57,6 +57,14 @@ npm signature and Sigstore source provenance, a clean scripts-disabled install
 and every public entry-point import. The [verification job](https://github.com/pegma-dev/support-desk/actions/runs/43026134485/job/130559887455)
 records the workflow postflight.
 
+For staged reviews, admission (P0) records a pending human command after the
+current-human guard, local source/work fences and intent-expiry checks.
+Complete live KB draft and resolved-policy proofs run independently in P1
+and P2. An admission acknowledgement establishes pending ownership; it does
+not establish that those later proofs passed or that a review was approved.
+The retained public summary is historical evidence; this paragraph clarifies
+its reference to checks across phases.
+
 The permanent [original ZIP](https://github.com/pegma-dev/support-desk/releases/download/v0.2.5/support-desk-v0.2.5-original-artifact-13858170129.zip)
 is artifact `13858170129`, SHA-256
 `80d9020d5526de21649d4185d9b078b94c3c5e390e274429c000fce8f3b8c1d0`.
@@ -450,7 +458,7 @@ staging and supervised-pilot acceptance remain separate work.
 | Path                            | Authority and artifact                                                                                                                                                                                                          |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | AI name registration            | Manual maintainer 2FA publication of only the prepared AI `0.1.1` tarball from signed `v0.1.1-ai-bootstrap` at frozen SD-05 commit `eddd3526f8bec3a1a80cc7aacd3a4cdcdb950cfe`. No GitHub release or bootstrap OIDC publish job. |
-| Advertised synchronized `0.2.4` | All five exact artifacts from reviewed main, protected signed annotated `v0.2.4`, and the environment-protected GitHub OIDC workflow, followed by strict registry verification.                                                 |
+| Advertised synchronized `0.2.5` | All five exact artifacts from reviewed main, protected signed annotated `v0.2.5`, and the environment-protected GitHub OIDC workflow, followed by strict registry verification.                                                 |
 
 The bootstrap's other four local tarballs are import-test context only. They
 are never eligible for manual publication. The existing four names do not

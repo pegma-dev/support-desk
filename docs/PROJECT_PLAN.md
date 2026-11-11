@@ -464,7 +464,7 @@ SD-02's publication prerequisite at that checkpoint.
 The current standalone authoring recipe selects all four strictly verified KB
 `0.1.5` packages and Agent Access `0.1.1` from the
 [producer handoff](HOST_COMPOSITION.md#kb-authoring-producers). Released
-Support Desk AI `0.2.4` pins exact KB application/contracts `0.1.5`. Older
+Support Desk AI `0.2.5` pins exact KB application/contracts `0.1.5`. Older
 `0.2.1`/KB `0.1.2` manifests remain immutable. Host adoption requires its own
 reviewed exact registry set.
 Actual two-host existing-login/current-Admin consent and Codex, Claude Code,
