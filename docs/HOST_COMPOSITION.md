@@ -618,4 +618,7 @@ authorize access from the projection alone.
 
 ## Task 14 host attachment composition
 
+This section describes unpublished `0.2.5` source-candidate APIs. Their verified
+release is required before host adoption.
+
 Configure the optional `attachments` blob port and limits on the application. Wire a trusted scanner to `recordAttachmentScanResult`, verified session access to `downloadAttachment`, staff redaction to `deleteAttachment`, and an authorized cursor worker to `sweepExpiredAttachments`. Use private isolated storage and apply every returned download header. Orphan cleanup requires a host-wide stopped/drained writer fence and bounded host inventory candidates; it is never an age-only online sweep. See [ATTACHMENTS.md](./ATTACHMENTS.md) for all five activation milestones, defaults and failure recovery. Inbound MIME normalization continues discarding all attachments with bounded parsing.

@@ -66,8 +66,27 @@ SHA-256 is `c2819c11c078fb8cfb16bf82d7e42c98a0dd8b9adc7c79c259cc46720d891172`.
 The existing public [preparation metadata](https://github.com/pegma-dev/support-desk/releases/download/v0.2.4/prepared-artifact.json),
 [verification job](https://github.com/pegma-dev/support-desk/releases/download/v0.2.4/verification-job.json)
 and [qualified summary](https://github.com/pegma-dev/support-desk/releases/download/v0.2.4/qualified-release-notes.md)
-complete the retained handoff. SDK qualification is specific to these artifacts;
-host deployment, provider/privacy, requested-client and pilot gates remain separate.
+complete the retained handoff. The public asset IDs and SHA-256 values recorded
+at that handoff are:
+
+| Public release asset                                                                                                                                                              | Asset ID    | SHA-256                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------ |
+| [support-desk-v0.2.4-original-artifact-13837046027.zip](https://github.com/pegma-dev/support-desk/releases/download/v0.2.4/support-desk-v0.2.4-original-artifact-13837046027.zip) | `734714152` | `1741f98211e308a6785a08963af22b73ad83bee124dda9cd955b4df6f4d2794c` |
+| [package-manifest.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.4/package-manifest.json)                                                                 | `734714129` | `c2819c11c078fb8cfb16bf82d7e42c98a0dd8b9adc7c79c259cc46720d891172` |
+| [prepared-artifact.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.4/prepared-artifact.json)                                                               | `734714128` | `101f19d845905db8486cc4d22fa08442784d12aea56b89e8bab00b074cf0ac3d` |
+| [verification-job.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.4/verification-job.json)                                                                 | `734714126` | `a5f923c6612a98bc328108054170d9cb3dc59c8737c0677c7a507853ddd1934c` |
+| [registry-verification.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.4/registry-verification.json)                                                       | `734714127` | `e9f3ee884ac9e11fd41f61f5a93b17f4d73692344a72dffca078b788e9866147` |
+| [qualified-release-notes.md](https://github.com/pegma-dev/support-desk/releases/download/v0.2.4/qualified-release-notes.md)                                                       | `734714124` | `a11dadc757bb383ff3198b20daf80151ffcebc8fedbc9794ec250c8997ab02ed` |
+
+This `0.2.4` handoff references permanent public assets. The 16 checked-in
+historical snapshots cover `0.2.0` through `0.2.3`; the existing
+`release:check` checksum table pins the five `0.2.2` and five `0.2.3` copies.
+
+Observed npm `latest` tags were `0.2.4` for all five packages at
+`2026-11-11T08:13:46Z`, with AI's `bootstrap: 0.1.1` retained. Dist-tags are
+mutable observations tied to this receipt. SDK qualification is specific to
+these artifacts; host deployment, provider/privacy, requested-client and pilot
+gates remain separate.
 
 ## Verified 0.2.3 publication: 2026-11-10
 

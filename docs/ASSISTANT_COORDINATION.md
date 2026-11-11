@@ -62,7 +62,9 @@ created on the web retains `Ticket.channel: "web"` after an email reply, but
 that email reply must follow the existing human handoff with reason
 `email_reply`.
 
-### Admitted intake (next candidate)
+<a id="admitted-intake-next-candidate"></a>
+
+### Admitted intake (published 0.2.4)
 
 Hosts can opt into
 [`createAdmittedCustomerTicket`](../packages/application/README.md#admitted-customer-intake-next-candidate)
@@ -363,8 +365,8 @@ respect the tighter phase deadline. Each subsequent change requires its own
 current-head gates.
 Current-head Node 22/24 format/check/test gates and actual code/security review
 remain required for changes; historical SD-01 or producer results do not
-certify changed source. The completed `0.2.3` release gates are recorded in the
-[publication receipt](RELEASING.md#verified-023-publication-2026-11-10).
+certify changed source. The completed `0.2.4` release gates are recorded in the
+[publication receipt](RELEASING.md#verified-024-publication-2026-11-11).
 
 Both hosts still need their own existing-login/current-Admin consent and
 actual Codex, Claude Code, Grok Bot installed desktop/hosted-agent, and T3 Code

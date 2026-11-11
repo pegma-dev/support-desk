@@ -299,7 +299,7 @@ source provenance still matches the delivery. The returned intent names that
 exact newer revision and content hash. An old unaccepted intent becomes stale
 after another edit, while an accepted exact receipt remains recoverable.
 
-The candidate compares the complete current KB draft again after the
+The `0.2.4` release compares the complete current KB draft again after the
 late policy and authority observations. Both `prepareReviewIntent` and each
 new review proof require canonical equality with the draft already inspected.
 A changed revision, generation, publication state or other draft field stops

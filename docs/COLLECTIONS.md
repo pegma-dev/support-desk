@@ -254,7 +254,7 @@ ID. One partition contains:
   nonqualifying reply route may reserve this key with a bounded reroute fence;
 - `delivery:<notification-id>`: durable outbound jobs.
 
-The next candidate adds command type `create_admitted_customer_ticket` with
+Published `0.2.4` adds command type `create_admitted_customer_ticket` with
 optional receipt field `initialMode` set to `human` or `assistant`. It commits
 the selected initial mode with the existing create records. Its versioned
 fingerprint binds the original actor, semantic command/ticket/message IDs,
