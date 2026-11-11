@@ -1196,7 +1196,19 @@ export function createEngineeringEvidenceServices(
       permission(access, supportPermissions.engineeringRead, actorId);
       text(ticketId, "ticketId");
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
-        const source = await readEngineeringSourceVersion(records, ticketId);
+        // These exact-key observations are independent. Settle every read, but
+        // retain Source-first failure/privacy checks before using the Ticket.
+        // Defer invocation too, so synchronous port throws become observed results.
+        const [sourceRead, ticketRead] = await Promise.allSettled([
+          Promise.resolve().then(() =>
+            readEngineeringSourceVersion(records, ticketId),
+          ),
+          Promise.resolve().then(() =>
+            records.get({ partition: ticketId, id: "ticket" }),
+          ),
+        ] as const);
+        if (sourceRead.status === "rejected") throw sourceRead.reason;
+        const source = sourceRead.value;
         permission(access, supportPermissions.engineeringRead, actorId);
         if (source === null) throw new SupportDeskNotFoundError();
         privateRead(access, source.value.security, actorId);
@@ -1207,10 +1219,8 @@ export function createEngineeringEvidenceServices(
             actorId,
           );
         if (source.value.state !== "withdrawn") {
-          const ticket = await records.get({
-            partition: ticketId,
-            id: "ticket",
-          });
+          if (ticketRead.status === "rejected") throw ticketRead.reason;
+          const ticket = ticketRead.value;
           permission(access, supportPermissions.engineeringRead, actorId);
           if (ticket?.kind !== "ticket") throw new SupportDeskNotFoundError();
         }
@@ -1238,10 +1248,23 @@ export function createEngineeringEvidenceServices(
       text(input.ticketId, "ticketId");
       integer(input.sourceGeneration, "sourceGeneration", 1);
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
-        const source = await readEngineeringSourceVersion(
-          records,
-          input.ticketId,
-        );
+        // Group only this phase's independent exact keys. This is not a
+        // partition snapshot; the later Source/Work versions still confirm it.
+        const [sourceRead, workRead, ticketRead] = await Promise.allSettled([
+          Promise.resolve().then(() =>
+            readEngineeringSourceVersion(records, input.ticketId),
+          ),
+          Promise.resolve().then(() =>
+            records.getVersioned(
+              engineeringWorkKey(input.ticketId, input.sourceGeneration),
+            ),
+          ),
+          Promise.resolve().then(() =>
+            records.get({ partition: input.ticketId, id: "ticket" }),
+          ),
+        ] as const);
+        if (sourceRead.status === "rejected") throw sourceRead.reason;
+        const source = sourceRead.value;
         permission(access, supportPermissions.engineeringRead, actorId);
         if (source === null) throw new SupportDeskNotFoundError();
         privateRead(access, source.value.security, actorId);
@@ -1251,9 +1274,8 @@ export function createEngineeringEvidenceServices(
             supportPermissions.engineeringRestrictedRead,
             actorId,
           );
-        const work = await records.getVersioned(
-          engineeringWorkKey(input.ticketId, input.sourceGeneration),
-        );
+        if (workRead.status === "rejected") throw workRead.reason;
+        const work = workRead.value;
         permission(access, supportPermissions.engineeringRead, actorId);
         if (work?.value.kind !== "engineering_work")
           throw new SupportDeskNotFoundError();
@@ -1271,21 +1293,26 @@ export function createEngineeringEvidenceServices(
             actorId,
           );
         if (source.value.state !== "withdrawn") {
-          const ticket = await records.get({
-            partition: input.ticketId,
-            id: "ticket",
-          });
+          if (ticketRead.status === "rejected") throw ticketRead.reason;
+          const ticket = ticketRead.value;
           permission(access, supportPermissions.engineeringRead, actorId);
           if (ticket?.kind !== "ticket") throw new SupportDeskNotFoundError();
         }
-        const latest = await readEngineeringSourceVersion(
-          records,
-          input.ticketId,
-        );
+        const [latestRead, latestWorkRead] = await Promise.allSettled([
+          Promise.resolve().then(() =>
+            readEngineeringSourceVersion(records, input.ticketId),
+          ),
+          Promise.resolve().then(() =>
+            records.getVersioned(
+              engineeringWorkKey(input.ticketId, input.sourceGeneration),
+            ),
+          ),
+        ] as const);
+        if (latestRead.status === "rejected") throw latestRead.reason;
+        const latest = latestRead.value;
         permission(access, supportPermissions.engineeringRead, actorId);
-        const latestWork = await records.getVersioned(
-          engineeringWorkKey(input.ticketId, input.sourceGeneration),
-        );
+        if (latestWorkRead.status === "rejected") throw latestWorkRead.reason;
+        const latestWork = latestWorkRead.value;
         permission(access, supportPermissions.engineeringRead, actorId);
         if (
           latest?.version !== source.version ||

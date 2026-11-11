@@ -38,18 +38,20 @@ checks run. Publication establishes no universal query or CPU budget. See
 [release notes](RELEASE_NOTES.md), [upgrading](UPGRADING.md) and
 [AI operations](AI_OPERATIONS.md).
 
-## Unpublished 0.2.6 source candidate
+## Source version 0.2.7
 
 All five local public manifests, internal Support pins and workspace aliases
-are synchronized at `0.2.6`. The source candidate adds optional final host
-guards and caller cancellation to seven engineering application controls;
-see the [candidate notes](RELEASE_NOTES.md#026-candidate--guarded-engineering-controls)
-and [upgrade guidance](UPGRADING.md#unpublished-026-guarded-engineering-controls).
+are synchronized at `0.2.7`. This version groups independent engineering
+Source/Work reads while retaining current authority, privacy, version checks
+and receipt-first recovery;
+see the [release notes](RELEASE_NOTES.md#027-engineering-read-batching)
+and [engineering read phases](ENGINEERING_EXPORT.md#entry-points-and-authority).
 The optional AI package keeps exact KB application/contracts `0.1.5`.
+Final `0.1.6` alignment waits for its verified public release and must precede
+this version's merge/release; no unpublished KB lock or artifact is accepted.
 
-This candidate has no publication receipt. Merge and validate its source before
-following the signed-tag, original-artifact preparation and trusted-publisher
-procedure below. Local checks and candidate packs do not establish registry
+Merge and validate source before following the signed-tag, original-artifact
+preparation and trusted-publisher procedure below. Local checks and development packs do not establish registry
 publication, host adoption or activation. The existing dated receipts remain
 immutable.
 

@@ -1,5 +1,28 @@
 # Release notes
 
+<a id="027-engineering-read-batching"></a>
+
+## 0.2.7 — engineering read batching
+
+All five local package versions and internal Support pins target source version
+`0.2.7`. The optional AI package and matching development
+graph still pin genuine KB application/contracts `0.1.5`. Final alignment to
+`0.1.6` is planned only after its public release is verified, before this
+version is merged or released. No unpublished KB artifact substitutes for it.
+
+Engineering Source/Work readers group independent exact-key observations and
+retain their later opaque-version confirmations, current permissions and
+Source-first privacy/error order. Synchronous and asynchronous sibling read
+failures are both observed. The AI coordinator reads current Source and Work
+concurrently after the same fresh service-authority and policy boundary.
+Receipt-first recovery, independent export proofs, expiry checks and conditional
+transactions remain unchanged. There is no new public method, permission,
+Store primitive, cache or atomic-snapshot promise.
+
+The [engineering guide](ENGINEERING_EXPORT.md#entry-points-and-authority)
+describes the read phases. This change does not establish a host's complete
+Workers query/CPU budget, provider qualification, deployment or activation.
+
 ## 0.2.6 candidate — guarded engineering controls
 
 **Unpublished source candidate.** All five local package versions and internal

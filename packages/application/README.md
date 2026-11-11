@@ -1,11 +1,8 @@
 # @pegma/support-desk-application
 
-The local package is an **unpublished synchronized `0.2.6` source candidate**.
-See the [candidate release notes](../../docs/RELEASE_NOTES.md#026-candidate--guarded-engineering-controls)
-and [engineering guard contract](../../docs/ENGINEERING_EXPORT.md#026-candidate-guarded-engineering-controls). The application adds optional
-`EngineeringMutationOptions` to seven engineering controls; existing callers
-can omit the third argument. Current authority, exact receipt recovery and
-partition transaction boundaries remain required.
+The local synchronized source version is `0.2.7`. See the
+[release notes](../../docs/RELEASE_NOTES.md#027-engineering-read-batching)
+and [engineering read phases](../../docs/ENGINEERING_EXPORT.md#entry-points-and-authority). The application groups independent Source/Work reads while preserving current authority, final version checks and exact receipt recovery.
 
 Authorized customer ticket services and provider-neutral durable outbox
 records for Support Desk. The host supplies an `@pegma/storage-core` `Store`

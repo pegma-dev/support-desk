@@ -12,6 +12,22 @@ and the [collection checkpoint](COLLECTIONS.md#sd-04-engineering-layout-checkpoi
 
 ## Entry points and authority
 
+Source version `0.2.7` groups reads within the existing application and AI
+interfaces. `readEngineeringSource` groups its initial exact Source/Ticket
+reads; `readEngineeringWork` groups its initial Source/Work/Ticket reads and,
+in a separate later wave, both opaque-version confirmations. All launched reads
+are observed, with Source-first errors and privacy checks retained before a
+sibling result is used. Withdrawn sources still do not require a live Ticket.
+
+After the same fresh service-authority and policy boundary, the AI coordinator
+reads current Source and Work concurrently. Each application reader retains
+its own authorization and final version checks. No observation crosses an
+external proof boundary, and accepted receipts still precede new proof reads.
+This adds no permission, cache, Store primitive or atomic-snapshot guarantee.
+Hosts must measure the complete invocation, including their own authentication,
+proofs, limiter and closing checks; grouped reads do not establish a universal
+Workers query or CPU budget.
+
 `createSupportDeskApplication` exposes the fixed operations in
 [EngineeringApplication and EngineeringPolicyApplication](../packages/application/src/engineering-types.ts).
 The optional `createSupportDeskEngineering` coordinator follows the

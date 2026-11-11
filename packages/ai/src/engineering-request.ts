@@ -220,15 +220,11 @@ export async function engineeringCurrentFacts(
     deadline,
   );
   const policy = await engineeringPolicy(options, current, runtime, deadline);
-  const source = await readEngineeringSource(
-    options,
-    fence,
-    current,
-    runtime,
-    deadline,
-  );
-  const work = snapshot(
-    await runtime.within(
+  // Both application readers retain their own current Source/Work fences.
+  // Observe both outcomes and preserve Source-first error/privacy precedence.
+  const [sourceRead, workRead] = await Promise.allSettled([
+    readEngineeringSource(options, fence, current, runtime, deadline),
+    runtime.within(
       () =>
         options.application.readEngineeringWork(current.access, {
           ticketId: fence.ticketId,
@@ -236,7 +232,11 @@ export async function engineeringCurrentFacts(
         }),
       deadline,
     ),
-  );
+  ] as const);
+  if (sourceRead.status === "rejected") throw sourceRead.reason;
+  const source = sourceRead.value;
+  if (workRead.status === "rejected") throw workRead.reason;
+  const work = snapshot(workRead.value);
   if (
     work.ticketId !== fence.ticketId ||
     work.sourceGeneration !== fence.sourceGeneration ||

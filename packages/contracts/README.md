@@ -1,8 +1,8 @@
 # @pegma/support-desk-contracts
 
-The local package is an **unpublished synchronized `0.2.6` source candidate**.
-See the [candidate release notes](../../docs/RELEASE_NOTES.md#026-candidate--guarded-engineering-controls)
-and [engineering guard contract](../../docs/ENGINEERING_EXPORT.md#026-candidate-guarded-engineering-controls). This package has no new runtime API in the candidate.
+The local synchronized source version is `0.2.7`. See the
+[release notes](../../docs/RELEASE_NOTES.md#027-engineering-read-batching)
+and [engineering read phases](../../docs/ENGINEERING_EXPORT.md#entry-points-and-authority). This package adds no new runtime API.
 
 The current verified synchronized registry release is `0.2.5`; see the
 [publication receipt](../../docs/RELEASING.md#verified-025-publication-2026-11-11).
