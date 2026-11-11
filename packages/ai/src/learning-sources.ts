@@ -1,3 +1,4 @@
+import { learningReadWave } from "./learning-read-wave.js";
 import type { AccessContext } from "@pegma/authorization-core";
 import type {
   PrivateSourceReference,
@@ -43,6 +44,8 @@ interface CurrentAuthority {
 export function createSupportDeskLearningSourceVerifier(
   options: SupportDeskLearningSourceVerifierOptions,
 ): PrivateSourcesVerifier {
+  if (options.readScheduling !== undefined && options.readScheduling !== "sdk")
+    throw new TypeError("Unknown learning read scheduling");
   const application = options.application;
   const sourceAccess = options.serviceAccess;
   const reviewPolicy = options.reviewPolicy;
@@ -132,9 +135,11 @@ export function createSupportDeskLearningSourceVerifier(
     references: readonly PrivateSourceReference[],
     current: CurrentAuthority,
     operation: SourceOperation,
+    concurrent = false,
   ): Promise<readonly ResolutionLearningSourceRecord[]> {
-    const sources: ResolutionLearningSourceRecord[] = [];
-    for (const reference of references) {
+    const read = async (
+      reference: PrivateSourceReference,
+    ): Promise<ResolutionLearningSourceRecord> => {
       const source = await operation.within(() =>
         application.readResolutionLearningSource(
           current.access,
@@ -155,8 +160,11 @@ export function createSupportDeskLearningSourceVerifier(
         ))
       )
         throw new AssistantBoundaryError("source_ineligible");
-      sources.push(source);
-    }
+      return source;
+    };
+    if (concurrent) return learningReadWave(references, read);
+    const sources: ResolutionLearningSourceRecord[] = [];
+    for (const reference of references) sources.push(await read(reference));
     return sources;
   }
 
@@ -164,17 +172,20 @@ export function createSupportDeskLearningSourceVerifier(
     sources: readonly ResolutionLearningSourceRecord[],
     current: CurrentAuthority,
     operation: SourceOperation,
+    concurrent = false,
   ): Promise<boolean> {
-    for (const source of sources)
-      if (
-        !(await operation.within(() =>
-          application.confirmResolutionLearningSource(
-            current.access,
-            learningSourceFence(source),
-          ),
-        ))
-      )
-        return false;
+    const confirm = (source: ResolutionLearningSourceRecord) =>
+      operation.within(() =>
+        application.confirmResolutionLearningSource(
+          current.access,
+          learningSourceFence(source),
+        ),
+      );
+    if (concurrent)
+      return (await learningReadWave(sources, confirm)).every(
+        (value) => value === true,
+      );
+    for (const source of sources) if (!(await confirm(source))) return false;
     return true;
   }
 
@@ -242,14 +253,27 @@ export function createSupportDeskLearningSourceVerifier(
         if (known.length === 0)
           return operation.within(() => otherSources!.isCurrent(request));
         const initial = await authority(operation);
-        const sources = await currentSources(known, initial, operation);
+        const sources = await currentSources(
+          known,
+          initial,
+          operation,
+          options.readScheduling === "sdk",
+        );
         if (
           foreign &&
           !(await operation.within(() => otherSources!.isCurrent(request)))
         )
           return false;
         const latest = await authority(operation, initial);
-        if (!(await confirmSources(sources, latest, operation))) return false;
+        if (
+          !(await confirmSources(
+            sources,
+            latest,
+            operation,
+            options.readScheduling === "sdk",
+          ))
+        )
+          return false;
         await authority(operation, initial);
         return true;
       });

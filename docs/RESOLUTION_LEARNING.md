@@ -370,6 +370,84 @@ retention; deleting one could revive an old command. Candidate and host adoption
 still require their separate gates. See the
 [real Store recovery race suite](../tests/resolution-learning-review-recovery.test.ts).
 
+## Opt-in staged human review (source candidate)
+
+The default `createSupportDeskLearning` factory executes inline reviews. Hosts
+can select the optional staged capability by setting
+`resolutionLearning.stagedReviews: true` and constructing
+`createSupportDeskStagedLearningReviews`. Structural application ports expose
+this additive capability through an optional property. The source candidate
+requires release qualification and host integration before activation.
+
+The host first prepares and retains the complete `LearningReviewCommand`.
+`admitReviewIntent(access, command, {verifyBeforeCommit})` requires a fresh
+original-browser guard checking the same actor's current review, queue and KB
+permissions. Admission records the pending request and Audit together. A host
+returns **202 pending** after durable admission to acknowledge the recorded
+human command. Unknown admission ACKs recover that exact command.
+
+A durably admitted human command remains active across browser logout until
+explicit cancellation or completion settles it. Each worker resolves the
+original human's current account activity and host-owned roles through
+`resolveActor({principalId, signal})`. The retained actor, action, target and
+permission ceiling constrain every fresh resolution. New review proofs require
+current Support review/queue and KB draft/provenance grants. Browser credentials
+stay within the host authentication boundary. Hosts requiring original-session
+validity through the eventual commit use the inline review path.
+
+`scanPending` resolves processing authority and returns one bounded physical
+page with `candidates`, `physicalRows`, `pages: 1` and `nextCursor`. Every returned
+physical row counts before filtering. The host persists its opaque cursor and
+redispatches pending work, including recovery after admission-before-send
+crashes. Queue messages carry opaque wakeup keys. The application's retained
+metadata supplies the authoritative reviewer identity.
+`processReview({ticketId, commandId, workerId, leaseMilliseconds})` creates a
+fresh claim ID for that physical invocation.
+
+- **P1** claims the proof phase, performs the complete live proof and retains
+  compact source/work/target/policy bindings and their expiry. `prepared` ends
+  the physical invocation. A later physical delivery performs P2.
+- **P2** acquires a new commit claim and performs an independent complete proof.
+  It checks every current and published source-readability reference, the full
+  contributor aggregate, own raw source, current policy, fresh human authority
+  and late complete draft equality. The application atomically commits the
+  review, source/work fences, Audit, canonical receipt and terminal attempt
+  under the exact claim version.
+
+Each claim or phase mutation has one conditional transaction attempt. Conflicts
+and uncertain ACKs retain the original command for another physical invocation.
+The final synchronous `() => true` assertion runs after the last awaited guard
+and enforces the minimum invocation, original intent, P1 proof and claim expiry.
+
+`readReviewStatus` and `cancelReview` take the original full command. Canonical
+accepted/cancelled receipts precede live source, policy and KB checks. Current
+human review/queue authority governs recovery. Cancellation and P2 contend in
+the same partition. An accepted review retains its accepted result. Missing
+receipts, pending responses, timeouts and conflicts retain unknown ownership.
+`not_pending` supplies authoritative terminal/missing dispatch metadata.
+`not_claimed`, `pending` and `held` retain the queue pointer. `prepared` schedules
+a later invocation, and `completed` carries the terminal receipt. KB review and
+publication proceed through their separate staff-authorized workflow.
+
+For the known real SDK read-only graph, optional `readScheduling: "sdk"` enables
+bounded settled waves of at most 32 source reads. Current and published sets,
+foreign aggregate callbacks, refreshed authority, final source confirmations
+and late draft checks retain their phase ordering. Every launched result is
+consumed. Custom structural ports use serial callbacks by default. Publication
+verification also uses serial callbacks. The source-verifier option schedules
+independent contributor read/confirm chains within those phases.
+
+Pending and held attempts retain exact command ownership through expiry and
+privacy withdrawal. `maxStagedReviewAttempts` defaults to eight with a hard
+maximum of 24 retained rows, including terminal requests. At capacity, admission
+reports the bounded limit error and retains earlier ownership. Hosts own
+physical retention and durable rediscovery. See the
+[attempt layout and reserves](COLLECTIONS.md#staged-human-review-attempts-source-candidate).
+The focused [staged AI cases](../tests/resolution-learning-staged-ai.test.ts) and
+[read-wave cases](../tests/resolution-learning-read-waves.test.ts) exercise the
+real application/KB graph on Memory and Azurite. Native D1 query, CPU, whole-host,
+provider and deployment acceptance require their own observed qualification.
+
 ## Composition and worker entry points
 
 Construct the read-only source verifier over the Support application first.

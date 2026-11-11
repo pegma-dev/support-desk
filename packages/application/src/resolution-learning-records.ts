@@ -155,6 +155,8 @@ export interface ResolutionLearningWorkRecord {
   readonly lastFinish?: { readonly fingerprint: string };
 }
 export interface ResolvedResolutionLearningOptions {
+  readonly stagedReviews: boolean;
+  readonly maxStagedReviewAttempts: number;
   readonly enabled: boolean;
   readonly productContext?: ResolutionLearningOptions["productContext"];
   readonly testReceipts?: ResolutionLearningOptions["testReceipts"];
@@ -255,6 +257,8 @@ export function resolveResolutionLearningOptions(
           [],
           [
             "enabled",
+            "stagedReviews",
+            "maxStagedReviewAttempts",
             "productContext",
             "testReceipts",
             "checks",
@@ -269,6 +273,11 @@ export function resolveResolutionLearningOptions(
         );
   if (value.enabled !== undefined && typeof value.enabled !== "boolean")
     throw new TypeError("resolutionLearning.enabled must be boolean");
+  if (
+    value.stagedReviews !== undefined &&
+    typeof value.stagedReviews !== "boolean"
+  )
+    throw new TypeError("resolutionLearning.stagedReviews must be boolean");
   for (const [name, method] of [
     ["productContext", "resolve"],
     ["testReceipts", "verify"],
@@ -283,6 +292,13 @@ export function resolveResolutionLearningOptions(
   }
   return {
     enabled: value.enabled === true,
+    stagedReviews: value.enabled === true && value.stagedReviews === true,
+    maxStagedReviewAttempts: integer(
+      value.maxStagedReviewAttempts ?? 8,
+      "maxStagedReviewAttempts",
+      1,
+      24,
+    ),
     ...(value.productContext === undefined
       ? {}
       : {

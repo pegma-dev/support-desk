@@ -847,6 +847,46 @@ The KB integration must fail closed for an unbound intermediate draft
 and recheck every source at review/publication; Support's worker cannot grant
 publication by writing an empty provenance list or approving its own output.
 
+#### Staged human review attempts (source candidate)
+
+The optional `resolutionLearning.stagedReviews` application capability adds one
+`resolution_learning_review_attempt` at
+`learning-review-attempt:<commandId>` in the existing ticket partition. The
+original actor and complete canonical command fingerprint bind that fixed key.
+A changed payload at the same key produces a command conflict. The immutable
+intent contains actor, source/work generations, exact KB target and full policy
+stamp. The row retains phase (`proof` or `commit`), pending/held/terminal state,
+claim generation and lease, optional compact P1 binding/expiry and original
+expiry. Workers resolve current authorization for each physical stage.
+
+Admission atomically adds the attempt and its Audit action, reserving a further
+three rows for the eventual review, Audit and canonical terminal receipt.
+Ordinary admission accounts for `completionRows: 3` alongside human, withdrawal
+and other workflow reserves. Accepted/cancelled attempts set the reserve to
+zero. `maxStagedReviewAttempts` defaults to eight with a hard maximum of 24,
+counting all retained pending, held, accepted and cancelled attempt rows.
+Saturated admission retains prior ownership and reports the bounded limit
+error. Ticket capacity and exact-review-binding limits also apply. The complete
+attempt and largest legal later claim/proof envelope must fit the existing
+60,000-byte conservative serialized limit before admission.
+
+`stagedResolutionLearningReviews` exposes guarded admission, exact status and
+cancellation, process-authorized `readPending`/`scanPending`, human claim, P1
+`prepare` and P2 `complete`. Scan consumes one physical Store page, counts every
+row before filtering and returns the opaque continuation. Stored metadata
+selects the original reviewer. Each mutation attempts one conditional
+transaction. Final completion fences the exact attempt version with ticket,
+source, work, review, Audit and the canonical command receipt in the same
+partition. A replacement claim or cancellation fences an older worker.
+
+Expired unresolved attempts remain held and retained. Privacy withdrawal holds
+pending attempts, removes their free-text reason and claim/proof state, and
+retains opaque exact command/fingerprint ownership for recovery. A missing
+receipt retains unknown ownership. Hosts retain unresolved attempts and
+canonical receipts, rediscover eligible pending work with bounded scans, and
+settle exact cancellation/recovery before treating a command as finished. See
+the [queued human-command contract](RESOLUTION_LEARNING.md#opt-in-staged-human-review-source-candidate).
+
 #### Physical, request, attempt, and history bounds
 
 | Bound                                    | Default / hard maximum or invariant                                                                                          |
@@ -856,6 +896,7 @@ publication by writing an empty provenance list or approving its own output.
 | Retained generation work rows per ticket | Four / eight; exhausting this budget holds new learning without dropping a trigger or blocking the human command.            |
 | Retained target articles per source      | Two / four, coalescing generations only after exact unresolved requests remain safely retained in their work rows.           |
 | Exact review bindings per source         | Sixteen / 64, enforced by a constant source counter; no automatic eviction of potentially live publication approvals.        |
+| Retained staged-review attempt rows      | Eight / 24 across pending, held and terminal states; no eviction to admit a new command.                                     |
 | Model attempts per generation            | Two / four, retained inline; no per-attempt physical rows.                                                                   |
 | Claim lease                              | 60,000 / 300,000 milliseconds; actual invocation and final commit must fit the requested lease.                              |
 | Worker lifetime                          | 300,000 / 3,600,000 milliseconds for active generation; expiry holds work, and never discards ambiguous external acceptance. |
@@ -869,8 +910,10 @@ There is no separate provenance-write step, arbitrary command sequence, or
 unbounded retry history.
 Known/unknown acceptance and the original exact request survive a new worker
 claim; an absent read does not reset the sequence or authorize a new create.
-At the maximum eight generation rows and 64 review bindings, one withdrawal
-scrubs those 72 rows plus ticket/source/Audit/receipt in at most 76 actions.
+Without staged-review attempts, the maximum eight generation rows and 64 review
+bindings require at most 76 withdrawal actions including ticket/source/Audit/receipt.
+The hard limit of 24 retained staged attempts keeps their additional privacy
+scrubs within the same 100-action transaction bound.
 
 Preparation uses the actual complete record encoder and constructs the largest
 legal subsequent completion, finish/receipt, and replacement-claim states,

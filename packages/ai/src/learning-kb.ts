@@ -1,3 +1,4 @@
+import { learningReadWave } from "./learning-read-wave.js";
 import type { AccessContext } from "@pegma/authorization-core";
 import {
   KnowledgeBaseNotFoundError,
@@ -64,7 +65,7 @@ export interface LearningKBTargetSnapshot {
 
 /** Read an actual consistent draft/provenance pair; never synthesize a revision. */
 export async function readLearningKBTarget(
-  options: SupportDeskLearningOptions,
+  options: Pick<SupportDeskLearningOptions, "knowledge">,
   access: AccessContext,
   articleId: string,
   runtime: LearningRuntime,
@@ -112,7 +113,7 @@ export async function readLearningKBTarget(
 
 /** Full current and published reference sets remain readable, without filtering. */
 export async function confirmLearningKBReadability(
-  options: SupportDeskLearningOptions,
+  options: Pick<SupportDeskLearningOptions, "sources" | "readScheduling">,
   access: AccessContext,
   target: LearningKBTargetSnapshot,
   runtime: LearningRuntime,
@@ -123,7 +124,10 @@ export async function confirmLearningKBReadability(
     target.provenance.publishedSnapshot,
   ]) {
     if (source === undefined) continue;
-    for (const reference of learningReferencesSnapshot(source.references)) {
+    const references = learningReferencesSnapshot(source.references);
+    const read = async (
+      reference: (typeof references)[number],
+    ): Promise<void> => {
       const readable = await runtime.within(
         () =>
           options.sources.canRead({
@@ -135,13 +139,16 @@ export async function confirmLearningKBReadability(
       );
       if (readable !== true)
         throw new AssistantBoundaryError("source_unreadable");
-    }
+    };
+    if (options.readScheduling === "sdk")
+      await learningReadWave(references, read);
+    else for (const reference of references) await read(reference);
   }
 }
 
 /** Final guards check the complete actual aggregate, including every contributor. */
 export async function confirmLearningKBCurrent(
-  options: SupportDeskLearningOptions,
+  options: Pick<SupportDeskLearningOptions, "sources" | "readScheduling">,
   access: AccessContext,
   target: LearningKBTargetSnapshot,
   runtime: LearningRuntime,

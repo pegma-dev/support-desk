@@ -1,3 +1,4 @@
+import type { ResolutionLearningStagedReviewApplication } from "./resolution-learning-staged-types.js";
 import type { AccessContext } from "@pegma/authorization-core";
 import type { IsoTimestamp, PrincipalId } from "@pegma/spine";
 import type { TicketId } from "@pegma/support-desk-contracts";
@@ -138,6 +139,10 @@ export interface ResolutionLearningChecksPort {
   ): Promise<VerifiedResolutionLearningChecks | null>;
 }
 export interface ResolutionLearningOptions {
+  /** Opt-in durable human-review commands. Inline review remains the default. */
+  readonly stagedReviews?: boolean;
+  /** Counts all retained pending and terminal attempts; preserves bounded privacy withdrawal. */
+  readonly maxStagedReviewAttempts?: number;
   readonly enabled?: boolean;
   readonly productContext?: ResolutionProductContextPort;
   readonly testReceipts?: ResolutionTestReceiptPort;
@@ -371,6 +376,7 @@ export interface RecordResolutionLearningReconciliationCommand {
   };
 }
 export interface ResolutionLearningApplication {
+  readonly stagedResolutionLearningReviews?: ResolutionLearningStagedReviewApplication;
   enrollResolutionLearning(
     access: AccessContext,
     command: EnrollResolutionLearningCommand,

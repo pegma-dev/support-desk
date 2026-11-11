@@ -16,6 +16,10 @@ export type {
   AttachmentDownload,
   SafeAttachment,
 } from "./attachments.js";
+import {
+  assertResolutionLearningReviewAttempt,
+  type ResolutionLearningReviewAttemptRecord,
+} from "./resolution-learning-staged-records.js";
 import { auditRecordId, defineAudit, type AuditEvent } from "@pegma/audit";
 import { hasPermission, type AccessContext } from "@pegma/authorization-core";
 import { defineMail, maxMailAttempts, type MailJob } from "@pegma/mail";
@@ -139,6 +143,8 @@ import {
   planResolutionLearningTicketMutation,
 } from "./resolution-learning.js";
 export type * from "./resolution-learning-types.js";
+export type * from "./resolution-learning-staged-types.js";
+export type { ResolutionLearningReviewAttemptRecord } from "./resolution-learning-staged-records.js";
 export type {
   ResolutionLearningReviewRecord,
   ResolutionLearningSourceRecord,
@@ -463,6 +469,7 @@ export class SupportDeskLimitError extends Error {
       | "serialized_record"
       | "customer_tickets"
       | "engineering_policy_records"
+      | "staged_review_attempts"
       | "engineering_policy_repositories"
       | "ticket_messages"
       | "ticket_partition",
@@ -681,6 +688,7 @@ interface TicketReservationRecord {
 }
 
 export type SupportRecord =
+  | ResolutionLearningReviewAttemptRecord
   | EngineeringFollowupRecord
   | EngineeringSourceRecord
   | EngineeringWorkRecord
@@ -992,6 +1000,12 @@ function jsonCodec<T>(key: (value: T) => EntityKey): Codec<T> {
       )
         assertEngineeringRecord(value, location);
       if (
+        (value as { kind?: unknown }).kind ===
+          "resolution_learning_review_attempt" ||
+        location.id.startsWith("learning-review-attempt:")
+      )
+        assertResolutionLearningReviewAttempt(value, location);
+      if (
         [
           "resolution_learning_source",
           "resolution_learning_work",
@@ -1074,6 +1088,22 @@ function jsonCodec<T>(key: (value: T) => EntityKey): Codec<T> {
             "Engineering record has invalid physical envelope",
           );
         assertEngineeringRecord(decoded, {
+          partition: record.partition,
+          id: record.id,
+        });
+      }
+      if (
+        (decoded as { kind?: unknown })?.kind ===
+          "resolution_learning_review_attempt" ||
+        (typeof record.id === "string" &&
+          record.id.startsWith("learning-review-attempt:"))
+      ) {
+        if (
+          typeof record.partition !== "string" ||
+          typeof record.id !== "string"
+        )
+          throw new TypeError("Review attempt has invalid physical envelope");
+        assertResolutionLearningReviewAttempt(decoded, {
           partition: record.partition,
           id: record.id,
         });
@@ -3009,7 +3039,15 @@ function derivationReserveRows(
       sum + (row.kind === "engineering_followup_work" ? row.completionRows : 0),
     0,
   );
-  return learning + engineering + terminal + followup;
+  const stagedReviews = rows.reduce(
+    (sum, row) =>
+      sum +
+      (row.kind === "resolution_learning_review_attempt"
+        ? row.completionRows
+        : 0),
+    0,
+  );
+  return learning + engineering + terminal + followup + stagedReviews;
 }
 
 /** Reserve is opt-in metadata on the existing quota, never a second counter. */
@@ -5530,8 +5568,9 @@ export function createSupportDeskApplication(options: {
         additional,
         "learning",
       ),
-    audit: (command, ticket, actorId, now, action) =>
+    audit: (command, ticket, actorId, now, action, eventId) =>
       ticketAuditAction({
+        ...(eventId === undefined ? {} : { eventId }),
         commandId: command.commandId,
         correlationId: command.correlationId,
         ticketId: ticket.id,
