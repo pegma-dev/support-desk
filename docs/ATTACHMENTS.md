@@ -102,21 +102,40 @@ the attachment stays unavailable until the callback transaction commits.
    disposition uses a fixed ASCII fallback and an encoded sanitized UTF-8 name.
    Never embed returned HTML/SVG in an iframe or render content on the app origin.
 5. **Deletion/expiration:** `deleteAttachment` requires queue-read plus manage.
-   First commit a `deleting` fence, receipt and Audit; then delete host bytes;
-   then commit a `deleted` tombstone, receipt and Audit. Failures retain the
-   non-downloadable fence; repeat the same command to resume. Tombstones preserve
-   identity, digest, replay and audit facts. The blob is removed before the final
-   tombstone. Concurrent downloads already delivered cannot be recalled.
+   The first transaction CASes Ticket and Message into a `deleting` fence,
+   appends its Audit and reserves `command:<caller-command-id>` with a bounded
+   pending deletion receipt. It binds the original actor, message, attachment,
+   correlation and command fingerprint before any blob removal. An occupied
+   command ID rejects without changing metadata or deleting bytes.
 
-   A redundant deletion fence or tombstone is a no-op: it adds no Audit or
-   receipt for a state that did not change. A resumed command that actually
-   completes deletion is recorded in the final tombstone Audit and receipt.
-   Concurrent commands converge on the tombstone without a false conflict.
+   Only the same actor and exact command can resume that pending operation.
+   A different command or actor is refused while it is pending. Exact concurrent
+   retries converge on the same receipt. After idempotent blob removal, one
+   transaction CASes Ticket, Message and the pending receipt into the deleted
+   tombstone, completed receipt and completion Audit. Unknown blob or transaction
+   acknowledgements retain durable recovery state. Retry the original packet
+   instead of inventing a new command. A completed exact retry does not remove
+   bytes again. An already-deleted target with a fresh unused ID is a no-op.
+
+   The original receipt row is updated, so the lifecycle does not need more
+   managed rows. A new deletion uses two fence rows and one completion Audit row.
+   Six/four/two cleanup reservations remain conservative ceilings. Historical
+   completed receipts without the optional phase retain completed semantics.
+   For a pending receipt, the existing timestamp records acceptance of the fence
+   and the phase remains authoritative until completion updates it.
+   Legacy deleting metadata can be adopted only with the original matching fence
+   receipt and actor-bound Audit. Older attachment writers must not run while
+   new pending receipts exist. There is no automatic rewrite or migration.
+   Tombstones preserve identity, digest, replay and Audit facts. Concurrent
+   downloads already delivered cannot be recalled.
 
 `sweepExpiredAttachments` scans one physical page (default 20, maximum 100) and
-uses an authorized host worker identity to resume deleting or expire attachments.
+uses an authorized host worker identity to expire attachments and resume its own
+exact pending deletion commands.
 Hosts schedule recurring full cursor cycles and persist progress after success.
-Individual deletion failures are returned in a bounded `failures` list containing
+A worker reports another actor's pending deletion as a failure so the original
+actor can resume its retained command. Individual deletion failures are returned
+in a bounded `failures` list containing
 only ticket/message/attachment IDs; they do not prevent other attachments or
 later pages from progressing. Alert on persistent failures and revisit them on
 the next full cycle. Scan failures still reject the page and leave its cursor
@@ -129,7 +148,7 @@ processor. Attachment-count and partition-record limits are independent upper
 bounds, not a promise that either can be reached under every combination. A
 100-attachment configuration needs a larger record budget if all scans remain
 pending together. Reads count physical records only; safety transitions check
-physical capacity for their two new records, so lowering a budget below the
+physical capacity for their remaining new records, so lowering a budget below the
 virtual reservation does not itself strand cleanup. Never lower it below the
 actual physical rows plus the remaining cleanup writes; restore sufficient
 capacity before cleanup if an external writer or config change violates that

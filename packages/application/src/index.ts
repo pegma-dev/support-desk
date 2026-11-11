@@ -583,6 +583,14 @@ interface CommandRecord {
   /** New staff commands retain their result; messages are selected by revision. */
   readonly resultTicket?: Ticket;
   readonly initialMode?: CustomerTicketAdmissionMode;
+  /** Absent means a historical completed receipt. Pending is never generic replay. */
+  readonly attachmentDeletion?: {
+    readonly phase: "pending" | "complete";
+    readonly actorId: PrincipalId;
+    readonly messageId: MessageId;
+    readonly attachmentId: string;
+    readonly correlationId: string;
+  };
 }
 
 interface InboundReplyRerouteFenceRecord {
@@ -907,10 +915,58 @@ function receiptSlotId(slot: string, field: string): string {
   return `slot:${slot}`;
 }
 
+function assertAttachmentDeletionReceipt(
+  value: unknown,
+  location: EntityKey,
+): void {
+  if (value === null || typeof value !== "object") return;
+  const record = value as Partial<CommandRecord>;
+  if (record.attachmentDeletion === undefined) return;
+  const marker = boundaryObject(
+    record.attachmentDeletion,
+    "attachment deletion receipt",
+  );
+  const expected = [
+    "phase",
+    "actorId",
+    "messageId",
+    "attachmentId",
+    "correlationId",
+  ];
+  if (
+    Object.keys(marker).length !== expected.length ||
+    Object.keys(marker).some((key) => !expected.includes(key))
+  )
+    throw new TypeError("Invalid attachment deletion receipt fields");
+  for (const name of expected.slice(1))
+    requireIdentifier(
+      boundaryString(ownDataProperty(marker, name, name), name),
+      name,
+    );
+  const phase = ownDataProperty(marker, "phase", "attachment deletion phase");
+  if (phase !== "pending" && phase !== "complete")
+    throw new TypeError("Invalid attachment deletion phase");
+  if (
+    record.kind !== "command" ||
+    record.commandType !== "attachment_state" ||
+    record.partition !== location.partition ||
+    record.id !== location.id ||
+    location.id !== `command:${record.commandId}` ||
+    record.messageId !== undefined ||
+    typeof record.requestFingerprint !== "string" ||
+    !/^[a-f0-9]{64}$/.test(record.requestFingerprint)
+  )
+    throw new TypeError("Invalid attachment deletion receipt identity");
+  requireIdentifier(record.commandId!, "attachment deletion commandId");
+  requireIdentifier(record.partition, "attachment deletion ticketId");
+  canonicalTimestamp(record.completedAt!, "attachment deletion timestamp");
+}
+
 function jsonCodec<T>(key: (value: T) => EntityKey): Codec<T> {
   return {
     encode(value) {
       const location = key(value);
+      assertAttachmentDeletionReceipt(value, location);
       if (
         [
           "engineering_followup_head",
@@ -960,6 +1016,22 @@ function jsonCodec<T>(key: (value: T) => EntityKey): Codec<T> {
         throw new TypeError("stored Support Desk record has no JSON payload");
       }
       const decoded = JSON.parse(record.payload) as T;
+      if (
+        (decoded as { attachmentDeletion?: unknown })?.attachmentDeletion !==
+        undefined
+      ) {
+        if (
+          typeof record.partition !== "string" ||
+          typeof record.id !== "string"
+        )
+          throw new TypeError(
+            "Attachment deletion receipt has invalid physical envelope",
+          );
+        assertAttachmentDeletionReceipt(decoded, {
+          partition: record.partition,
+          id: record.id,
+        });
+      }
       if (
         [
           "engineering_followup_head",
@@ -2706,6 +2778,7 @@ function duplicateMatches(
 ): boolean {
   return (
     existing?.kind === "command" &&
+    existing.attachmentDeletion?.phase !== "pending" &&
     existing.commandType === commandType &&
     existing.messageId === messageId &&
     existing.requestFingerprint === requestFingerprint
@@ -4884,18 +4957,11 @@ export function createSupportDeskApplication(options: {
     return reserveNextTicketNumber(numbers, maxConflictAttempts);
   }
 
-  async function transactWithAttachments(
-    ticketId: string,
-    actions: Parameters<typeof records.transact>[1],
+  function validateNewAttachmentPolicy(
     inputs: readonly AttachmentInput[],
     descriptors: Awaited<ReturnType<typeof attachmentDescriptors>>,
-    beforeCommit?: () => Promise<() => true>,
-  ) {
-    if (!inputs.length) {
-      const assertCurrent = await beforeCommit?.();
-      if (assertCurrent !== undefined) assertCurrent();
-      return records.transact(ticketId, actions);
-    }
+  ): void {
+    if (!inputs.length) return;
     if (!attachmentConfig.blobs)
       throw new TypeError("Attachments require a host blob port");
     if (
@@ -4912,6 +4978,23 @@ export function createSupportDeskApplication(options: {
       )
     )
       throw new TypeError("Attachment size or MIME type refused");
+    if (inputs.length > attachmentConfig.perTicket)
+      throw new TypeError("Ticket attachment limit exceeded");
+  }
+
+  async function transactWithAttachments(
+    ticketId: string,
+    actions: Parameters<typeof records.transact>[1],
+    inputs: readonly AttachmentInput[],
+    descriptors: Awaited<ReturnType<typeof attachmentDescriptors>>,
+    beforeCommit?: () => Promise<() => true>,
+  ) {
+    if (!inputs.length) {
+      const assertCurrent = await beforeCommit?.();
+      if (assertCurrent !== undefined) assertCurrent();
+      return records.transact(ticketId, actions);
+    }
+    validateNewAttachmentPolicy(inputs, descriptors);
     const rows = await records.list(ticketId);
     enforcePartitionRecordLimit(
       partitionSizeWithAttachmentReserve(rows),
@@ -5097,6 +5180,326 @@ export function createSupportDeskApplication(options: {
             completedAt: now,
           },
         },
+      ]);
+      if (result.committed) return;
+    }
+    throw new SupportDeskConflictError();
+  }
+
+  async function deleteAttachmentWithReceipt(
+    access: AccessContext,
+    input: AttachmentStateCommand,
+  ): Promise<void> {
+    requireStaffMutationAccess(access, supportPermissions.manage);
+    const actorId = access.principalId;
+    const authorize = () => {
+      requireStaffMutationAccess(access, supportPermissions.manage);
+      if (access.principalId !== actorId)
+        throw new SupportDeskAuthorizationError(supportPermissions.manage);
+    };
+    const key = commandKey(input.ticketId, input.commandId);
+    const fingerprint = await requestFingerprint({
+      ...input,
+      status: "deleted",
+      digest: null,
+    });
+    const fenceId = `attachment-fence-${await requestFingerprint({ commandId: input.commandId })}`;
+    const fenceFingerprint = await requestFingerprint({
+      ...input,
+      commandId: fenceId,
+      status: "deleting",
+      digest: null,
+    });
+    const matches = (row: SupportRecord): row is CommandRecord =>
+      row.kind === "command" &&
+      row.commandType === "attachment_state" &&
+      row.messageId === undefined &&
+      row.requestFingerprint === fingerprint;
+    const requireIdentity = (row: CommandRecord) => {
+      const owner = row.attachmentDeletion;
+      if (
+        owner !== undefined &&
+        (owner.actorId !== actorId ||
+          owner.messageId !== input.messageId ||
+          owner.attachmentId !== input.attachmentId ||
+          owner.correlationId !== input.correlationId)
+      )
+        throw new SupportDeskConflictError(
+          "Attachment deletion belongs to another identity",
+        );
+    };
+    let reserved = false;
+    for (let attempt = 0; attempt < maxConflictAttempts; attempt++) {
+      const receipt = await records.getVersioned(key);
+      authorize();
+      if (receipt !== null) {
+        if (!matches(receipt.value))
+          throw new SupportDeskConflictError(
+            "Command ID reused with different input",
+          );
+        requireIdentity(receipt.value);
+        if (receipt.value.attachmentDeletion?.phase !== "pending") return;
+        reserved = true;
+        break;
+      }
+      const [ticket, message] = await Promise.all([
+        records.getVersioned(ticketKey(input.ticketId)),
+        records.getVersioned({
+          partition: input.ticketId,
+          id: `message:${input.messageId}`,
+        }),
+      ]);
+      authorize();
+      if (ticket?.value.kind !== "ticket" || message?.value.kind !== "message")
+        throw new SupportDeskNotFoundError();
+      const attachment = message.value.message.attachments?.find(
+        (item) => item.id === input.attachmentId,
+      );
+      if (attachment === undefined) throw new SupportDeskNotFoundError();
+      if (attachment.scanStatus === "deleted") return;
+      const rows = await records.list(input.ticketId);
+      authorize();
+      const pendingOwner = rows.find(
+        (row): row is CommandRecord =>
+          row.kind === "command" &&
+          row.attachmentDeletion?.phase === "pending" &&
+          row.attachmentDeletion.messageId === input.messageId &&
+          row.attachmentDeletion.attachmentId === input.attachmentId,
+      );
+      if (pendingOwner !== undefined) {
+        if (pendingOwner.id === key.id && matches(pendingOwner)) {
+          requireIdentity(pendingOwner);
+          continue;
+        }
+        throw new SupportDeskConflictError(
+          "Attachment deletion belongs to another identity",
+        );
+      }
+      const changing = attachment.scanStatus !== "deleting";
+      if (!changing) {
+        // Legacy deleting metadata has no pending marker. Recover only its
+        // original tuple, backed by the old atomic fence receipt and Audit.
+        const oldReceipt = rows.find((row) => row.id === `command:${fenceId}`);
+        const oldAudit = rows.find((row) => row.id === auditRecordId(fenceId));
+        if (
+          oldReceipt === undefined ||
+          !duplicateMatches(
+            oldReceipt,
+            "attachment_state",
+            undefined,
+            fenceFingerprint,
+          ) ||
+          oldAudit?.kind !== "audit" ||
+          oldAudit.event.actor.kind !== "principal" ||
+          oldAudit.event.actor.principalId !== actorId ||
+          oldAudit.event.action !== supportTicketAuditActions.attachmentDeleting
+        )
+          throw new SupportDeskConflictError(
+            "Original attachment deletion identity is required",
+          );
+      }
+      if (!attachmentConfig.blobs)
+        throw new TypeError("Host blob port required");
+      enforcePartitionRecordLimit(
+        rows.length,
+        limits.maxRecordsPerTicket,
+        changing ? 2 : 1,
+      );
+      const now = clampTicketTime(clock.now(), ticket.value.ticket.updatedAt);
+      const pending: CommandRecord = {
+        kind: "command",
+        partition: input.ticketId,
+        id: key.id,
+        commandId: input.commandId,
+        commandType: "attachment_state",
+        requestFingerprint: fingerprint,
+        completedAt: now,
+        attachmentDeletion: {
+          phase: "pending",
+          actorId,
+          messageId: input.messageId,
+          attachmentId: input.attachmentId,
+          correlationId: input.correlationId,
+        },
+      };
+      authorize();
+      const result = await records.transact(input.ticketId, [
+        {
+          action: "putIfUnchanged",
+          version: ticket.version,
+          value: {
+            ...ticket.value,
+            ticket: changing
+              ? {
+                  ...ticket.value.ticket,
+                  revision: ticket.value.ticket.revision + 1,
+                  updatedAt: now,
+                }
+              : ticket.value.ticket,
+          },
+        },
+        {
+          action: "putIfUnchanged",
+          version: message.version,
+          value: {
+            ...message.value,
+            message: {
+              ...message.value.message,
+              attachments: message.value.message.attachments!.map((item) =>
+                item.id === input.attachmentId
+                  ? { ...item, scanStatus: "deleting" as const }
+                  : item,
+              ),
+            },
+          },
+        },
+        { action: "insert", value: pending },
+        ...(changing
+          ? [
+              ticketAuditAction({
+                ...input,
+                commandId: fenceId,
+                actorId,
+                revision: ticket.value.ticket.revision + 1,
+                occurredAt: now,
+                action: supportTicketAuditActions.attachmentDeleting,
+                details: {
+                  attachmentId: input.attachmentId,
+                  status: "deleting",
+                },
+              }),
+            ]
+          : []),
+      ]);
+      if (result.committed) {
+        reserved = true;
+        break;
+      }
+    }
+    if (!reserved) throw new SupportDeskConflictError();
+    // The original identity is now durable. Unknown blob outcomes leave it
+    // pending, so only the same actor and exact command can safely retry.
+    const [currentTicket, message] = await Promise.all([
+      records.get(ticketKey(input.ticketId)),
+      records.get({
+        partition: input.ticketId,
+        id: `message:${input.messageId}`,
+      }),
+    ]);
+    authorize();
+    if (currentTicket?.kind !== "ticket") throw new SupportDeskNotFoundError();
+    const attachment =
+      message?.kind === "message"
+        ? message.message.attachments?.find(
+            (item) => item.id === input.attachmentId,
+          )
+        : undefined;
+    if (attachment === undefined) throw new SupportDeskNotFoundError();
+    if (
+      attachment.scanStatus !== "deleting" &&
+      attachment.scanStatus !== "deleted"
+    )
+      throw new SupportDeskConflictError("Attachment deletion fence changed");
+    if (attachment.scanStatus !== "deleted") {
+      if (!attachmentConfig.blobs)
+        throw new TypeError("Host blob port required");
+      await attachmentConfig.blobs.delete(attachment.blobKey);
+      authorize();
+    }
+    for (let attempt = 0; attempt < maxConflictAttempts; attempt++) {
+      const [receipt, ticket, message] = await Promise.all([
+        records.getVersioned(key),
+        records.getVersioned(ticketKey(input.ticketId)),
+        records.getVersioned({
+          partition: input.ticketId,
+          id: `message:${input.messageId}`,
+        }),
+      ]);
+      authorize();
+      if (receipt === null || !matches(receipt.value))
+        throw new SupportDeskConflictError(
+          "Attachment deletion receipt changed",
+        );
+      requireIdentity(receipt.value);
+      if (receipt.value.attachmentDeletion?.phase !== "pending") return;
+      if (ticket?.value.kind !== "ticket" || message?.value.kind !== "message")
+        throw new SupportDeskNotFoundError();
+      const attachment = message.value.message.attachments?.find(
+        (item) => item.id === input.attachmentId,
+      );
+      if (attachment === undefined) throw new SupportDeskNotFoundError();
+      if (
+        attachment.scanStatus !== "deleting" &&
+        attachment.scanStatus !== "deleted"
+      )
+        throw new SupportDeskConflictError("Attachment deletion fence changed");
+      const changing = attachment.scanStatus !== "deleted";
+      const rows = await records.list(input.ticketId);
+      authorize();
+      enforcePartitionRecordLimit(
+        rows.length,
+        limits.maxRecordsPerTicket,
+        changing ? 1 : 0,
+      );
+      const now = clampTicketTime(clock.now(), ticket.value.ticket.updatedAt);
+      authorize();
+      const result = await records.transact(input.ticketId, [
+        {
+          action: "putIfUnchanged",
+          version: ticket.version,
+          value: {
+            ...ticket.value,
+            ticket: changing
+              ? {
+                  ...ticket.value.ticket,
+                  revision: ticket.value.ticket.revision + 1,
+                  updatedAt: now,
+                }
+              : ticket.value.ticket,
+          },
+        },
+        {
+          action: "putIfUnchanged",
+          version: message.version,
+          value: {
+            ...message.value,
+            message: {
+              ...message.value.message,
+              attachments: message.value.message.attachments!.map((item) =>
+                item.id === input.attachmentId
+                  ? { ...item, scanStatus: "deleted" as const }
+                  : item,
+              ),
+            },
+          },
+        },
+        {
+          action: "putIfUnchanged",
+          version: receipt.version,
+          value: {
+            ...receipt.value,
+            completedAt: now,
+            attachmentDeletion: {
+              ...receipt.value.attachmentDeletion,
+              phase: "complete" as const,
+            },
+          },
+        },
+        ...(changing
+          ? [
+              ticketAuditAction({
+                ...input,
+                actorId,
+                revision: ticket.value.ticket.revision + 1,
+                occurredAt: now,
+                action: supportTicketAuditActions.attachmentDeleted,
+                details: {
+                  attachmentId: input.attachmentId,
+                  status: "deleted",
+                },
+              }),
+            ]
+          : []),
       ]);
       if (result.committed) return;
     }
@@ -6160,31 +6563,10 @@ export function createSupportDeskApplication(options: {
 
     async deleteAttachment(access, input) {
       requireStaffMutationAccess(access, supportPermissions.manage);
-      input = snapshotAttachmentStateCommand(input);
-      if (!attachmentConfig.blobs)
-        throw new TypeError("Host blob port required");
-      await changeAttachmentState(
+      return deleteAttachmentWithReceipt(
         access,
-        {
-          ...input,
-          commandId: `attachment-fence-${await requestFingerprint({ commandId: input.commandId })}`,
-        },
-        "deleting",
+        snapshotAttachmentStateCommand(input),
       );
-      const message = await records.get({
-        partition: input.ticketId,
-        id: `message:${input.messageId}`,
-      });
-      const attachment =
-        message?.kind === "message"
-          ? message.message.attachments?.find(
-              (item) => item.id === input.attachmentId,
-            )
-          : undefined;
-      if (!attachment) throw new SupportDeskNotFoundError();
-      if (attachment.scanStatus === "deleted") return;
-      await attachmentConfig.blobs.delete(attachment.blobKey);
-      await changeAttachmentState(access, input, "deleted");
     },
 
     ...resolutionLearning.application,
@@ -6632,6 +7014,10 @@ export function createSupportDeskApplication(options: {
       }
       let initialMode: CustomerTicketAdmissionMode = initialHandling ?? "human";
 
+      // Exact accepted receipts returned above. Apply current attachment policy
+      // only to fresh intake, before it can consume a number or customer slot.
+      validateNewAttachmentPolicy(attachmentInputs, descriptors);
+
       // Fail closed before durable number/index reservation so a too-small
       // partition budget cannot exhaust the principal ticket index with
       // reserved-but-never-created tickets.
@@ -6647,6 +7033,7 @@ export function createSupportDeskApplication(options: {
         0,
         limits.maxRecordsPerTicket,
         estimatedCreateRows +
+          attachmentInputs.length * 6 +
           (resolutionLearningOptions.enabled ? 2 : 0) +
           (engineeringOptions.enabled ? 2 : 0) +
           (initialHandling === "assistant"
@@ -8307,7 +8694,7 @@ export function createSupportDeskApplication(options: {
       requireIdentifier(ticketId, "ticketId");
       const partitionRows = await records.list(ticketId);
       enforcePartitionRecordLimit(
-        partitionSizeWithAttachmentReserve(partitionRows),
+        partitionRows.length,
         limits.maxRecordsPerTicket,
       );
       const ticket = partitionRows.find(

@@ -5,6 +5,10 @@ import {
   createSupportDeskApplication,
   supportPermissions,
   supportRecords,
+  customerTicketIndex,
+  ticketNumbers,
+  ticketNumberPartition,
+  ticketNumberRecordId,
   sweepExpiredAttachments,
   cleanupUnreferencedAttachmentBlobs,
   type AttachmentOptions,
@@ -101,6 +105,95 @@ async function fixture(
 }
 
 describe("attachments public services", () => {
+  it.each(
+    [
+      "MIME",
+      "file-bytes",
+      "message-bytes",
+      "message-count",
+      "ticket-count",
+      "cleanup-reserve",
+    ].flatMap((scenario) => [
+      { scenario, admitted: false },
+      { scenario, admitted: true },
+    ]),
+  )(
+    "refuses fresh $scenario intake before any ticket reservation (admitted=$admitted)",
+    async ({ scenario, admitted }) => {
+      const options = {
+        allowedContentTypes:
+          scenario === "MIME" ? ["image/png"] : ["text/plain"],
+        maxBytes: scenario === "file-bytes" ? 1 : 1024,
+        maxMessageBytes: scenario === "message-bytes" ? 1 : 1024,
+        maxPerMessage: scenario === "message-count" ? 1 : 3,
+        maxPerTicket: scenario === "ticket-count" ? 1 : 20,
+      };
+      const f = await fixture(options);
+      const app = createSupportDeskApplication({
+        store: f.store,
+        clock: f.clock,
+        attachments: { blobs: f.blobs, ...options },
+        limits: {
+          maxTicketsPerPrincipal: 1,
+          maxRecordsPerTicket: scenario === "cleanup-reserve" ? 11 : 512,
+        },
+      });
+      const failed = {
+        ...f.create,
+        attachments: scenario.endsWith("count")
+          ? [f.input, f.input]
+          : [f.input],
+      };
+      const verifyBeforeCommit = vi.fn(() => () => true as const);
+      await expect(
+        admitted
+          ? app.createAdmittedCustomerTicket(
+              customer,
+              { ...failed, preference: "human" },
+              { verifyBeforeCommit },
+            )
+          : app.createCustomerTicket(customer, failed),
+      ).rejects.toThrow();
+      expect(f.blobs.put).not.toHaveBeenCalled();
+      expect(verifyBeforeCommit).not.toHaveBeenCalled();
+      expect(
+        await f.store
+          .collection(customerTicketIndex)
+          .get({ partition: customer.principalId, id: "tickets" }),
+      ).toBeNull();
+      expect(
+        await f.store
+          .collection(ticketNumbers)
+          .get({ partition: ticketNumberPartition, id: ticketNumberRecordId }),
+      ).toBeNull();
+      expect(
+        await f.store.collection(supportRecords).list(base.ticketId),
+      ).toEqual([]);
+      const valid = {
+        ...base,
+        ticketId: "valid-ticket",
+        commandId: "valid-create",
+      };
+      const accepted = admitted
+        ? (
+            await app.createAdmittedCustomerTicket(
+              customer,
+              { ...valid, preference: "human" },
+              { verifyBeforeCommit },
+            )
+          ).view
+        : await app.createCustomerTicket(customer, valid);
+      expect(accepted.ticket.number).toBe(1);
+      expect(
+        await f.store
+          .collection(customerTicketIndex)
+          .get({ partition: customer.principalId, id: "tickets" }),
+      ).toMatchObject({
+        entries: [{ ticketId: "valid-ticket", state: "confirmed" }],
+      });
+    },
+  );
+
   it("holds optional learning evidence without blocking confirmation or attachment cleanup at capacity", async () => {
     const f = await fixture();
     const configuration = {
@@ -393,6 +486,15 @@ describe("attachments public services", () => {
     await expect(
       app.readStaffTicket(staff, base.ticketId),
     ).resolves.toBeDefined();
+    await expect(
+      app.readTicketAuditHistory(staff, base.ticketId),
+    ).resolves.toHaveLength(1);
+    await expect(
+      app.readTicketAuditHistory({ ...staff, permissions: [] }, base.ticketId),
+    ).rejects.toThrow("Permission required:");
+    await expect(
+      app.readTicketAuditHistory(staff, "missing-ticket"),
+    ).rejects.toThrow("Ticket not found");
     await app.deleteAttachment(
       staff,
       f.state(created.messages[0]!.attachments![0]!.id, "d".repeat(200)),
@@ -400,15 +502,23 @@ describe("attachments public services", () => {
     expect(f.data.size).toBe(0);
     expect(
       await f.store.collection(supportRecords).list(base.ticketId),
-    ).toHaveLength(10);
+    ).toHaveLength(9);
   });
 
-  it("converges overlapping deletion commands and audits the actual completion", async () => {
+  it("refuses a competing deletion identity while the original command completes", async () => {
     const f = await fixture();
     const created = await f.app.createCustomerTicket(customer, f.create);
     const id = created.messages[0]!.attachments![0]!.id;
     f.blobs.delete.mockImplementationOnce(async (key) => {
-      await f.app.deleteAttachment(staff, f.state(id, "second"));
+      await expect(
+        f.app.deleteAttachment(staff, f.state(id, "second")),
+      ).rejects.toThrow("another identity");
+      await expect(
+        f.app.deleteAttachment(
+          { ...staff, principalId: "other-staff" },
+          f.state(id, "first"),
+        ),
+      ).rejects.toThrow("another identity");
       f.data.delete(key);
     });
     await f.app.deleteAttachment(staff, f.state(id, "first"));
@@ -420,7 +530,7 @@ describe("attachments public services", () => {
       "support.ticket.attachment_deleting",
       "support.ticket.attachment_deleted",
     ]);
-    expect(history.at(-1)!.id).toBe("second");
+    expect(history.at(-1)!.id).toBe("first");
   });
 
   it("continues an expiry page after a failed attachment and reports its identity", async () => {
@@ -568,7 +678,7 @@ describe("attachments public services", () => {
     expect(f.data.size).toBe(0);
     expect(
       await f.store.collection(supportRecords).list(base.ticketId),
-    ).toHaveLength(14);
+    ).toHaveLength(13);
   });
 
   it("reconciles a transaction that committed before its response was lost", async () => {
