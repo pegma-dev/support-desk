@@ -147,7 +147,7 @@ describe("release package metadata", () => {
     const checkout = process.cwd();
     const root = mkdtempSync(join(tmpdir(), "support-desk-release-check-"));
     const script = join(checkout, "scripts", "release-packages.mjs");
-    const versions = ["v0.2.2", "v0.2.3", "v0.2.4"];
+    const versions = ["v0.2.2", "v0.2.3", "v0.2.4", "v0.2.5"];
     const evidenceFiles = [
       "package-manifest.json",
       "prepared-artifact.json",

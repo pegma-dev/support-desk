@@ -10,3 +10,4 @@
 docs/releases/v0.2.3/** -text
 docs/releases/v0.2.3/prepared-artifact.json whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 docs/releases/v0.2.4/** -text
+docs/releases/v0.2.5/** -text

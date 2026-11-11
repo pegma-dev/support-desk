@@ -45,6 +45,16 @@ const RELEASE_EVIDENCE_SHA256 = {
     "e9f3ee884ac9e11fd41f61f5a93b17f4d73692344a72dffca078b788e9866147",
   "v0.2.4/verification-job.json":
     "a5f923c6612a98bc328108054170d9cb3dc59c8737c0677c7a507853ddd1934c",
+  "v0.2.5/package-manifest.json":
+    "e79cee9f182336714611745ecf978a0b720d033c3aea11e0a51194f21959b39f",
+  "v0.2.5/prepared-artifact.json":
+    "268d9d171f9e3786fb98c233e42bb9e7c0528fee9dc66969ce2103f7994f6e25",
+  "v0.2.5/qualified-release-notes.md":
+    "2ffbc4532ce99d41dad0aaca28d6d075578f50690282108ce1bb74a37841aec6",
+  "v0.2.5/registry-verification.json":
+    "61f977c1163ecb813fd8777a8470ac65dc2b5689f25f6997bf4599795002695e",
+  "v0.2.5/verification-job.json":
+    "fa6c099f4179a74a56e80831c29e6b9b636e96688cd11f2814d0c58d171971c1",
 };
 const DEPENDENCY_SECTIONS = [
   "dependencies",

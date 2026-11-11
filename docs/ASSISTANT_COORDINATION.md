@@ -11,11 +11,11 @@ deployment, live-provider, or pilot result. Follow
 and the actual public types in `packages/application/src/assistant-turn-types.ts`
 and `packages/ai/src/ports.ts` when changing this boundary.
 
-The published `0.2.4` optional `@pegma/support-desk-ai` package owns coordination
+The published `0.2.5` optional `@pegma/support-desk-ai` package owns coordination
 and exact KB application/contracts `0.1.5` dependencies. The base application
 remains usable without AI and contains no KB or model-provider dependency. The
-current synchronized `0.2.4` release is published and strictly verified; see the
-[publication receipt](RELEASING.md#verified-024-publication-2026-11-11).
+current synchronized `0.2.5` release is published and strictly verified; see the
+[publication receipt](RELEASING.md#verified-025-publication-2026-11-11).
 Host activation retains its own acceptance gates. Existing registry versions
 remain immutable.
 
@@ -365,8 +365,8 @@ respect the tighter phase deadline. Each subsequent change requires its own
 current-head gates.
 Current-head Node 22/24 format/check/test gates and actual code/security review
 remain required for changes; historical SD-01 or producer results do not
-certify changed source. The completed `0.2.4` release gates are recorded in the
-[publication receipt](RELEASING.md#verified-024-publication-2026-11-11).
+certify changed source. The completed `0.2.5` release gates are recorded in the
+[publication receipt](RELEASING.md#verified-025-publication-2026-11-11).
 
 Both hosts still need their own existing-login/current-Admin consent and
 actual Codex, Claude Code, Grok Bot installed desktop/hosted-agent, and T3 Code

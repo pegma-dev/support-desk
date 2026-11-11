@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "repository": "pegma-dev/support-desk",
+  "tag": "v0.2.5",
+  "sourceCommit": "ab57dd989dba8ff8c9ec381c76a3d1303e4f6d0a",
+  "sourceTree": "765574592bdabda6888ebbfb6e5b97e425c52d26",
+  "runId": 43026134485,
+  "runAttempt": 1,
+  "releaseId": 441705943,
+  "manifestSha256": "e79cee9f182336714611745ecf978a0b720d033c3aea11e0a51194f21959b39f",
+  "originalArtifact": {
+    "id": 13858170129,
+    "name": "support-desk-release-43026134485-1",
+    "bytes": 540960,
+    "sha256": "80d9020d5526de21649d4185d9b078b94c3c5e390e274429c000fce8f3b8c1d0",
+    "apiDigest": "sha256:80d9020d5526de21649d4185d9b078b94c3c5e390e274429c000fce8f3b8c1d0",
+    "createdAt": "2026-11-11T13:12:15Z",
+    "apiUrl": "https://api.github.com/repos/pegma-dev/support-desk/actions/artifacts/13858170129",
+    "preservedAsset": "support-desk-v0.2.5-original-artifact-13858170129.zip"
+  },
+  "projection": "Public fields from the original Actions artifact API. The original ZIP and manifest are byte-for-byte copies."
+}

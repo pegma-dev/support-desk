@@ -3,14 +3,14 @@
 SD-03's source merged in [PR #39](https://github.com/pegma-dev/support-desk/pull/39)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current synchronized release is `0.2.4`; see its
-[publication receipt](RELEASING.md#verified-024-publication-2026-11-11).
+The current synchronized release is `0.2.5`; see its
+[publication receipt](RELEASING.md#verified-025-publication-2026-11-11).
 The ticket application implements enrollment, structured resolution evidence,
 durable work, exact staff review, invalidation, withdrawal, and reconciliation
 records. The optional AI package adds bounded model processing, KB draft
 delivery, exact staff review, and source retirement/reconciliation through
 `createSupportDeskLearning`, with read-only callbacks from
-`createSupportDeskLearningSourceVerifier`. The current AI `0.2.4` release
+`createSupportDeskLearningSourceVerifier`. The current AI `0.2.5` release
 consumes the application and contracts packages from the verified
 [KB `0.1.5` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.5).
 The initial SD-03 release consumed
@@ -366,19 +366,21 @@ kind or stored-data rewrite. A `0.2.1` caller rejects the new intent field, and
 its legacy reviewer treats a cancellation fingerprint as a conflict rather than
 an approval. This fail-closed behavior is not a claim that older clients can
 understand the new acknowledgement union. Preserve receipts through normal
-retention; deleting one could revive an old command. Candidate and host adoption
-still require their separate gates. See the
+retention; deleting one could revive an old command. Host adoption
+still requires its separate gates. See the
 [real Store recovery race suite](../tests/resolution-learning-review-recovery.test.ts).
 
-## Opt-in staged human review (source candidate)
+<a id="opt-in-staged-human-review-source-candidate"></a>
 
-The unpublished `0.2.5` candidate adds staged human reviews. The default
+## Opt-in staged human review (published 0.2.5)
+
+Published `0.2.5` adds staged human reviews. The default
 `createSupportDeskLearning` factory executes inline reviews. Hosts
 can select the optional staged capability by setting
 `resolutionLearning.stagedReviews: true` and constructing
 `createSupportDeskStagedLearningReviews`. Structural application ports expose
-this additive capability through an optional property. The source candidate
-requires release qualification and host integration before activation.
+this additive capability through an optional property. Host integration and
+activation retain their own acceptance gates.
 
 The host first prepares and retains the complete `LearningReviewCommand`.
 `admitReviewIntent(access, command, {verifyBeforeCommit})` requires a fresh
