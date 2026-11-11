@@ -1,10 +1,10 @@
 # @pegma/support-desk-contracts
 
-The current verified synchronized registry release is `0.2.4`; see the
-[publication receipt](../../docs/RELEASING.md#verified-024-publication-2026-11-11).
-This checkout is synchronized at unpublished `0.2.5` for the
-[next application/AI changes](../../docs/RELEASE_NOTES.md). Source version
-alignment does not publish a package or qualify a host.
+The current verified synchronized registry release is `0.2.5`; see the
+[publication receipt](../../docs/RELEASING.md#verified-025-publication-2026-11-11).
+The synchronized `0.2.5` release includes the
+[application/AI additions](../../docs/RELEASE_NOTES.md). Host adoption retains
+its own composition and activation gates.
 
 Provider-neutral ticket, requester, message, and event contracts shared by
 Support Desk packages and host applications.
@@ -50,6 +50,6 @@ checks permissions/ownership and current visible-message proof, commits
 Audit/receipts/work, and keeps private handling generations and evidence out
 of customer DTOs. Core performs pure transitions and validates its handling
 inputs. These changes first shipped in verified synchronized `0.2.0` and remain
-in current `0.2.4`, with no model or KB dependency. See the current
-[publication receipt](../../docs/RELEASING.md#verified-024-publication-2026-11-11);
+in current `0.2.5`, with no model or KB dependency. See the current
+[publication receipt](../../docs/RELEASING.md#verified-025-publication-2026-11-11);
 host activation retains its own acceptance gates.

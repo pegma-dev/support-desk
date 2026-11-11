@@ -11,8 +11,8 @@ preparation are also merged. The ten entries in the
 [historical source ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) record
 the exact PRs/commits, verified gates, and remaining dependency order.
 
-Support Desk's current synchronized `0.2.4` release is published and strictly verified;
-see the [publication receipt](RELEASING.md#verified-024-publication-2026-11-11).
+Support Desk's current synchronized `0.2.5` release is published and strictly verified;
+see the [publication receipt](RELEASING.md#verified-025-publication-2026-11-11).
 It pins Audit `0.2.0`, Authorization Core `0.4.0`, Mail `0.1.1`, Spine `0.1.2`,
 and Storage Core `0.4.0`. The older base registry `0.1.1` artifacts remain
 immutable. Host adoption retains its own acceptance gates. All four KB packages
@@ -24,7 +24,7 @@ manual `0.1.0` bootstrap receipts have no OIDC provenance and remain historical;
 the later trusted releases close the KB-05/Agent Access publication gates.
 
 SD-02's optional coordinator first shipped as `@pegma/support-desk-ai@0.2.0`.
-The current `@pegma/support-desk-ai@0.2.4` pins exact KB `0.1.5` runtime
+The current `@pegma/support-desk-ai@0.2.5` pins exact KB `0.1.5` runtime
 dependencies and bounded turn jobs in the existing ticket partition. The base application remains
 independent of KB/providers. Read the
 [coordination guide](ASSISTANT_COORDINATION.md) and
@@ -46,9 +46,9 @@ unproven. Source and synthetic SDK results do not establish deployment, model ca
 full-workflow host acceptance, or pilots.
 
 Published `0.2.4` adds admitted intake, final learning draft and follow-up
-checks, and grouped assistant finish reads. The synchronized `0.2.5` source
-candidate adds attachments and opt-in staged human learning reviews. Combined
-gates, review and verified publication remain required before host adoption.
+checks, and grouped assistant finish reads. Published `0.2.5` adds attachments
+and opt-in staged human learning reviews. Host adoption retains its own
+composition, deployment, provider/privacy and client acceptance gates.
 
 Task 12 remains pending on both hosts' durable-store production evidence.
 Provider/ZDR/intermediary verification, deployment applicability mapping,
@@ -496,7 +496,7 @@ human handoff, reviewed learning, and safe engineering follow-up.
 **Source status:** SD-01 through SD-05 are merged, covering handling/handoff,
 optional answer coordination, resolution learning, engineering export, and
 release follow-up. They first shipped in verified synchronized `0.2.0` and
-remain in current `0.2.4`, whose publication receipt is linked above. This phase's
+remain in current `0.2.5`, whose publication receipt is linked above. This phase's
 host/production acceptance remains open.
 See [assistant coordination](ASSISTANT_COORDINATION.md).
 

@@ -1,8 +1,8 @@
 # Attachments (Buildout Task 14)
 
-These additive APIs are unpublished `0.2.5` source-candidate work. A separately
-verified release is required before host adoption. No blob implementation,
-cloud SDK, new dependency, package, or release is supplied. Hosts opt in with
+These additive APIs are published in `0.2.5`. Host storage, scanning and
+retention acceptance remain required before activation. No blob implementation,
+cloud SDK, new dependency or package is supplied. Hosts opt in with
 `createSupportDeskApplication({ store, clock, attachments: { blobs, ...limits } })`.
 The composition example includes a synthetic in-memory host blob adapter and
 an explicit scan callback flow. That adapter is not production storage.

@@ -2,9 +2,9 @@
 
 Optional, provider-neutral Support Desk answer, learning, engineering, and
 release follow-up coordination.
-The current verified published synchronized release is `0.2.4`;
-see the [publication receipt](../../docs/RELEASING.md#verified-024-publication-2026-11-11).
-Its exact internal Support application pin is `0.2.4`; external KB application
+The current verified published synchronized release is `0.2.5`;
+see the [publication receipt](../../docs/RELEASING.md#verified-025-publication-2026-11-11).
+Its exact internal Support application pin is `0.2.5`; external KB application
 and contracts pins are exact `0.1.5`. Host activation and whole-invocation/CPU
 acceptance retain separate gates. The published `0.2.1`/KB `0.1.2` artifacts
 and their original receipts remain immutable.
@@ -12,12 +12,10 @@ and their original receipts remain immutable.
 Published `0.2.3` includes the final
 [engineering review guards](../../docs/ENGINEERING_EXPORT.md). Published `0.2.4`
 adds final learning draft checks, bounded assistant finish reads and release
-follow-up staff checks. This checkout is the synchronized **unpublished `0.2.5`
-candidate**, adding opt-in staged human learning reviews alongside the
-application attachment APIs. Its exact internal Support application pin is
-`0.2.5`; KB pins remain `0.1.5`.
-See the [release notes](../../docs/RELEASE_NOTES.md) for the complete candidate,
-which awaits combined current-head gates, review and verified publication.
+follow-up staff checks. Published `0.2.5` adds opt-in staged human learning
+reviews alongside the application attachment APIs. Its exact internal Support
+application pin is `0.2.5`; KB pins remain `0.1.5`.
+See the [release notes](../../docs/RELEASE_NOTES.md); host adoption remains separate.
 
 The base Support Desk application works without this package, a KB, or a model.
 Customer request-person and staff takeover remain deterministic application

@@ -1,8 +1,8 @@
-# Upgrading to the synchronized 0.2.4 release
+# Upgrading to the synchronized 0.2.5 release
 
-`0.2.4` is the current verified published synchronized release. Hosts retain
+`0.2.5` is the current verified published synchronized release. Hosts retain
 their own deployment and acceptance gates. See the
-[publication receipt](RELEASING.md#verified-024-publication-2026-11-11).
+[publication receipt](RELEASING.md#verified-025-publication-2026-11-11).
 The original SD-06 `0.2.0` release has its separate
 [historical receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
 The original four Support Desk packages were published at `0.1.1`. Before
@@ -53,16 +53,18 @@ late staff check and synchronous proof assertion for posting. A follow-up
 adapter must forward the supplied release proof guard's return value to the
 application.
 
-## Unpublished 0.2.5 attachments and staged learning reviews
+<a id="unpublished-025-attachments-and-staged-learning-reviews"></a>
 
-This checkout targets the synchronized `0.2.5` candidate, which requires its own
-release qualification. The [attachment contract](ATTACHMENTS.md) adds optional
+## Published 0.2.5 attachments and staged learning reviews
+
+The synchronized `0.2.5` release is published and strictly verified. The
+[attachment contract](ATTACHMENTS.md) adds optional
 immutable blob storage, scan and download fences, and bounded cleanup. Hosts
 supply private storage, scanners and retention operations.
 
 ### Optional staged learning review capability
 
-The `0.2.5` source candidate adds optional
+Published `0.2.5` adds optional
 `ResolutionLearningApplication.stagedResolutionLearningReviews` when
 `resolutionLearning.stagedReviews: true`. The separate AI factory
 `createSupportDeskStagedLearningReviews` coordinates staff review through this
@@ -113,7 +115,7 @@ route and deployment acceptance remain required before their activation.
 ## Package and host boundary
 
 The released inventory is `@pegma/support-desk-contracts`, `-core`,
-`-templates`, `-application`, and optional `-ai`, all at exact `0.2.4` with
+`-templates`, `-application`, and optional `-ai`, all at exact `0.2.5` with
 matching internal pins. Keep one coherent set. The base application remains
 usable without AI, KB, a model provider, or GitHub.
 
@@ -207,7 +209,7 @@ boundaries before exposing the review surface.
 ## Rehearse the actual 0.1.1-to-0.2.0 upgrade
 
 The SD-06 rehearsal below is retained as historical migration evidence. For
-current `0.2.4` adoption, repeat the rehearsal against the exact selected `0.2.4`
+current `0.2.5` adoption, repeat the rehearsal against the exact selected `0.2.5`
 artifacts and record a new receipt; a `0.2.0` result does not qualify changed
 artifacts or a host's durable-store migration.
 

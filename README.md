@@ -6,13 +6,14 @@
 A composable, open-source support queue for web and email.
 
 > [!IMPORTANT]
-> Support Desk is in early `0.x` development. All five synchronized `0.2.4`
+> Support Desk is in early `0.x` development. All five synchronized `0.2.5`
 > packages are published and strictly verified. Hosts consume exact published
 > versions and retain their own adoption and activation gates.
 
-The current [verified `0.2.4` release](docs/RELEASING.md#verified-024-publication-2026-11-11)
-adds admitted customer intake, edited-draft learning review and final host
-checks. The [engineering review guards](docs/ENGINEERING_EXPORT.md#prepare-and-review-the-complete-disclosure)
+The current [verified `0.2.5` release](docs/RELEASING.md#verified-025-publication-2026-11-11)
+adds attachments and opt-in staged human learning reviews. It retains admitted
+customer intake, edited-draft learning review and final host checks from
+`0.2.4`. The [engineering review guards](docs/ENGINEERING_EXPORT.md#prepare-and-review-the-complete-disclosure)
 remain included.
 It retains the [opt-in staged retrieval](docs/ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval)
 and [exact learning review recovery](docs/RESOLUTION_LEARNING.md#exact-review-intent-recovery-022)
@@ -28,10 +29,9 @@ one. Full configuration and authority snapshots must remain identical across
 phases; live guards still run. Publication establishes no universal query or
 CPU budget and does not qualify a host, provider or client.
 
-This checkout's five source packages are synchronized at **unpublished `0.2.5`
-candidate** versions for attachments and opt-in staged human learning reviews. See the [release notes](docs/RELEASE_NOTES.md).
-It requires combined current-head validation, review, trusted publication and
-strict registry verification before host adoption.
+All five synchronized `0.2.5` packages are published and strictly verified. See
+the [release notes](docs/RELEASE_NOTES.md). Host composition, deployment,
+provider/privacy and client acceptance remain separate gates.
 
 Implemented in source today: the customer-facing and staff application
 services, the repairable staff queue projection, declared collections,
@@ -43,10 +43,10 @@ tags, host-computed response targets and milestones, and revision collision hint
 (Buildout Task 13), with all new metadata limited to staff views. Durable host
 deployments, customer UI, staff UI, inbound provider adapters, and production
 hardening remain later buildout tasks. Task 12 stays pending on host durable-store
-evidence; the current verified package release is `0.2.4`.
+evidence; the current verified package release is `0.2.5`.
 
 Buildout Task 14 [attachment APIs](docs/ATTACHMENTS.md) are also implemented
-as unpublished source additions: a host blob port, transactional message metadata,
+in published `0.2.5`: a host blob port, transactional message metadata,
 digest-bound scan callbacks, authorized downloads, deletion and bounded sweeps.
 Hosts supply private isolated storage, scanners and retention operations.
 Inbound email continues dropping attachments.
@@ -91,11 +91,11 @@ See the [producer evidence and bootstrap handoff](docs/HOST_COMPOSITION.md#kb-au
 The [assistant coordination guide](docs/ASSISTANT_COORDINATION.md) and
 [layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
 describe the SDK contracts. The base application works without AI; only
-the optional coordinator depends on KB. Its current released `0.2.4` manifest
+the optional coordinator depends on KB. Its current released `0.2.5` manifest
 pins exact KB application/contracts `0.1.5`; the older `0.2.1` manifest retains
 its original `0.1.2` dependencies. The standalone-authoring recipe and Agent
 Access selection in the producer handoff remain separate compositions. The
-[verified 0.2.4 publication receipt](docs/RELEASING.md#verified-024-publication-2026-11-11)
+[verified 0.2.5 publication receipt](docs/RELEASING.md#verified-025-publication-2026-11-11)
 records the exact release; host adoption retains its own acceptance gates.
 Use the [implementation ledger](docs/KNOWLEDGE_AI_PLAN.md#status-and-reading-order)
 for source/release evidence and the remaining activation gates.
@@ -185,10 +185,10 @@ The organization profile is at
 | `@pegma/support-desk-ai`          | Optional answers, resolution learning, engineering export and follow-up |
 
 All five packages are published under the `@pegma` scope at verified
-[`0.2.4`](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.4), with
-`latest` recorded at `0.2.4` during verification on 2026-11-11 (America/New_York). The optional AI package's
+[`0.2.5`](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.5), with
+`latest` recorded at `0.2.5` during verification on 2026-11-11 (America/New_York). The optional AI package's
 registration-only `bootstrap` remains `0.1.1`; earlier registry versions are
-immutable history. The [publication receipt](docs/RELEASING.md#verified-024-publication-2026-11-11)
+immutable history. The [publication receipt](docs/RELEASING.md#verified-025-publication-2026-11-11)
 records the original artifacts and strict verification. There is
 deliberately no storage package and no access package. Inbound mail processing
 is implemented (Buildout Task 11); host adapters, production hardening, and the

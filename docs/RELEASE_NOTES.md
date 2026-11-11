@@ -1,9 +1,12 @@
 # Release notes
 
-## 0.2.5 candidate — attachments and staged human learning reviews
+<a id="025-candidate--attachments-and-staged-human-learning-reviews"></a>
 
-All five source packages and internal Support pins target unpublished `0.2.5`.
-The candidate combines the [attachment APIs](ATTACHMENTS.md) with opt-in
+## 0.2.5 — attachments and staged human learning reviews, 2026-11-11
+
+All five synchronized packages and internal Support pins are published and
+strictly verified at `0.2.5`. The release combines the
+[attachment APIs](ATTACHMENTS.md) with opt-in
 [staged human learning reviews](RESOLUTION_LEARNING.md#opt-in-staged-human-review-source-candidate).
 The default learning reviewer remains inline. Staged admission retains an exact
 human command for a proof phase and a later commit phase, each with fresh
@@ -14,7 +17,8 @@ The [upgrade guide](UPGRADING.md#unpublished-025-attachments-and-staged-learning
 records the additive capability, record kinds, retained-attempt limit and typed
 outcomes. Attachment storage, scanners and retention remain host-owned, and
 inbound mail still drops attachments. AI keeps exact KB application/contracts
-`0.1.5`. Current-head gates, review and verified publication remain pending.
+`0.1.5`. The [publication receipt](RELEASING.md#verified-025-publication-2026-11-11)
+binds the original artifacts, executed gates and authenticated recovery.
 SDK qualification establishes no universal query/CPU allowance or host activation.
 
 ## 0.2.4 — admitted intake and final host checks, 2026-11-11
