@@ -8,9 +8,12 @@ routes, cookies, or provider SDKs.
 See also the runnable example at
 [examples/composition](../examples/composition/README.md).
 
-## Unreleased guarded engineering controls
+## Unpublished 0.2.6 candidate: guarded engineering controls
 
-The current source adds an optional third `EngineeringMutationOptions` argument
+The local synchronized `0.2.6` source candidate is unpublished; the current
+verified registry tuple remains `0.2.5`. Candidate metadata or a local pack does
+not qualify host adoption. The source adds an optional third
+`EngineeringMutationOptions` argument
 to `enrollEngineeringSource`, `submitEngineeringEvidence`,
 `selectEngineeringRepository`, `withdrawEngineeringSource`,
 `invalidateEngineeringSource`, `putRepositoryPolicy` and

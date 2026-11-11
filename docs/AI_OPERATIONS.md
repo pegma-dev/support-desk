@@ -13,6 +13,12 @@ The workflows are separate: [answers](ASSISTANT_COORDINATION.md),
 [release follow-up](ENGINEERING_FOLLOWUP.md). The base application remains
 usable with all optional AI capabilities disabled.
 
+The local synchronized `0.2.6` source candidate adds optional final host guards
+and caller cancellation to seven engineering application controls. It is
+unpublished and adds no AI coordinator method, model/provider dependency or
+activation. Keep the verified `0.2.5` tuple for adoption until the next release
+is verified. See the [candidate engineering contract](ENGINEERING_EXPORT.md#026-candidate-guarded-engineering-controls).
+
 ## Controls and human fallback
 
 | Control                                                   | Operational effect                                                                                                                                                                                                  |

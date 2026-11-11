@@ -33,6 +33,35 @@ A guard must not call a model, create an issue, or perform another external
 mutation inside a storage retry. A historical receipt remains subject to current
 authorization and does not establish current policy or remote authority.
 
+## 0.2.6 candidate: guarded engineering controls
+
+**Unpublished source candidate.** The current verified release remains `0.2.5`.
+The optional third `EngineeringMutationOptions` argument applies to
+`enrollEngineeringSource`, `submitEngineeringEvidence`,
+`selectEngineeringRepository`, `withdrawEngineeringSource`,
+`invalidateEngineeringSource`, `putRepositoryPolicy` and
+`disableEngineeringExports`. Existing two-argument callers remain compatible.
+This adds no AI coordinator method or public engineering route.
+
+The SDK captures `signal` and `verifyBeforeCommit` once at entry and rejects
+invalid option/guard shapes. For each new conditional transaction attempt, the
+read-only host callback runs after SDK external proof/planning awaits and
+before the synchronous final fences and CAS. It can return a synchronous
+`() => true` assertion; the assertion and captured signal are checked at the
+transaction call. Every OCC retry runs the live callback again. The host
+supplies current original-actor/session/role checks and bounds any external
+reads with its own deadline-backed signal. The callback must not perform an
+external mutation.
+
+An exact accepted receipt returns under current method permissions without
+invoking a new guard or external proof. Host admission and delivery checks
+remain current. Abort before transaction handoff prevents a new commit;
+abort after handoff cannot undo an accepted write, so uncertain results retain
+the exact command for recovery. This is a bounded fresh observation of external
+authority, not cross-store atomicity. Hosts measure the added reads within their
+complete physical request budgets. See the
+[candidate upgrade guidance](UPGRADING.md#unpublished-026-guarded-engineering-controls).
+
 ## A verified failure is the input
 
 Engineering enrollment and `submitEngineeringEvidence` establish a separate

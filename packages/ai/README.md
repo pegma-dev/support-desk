@@ -1,5 +1,11 @@
 # @pegma/support-desk-ai
 
+The local package is an **unpublished synchronized `0.2.6` source candidate**.
+See the [candidate release notes](../../docs/RELEASE_NOTES.md#026-candidate--guarded-engineering-controls)
+and [engineering guard contract](../../docs/ENGINEERING_EXPORT.md#026-candidate-guarded-engineering-controls). Its candidate internal Support application
+pin is exact `0.2.6`; external KB application/contracts remain exact `0.1.5`.
+This synchronization adds no AI coordinator method.
+
 Optional, provider-neutral Support Desk answer, learning, engineering, and
 release follow-up coordination.
 The current verified published synchronized release is `0.2.5`;

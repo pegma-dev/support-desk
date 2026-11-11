@@ -170,6 +170,13 @@ collision hints. Customer DTOs and automatic customer mail omit these fields.
 Calendars and presence stay host-owned. Task 12 remains pending on both hosts'
 durable-store production evidence. Source work does not publish a package.
 
+The five local manifests and exact internal Support pins target the unpublished
+`0.2.6` source candidate. It adds optional `EngineeringMutationOptions` to seven
+engineering application controls; see the [candidate notes](docs/RELEASE_NOTES.md#026-candidate--guarded-engineering-controls)
+and [host guard contract](docs/ENGINEERING_EXPORT.md#026-candidate-guarded-engineering-controls).
+The root package remains private at `0.0.0`. Do not treat a candidate pack or
+source checkout as a verified registry release.
+
 All five packages have verified published `0.2.5` versions. The synchronized
 `0.2.1` and `0.2.0` artifacts remain immutable history. The original four names also retain
 their published `0.1.0`/`0.1.1` artifacts; the AI name's `0.1.1` is a separate
