@@ -6,11 +6,11 @@ and a trusted Authorization Core access context.
 The host server supplies `correlationId` on commands; the application validates
 and propagates it and never generates it.
 
-The current verified published synchronized release is `0.2.3` and includes
+The current verified published synchronized release is `0.2.4` and includes
 changes beyond the immutable `0.1.0`/`0.1.1` artifacts. SD-01 first shipped
 handling/handoff foundations in `0.2.0` without model generation or a KB
 dependency. See the current
-[publication receipt](../../docs/RELEASING.md#verified-023-publication-2026-11-10).
+[publication receipt](../../docs/RELEASING.md#verified-024-publication-2026-11-11).
 Host adoption retains its own activation gates; source checkouts and
 overwritten registry versions are not release substitutes.
 
@@ -18,13 +18,14 @@ The published synchronized `0.2.1` patch groups independent Store reads for
 assistant answering while retaining current authority, ticket and turn fences.
 This package gains no KB or provider dependency. The historical
 [0.2.1 receipt](../../docs/RELEASING.md#verified-021-publication-2026-11-10)
-records that patch's exact artifacts; current `0.2.3` retains those guards. Grouped reads do not establish a universal host query or CPU
+records that patch's exact artifacts; current `0.2.4` retains those guards. Grouped reads do not establish a universal host query or CPU
 budget.
 
 Published `0.2.3` includes the final engineering review guards described in
-the [engineering guide](../../docs/ENGINEERING_EXPORT.md). This checkout is
-synchronized at unpublished `0.2.4` for admitted customer intake, final learning
-draft checks, bounded assistant finish reads and release follow-up staff checks.
+the [engineering guide](../../docs/ENGINEERING_EXPORT.md). Published `0.2.4` adds
+admitted customer intake, final learning draft checks, bounded assistant finish
+reads and release follow-up staff checks. This checkout is synchronized at
+unpublished `0.2.5` for attachments and opt-in staged human learning reviews.
 See the [release notes](../../docs/RELEASE_NOTES.md); combined validation, review
 and verified publication remain required before adoption of the candidate.
 
@@ -103,7 +104,9 @@ Customer create uses `support.ticket.create`; list and read both use the
 documented `support.ticket.read.own` permission and then confirm authoritative
 ownership; reply uses `support.ticket.reply.own`.
 
-## Admitted customer intake (next candidate)
+<a id="admitted-customer-intake-next-candidate"></a>
+
+## Admitted customer intake (published 0.2.4)
 
 The factory's additional `AdmittedCustomerTicketApplication` capability exposes
 `createAdmittedCustomerTicket(access, command, options?)`. It returns

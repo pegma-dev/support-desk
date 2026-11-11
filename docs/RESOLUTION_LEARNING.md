@@ -3,14 +3,14 @@
 SD-03's source merged in [PR #39](https://github.com/pegma-dev/support-desk/pull/39)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current synchronized release is `0.2.3`; see its
-[publication receipt](RELEASING.md#verified-023-publication-2026-11-10).
+The current synchronized release is `0.2.4`; see its
+[publication receipt](RELEASING.md#verified-024-publication-2026-11-11).
 The ticket application implements enrollment, structured resolution evidence,
 durable work, exact staff review, invalidation, withdrawal, and reconciliation
 records. The optional AI package adds bounded model processing, KB draft
 delivery, exact staff review, and source retirement/reconciliation through
 `createSupportDeskLearning`, with read-only callbacks from
-`createSupportDeskLearningSourceVerifier`. The current AI `0.2.3` release
+`createSupportDeskLearningSourceVerifier`. The current AI `0.2.4` release
 consumes the application and contracts packages from the verified
 [KB `0.1.5` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.5).
 The initial SD-03 release consumed
@@ -293,7 +293,7 @@ fresh exact review. Reviewing later drafts retains the earlier published
 revision's separate review; a new source generation invalidates all reviews
 bound to the old source.
 
-In the `0.2.4` candidate, staff can prepare a review intent for a strictly newer
+Since published `0.2.4`, staff can prepare a review intent for a strictly newer
 draft of the delivered article in the same collection when the complete ordered
 source provenance still matches the delivery. The returned intent names that
 exact newer revision and content hash. An old unaccepted intent becomes stale
@@ -372,7 +372,8 @@ still require their separate gates. See the
 
 ## Opt-in staged human review (source candidate)
 
-The default `createSupportDeskLearning` factory executes inline reviews. Hosts
+The unpublished `0.2.5` candidate adds staged human reviews. The default
+`createSupportDeskLearning` factory executes inline reviews. Hosts
 can select the optional staged capability by setting
 `resolutionLearning.stagedReviews: true` and constructing
 `createSupportDeskStagedLearningReviews`. Structural application ports expose

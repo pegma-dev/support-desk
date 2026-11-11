@@ -170,11 +170,11 @@ collision hints. Customer DTOs and automatic customer mail omit these fields.
 Calendars and presence stay host-owned. Task 12 remains pending on both hosts'
 durable-store production evidence. Source work does not publish a package.
 
-All five packages have verified published `0.2.3` versions. The synchronized
+All five packages have verified published `0.2.4` versions. The synchronized
 `0.2.1` and `0.2.0` artifacts remain immutable history. The original four names also retain
 their published `0.1.0`/`0.1.1` artifacts; the AI name's `0.1.1` is a separate
 registration-only bootstrap. Follow the
-[publication receipt](docs/RELEASING.md#verified-023-publication-2026-11-10)
+[publication receipt](docs/RELEASING.md#verified-024-publication-2026-11-11)
 and release operations. Customer services return safe DTOs; staff
 services return the authoritative ticket for authorized staff only, and the
 staff queue scans a confirmed projection that is never authorization evidence.
@@ -210,11 +210,12 @@ Direct application rejection may still omit its guard, and receipt-first replay
 retains current review/queue authority. The release receipt records its original
 preparation, registry propagation failures, and verified attempt-three recovery.
 
-All five source packages now target **unpublished `0.2.4` candidate** versions
-for admitted customer intake, review of edited learning drafts with current
-provenance, final KB draft and staff follow-up checks, and grouped assistant
-finish reads. Its combined current-head gates, review, trusted publication and
-strict registry verification remain required before host adoption.
+Published `0.2.4` adds admitted customer intake, edited-draft learning review,
+final draft and staff follow-up checks, and grouped assistant finish reads.
+All five source packages now target **unpublished `0.2.5` candidate** versions
+for attachments and opt-in staged human learning reviews. Its current-head
+gates, review, trusted publication and strict registry verification remain
+required before host adoption.
 
 SD-01 is implemented in source via
 [PR #34](https://github.com/pegma-dev/support-desk/pull/34): optional handling
@@ -223,7 +224,7 @@ messages with exact completion fences, and adds deterministic owned
 request-person, staff takeover, private success evidence, human queue
 selection, and bounded atomic handoff work. It adds no model, KB dependency,
 or package; its behavior first shipped in synchronized `0.2.0` and remains in
-current `0.2.3`. Do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
+current `0.2.4`. Do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
 activation gates after verified SDK publication.
 Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
 preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
@@ -248,7 +249,7 @@ signed `v0.2.0` at `efc9d733b3d305d24cf4197444e1d76c99bdb777`; see
 the migration and operations handbooks are `docs/UPGRADING.md` and
 `docs/AI_OPERATIONS.md`. The base application has no KB or provider dependency; actual KB
 `0.1.5` application/contracts dependencies belong only to the current
-optional AI `0.2.3` package and unpublished `0.2.4` candidate. Older `0.2.0` and
+optional AI `0.2.4` package and unpublished `0.2.5` candidate. Older `0.2.0` and
 `0.2.1` AI manifests retain their original `0.1.2` pins. See [assistant coordination](docs/ASSISTANT_COORDINATION.md)
 and its [layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint).
 PG-01/RG-01 consume exact verified published producers and still require actual
