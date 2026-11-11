@@ -452,6 +452,49 @@ export function createResolutionLearningServices(deps: Dependencies): {
       rows,
     };
   }
+  /** One local observation; later proof phases must take their own fresh view. */
+  async function readView(ticketId: string): Promise<{
+    ticket: TicketVersion;
+    source: SourceVersion;
+    rows: readonly SupportRecord[];
+  }> {
+    text(ticketId, "ticketId");
+    let observed: readonly VersionedRecord<SupportRecord>[];
+    try {
+      observed = await records.listVersioned(ticketId);
+    } catch {
+      // Preserve keyed missing/kind failures when an unrelated stored payload
+      // prevents whole-partition decoding. Never retain a failed observation.
+      return load(ticketId);
+    }
+    const physicalRows = observed.length;
+    const ticket = observed.find((row) => row.value.id === "ticket");
+    if (ticket?.value.kind !== "ticket") throw new SupportDeskNotFoundError();
+    const source = observed.find(
+      (row) => row.value.id === resolutionLearningSourceKey(ticketId).id,
+    );
+    if (source === undefined) throw new SupportDeskNotFoundError();
+    if (source.value.kind !== "resolution_learning_source")
+      throw new SupportDeskConflictError(
+        "Learning source key contains another record",
+      );
+    if (physicalRows > deps.limits.maxRecordsPerTicket)
+      throw new SupportDeskLimitError(
+        "ticket_partition",
+        deps.limits.maxRecordsPerTicket,
+      );
+    const keys = new Set<string>();
+    for (const { value } of observed) {
+      if (value.partition !== ticketId || keys.has(value.id))
+        throw new SupportDeskConflictError("Invalid learning ticket partition");
+      keys.add(value.id);
+    }
+    return {
+      ticket: { value: ticket.value, version: ticket.version },
+      source: { value: source.value, version: source.version },
+      rows: observed.map((row) => row.value),
+    };
+  }
   async function context(
     ticket: Ticket,
     source: ResolutionLearningSourceRecord,
@@ -968,15 +1011,17 @@ export function createResolutionLearningServices(deps: Dependencies): {
     },
     async readResolutionLearningSource(access, ticketId) {
       permission(access, supportPermissions.learningRead, true);
-      return snapshot((await load(ticketId)).source.value);
+      return snapshot((await readView(ticketId)).source.value);
     },
     async readResolutionLearningWork(access, key) {
       permission(access, supportPermissions.learningRead, true);
-      await load(key.ticketId);
+      const view = await readView(key.ticketId);
       integer(key.sourceGeneration, "sourceGeneration", 1);
-      const work = await records.get(
-        resolutionLearningWorkKey(key.ticketId, key.sourceGeneration),
+      const workKey = resolutionLearningWorkKey(
+        key.ticketId,
+        key.sourceGeneration,
       );
+      const work = view.rows.find((row) => row.id === workKey.id);
       if (work?.kind !== "resolution_learning_work")
         throw new SupportDeskNotFoundError();
       return snapshot(work);
@@ -1141,7 +1186,7 @@ export function createResolutionLearningServices(deps: Dependencies): {
     async confirmResolutionLearningSource(access, fence) {
       permission(access, supportPermissions.learningProcess);
       try {
-        const { ticket, source } = await load(fence.ticketId);
+        const { ticket, source } = await readView(fence.ticketId);
         const latest = await readResolutionSource(records, fence.ticketId);
         return (
           latest?.version === source.version &&
