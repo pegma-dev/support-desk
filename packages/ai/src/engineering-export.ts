@@ -7,6 +7,7 @@ import {
   type EngineeringExportRequest,
   type EngineeringIssueAcknowledgement,
   type EngineeringPolicySnapshot,
+  type EngineeringReviewObservation,
   type EngineeringPreparedProposal,
   type EngineeringRepositoryDescriptor,
   type EngineeringRepositoryObservation,
@@ -45,6 +46,7 @@ import {
   engineeringPolicy,
   engineeringProcessingAuthority,
   engineeringSource,
+  validateEngineeringSource,
 } from "./engineering-request.js";
 import type { LearningRuntime } from "./learning-runtime.js";
 
@@ -225,21 +227,41 @@ export async function engineeringProposalGuard(
   runtime: LearningRuntime,
   phase = runtime.deadline,
   expectedAuthority?: EngineeringServiceAuthority,
+  observation?: EngineeringReviewObservation,
+  observeAuthority?: (authority: EngineeringServiceAuthority) => void,
 ): Promise<number> {
-  const authority = await engineeringProcessingAuthority(
-    options.serviceAccess,
-    runtime,
-    expectedAuthority,
-    phase,
-  );
-  const source = await engineeringSource(
-    options,
-    sourceFence(work),
-    runtime,
-    authority,
-    phase,
-  );
-  const policy = await engineeringPolicy(options, authority, runtime, phase);
+  let source;
+  let authority;
+  let policy;
+  if (observation === undefined) {
+    authority = await engineeringProcessingAuthority(
+      options.serviceAccess,
+      runtime,
+      expectedAuthority,
+      phase,
+    );
+    source = await engineeringSource(
+      options,
+      sourceFence(work),
+      runtime,
+      authority,
+      phase,
+    );
+    policy = await engineeringPolicy(options, authority, runtime, phase);
+  } else {
+    authority = await engineeringProcessingAuthority(
+      options.serviceAccess,
+      runtime,
+      expectedAuthority,
+      phase,
+    );
+    // These are this application's own reviewed records, protected by its
+    // original CAS. Confirm their opaque versions again after all AI proof I/O.
+    const context = observation.read(authority.access);
+    source = validateEngineeringSource(context.source, sourceFence(work));
+    policy = context.policy;
+  }
+  observeAuthority?.(authority);
   if (
     policy.generation !== proposal.policyGeneration ||
     policy.policyHash !== proposal.policyHash ||
@@ -366,18 +388,22 @@ export async function engineeringProposalGuard(
   if (canonical(metadata.repository) !== canonical(proposal.request.repository))
     throw new AssistantBoundaryError("repository_metadata_changed");
   deadline = Math.min(deadline, timestamp(metadata.authority.validUntil));
-  const finalAuthority = await engineeringProcessingAuthority(
-    options.serviceAccess,
-    runtime,
-    authority,
-    deadline,
-  );
+  const finalAuthority =
+    observation === undefined
+      ? await engineeringProcessingAuthority(
+          options.serviceAccess,
+          runtime,
+          authority,
+          deadline,
+        )
+      : authority;
   const facts = await engineeringCurrentFacts(
     options,
     sourceFence(work),
     finalAuthority,
     runtime,
     deadline,
+    observation,
   );
   if (
     facts.source.evidenceFingerprint !==

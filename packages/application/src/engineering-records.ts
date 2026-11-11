@@ -15,6 +15,7 @@ import type {
   EngineeringRoutingBinding,
   EngineeringSecurity,
   EngineeringSourceResult,
+  EngineeringSourceFence,
   EngineeringStepResult,
 } from "./engineering-types.js";
 import {
@@ -263,6 +264,24 @@ export const engineeringCommandKey = (
 });
 
 export const safeEngineeringSnapshot = safeLearningSnapshot;
+
+/** Shared processing gate; this does not grant access or replace current reads. */
+export function matchesEngineeringSourceFence(
+  source: EngineeringSourceRecord,
+  fence: EngineeringSourceFence,
+): boolean {
+  return (
+    source.ticketId === fence.ticketId &&
+    source.sourceGeneration === fence.sourceGeneration &&
+    source.sourceBindingHash === fence.sourceBindingHash &&
+    source.state === "eligible" &&
+    source.security === "ordinary" &&
+    source.product !== undefined &&
+    source.evidence !== undefined &&
+    source.evidenceFingerprint !== undefined
+  );
+}
+
 export const engineeringEncodedBytes = encodedBytes;
 export function advanceEngineeringFollowupRevocationEpoch(
   source: EngineeringSourceRecord,

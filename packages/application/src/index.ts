@@ -303,6 +303,7 @@ export async function cleanupUnreferencedAttachmentBlobs(options: {
 }
 
 export type * from "./engineering-types.js";
+export { matchesEngineeringSourceFence } from "./engineering-records.js";
 export type * from "./engineering-followup-types.js";
 export type {
   EngineeringFollowupHeadRecord,

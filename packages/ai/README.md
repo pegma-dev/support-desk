@@ -1,14 +1,24 @@
 # @pegma/support-desk-ai
 
-The local synchronized source version is `0.2.7`. See the
-[release notes](../../docs/RELEASE_NOTES.md#027-engineering-read-batching)
-and [engineering read phases](../../docs/ENGINEERING_EXPORT.md#entry-points-and-authority). The AI coordinator groups current Source/Work reads after the same fresh service-authority and policy boundary. Its internal Support application pin is exact `0.2.7`; external KB application/contracts remain exact `0.1.5` until the verified `0.1.6` alignment before merge/release.
+The local synchronized source candidate is `0.2.7` and remains unpublished.
+See the [release notes](../../docs/RELEASE_NOTES.md#027-engineering-read-batching)
+and [engineering read phases](../../docs/ENGINEERING_EXPORT.md#entry-points-and-authority).
+The AI coordinator uses the optional authorized Source/Work context after the
+same fresh service-authority and policy boundary, with its original sequential
+read fallback for structural application ports that omit the capability. New
+approval guards can also receive a lazy per-attempt observation under current
+service read/policy access; later Source/Work confirmation, fresh policy and
+late host/closing authority checks remain. Older ports retain their original
+standalone proof path. These optimizations do not qualify a complete Native
+request or CPU budget. Its internal Support application pin is exact `0.2.7`; external KB application/
+contracts remain exact `0.1.5` until verified public `0.1.6` alignment before
+merge/release.
 
 Optional, provider-neutral Support Desk answer, learning, engineering, and
 release follow-up coordination.
-The current verified published synchronized release is `0.2.5`;
-see the [publication receipt](../../docs/RELEASING.md#verified-025-publication-2026-11-11).
-Its exact internal Support application pin is `0.2.5`; external KB application
+The current verified published synchronized release is `0.2.6`;
+see the [publication receipt](../../docs/RELEASING.md#verified-026-publication-2026-11-11).
+Its exact internal Support application pin is `0.2.6`; external KB application
 and contracts pins are exact `0.1.5`. Host activation and whole-invocation/CPU
 acceptance retain separate gates. The published `0.2.1`/KB `0.1.2` artifacts
 and their original receipts remain immutable.
@@ -19,7 +29,9 @@ adds final learning draft checks, bounded assistant finish reads and release
 follow-up staff checks. Published `0.2.5` adds opt-in staged human learning
 reviews alongside the application attachment APIs. Its exact internal Support
 application pin is `0.2.5`; KB pins remain `0.1.5`.
-See the [release notes](../../docs/RELEASE_NOTES.md); host adoption remains separate.
+Published `0.2.6` adds optional final host guards to seven engineering
+application controls, with the same exact KB `0.1.5` pins. See the
+[release notes](../../docs/RELEASE_NOTES.md); host adoption remains separate.
 
 The base Support Desk application works without this package, a KB, or a model.
 Customer request-person and staff takeover remain deterministic application
