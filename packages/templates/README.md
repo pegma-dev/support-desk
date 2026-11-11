@@ -1,9 +1,9 @@
 # @pegma/support-desk-templates
 
-The current verified synchronized registry release is `0.2.2`; see the
-[publication receipt](../../docs/RELEASING.md#verified-022-publication-2026-11-10).
-This checkout is synchronized at unpublished `0.2.3` for the application/AI
-[engineering review guard correction](../../docs/RELEASE_NOTES.md). Source version
+The current verified synchronized registry release is `0.2.3`; see the
+[publication receipt](../../docs/RELEASING.md#verified-023-publication-2026-11-10).
+This checkout is synchronized at unpublished `0.2.4` for the
+[next application/AI changes](../../docs/RELEASE_NOTES.md). Source version
 alignment does not publish a package or qualify a host.
 
 Small, non-executable notification templates. Definitions have an explicit

@@ -5,7 +5,10 @@ import {
   type ReviewResolutionLearningProposalCommand,
   type ResolutionLearningSourceResult,
 } from "@pegma/support-desk-application";
-import type { LearningReviewCommand } from "@pegma/support-desk-ai";
+import {
+  createSupportDeskLearning,
+  type LearningReviewCommand,
+} from "@pegma/support-desk-ai";
 import { describe, expect, it } from "vitest";
 import type { HandlingTransaction } from "../test/handling-fixtures.js";
 import {
@@ -46,17 +49,22 @@ async function prepared(f: Fixture): Promise<LearningReviewCommand> {
     decision: "approve",
   };
 }
-async function edit(f: Fixture, packet: LearningReviewCommand) {
+async function edit(
+  f: Fixture,
+  packet: LearningReviewCommand,
+  title = "Independently edited export guide",
+  collectionId?: string,
+) {
   const draft = await f.kb.getDraft(f.access.guideAuthor, {
     articleId: packet.intent.target.articleId,
   });
   return f.kb.updateDraft(f.access.draftService, {
     ...f.command("concurrent-edit", draft.generation),
     articleId: draft.revision.articleId,
-    collectionId: draft.revision.collectionId,
+    collectionId: collectionId ?? draft.revision.collectionId,
     draft: {
       kind: draft.revision.kind,
-      title: "Independently edited export guide",
+      title,
       summary: draft.revision.summary,
       content: draft.revision.content,
       tags: draft.revision.tags,
@@ -155,6 +163,464 @@ for (const [name, createStore] of learningKbStores) {
         }),
       ).toEqual(cancelled);
       expect(await f.support.rows()).toEqual(after);
+    });
+
+    it.each(["unaccepted", "accepted"] as const)(
+      "prepares a fresh exact intent after a same-article edit with a %s original packet",
+      async (state) => {
+        const f = await learningKbFixture(createStore());
+        const original = await prepared(f);
+        const { ticketId, sourceGeneration, target } = original.intent;
+        const { articleId } = target;
+        const originalResult =
+          state === "accepted"
+            ? await f.learning.submitReviewIntent(f.access.staff, original)
+            : undefined;
+        const readPublished = () =>
+          f.kb.getPublishedArticle(f.access.customer, { articleId });
+        let previousPublication:
+          Awaited<ReturnType<typeof readPublished>> | undefined;
+        if (state === "accepted") {
+          await f.issueGuideEvidence(articleId);
+          previousPublication = await f.publish(articleId);
+          expect(previousPublication.revision).toBe(target.articleRevision);
+        }
+
+        await edit(f, original);
+        const expected = await f.currentTarget(articleId);
+        const context = await f.currentSourceContext(articleId);
+        expect(expected).toEqual({
+          ...target,
+          articleRevision: target.articleRevision + 1,
+          contentHash: context.article.contentHash,
+        });
+        expect(expected.contentHash).not.toBe(target.contentHash);
+        expect(await f.sources.canPublish(context)).toBe(false);
+        if (previousPublication === undefined) {
+          await expect(readPublished()).rejects.toThrow();
+        } else {
+          await expect(readPublished()).resolves.toEqual(previousPublication);
+        }
+
+        const before = await f.support.rows();
+        const transactions = f.support.observed.transactions.length;
+        const modelCalls = f.ports.generate.mock.calls.length;
+        const value = await f.learning.prepareReviewIntent(f.access.staff, {
+          ticketId,
+          sourceGeneration,
+        });
+        expect(value.intent).toEqual({ ...original.intent, target: expected });
+        expect(value.draft).toEqual(
+          await f.kb.getDraft(f.access.staff, { articleId }),
+        );
+        expect(Object.isFrozen(value.intent.target)).toBe(true);
+        expect(await f.support.rows()).toEqual(before);
+        expect(f.support.observed.transactions).toHaveLength(transactions);
+        expect(f.ports.generate).toHaveBeenCalledTimes(modelCalls);
+
+        const fresh: LearningReviewCommand = {
+          ...original,
+          intent: value.intent,
+          commandId: "EDITED-EXACT-REVIEW",
+        };
+        expect(await f.learning.readReviewReceipt(f.access.staff, fresh)).toBe(
+          null,
+        );
+        const accepted = await f.learning.submitReviewIntent(
+          f.access.staff,
+          fresh,
+        );
+        expect(
+          await f.learning.readReviewReceipt(f.access.staff, fresh),
+        ).toEqual({ outcome: "accepted", result: accepted });
+        expect(await f.sources.canPublish(context)).toBe(true);
+        const after = await f.support.rows();
+        expect(after).toHaveLength(before.length + 3);
+        expect(
+          after.find(
+            (row) =>
+              row.kind === "resolution_learning_review" &&
+              row.target.articleRevision === expected.articleRevision,
+          ),
+        ).toMatchObject({ target: expected, decision: "approve" });
+        if (state === "accepted") {
+          await expect(
+            f.learning.submitReviewIntent(f.access.staff, original),
+          ).resolves.toEqual(originalResult);
+          expect(
+            await f.learning.readReviewReceipt(f.access.staff, original),
+          ).toEqual({ outcome: "accepted", result: originalResult });
+          await expect(readPublished()).resolves.toEqual(previousPublication);
+        } else {
+          await expect(
+            f.learning.submitReviewIntent(f.access.staff, original),
+          ).rejects.toMatchObject({ category: "target_changed" });
+          expect(
+            await f.learning.readReviewReceipt(f.access.staff, original),
+          ).toBeNull();
+          await expect(readPublished()).rejects.toThrow();
+        }
+        expect(await f.support.rows()).toEqual(after);
+
+        const draft = await f.kb.getDraft(f.access.guideAuthor, { articleId });
+        await expect(
+          f.kb.submitForReview(f.access.guideAuthor, {
+            ...f.command("edited-draft-still-needs-evidence", draft.generation),
+            articleId,
+          }),
+        ).rejects.toThrow();
+        expect(
+          await f.kb.getDraft(f.access.guideAuthor, { articleId }),
+        ).toEqual(draft);
+        await f.issueGuideEvidence(articleId);
+        expect(await f.publish(articleId)).toMatchObject({
+          articleId,
+          revision: expected.articleRevision,
+          contentHash: expected.contentHash,
+        });
+      },
+    );
+
+    it("refuses an edited preparation changed during the late policy observation", async () => {
+      const f = await learningKbFixture(createStore());
+      const original = await prepared(f);
+      await edit(f, original);
+      const inspected = await f.currentTarget(original.intent.target.articleId);
+      const rows = await f.support.rows();
+      const transactions = f.support.observed.transactions.length;
+      const gate = learningKbBarrier();
+      const sourceCheck = f.sources.isCurrent.getMockImplementation();
+      const resolvePolicy = f.ports.resolvePolicy.getMockImplementation();
+      if (sourceCheck === undefined || resolvePolicy === undefined)
+        throw new Error("Expected the actual fixture proof implementations");
+      let sourcesConfirmed = false;
+      let held = false;
+      f.sources.isCurrent.mockImplementation(async (...args) => {
+        const result = await sourceCheck(...args);
+        sourcesConfirmed = true;
+        return result;
+      });
+      f.ports.resolvePolicy.mockImplementation(async (...args) => {
+        const result = await resolvePolicy(...args);
+        if (sourcesConfirmed && !held) {
+          held = true;
+          await gate.wait();
+        }
+        return result;
+      });
+      const pending = f.learning.prepareReviewIntent(f.access.staff, {
+        ticketId: original.intent.ticketId,
+        sourceGeneration: original.intent.sourceGeneration,
+      });
+      try {
+        await awaitBarrier(gate, pending);
+        await edit(
+          f,
+          original,
+          "A later ordinary edit during policy resolution",
+        );
+      } finally {
+        gate.release();
+        f.sources.isCurrent.mockImplementation(sourceCheck);
+        f.ports.resolvePolicy.mockImplementation(resolvePolicy);
+      }
+      await expect(pending).rejects.toMatchObject({
+        category: "target_changed",
+      });
+      expect(held).toBe(true);
+      expect(
+        await f.currentTarget(original.intent.target.articleId),
+      ).toMatchObject({
+        articleRevision: inspected.articleRevision + 1,
+      });
+      expect(await f.support.rows()).toEqual(rows);
+      expect(f.support.observed.transactions).toHaveLength(transactions);
+    });
+
+    it("refuses an edited approval changed during the final guard's late policy observation", async () => {
+      const f = await learningKbFixture(createStore());
+      const original = await prepared(f);
+      await edit(f, original);
+      const preparedEdit = await f.learning.prepareReviewIntent(
+        f.access.staff,
+        {
+          ticketId: original.intent.ticketId,
+          sourceGeneration: original.intent.sourceGeneration,
+        },
+      );
+      const packet: LearningReviewCommand = {
+        ...original,
+        intent: preparedEdit.intent,
+        commandId: "EDITED-LATE-POLICY-REVIEW",
+      };
+      const rows = await f.support.rows();
+      const transactions = f.support.observed.transactions.length;
+      const gate = learningKbBarrier();
+      const resolvePolicy = f.ports.resolvePolicy.getMockImplementation();
+      if (resolvePolicy === undefined)
+        throw new Error("Expected the actual fixture policy implementation");
+      let commitGuardReached = false;
+      let held = false;
+      f.ports.resolvePolicy.mockImplementation(async (...args) => {
+        const result = await resolvePolicy(...args);
+        if (commitGuardReached && !held) {
+          held = true;
+          await gate.wait();
+        }
+        return result;
+      });
+      const learning = createSupportDeskLearning({
+        application: {
+          ...f.support.app,
+          reviewResolutionLearningProposal(access, command, guard) {
+            return f.support.app.reviewResolutionLearningProposal(
+              access,
+              command,
+              async () => {
+                commitGuardReached = true;
+                await guard();
+              },
+            );
+          },
+        },
+        knowledge: f.ports.knowledge,
+        sources: f.sources,
+        serviceAccess: { resolve: f.ports.resolveService },
+        knowledgeAccess: { resolve: f.ports.resolveKnowledge },
+        retirementAccess: { resolve: f.ports.resolveRetirement },
+        configuration: { resolve: f.ports.resolveConfiguration },
+        checks: f.checks,
+        model: { generate: f.ports.generate },
+        usage: {
+          reserve: f.ports.reserve,
+          reconcile: f.ports.reconcileUsage,
+        },
+        tokenCounter: {
+          count: (text) => new TextEncoder().encode(text).byteLength,
+        },
+        targets: { resolveScope: f.ports.resolveScope, select: f.ports.select },
+        clock: f.support.clock,
+      });
+      const pending = learning.submitReviewIntent(f.access.staff, packet);
+      try {
+        await awaitBarrier(gate, pending);
+        expect(commitGuardReached).toBe(true);
+        await edit(
+          f,
+          packet,
+          "A later ordinary edit before the review commits",
+        );
+      } finally {
+        gate.release();
+        f.ports.resolvePolicy.mockImplementation(resolvePolicy);
+      }
+      await expect(pending).rejects.toMatchObject({
+        category: "target_changed",
+      });
+      expect(held).toBe(true);
+      expect(
+        await learning.readReviewReceipt(f.access.staff, packet),
+      ).toBeNull();
+      expect(await f.support.rows()).toEqual(rows);
+      expect(f.support.observed.transactions).toHaveLength(transactions);
+      const context = await f.currentSourceContext(
+        packet.intent.target.articleId,
+      );
+      expect(context.article.number).toBe(
+        packet.intent.target.articleRevision + 1,
+      );
+      expect(await f.sources.canPublish(context)).toBe(false);
+    });
+
+    it("recovers an edited exact receipt without another KB observation", async () => {
+      const f = await learningKbFixture(createStore());
+      const original = await prepared(f);
+      await edit(f, original);
+      const preparedEdit = await f.learning.prepareReviewIntent(
+        f.access.staff,
+        {
+          ticketId: original.intent.ticketId,
+          sourceGeneration: original.intent.sourceGeneration,
+        },
+      );
+      const packet: LearningReviewCommand = {
+        ...original,
+        intent: preparedEdit.intent,
+        commandId: "ACCEPTED-EDITED-REVIEW",
+      };
+      const accepted = await f.learning.submitReviewIntent(
+        f.access.staff,
+        packet,
+      );
+      await edit(f, packet, "A newer draft after the accepted edited review");
+      const rows = await f.support.rows();
+      const transactions = f.support.observed.transactions.length;
+      const knowledgeCalls = f.ports.knowledgeCalls.length;
+      f.state.serviceOutcome = "unavailable";
+      f.state.policyOutcome = "unavailable";
+      f.interceptKnowledge(async () => {
+        throw new Error("Exact accepted receipt must precede any new KB read");
+      });
+      expect(
+        await f.learning.submitReviewIntent(f.access.staff, packet),
+      ).toEqual(accepted);
+      expect(
+        await f.learning.readReviewReceipt(f.access.staff, packet),
+      ).toEqual({
+        outcome: "accepted",
+        result: accepted,
+      });
+      expect(
+        await f.learning.cancelReview(f.access.staff, packet, {
+          verifyBeforeCommit: currentHuman,
+        }),
+      ).toEqual({ outcome: "accepted", result: accepted });
+      expect(f.ports.knowledgeCalls).toHaveLength(knowledgeCalls);
+      expect(f.support.observed.transactions).toHaveLength(transactions);
+      expect(await f.support.rows()).toEqual(rows);
+    });
+
+    it("keeps an edited-draft intent exact when another edit precedes submission", async () => {
+      const f = await learningKbFixture(createStore());
+      const original = await prepared(f);
+      const { ticketId, sourceGeneration } = original.intent;
+      await edit(f, original);
+      const firstEdit = await f.learning.prepareReviewIntent(f.access.staff, {
+        ticketId,
+        sourceGeneration,
+      });
+      const packet: LearningReviewCommand = {
+        ...original,
+        intent: firstEdit.intent,
+        commandId: "FIRST-EDIT-REVIEW",
+      };
+      await edit(f, packet, "A second edit after review preparation");
+      const before = await f.support.rows();
+      const transactions = f.support.observed.transactions.length;
+      await expect(
+        f.learning.submitReviewIntent(f.access.staff, packet),
+      ).rejects.toMatchObject({ category: "target_changed" });
+      expect(await f.learning.readReviewReceipt(f.access.staff, packet)).toBe(
+        null,
+      );
+      const refreshed = await f.learning.prepareReviewIntent(f.access.staff, {
+        ticketId,
+        sourceGeneration,
+      });
+      expect(refreshed.intent.target).toEqual(
+        await f.currentTarget(packet.intent.target.articleId),
+      );
+      expect(refreshed.intent.target.articleRevision).toBe(
+        firstEdit.intent.target.articleRevision + 1,
+      );
+      expect(refreshed.intent.target.contentHash).not.toBe(
+        firstEdit.intent.target.contentHash,
+      );
+      expect(await f.support.rows()).toEqual(before);
+      expect(f.support.observed.transactions).toHaveLength(transactions);
+    });
+
+    it("does not prepare a newer same-article revision after a provenance change", async () => {
+      const f = await learningKbFixture(createStore());
+      const original = await prepared(f);
+      const { ticketId, sourceGeneration, target } = original.intent;
+      const { articleId } = target;
+      await edit(f, original);
+      const draft = await f.kb.getDraft(f.access.admin, { articleId });
+      const provenance = await f.kb.getProvenance(f.access.admin, {
+        articleId,
+      });
+      await f.kb.setProvenance(f.access.admin, {
+        ...f.command("same-references-new-provenance", draft.generation),
+        articleId,
+        references: provenance.snapshot.references,
+      });
+      const changed = await f.currentTarget(articleId);
+      expect(changed).toMatchObject({
+        articleId,
+        collectionId: target.collectionId,
+        articleRevision: target.articleRevision + 1,
+        sourceSnapshotGeneration: target.sourceSnapshotGeneration + 1,
+        orderedReferencesHash: target.orderedReferencesHash,
+      });
+      expect(
+        await f.sources.isCurrent(await f.currentSourceContext(articleId)),
+      ).toBe(true);
+      const before = await f.support.rows();
+      const transactions = f.support.observed.transactions.length;
+      await expect(
+        f.learning.prepareReviewIntent(f.access.staff, {
+          ticketId,
+          sourceGeneration,
+        }),
+      ).rejects.toMatchObject({ category: "target_changed" });
+      expect(await f.support.rows()).toEqual(before);
+      expect(f.support.observed.transactions).toHaveLength(transactions);
+    });
+
+    it("does not prepare a newer revision after retirement", async () => {
+      const f = await learningKbFixture(createStore());
+      const original = await prepared(f);
+      const { ticketId, sourceGeneration, target } = original.intent;
+      const { articleId } = target;
+      await edit(f, original);
+      const draft = await f.kb.getDraft(f.access.admin, { articleId });
+      await f.kb.retireArticle(f.access.admin, {
+        ...f.command("retire-after-edit", draft.generation),
+        articleId,
+      });
+      const retired = await f.kb.getDraft(f.access.admin, { articleId });
+      expect(retired.state).toBe("retired");
+      expect(retired.revision.number).toBe(target.articleRevision + 1);
+      const before = await f.support.rows();
+      await expect(
+        f.learning.prepareReviewIntent(f.access.staff, {
+          ticketId,
+          sourceGeneration,
+        }),
+      ).rejects.toMatchObject({ category: "target_changed" });
+      expect(await f.support.rows()).toEqual(before);
+    });
+
+    it("does not prepare a newer revision moved to another collection", async () => {
+      const f = await learningKbFixture(createStore());
+      const original = await prepared(f);
+      const { ticketId, sourceGeneration, target } = original.intent;
+      const collectionId = "moved-learning-draft";
+      await f.kb.createCollection(f.access.admin, {
+        ...f.command("other-collection", 0),
+        collectionId,
+        name: "Another learning collection",
+      });
+      const collection = await f.kb.getCollection(f.access.admin, {
+        collectionId,
+      });
+      const originalGovernance = await f.kb.getGovernanceConfiguration(
+        f.access.admin,
+        { collectionId: target.collectionId },
+      );
+      await f.kb.putGovernanceConfiguration(f.access.admin, {
+        ...f.command("other-collection-governance", collection.generation),
+        collectionId,
+        configuration: originalGovernance.configuration,
+      });
+      await edit(f, original, "Moved export guide", collectionId);
+      expect(await f.currentTarget(target.articleId)).toMatchObject({
+        articleId: target.articleId,
+        collectionId,
+        articleRevision: target.articleRevision + 1,
+        sourceSnapshotGeneration: target.sourceSnapshotGeneration,
+        sourceSnapshotHash: target.sourceSnapshotHash,
+        orderedReferencesHash: target.orderedReferencesHash,
+      });
+      const before = await f.support.rows();
+      await expect(
+        f.learning.prepareReviewIntent(f.access.staff, {
+          ticketId,
+          sourceGeneration,
+        }),
+      ).rejects.toMatchObject({ category: "target_changed" });
+      expect(await f.support.rows()).toEqual(before);
     });
 
     it("cancels an obsolete policy intent and permits only a separately prepared command to submit the renewed proof", async () => {

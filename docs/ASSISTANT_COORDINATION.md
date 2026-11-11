@@ -11,11 +11,11 @@ deployment, live-provider, or pilot result. Follow
 and the actual public types in `packages/application/src/assistant-turn-types.ts`
 and `packages/ai/src/ports.ts` when changing this boundary.
 
-The published `0.2.2` optional `@pegma/support-desk-ai` package owns coordination
+The published `0.2.3` optional `@pegma/support-desk-ai` package owns coordination
 and exact KB application/contracts `0.1.5` dependencies. The base application
 remains usable without AI and contains no KB or model-provider dependency. The
-current synchronized `0.2.2` release is published and strictly verified; see the
-[publication receipt](RELEASING.md#verified-022-publication-2026-11-10).
+current synchronized `0.2.3` release is published and strictly verified; see the
+[publication receipt](RELEASING.md#verified-023-publication-2026-11-10).
 Host activation retains its own acceptance gates. Existing registry versions
 remain immutable.
 
@@ -61,6 +61,18 @@ message can create this work. Inspect the actual message channel: a ticket
 created on the web retains `Ticket.channel: "web"` after an email reply, but
 that email reply must follow the existing human handoff with reason
 `email_reply`.
+
+### Admitted intake (next candidate)
+
+Hosts can opt into
+[`createAdmittedCustomerTicket`](../packages/application/README.md#admitted-customer-intake-next-candidate)
+to recover the original human/assistant intake decision from the exact receipt
+before repeating assistant qualification. A fresh write requires the trusted
+late guard and, for an assistant decision, current same-principal
+`assistantStart` authority. Retain the original packet on an unknown
+acknowledgement. The returned initial mode is historical, while its customer
+view reflects current handling. This operation keeps the existing handling,
+turn, attempt and capacity defaults.
 
 `AssistantTurnApplication` has five fixed operations:
 
@@ -113,8 +125,8 @@ application/contracts to exact `0.1.5` with matching repository development/test
 pins. The published `0.2.1` release keeps its immutable KB `0.1.2` graph. The
 [0.2.2 receipt](RELEASING.md#verified-022-publication-2026-11-10) qualifies its
 exact artifacts; each host separately verifies its installed graph and actual
-composition. The unpublished `0.2.3` engineering guard candidate does not change
-this staged protocol, its result union, attempt tradeoff or physical return.
+composition. Published `0.2.3` retains this staged protocol, its result union,
+attempt tradeoff and physical return.
 
 `stagedRetrieval: true` on `createSupportDeskAssistant` splits a turn across
 two separate physical host invocations. Omission retains the monolithic
@@ -351,8 +363,8 @@ respect the tighter phase deadline. Each subsequent change requires its own
 current-head gates.
 Current-head Node 22/24 format/check/test gates and actual code/security review
 remain required for changes; historical SD-01 or producer results do not
-certify changed source. The completed `0.2.2` release gates are recorded in the
-[publication receipt](RELEASING.md#verified-022-publication-2026-11-10).
+certify changed source. The completed `0.2.3` release gates are recorded in the
+[publication receipt](RELEASING.md#verified-023-publication-2026-11-10).
 
 Both hosts still need their own existing-login/current-Admin consent and
 actual Codex, Claude Code, Grok Bot installed desktop/hosted-agent, and T3 Code

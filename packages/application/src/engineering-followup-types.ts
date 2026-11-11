@@ -344,6 +344,15 @@ export interface ApproveAndPostEngineeringFollowupWebUpdateCommand
   readonly bundleHash: string;
   readonly messageId: MessageId;
 }
+/** A trusted release check may supply a synchronous final proof assertion. */
+export type EngineeringFollowupWebUpdateProofGuard = () =>
+  void | (() => true) | Promise<void | (() => true)>;
+
+export interface EngineeringFollowupWebUpdateOptions {
+  readonly signal?: AbortSignal;
+  /** Trusted, read-only current staff authority check for a new notice. */
+  readonly verifyBeforeCommit?: EngineeringCommitGuard;
+}
 export interface EngineeringFollowupPostResult extends EngineeringFollowupKey {
   readonly messageId: MessageId;
   readonly ticketRevision: number;
@@ -429,7 +438,8 @@ export interface EngineeringFollowupApplication {
   approveAndPostEngineeringFollowupWebUpdate(
     access: AccessContext,
     command: ApproveAndPostEngineeringFollowupWebUpdateCommand,
-    guard: EngineeringCommitGuard,
+    guard: EngineeringFollowupWebUpdateProofGuard,
+    options?: EngineeringFollowupWebUpdateOptions,
   ): Promise<EngineeringFollowupPostResult>;
   submitEngineeringFollowupRetestResult(
     access: AccessContext,

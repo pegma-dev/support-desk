@@ -77,13 +77,30 @@ export function engineeringFollowupNow(
 export async function engineeringFollowupTrusted<T>(
   deps: EngineeringFollowupDependencies,
   action: (signal: AbortSignal) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
+  if (signal?.aborted)
+    throw new SupportDeskConflictError(
+      "Follow-up trusted observation cancelled",
+    );
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
   try {
     return await Promise.race([
       Promise.resolve().then(() => action(controller.signal)),
       new Promise<never>((_resolve, reject) => {
+        if (signal !== undefined) {
+          onAbort = () => {
+            controller.abort();
+            reject(
+              new SupportDeskConflictError(
+                "Follow-up trusted observation cancelled",
+              ),
+            );
+          };
+          signal.addEventListener("abort", onAbort, { once: true });
+        }
         timer = setTimeout(() => {
           controller.abort();
           reject(
@@ -96,6 +113,7 @@ export async function engineeringFollowupTrusted<T>(
     ]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
+    if (onAbort !== undefined) signal?.removeEventListener("abort", onAbort);
   }
 }
 export function engineeringFollowupResult(

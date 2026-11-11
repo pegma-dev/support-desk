@@ -6,11 +6,11 @@ and a trusted Authorization Core access context.
 The host server supplies `correlationId` on commands; the application validates
 and propagates it and never generates it.
 
-The current verified published synchronized release is `0.2.2` and includes
+The current verified published synchronized release is `0.2.3` and includes
 changes beyond the immutable `0.1.0`/`0.1.1` artifacts. SD-01 first shipped
 handling/handoff foundations in `0.2.0` without model generation or a KB
 dependency. See the current
-[publication receipt](../../docs/RELEASING.md#verified-022-publication-2026-11-10).
+[publication receipt](../../docs/RELEASING.md#verified-023-publication-2026-11-10).
 Host adoption retains its own activation gates; source checkouts and
 overwritten registry versions are not release substitutes.
 
@@ -18,17 +18,15 @@ The published synchronized `0.2.1` patch groups independent Store reads for
 assistant answering while retaining current authority, ticket and turn fences.
 This package gains no KB or provider dependency. The historical
 [0.2.1 receipt](../../docs/RELEASING.md#verified-021-publication-2026-11-10)
-records that patch's exact artifacts; current `0.2.2` retains those guards. Grouped reads do not establish a universal host query or CPU
+records that patch's exact artifacts; current `0.2.3` retains those guards. Grouped reads do not establish a universal host query or CPU
 budget.
 
-This checkout is synchronized at unpublished `0.2.3`. Its engineering review
-guard correction follows repository/policy observations with the supplied
-approval guard and honors a supplied rejection guard at the final boundary;
-direct rejection may still omit one. Accepted replay remains receipt-first.
-This is a bounded partition-commit check, not cross-store atomicity, and is not
-in published `0.2.2`. See the [engineering guide](../../docs/ENGINEERING_EXPORT.md)
-and [release notes](../../docs/RELEASE_NOTES.md); full validation, review and
-verified publication remain required before adoption of the correction.
+Published `0.2.3` includes the final engineering review guards described in
+the [engineering guide](../../docs/ENGINEERING_EXPORT.md). This checkout is
+synchronized at unpublished `0.2.4` for admitted customer intake, final learning
+draft checks, bounded assistant finish reads and release follow-up staff checks.
+See the [release notes](../../docs/RELEASE_NOTES.md); combined validation, review
+and verified publication remain required before adoption of the candidate.
 
 SD-02's merged source adds opt-in `assistantTurns` and the
 `AssistantTurnApplication` methods `scanAssistantTurnCandidates`,
@@ -104,6 +102,54 @@ acceptance remains separate.
 Customer create uses `support.ticket.create`; list and read both use the
 documented `support.ticket.read.own` permission and then confirm authoritative
 ownership; reply uses `support.ticket.reply.own`.
+
+## Admitted customer intake (next candidate)
+
+The factory's additional `AdmittedCustomerTicketApplication` capability exposes
+`createAdmittedCustomerTicket(access, command, options?)`. It returns
+`{view, initialMode}`, where the recorded initial mode is `human` or
+`assistant`. The view reflects current customer-visible state, so a replay
+after human handoff can report initial mode `assistant` and current handling
+`human-pending`.
+
+Both fresh intake and receipt recovery require current `support.ticket.create`
+and `support.ticket.read.own` authority for the original principal. The command
+contains the existing command/correlation, ticket and message IDs, subject,
+body, optional category and requester email, plus required preference `human`
+or `assistant_if_available` and optional `disclosureVersion`. This is a closed
+own-data packet. The SDK copies its permitted fields before normalization.
+Notification and `initialHandling` belong to the existing
+`createCustomerTicket` command.
+
+A fresh command requires `CreateAdmittedCustomerTicketOptions.verifyBeforeCommit`.
+After Store preparation, this trusted read-only callback receives the chosen
+mode and returns a synchronous `() => true` assertion. The host bounds the
+callback, verifies the original browser credential and current permissions for
+that mode, and makes the assertion check the remaining authority and deadline.
+The application requires exactly `true` immediately before its ticket
+transaction. Options may also supply an abort signal.
+
+Human preference, absent disclosure, disabled assistant handling, unconfigured
+assistant turns, or an absent/null `resolveAssistantStart` result select human
+support. An assistant decision requires that optional resolver to return fresh
+same-principal create/read authority plus `support.ticket.assistant.start`. The host
+qualifies the offered disclosure and processing path before returning that
+authority. A thrown resolver error propagates. The existing handling and turn
+defaults still govern the resulting ticket.
+
+Retain the original command, ticket and message IDs, content, preference and
+disclosure for exact retry. Correlation remains server tracing metadata.
+Accepted replay precedes fresh routing, disclosure and worker qualification,
+and can omit options. It recovers the receipt's initial mode and current owned
+view. An unknown transaction result stays pending until exact replay resolves
+it. A late refusal can leave the existing customer-index reservation and a
+number gap. Retry reuses the reservation, and existing fenced pruning handles
+an abandoned reservation.
+
+The two-argument `createCustomerTicket` contract keeps its notification,
+permission, fingerprint and historical replay behavior. Its interface remains
+available to existing structural implementations. Callers using the factory's
+inferred return type can also see the added capability.
 
 Staff services use the same application factory and ticket partition:
 

@@ -444,6 +444,156 @@ export function registerAssistantCompletionReadWaveCases(
       ).toBe(true);
     });
 
+    it("starts independent fallback planner reads and records the durable handoff", async () => {
+      const w = await world(factory);
+      const source = await w.record("resolution_learning_source");
+      const engineering = await w.record("engineering_source");
+      const turn = await w.record("assistant_turn");
+      const matchTurn = matches(turn);
+      let turnReads = 0;
+      const pause = w.observed.hold(matches(source), [
+        matches(engineering),
+        (read) => matchTurn(read) && ++turnReads === 2,
+      ]);
+      const command = {
+        ...w.claim.fence,
+        disposition: "escalate" as const,
+        accounting: "not_called" as const,
+        reason: "provider_failure" as const,
+      };
+      const pending = settled(
+        w.f.app.finishAssistantTurnAttempt(agent, command),
+      );
+      try {
+        await reached(
+          pause.reached,
+          pending,
+          "The delegated finish did not start both companion planner reads",
+        );
+      } finally {
+        pause.release();
+        await pending;
+      }
+      const accepted = await pending;
+      expect(accepted).toMatchObject({
+        outcome: "returned",
+        value: { outcome: "escalated", result: { ticketId: "ticket" } },
+      });
+      if (accepted.outcome !== "returned") throw accepted.error;
+      expect(await w.record("assistant_turn")).toMatchObject({
+        status: "escalated",
+        lastFinish: { result: accepted.value },
+      });
+      expect(await w.f.app.readHandoffWork(staff, "ticket")).toHaveLength(1);
+      expect(
+        await w.backing.collection(queueIndex).get(queueKey),
+      ).toMatchObject({
+        projectedRevision: w.claim.fence.expectedRevision + 1,
+        status: "waiting_on_support",
+        handling: { state: "human-pending" },
+      });
+      const rows = await w.f.rows();
+      expect(
+        rows.filter(
+          (row) =>
+            row.kind === "message" && row.message.authorKind === "assistant",
+        ),
+      ).toEqual([]);
+      expect(await w.f.app.finishAssistantTurnAttempt(agent, command)).toEqual(
+        accepted.value,
+      );
+      expect(await w.f.rows()).toEqual(rows);
+    });
+
+    it("recovers an exact finish accepted between delegated receipt and Ticket samples", async () => {
+      const w = await world(factory);
+      const command = {
+        ...w.claim.fence,
+        disposition: "escalate" as const,
+        accounting: "not_called" as const,
+        reason: "provider_failure" as const,
+      };
+      const ticketWaiting = signal();
+      const receiptSampled = signal();
+      const releaseTicket = signal();
+      let ticketReads = 0;
+      let receiptReads = 0;
+      let sampledWinningTicket = false;
+      let resume = false;
+      w.observed.beforeSample(async (read) => {
+        if (isTicket(read) && ++ticketReads === 2) {
+          ticketWaiting.release();
+          await releaseTicket.ready;
+        }
+      });
+      w.observed.onSample(async (read, value) => {
+        if (read.collection !== supportRecords.name) return;
+        if (
+          read.method === "get" &&
+          read.key.id === `command:${command.commandId}` &&
+          (receiptReads === 0 || resume)
+        ) {
+          if (++receiptReads === 1) {
+            expect(value).toBeNull();
+            receiptSampled.release();
+          } else {
+            expect(value).toMatchObject({
+              kind: "command",
+              commandId: command.commandId,
+            });
+          }
+        }
+        if (resume && isTicket(read) && read.method === "getVersioned") {
+          expect(value).toMatchObject({
+            value: {
+              kind: "ticket",
+              ticket: { revision: command.expectedRevision + 1 },
+            },
+          });
+          sampledWinningTicket = true;
+        }
+      });
+      const pending = settled(
+        w.f.app.finishAssistantTurnAttempt(agent, command),
+      );
+      try {
+        await reached(
+          Promise.all([ticketWaiting.ready, receiptSampled.ready]),
+          pending,
+          "The delegated finish receipt did not sample alongside Ticket",
+        );
+        w.observed.beforeSample(undefined);
+        const winner = await w.f
+          .freshApplication()
+          .finishAssistantTurnAttempt(agent, command);
+        expect(winner).toMatchObject({ outcome: "escalated" });
+        const committed = await w.f.rows();
+        resume = true;
+        releaseTicket.release();
+        expect(await pending).toEqual({ outcome: "returned", value: winner });
+        expect(sampledWinningTicket).toBe(true);
+        expect(receiptReads).toBe(2);
+        expect(await w.f.rows()).toEqual(committed);
+        expect(
+          committed.filter(
+            (row) =>
+              row.kind === "command" && row.commandId === command.commandId,
+          ),
+        ).toHaveLength(1);
+        expect(
+          committed.filter(
+            (row) => row.kind === "audit" && row.event.id === command.commandId,
+          ),
+        ).toHaveLength(1);
+        expect(await w.f.app.readHandoffWork(staff, "ticket")).toHaveLength(1);
+      } finally {
+        w.observed.beforeSample(undefined);
+        w.observed.onSample(undefined);
+        releaseTicket.release();
+        await pending;
+      }
+    });
+
     it("recovers a real committed lost ACK before unavailable or deleted fresh metadata", async () => {
       const w = await world(factory);
       let committed = false;

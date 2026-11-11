@@ -494,11 +494,201 @@ for (const [name, createStore] of engineeringFollowupStores) {
       },
     );
 
+    it("checks live staff authority after the final awaited store read", async () => {
+      const f = await engineeringFollowupAiFixture(createStore());
+      await f.prepareBundle();
+      const command = await f.postCommand("staff-authority-late-read");
+      const beforeRows = await f.rows();
+      const barrier = engineeringFollowupBarrier();
+      let proofGuardFinished = false;
+      let postQuotaRead = false;
+      let captured = false;
+      let staffCurrent = true;
+      const verifyBeforeCommit = vi.fn(() => {
+        if (!staffCurrent) throw new Error("Synthetic staff session revoked");
+      });
+      f.readObserver.afterRead(async (trace) => {
+        const key = trace.key;
+        if (
+          !proofGuardFinished ||
+          trace.collection !== supportRecords.name ||
+          trace.method !== "getVersioned" ||
+          key === null ||
+          typeof key !== "object" ||
+          !("id" in key)
+        )
+          return;
+        if (key.id === "quota") postQuotaRead = true;
+        if (postQuotaRead && !captured && key.id === "engineering-source") {
+          captured = true;
+          await barrier.wait();
+        }
+      });
+      const followup = createSupportDeskReleaseFollowup({
+        ...f.baseOptions,
+        application: {
+          ...f.app,
+          approveAndPostEngineeringFollowupWebUpdate(
+            access,
+            input,
+            proofGuard,
+            run,
+          ) {
+            return f.app.approveAndPostEngineeringFollowupWebUpdate(
+              access,
+              input,
+              async () => {
+                const assertProofCurrent = await proofGuard();
+                proofGuardFinished = true;
+                return assertProofCurrent;
+              },
+              run,
+            );
+          },
+        },
+      });
+      const pending = followup.approveAndPostWebUpdate(
+        engineeringFollowupStaff,
+        command,
+        { verifyBeforeCommit },
+      );
+      try {
+        await waitForFollowupHook(barrier, pending);
+        expect(verifyBeforeCommit).not.toHaveBeenCalled();
+        staffCurrent = false;
+      } finally {
+        barrier.release();
+        f.readObserver.afterRead(undefined);
+      }
+      await expect(pending).rejects.toMatchObject({
+        category: "verification_unavailable",
+      });
+      expect(captured).toBe(true);
+      expect(verifyBeforeCommit).toHaveBeenCalledOnce();
+      expect(await f.rows()).toEqual(beforeRows);
+      expect((await f.work()).status).toBe("bundle_prepared");
+      expect(f.generate).toHaveBeenCalledOnce();
+    });
+
+    it.each(["abort", "timeout"] as const)(
+      "prevents a late authority read from writing after %s",
+      async (failure) => {
+        const f = await engineeringFollowupAiFixture(createStore());
+        await f.prepareBundle();
+        const command = await f.postCommand("staff-authority-boundary");
+        const beforeRows = await f.rows();
+        const barrier = engineeringFollowupBarrier();
+        const controller = new AbortController();
+        const verifyBeforeCommit = vi.fn(() => barrier.wait());
+        const pending = f.app.approveAndPostEngineeringFollowupWebUpdate(
+          engineeringFollowupStaff,
+          command,
+          () => {},
+          { signal: controller.signal, verifyBeforeCommit },
+        );
+        try {
+          await waitForFollowupHook(barrier, pending);
+          if (failure === "abort") controller.abort();
+          await expect(pending).rejects.toThrow(
+            failure === "abort" ? "cancelled" : "timed out",
+          );
+        } finally {
+          barrier.release();
+        }
+        expect(verifyBeforeCommit).toHaveBeenCalledOnce();
+        await verifyBeforeCommit.mock.results[0]!.value;
+        expect(await f.rows()).toEqual(beforeRows);
+        expect((await f.work()).status).toBe("bundle_prepared");
+      },
+    );
+
+    it("cannot post when the checked policy expires in the late authority read", async () => {
+      const f = await engineeringFollowupAiFixture(createStore(), {
+        followup: { trustTimeoutMilliseconds: 5_000 },
+      });
+      await f.prepareBundle();
+      const command = await f.postCommand("staff-authority-proof-deadline");
+      const beforeRows = await f.rows();
+      f.state.checkPolicy = {
+        ...f.state.checkPolicy,
+        validUntil: new Date(Date.parse(f.clock.now()) + 2_000).toISOString(),
+      };
+      const verifyBeforeCommit = vi.fn(() => f.advance(2_500));
+      await expect(
+        f.followup.approveAndPostWebUpdate(engineeringFollowupStaff, command, {
+          verifyBeforeCommit,
+        }),
+      ).rejects.toMatchObject({ category: "deadline" });
+      expect(verifyBeforeCommit).toHaveBeenCalledOnce();
+      expect(await f.rows()).toEqual(beforeRows);
+      expect(f.generate).toHaveBeenCalledOnce();
+    });
+
+    it("cannot post when the checked policy expires after late authority returns", async () => {
+      const f = await engineeringFollowupAiFixture(createStore(), {
+        followup: { trustTimeoutMilliseconds: 5_000 },
+      });
+      await f.prepareBundle();
+      const command = await f.postCommand("staff-authority-handoff-deadline");
+      const beforeRows = await f.rows();
+      f.state.checkPolicy = {
+        ...f.state.checkPolicy,
+        validUntil: new Date(Date.parse(f.clock.now()) + 3_000).toISOString(),
+      };
+      const verifyBeforeCommit = vi.fn(() => {});
+      let authorityReturned = false;
+      const followup = createSupportDeskReleaseFollowup({
+        ...f.baseOptions,
+        application: {
+          ...f.app,
+          approveAndPostEngineeringFollowupWebUpdate(
+            access,
+            input,
+            proofGuard,
+            run,
+          ) {
+            const verifyAuthority = run?.verifyBeforeCommit;
+            if (verifyAuthority === undefined)
+              throw new Error(
+                "Expected the coordinator's late authority check",
+              );
+            return f.app.approveAndPostEngineeringFollowupWebUpdate(
+              access,
+              input,
+              proofGuard,
+              {
+                ...run,
+                async verifyBeforeCommit() {
+                  await verifyAuthority();
+                  authorityReturned = true;
+                  f.advance(3_500);
+                },
+              },
+            );
+          },
+        },
+      });
+      await expect(
+        followup.approveAndPostWebUpdate(engineeringFollowupStaff, command, {
+          verifyBeforeCommit,
+        }),
+      ).rejects.toMatchObject({ category: "deadline" });
+      expect(authorityReturned).toBe(true);
+      expect(verifyBeforeCommit).toHaveBeenCalledOnce();
+      expect(await f.rows()).toEqual(beforeRows);
+      expect((await f.work()).status).toBe("bundle_prepared");
+      expect(f.generate).toHaveBeenCalledOnce();
+    });
+
     it("recovers an accepted post acknowledgement without another message or model call", async () => {
       const f = await engineeringFollowupAiFixture(createStore());
       await f.prepareBundle();
       const command = await f.postCommand();
       let lost = false;
+      let proofReadsAtCommit = 0;
+      const verifyBeforeCommit = vi.fn(() => {
+        if (lost) throw new Error("Exact replay must skip new-write authority");
+      });
       const post = vi.fn<
         typeof f.app.approveAndPostEngineeringFollowupWebUpdate
       >(async (...args) => {
@@ -507,6 +697,7 @@ for (const [name, createStore] of engineeringFollowupStores) {
         );
         if (!lost) {
           lost = true;
+          proofReadsAtCommit = f.confirm.mock.calls.length;
           f.releaseState.currentOutcome = "unavailable";
           throw new Error("Synthetic lost committed notice ACK");
         }
@@ -522,8 +713,12 @@ for (const [name, createStore] of engineeringFollowupStores) {
       const result = await followup.approveAndPostWebUpdate(
         engineeringFollowupStaff,
         command,
+        { verifyBeforeCommit },
       );
       expect(result.messageId).toBe(command.messageId);
+      expect(post).toHaveBeenCalledTimes(2);
+      expect(verifyBeforeCommit).toHaveBeenCalledOnce();
+      expect(f.confirm).toHaveBeenCalledTimes(proofReadsAtCommit);
       expect(
         (
           await f.app.readCustomerTicket(engineeringFollowupCustomer, "ticket")

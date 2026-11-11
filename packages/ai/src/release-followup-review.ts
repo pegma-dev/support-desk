@@ -372,7 +372,7 @@ export async function confirmStoredReleaseFollowupBundle(
   runtime: LearningRuntime,
   observeCurrent: () => Promise<void>,
   phase = runtime.deadline,
-): Promise<void> {
+): Promise<number> {
   const prepared = work.preparedBundle;
   if (prepared === undefined || work.context === undefined)
     throw new AssistantBoundaryError("bundle_unavailable");
@@ -426,14 +426,14 @@ export async function confirmStoredReleaseFollowupBundle(
     phase,
   );
   await observeCurrent();
-  runtime.ensure(
-    Math.min(
-      phase,
-      expiry,
-      timestamp(policy.validUntil),
-      timestamp(proof.attestation.validUntil),
-    ),
+  const deadline = Math.min(
+    phase,
+    expiry,
+    timestamp(policy.validUntil),
+    timestamp(proof.attestation.validUntil),
   );
+  runtime.ensure(deadline);
+  return deadline;
 }
 
 export function retainedReleaseFollowupContent(

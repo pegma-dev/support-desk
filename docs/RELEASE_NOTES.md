@@ -1,10 +1,36 @@
 # Release notes
 
-## 0.2.3 — final engineering review guards (unreleased)
+## 0.2.4 candidate — admitted intake and final host checks
 
-All five source packages and internal Support pins are synchronized at `0.2.3`
-for this unpublished candidate. The optional AI package keeps exact KB
-application/contracts `0.1.5` dependencies. Published `0.2.2` remains current.
+An optional receipt-first customer create operation records the original
+human/assistant mode in the existing atomic create receipt. New writes use a
+closed own-data packet and a trusted final authority assertion. Exact replay
+can recover after assistant qualification changes. Existing create callers
+keep their two-argument API, notification and historical fingerprints.
+[Application contract](../packages/application/README.md#admitted-customer-intake-next-candidate)
+
+Staff can prepare a new learning review for an edited draft of the same article
+and collection when the complete source provenance still matches its delivery.
+Learning preparation and new review proofs compare the complete current KB
+draft again after late policy and authority reads. Follow-up posting accepts
+a bounded late staff-authority callback and retains the final proof assertion
+through the application commit boundary. The candidate also groups bounded
+assistant finish reads with the existing failure and replay ordering.
+[Learning guide](RESOLUTION_LEARNING.md) · [Follow-up guide](ENGINEERING_FOLLOWUP.md)
+
+All five source packages and internal Support pins target unpublished `0.2.4`.
+These changes need its combined gates, review, trusted publication and strict
+registry verification. Their separate probe results do
+not establish host activation or an invocation/CPU allowance.
+
+## 0.2.3 — final engineering review guards, 2026-11-10
+
+All five exact `0.2.3` packages are published and strictly verified, with
+matching internal Support pins. The optional AI package keeps exact KB
+application/contracts `0.1.5` dependencies. The
+[publication receipt](RELEASING.md#verified-023-publication-2026-11-10) binds the
+original gates and artifacts, failed attempts, successful publication recovery
+and final registry/consumer verification.
 
 For new `reviewEngineeringProposal` approval, the application completes its
 repository/policy observations before invoking the supplied commit guard, then
@@ -15,11 +41,11 @@ coordinator supplies a current-staff rejection guard; trusted direct application
 callers may still omit a rejection guard. Exact accepted receipts replay first
 under current review/queue authorization.
 
-The correction supplies bounded fresh observations around a partition commit,
-not cross-store atomicity or continuous authority. It is not part of published
-`0.2.2` and requires its own full Node 22/24 gates, current-head review, trusted
-publication and strict verification. See the [engineering guide](ENGINEERING_EXPORT.md).
-Host/provider/client/privacy, Free CPU and activation gates remain separate.
+Approval also preserves its earliest verified proof expiry across the awaited
+host check and the synchronous commit assertion. The correction supplies bounded
+fresh observations around a partition commit. See the
+[engineering guide](ENGINEERING_EXPORT.md). Host/provider/client/privacy, Free
+CPU and activation gates remain separate.
 
 ## 0.2.2 — staged retrieval and exact review recovery, 2026-11-10
 

@@ -9,6 +9,7 @@ import type {
   EngineeringFollowupClaim,
   EngineeringFollowupReassessmentView,
   EngineeringFollowupResult,
+  EngineeringFollowupWebUpdateOptions,
   EngineeringFollowupWorkRecord,
   FinishEngineeringFollowupModelCommand,
   PrepareEngineeringFollowupBundleCommand,
@@ -486,18 +487,24 @@ export function createSupportDeskReleaseFollowup(
     async approveAndPostWebUpdate(
       access: AccessContext,
       input: ApproveAndPostEngineeringFollowupWebUpdateCommand,
-      run: { readonly signal?: AbortSignal } = {},
+      run: EngineeringFollowupWebUpdateOptions = {},
     ) {
       const runtime = createLearningRuntime(options, run);
       const ensureStaff = staffFence(access);
+      const { verifyBeforeCommit } = run;
       try {
         const command = snapshot(input);
         const key = snapshot({
           ticketId: command.ticketId,
           workId: command.workId,
         });
+        let proofDeadline = runtime.deadline;
+        const guardFailure = (error: unknown) =>
+          new ReleaseFollowupReviewGuardFailure(
+            releaseFollowupFailure(error, "verification_unavailable"),
+          );
         // Lazy preflight lets the app recognize an exact historical posting receipt first.
-        const guard = async (): Promise<void> => {
+        const guard = async () => {
           try {
             ensureStaff();
             requireStaffRead(access, "post");
@@ -513,7 +520,7 @@ export function createSupportDeskReleaseFollowup(
               work.acceptedTicketRevision !== command.expectedTicketRevision
             )
               throw new AssistantBoundaryError("bundle_changed");
-            await confirmStoredReleaseFollowupBundle(
+            const deadline = await confirmStoredReleaseFollowupBundle(
               options,
               work,
               runtime,
@@ -534,10 +541,37 @@ export function createSupportDeskReleaseFollowup(
               },
             );
             ensureStaff();
+            proofDeadline = deadline;
+            return (): true => {
+              try {
+                runtime.ensure(deadline);
+                ensureStaff();
+                return true;
+              } catch (error) {
+                throw guardFailure(error);
+              }
+            };
           } catch (error) {
-            throw new ReleaseFollowupReviewGuardFailure(
-              releaseFollowupFailure(error, "verification_unavailable"),
-            );
+            throw guardFailure(error);
+          }
+        };
+        const verifyAuthority = async (): Promise<void> => {
+          try {
+            runtime.ensure(proofDeadline);
+            ensureStaff();
+            if (verifyBeforeCommit !== undefined) {
+              await runtime.within(async () => {
+                try {
+                  await verifyBeforeCommit();
+                } catch {
+                  throw new AssistantBoundaryError("verification_unavailable");
+                }
+              }, proofDeadline);
+            }
+            runtime.ensure(proofDeadline);
+            ensureStaff();
+          } catch (error) {
+            throw guardFailure(error);
           }
         };
         let uncertain = false;
@@ -550,6 +584,10 @@ export function createSupportDeskReleaseFollowup(
                 access,
                 command,
                 guard,
+                {
+                  signal: runtime.signal,
+                  verifyBeforeCommit: verifyAuthority,
+                },
               ),
             );
             ensureStaff();

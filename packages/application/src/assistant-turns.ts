@@ -764,7 +764,9 @@ export function createAssistantTurnServices(
       });
       const key = { ticketId: command.ticketId, turnId: command.turnId };
       for (let conflict = 0; conflict < maxConflictAttempts; conflict += 1) {
-        const versioned = await load(command);
+        const turnRead = load(command);
+        const ticketRead = observeTicket(command.ticketId);
+        const versioned = await turnRead;
         const job = versioned.value;
         if (job.lastFinish?.fingerprint === requestFingerprint)
           return snapshot(job.lastFinish.result);
@@ -776,10 +778,9 @@ export function createAssistantTurnServices(
               ? {}
               : { result: job.terminalResult }),
           };
-        const ticketVersion = await records.getVersioned({
-          partition: command.ticketId,
-          id: "ticket",
-        });
+        const observed = await ticketRead;
+        if (observed.outcome === "failed") throw observed.error;
+        const ticketVersion = observed.value;
         if (ticketVersion?.value.kind !== "ticket")
           throw new SupportDeskConflictError("Assistant ticket is unavailable");
         const ticket = ticketVersion.value.ticket;

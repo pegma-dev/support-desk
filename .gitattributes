@@ -5,3 +5,7 @@
 *.jpeg binary
 *.gif binary
 *.webp binary
+
+# Preserve the published release evidence bytes, including original line endings.
+docs/releases/v0.2.3/** -text
+docs/releases/v0.2.3/prepared-artifact.json whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
