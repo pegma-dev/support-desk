@@ -491,7 +491,7 @@ provider event. The host mail worker owns everything before that:
    attachment size limits; decode the subject; reduce the body to safe plain
    text (or constrained Markdown) with quoted history trimmed below the
    configured body limit. Raw MIME and HTML are never passed in. Attachments
-   are dropped until their own post-MVP task.
+   continue to be dropped; Task 14 covers web/staff uploads only.
 4. **Extract metadata.** Pass the sender address, optional display name, the
    message's own `Message-ID`, `In-Reply-To`, `References`, any candidate
    reply-routing token from the recipient address or provider metadata, and
@@ -615,3 +615,7 @@ authorize access from the projection alone.
 - template packs and public ticket URLs;
 - health metrics without message content;
 - retention, export, redaction, and operator access procedures.
+
+## Task 14 host attachment composition
+
+Configure the optional `attachments` blob port and limits on the application. Wire a trusted scanner to `recordAttachmentScanResult`, verified session access to `downloadAttachment`, staff redaction to `deleteAttachment`, and an authorized cursor worker to `sweepExpiredAttachments`. Use private isolated storage and apply every returned download header. Orphan cleanup requires a host-wide stopped/drained writer fence and bounded host inventory candidates; it is never an age-only online sweep. See [ATTACHMENTS.md](./ATTACHMENTS.md) for all five activation milestones, defaults and failure recovery. Inbound MIME normalization continues discarding all attachments with bounded parsing.

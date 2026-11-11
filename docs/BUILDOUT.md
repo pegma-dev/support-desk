@@ -713,3 +713,7 @@ The initial buildout is complete only when:
 - retention, recovery, privacy, and operator procedures exist for each host;
 - no host imports a Support Desk internal module or reads a Support Desk
   collection directly from an HTTP controller.
+
+## Task 14 — attachments: implemented in source
+
+The additive attachment slice is implemented as unpublished source work. Host adoption requires its own verified producer release. See [ATTACHMENTS.md](./ATTACHMENTS.md) for the host blob port, bounds, transactional metadata, scan callback, download gates, deletion and worker contracts. Inbound attachments remain explicitly dropped. Task 12 still awaits host production evidence; Task 15 (canned responses and macros) is the next package slice.

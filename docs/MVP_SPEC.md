@@ -583,3 +583,7 @@ evidence gates.
     private limiter inside Support Desk.
 13. A queue projection missed after a ticket commit converges after a complete
     authoritative repair cycle.
+
+## Optional post-MVP attachments (Task 14)
+
+Web create/reply and staff replies/notes may carry bounded host-allowlisted attachments. New files await a digest-bound clean scan before download. Customers see metadata only on their own visible messages; internal-note attachments remain staff-only. Normal downloads refuse pending, quarantined, deleting, deleted and expired files for everyone. Downloads always force attachment disposition; there is no preview. Deletion is resumable and expiry is enforced before physical cleanup. Inbound email continues dropping bounded MIME attachments. See [ATTACHMENTS.md](./ATTACHMENTS.md).
