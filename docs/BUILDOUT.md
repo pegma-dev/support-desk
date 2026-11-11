@@ -716,4 +716,4 @@ The initial buildout is complete only when:
 
 ## Task 14 — attachments: implemented in source
 
-The additive exact `0.1.1` attachment slice is implemented; no version bump or release is included. See [ATTACHMENTS.md](./ATTACHMENTS.md) for the host blob port, bounds, transactional metadata, scan callback, download gates, deletion and worker contracts. Inbound attachments remain explicitly dropped. Task 12 still awaits host production evidence; Task 15 (canned responses and macros) is the next package slice.
+The additive attachment slice is implemented as unpublished source work. Host adoption requires its own verified producer release. See [ATTACHMENTS.md](./ATTACHMENTS.md) for the host blob port, bounds, transactional metadata, scan callback, download gates, deletion and worker contracts. Inbound attachments remain explicitly dropped. Task 12 still awaits host production evidence; Task 15 (canned responses and macros) is the next package slice.

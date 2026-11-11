@@ -192,6 +192,7 @@ export async function sweepExpiredAttachments(options: {
   const limit = options.limit ?? 20;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
     throw new TypeError("Invalid attachment sweep limit");
+  const now = canonicalTimestamp(options.clock.now(), "attachment sweep now");
   const page = await options.store.collection(supportRecords).scan({
     limit,
     ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
@@ -208,7 +209,8 @@ export async function sweepExpiredAttachments(options: {
       if (
         attachment.scanStatus === "deleted" ||
         (attachment.scanStatus !== "deleting" &&
-          attachment.expiresAt > options.clock.now())
+          canonicalTimestamp(attachment.expiresAt, "attachment expiresAt") >
+            now)
       )
         continue;
       const target = {
@@ -1236,6 +1238,7 @@ export const supportAudit = defineAudit<SupportRecord>({
 
 function ticketAuditAction(input: {
   readonly commandId: string;
+  readonly eventId?: string;
   readonly correlationId: string;
   readonly ticketId: TicketId;
   readonly revision: number;
@@ -1245,7 +1248,7 @@ function ticketAuditAction(input: {
   readonly details?: Readonly<Record<string, string>>;
 }): ReturnType<typeof supportAudit.action> {
   return supportAudit.action({
-    id: input.commandId,
+    id: input.eventId ?? input.commandId,
     occurredAt: input.occurredAt,
     actor: { kind: "principal", principalId: input.actorId },
     action: input.action,
@@ -5204,6 +5207,7 @@ export function createSupportDeskApplication(options: {
       digest: null,
     });
     const fenceId = `attachment-fence-${await requestFingerprint({ commandId: input.commandId })}`;
+    const fenceEventId = "\u0000support.attachment.fence:" + input.commandId;
     const fenceFingerprint = await requestFingerprint({
       ...input,
       commandId: fenceId,
@@ -5267,7 +5271,11 @@ export function createSupportDeskApplication(options: {
           row.attachmentDeletion.attachmentId === input.attachmentId,
       );
       if (pendingOwner !== undefined) {
-        if (pendingOwner.id === key.id && matches(pendingOwner)) {
+        if (pendingOwner.id === key.id) {
+          if (!matches(pendingOwner))
+            throw new SupportDeskConflictError(
+              "Command ID reused with different input",
+            );
           requireIdentity(pendingOwner);
           continue;
         }
@@ -5358,7 +5366,7 @@ export function createSupportDeskApplication(options: {
           ? [
               ticketAuditAction({
                 ...input,
-                commandId: fenceId,
+                eventId: fenceEventId,
                 actorId,
                 revision: ticket.value.ticket.revision + 1,
                 occurredAt: now,
@@ -6505,7 +6513,8 @@ export function createSupportDeskApplication(options: {
       if (
         !attachment ||
         attachment.scanStatus !== "clean" ||
-        attachment.expiresAt <= clock.now()
+        canonicalTimestamp(attachment.expiresAt, "attachment expiresAt") <=
+          canonicalTimestamp(clock.now(), "attachment download now")
       )
         throw new SupportDeskNotFoundError();
       if (!attachmentConfig.blobs)
@@ -6533,7 +6542,8 @@ export function createSupportDeskApplication(options: {
       if (
         currentTicket?.version !== ticket.version ||
         current?.version !== row.version ||
-        attachment.expiresAt <= clock.now()
+        canonicalTimestamp(attachment.expiresAt, "attachment expiresAt") <=
+          canonicalTimestamp(clock.now(), "attachment download now")
       )
         throw new SupportDeskConflictError(
           "Attachment changed during download",

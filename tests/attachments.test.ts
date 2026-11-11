@@ -84,6 +84,136 @@ for (const [name, factory] of [
   ["Azurite", azureStore],
 ] as const) {
   describe(`attachments via published entry (${name})`, () => {
+    it.each([
+      { caller: "legacy-derived", order: "before" },
+      { caller: "legacy-derived", order: "after" },
+      { caller: "literal-percent", order: "before" },
+      { caller: "literal-percent", order: "after" },
+    ])(
+      "keeps caller $caller Audit distinct when its command runs $order deletion",
+      async ({ caller, order }) => {
+        const f = await deletionFixture(factory());
+        const callerId =
+          caller === "legacy-derived"
+            ? `attachment-fence-${createHash("sha256")
+                .update(JSON.stringify({ commandId: f.command.commandId }))
+                .digest("hex")}`
+            : "%00support.attachment.fence:" + f.command.commandId;
+        const runCaller = () =>
+          f.app.setTags(staff, {
+            ticketId: f.ticketId,
+            commandId: callerId,
+            correlationId: "caller",
+            tags: [],
+          });
+        if (order === "before") await runCaller();
+        await f.app.deleteAttachment(staff, f.command);
+        if (order === "after") await runCaller();
+        expect(f.blobs.size).toBe(0);
+        const rows = await f.records.list(f.ticketId);
+        const callerAudit = rows.find(
+          (row) => row.kind === "audit" && row.event.id === callerId,
+        );
+        const fenceAudit = rows.find(
+          (row) =>
+            row.kind === "audit" &&
+            row.event.action === "support.ticket.attachment_deleting",
+        );
+        expect(callerAudit?.kind).toBe("audit");
+        expect(fenceAudit?.kind).toBe("audit");
+        if (callerAudit?.kind !== "audit" || fenceAudit?.kind !== "audit")
+          throw new Error("Missing actual Audit events");
+        expect(callerAudit.id).not.toBe(fenceAudit.id);
+        expect(fenceAudit.event.id).toBe(
+          "\u0000support.attachment.fence:" + f.command.commandId,
+        );
+        expect(fenceAudit.event.details?.commandId).toBe(f.command.commandId);
+        expect(fenceAudit.id).toContain("%00support.attachment.fence:");
+        if (caller === "literal-percent")
+          expect(callerAudit.id).toContain("%2500support.attachment.fence:");
+        expect(
+          await f.app.readTicketAuditHistory(staff, f.ticketId),
+        ).toHaveLength(4);
+      },
+    );
+
+    it("reports same-ID changed payload when the original receipt appears after a causal null read", async () => {
+      const backing = factory();
+      let armed = false;
+      let observedStale!: () => void;
+      let releaseStale!: () => void;
+      const staleRead = new Promise<void>((resolve) => {
+        observedStale = resolve;
+      });
+      const resumeRead = new Promise<void>((resolve) => {
+        releaseStale = resolve;
+      });
+      const store: Store = {
+        collection(definition) {
+          const collection = backing.collection(definition);
+          return new Proxy(collection, {
+            get(target, property) {
+              if (property !== "getVersioned") {
+                const value = Reflect.get(target, property, target);
+                return typeof value === "function" ? value.bind(target) : value;
+              }
+              return async (
+                ...args: Parameters<typeof collection.getVersioned>
+              ) => {
+                const value = await collection.getVersioned(...args);
+                if (
+                  armed &&
+                  args[0].id === "command:delete" &&
+                  value === null
+                ) {
+                  armed = false;
+                  observedStale();
+                  await resumeRead;
+                }
+                return value;
+              };
+            },
+          });
+        },
+      };
+      const f = await deletionFixture(store);
+      let observedBlob!: () => void;
+      let releaseBlob!: () => void;
+      const blobStarted = new Promise<void>((resolve) => {
+        observedBlob = resolve;
+      });
+      const resumeBlob = new Promise<void>((resolve) => {
+        releaseBlob = resolve;
+      });
+      f.remove.mockImplementationOnce(async (key) => {
+        observedBlob();
+        await resumeBlob;
+        f.blobs.delete(key);
+      });
+      armed = true;
+      const changed = f.app.deleteAttachment(staff, {
+        ...f.command,
+        correlationId: "changed",
+      });
+      await staleRead;
+      const original = f.app.deleteAttachment(staff, f.command);
+      try {
+        await blobStarted;
+        const during = await f.records.listVersioned(f.ticketId);
+        releaseStale();
+        await expect(changed).rejects.toThrow(
+          "Command ID reused with different input",
+        );
+        expect(await f.records.listVersioned(f.ticketId)).toEqual(during);
+        expect(f.remove).toHaveBeenCalledTimes(1);
+      } finally {
+        releaseStale();
+        releaseBlob();
+      }
+      await original;
+      expect(f.blobs.size).toBe(0);
+    });
+
     it("refuses an occupied original deletion ID before changing metadata or bytes", async () => {
       const f = await deletionFixture(factory());
       const before = await f.records.listVersioned(f.ticketId);

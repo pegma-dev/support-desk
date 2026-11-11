@@ -59,10 +59,11 @@ export function normalizeAttachmentFilename(
         /[\u0000-\u001f\u007f-\u009f/\\";:\u202a-\u202e\u2066-\u2069]/g,
         "_",
       )
+      .trim()
       .replace(/^\.+/, "")
       .trim()
       .slice(0, maximum)
-      .replace(/[\ud800-\udfff]/gu, "_") || "attachment"
+      .replace(/[\ud800-\udfff]/gu, "_") || "attachment".slice(0, maximum)
   );
 }
 

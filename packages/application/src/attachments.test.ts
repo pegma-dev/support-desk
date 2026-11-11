@@ -105,6 +105,75 @@ async function fixture(
 }
 
 describe("attachments public services", () => {
+  it("stores a fallback display filename within a one-character host bound", async () => {
+    const f = await fixture({ maxFilenameCharacters: 1 });
+    const command = {
+      ...f.create,
+      attachments: [{ ...f.input, filename: " ..." }],
+    };
+    const result = await f.app.createCustomerTicket(customer, command);
+    expect(result.messages[0]!.attachments![0]!.filename).toBe("a");
+    expect(await f.app.createCustomerTicket(customer, command)).toEqual(result);
+    expect(f.blobs.put).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { operation: "sweep", now: "2026-11-02T01:00:00.000+05:00" },
+    { operation: "sweep", now: "not-a-timestamp" },
+    { operation: "download", now: "2026-11-02T01:00:00.000+05:00" },
+    { operation: "download", now: "not-a-timestamp" },
+  ])(
+    "refuses noncanonical $operation clock $now before external work",
+    async ({ operation, now }) => {
+      const f = await fixture();
+      const created = await f.app.createCustomerTicket(customer, f.create);
+      const id = created.messages[0]!.attachments![0]!.id;
+      await f.app.recordAttachmentScanResult(staff, {
+        ...f.state(id),
+        sha256: f.input.sha256,
+        verdict: "clean",
+      });
+      const before = await f.store
+        .collection(supportRecords)
+        .listVersioned(base.ticketId);
+      f.clock.now = () => now;
+      await expect(
+        operation === "sweep"
+          ? sweepExpiredAttachments({
+              store: f.store,
+              clock: f.clock,
+              application: f.app,
+              access: staff,
+            })
+          : f.app.downloadAttachment(customer, f.state(id)),
+      ).rejects.toThrow("canonical ISO timestamp");
+      expect(f.blobs.get).not.toHaveBeenCalled();
+      expect(f.blobs.delete).not.toHaveBeenCalled();
+      expect(
+        await f.store.collection(supportRecords).listVersioned(base.ticketId),
+      ).toEqual(before);
+    },
+  );
+
+  it("withholds downloaded bytes when the final clock observation becomes noncanonical", async () => {
+    const f = await fixture();
+    const created = await f.app.createCustomerTicket(customer, f.create);
+    const id = created.messages[0]!.attachments![0]!.id;
+    await f.app.recordAttachmentScanResult(staff, {
+      ...f.state(id),
+      sha256: f.input.sha256,
+      verdict: "clean",
+    });
+    f.blobs.get.mockImplementationOnce(async (key) => {
+      f.clock.now = () => "2026-11-02T01:00:00.000+05:00";
+      return new Uint8Array(f.data.get(key)!);
+    });
+    await expect(
+      f.app.downloadAttachment(customer, f.state(id)),
+    ).rejects.toThrow("canonical ISO timestamp");
+    expect(f.blobs.get).toHaveBeenCalledTimes(1);
+  });
+
   it.each(
     [
       "MIME",

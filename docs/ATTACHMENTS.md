@@ -129,6 +129,19 @@ the attachment stays unavailable until the callback transaction commits.
    Tombstones preserve identity, digest, replay and Audit facts. Concurrent
    downloads already delivered cannot be recalled.
 
+New fence Audit events use the SDK-only `\u0000support.attachment.fence:`
+event-ID domain plus the original command ID. Caller command IDs forbid C0
+controls. The existing Audit encoder escapes both controls and literal `%`, so
+these physical keys remain distinct from all ordinary caller Audit keys,
+including IDs beginning with literal `%00`. Audit details retain the original
+command ID. Legacy fence Audit and receipt keys remain readable for recovery;
+no existing row is rewritten.
+
+Clock observations and stored expiry timestamps must use canonical ISO UTC
+form. Sweeps validate the clock before page work. Downloads validate both their
+initial and final clock observations, including after blob I/O. Invalid clock
+values fail closed instead of being compared as raw strings.
+
 `sweepExpiredAttachments` scans one physical page (default 20, maximum 100) and
 uses an authorized host worker identity to expire attachments and resume its own
 exact pending deletion commands.
