@@ -509,6 +509,10 @@ export interface RecordEngineeringReconciliationCommand extends EngineeringKey {
     | { readonly outcome: "unknown"; readonly reason?: string };
 }
 export type EngineeringCommitGuard = () => void | Promise<void>;
+/** A review guard may supply a synchronous proof check for the transaction boundary. */
+export type EngineeringReviewCommitGuard = () =>
+  void | (() => true) | Promise<void | (() => true)>;
+
 export interface EngineeringApplication {
   enrollEngineeringSource(
     access: AccessContext,
@@ -575,7 +579,7 @@ export interface EngineeringApplication {
   reviewEngineeringProposal(
     access: AccessContext,
     command: ReviewEngineeringProposalCommand,
-    guard?: EngineeringCommitGuard,
+    guard?: EngineeringReviewCommitGuard,
   ): Promise<EngineeringStepResult>;
   beginEngineeringDispatch(
     access: AccessContext,

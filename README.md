@@ -71,10 +71,10 @@ human controls and atomic handoff work, private customer success evidence,
 and human queue separation. That source slice includes no model or KB integration
 and shipped in `0.2.0`. Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial
 KB-05 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
-and both producers' final release preparation are merged. The four KB packages
-have verified trusted `0.1.4` registry releases, and `@pegma/agent-access` has
-a verified trusted `0.1.1` release;
-the KB-05 publication prerequisite for SD-02 is closed. SD-02's optional
+and both producers' final release preparation are merged. The standalone
+authoring recipe selects all four strictly verified KB `0.1.5` packages and
+verified `@pegma/agent-access@0.1.1`. The producer releases close SD-02's
+KB-05 publication prerequisite. SD-02's optional
 `@pegma/support-desk-ai` coordinator and bounded ticket-partition turn jobs
 are merged in [PR #38](https://github.com/pegma-dev/support-desk/pull/38)
 after review and validation and shipped in `0.2.0`. PG-01/RG-01 consume exact published

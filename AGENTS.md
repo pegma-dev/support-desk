@@ -222,11 +222,12 @@ current `0.2.2`. Do not overwrite registry `0.1.1` or install a source substitut
 activation gates after verified SDK publication.
 Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
 preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
-both producers' final release preparation are merged. All four KB packages have
-verified trusted `0.1.4` registry releases; Agent Access has verified trusted
-`0.1.1`. Their manual
-`0.1.0` bootstrap receipts remain historical and have no OIDC provenance;
-the separate trusted releases close the producer publication gates. SD-02
+both producers' final release preparation are merged. The
+[standalone authoring recipe](docs/HOST_COMPOSITION.md#kb-authoring-producers)
+selects all four strictly verified KB `0.1.5` packages and verified Agent
+Access `0.1.1`. The trusted releases close the producer publication gates.
+Their manual `0.1.0` bootstrap receipts remain historical and have no OIDC
+provenance. SD-02
 merged in [PR #38](https://github.com/pegma-dev/support-desk/pull/38), adding
 optional `@pegma/support-desk-ai` and bounded turn work to the existing ticket
 partition. SD-03 merged in [PR #39](https://github.com/pegma-dev/support-desk/pull/39),

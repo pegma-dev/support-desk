@@ -2143,7 +2143,8 @@ export function createEngineeringWorkerServices(
         }
         // The host's current-browser guard follows every SDK external proof
         // await. Rejection needs no export proof, but honors a supplied guard.
-        if (guard !== undefined) await guard();
+        const assertProofCurrent =
+          guard === undefined ? undefined : await guard();
         permission(access, true, actorId);
         if (!current(loaded, work) || runNow() >= deadline)
           throw new SupportDeskConflictError(
@@ -2159,16 +2160,36 @@ export function createEngineeringWorkerServices(
           reserveReachable(next);
         }
         if (
-          await save(loaded, stored, next, loaded.source.value, [
-            deps.audit(
-              command,
-              loaded.ticket.value.ticket,
-              actorId,
-              clock.now(),
-              "support.engineering.reviewed",
-            ),
-            receipt(command, hash, result),
-          ])
+          await save(
+            loaded,
+            stored,
+            next,
+            loaded.source.value,
+            [
+              deps.audit(
+                command,
+                loaded.ticket.value.ticket,
+                actorId,
+                clock.now(),
+                "support.engineering.reviewed",
+              ),
+              receipt(command, hash, result),
+            ],
+            () => {
+              if (runNow() >= deadline)
+                throw new SupportDeskConflictError(
+                  "Engineering review checks expired",
+                );
+              if (
+                assertProofCurrent !== undefined &&
+                (typeof assertProofCurrent !== "function" ||
+                  assertProofCurrent() !== true)
+              )
+                throw new SupportDeskConflictError(
+                  "Engineering review proof is not current",
+                );
+            },
+          )
         ) {
           permission(access, true, actorId);
           return result;

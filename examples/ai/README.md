@@ -5,8 +5,8 @@ dependencies. The root command builds the SDK and these TypeScript files,
 then runs `run.ts` from its compiled output. Node 22 and 24 are supported.
 
 The example uses public package entry points, an actual Storage Core Store,
-the released KB `0.1.2` services, and all four optional Support Desk
-coordinators. It uses no provider SDK, network client, mail provider, host
+the released KB `0.1.5` application and contracts packages, and all four
+optional Support Desk coordinators. It uses no provider SDK, network client, mail provider, host
 framework, or production credentials. Its scripted `github.createIssue`
 throws; the engineering flow only links an existing fictional issue privately.
 

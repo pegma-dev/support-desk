@@ -374,12 +374,13 @@ published and strictly verified; its
 records the exact artifacts. Older base registry `0.1.1` artifacts remain
 immutable history. AUTH-01, KB-04 transport source/SDK proof, partial KB-05
 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
-and both producers' final release preparation are merged. All four KB packages
-now have strictly verified trusted `0.1.4` releases and Agent Access has verified `0.1.1`, closing
-SD-02's producer publication prerequisite. The [standalone authoring recipe](HOST_COMPOSITION.md#kb-authoring-producers)
-selects exact KB `0.1.4` and Agent Access `0.1.1`; this is separate from the
-released AI consumer's KB `0.1.2` pins below. PG-01/RG-01 retain actual two-host existing-login/Admin consent
-and requested-client proof before activation or pilots. Synthetic proof uses
+and both producers' final release preparation are merged. The
+[standalone authoring recipe](HOST_COMPOSITION.md#kb-authoring-producers)
+selects all four strictly verified KB `0.1.5` packages and verified Agent
+Access `0.1.1`, closing SD-02's producer publication prerequisite. The current
+AI release pins the KB application and contracts packages at `0.1.5`.
+PG-01/RG-01 retain actual two-host existing-login/Admin consent and
+requested-client proof before activation or pilots. Synthetic proof uses
 no actual customer data and cannot close those host gates. Host privacy, operations, full-workflow,
 activation, and pilot gates remain pending. Follow the
 [current implementation ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order).

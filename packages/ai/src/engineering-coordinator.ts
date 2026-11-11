@@ -181,13 +181,21 @@ export function createSupportDeskEngineering(
         const command = snapshot(input);
         ensureStaffCurrent();
         let processingAuthority: EngineeringServiceAuthority | undefined;
-        const ensureCurrent = (): void => {
-          runtime.ensure();
+        const ensureCurrent = (deadline = runtime.deadline): true => {
+          runtime.ensure(deadline);
           ensureStaffCurrent();
+          return true;
         };
-        const guard = async (): Promise<void> => {
+        const guardFailure = (error: unknown) =>
+          new EngineeringReviewGuardFailure(
+            error instanceof AssistantBoundaryError
+              ? error.category
+              : "verification_unavailable",
+          );
+        const guard = async () => {
           try {
-            ensureCurrent();
+            let deadline = runtime.deadline;
+            ensureCurrent(deadline);
             // Only approval needs current external export proof. Rejection
             // still checks the invocation and original staff authority.
             if (command.decision === "approve") {
@@ -212,15 +220,15 @@ export function createSupportDeskEngineering(
                 runtime,
               );
               ensureCurrent();
-              await engineeringProposalGuard(
+              deadline = await engineeringProposalGuard(
                 options,
                 work,
                 proposal,
                 runtime,
-                runtime.deadline,
+                deadline,
                 processingAuthority,
               );
-              ensureCurrent();
+              ensureCurrent(deadline);
             }
             const verifyBeforeCommit = run.verifyBeforeCommit;
             if (verifyBeforeCommit !== undefined) {
@@ -231,15 +239,18 @@ export function createSupportDeskEngineering(
                 } catch {
                   throw new AssistantBoundaryError("verification_unavailable");
                 }
-              });
-              ensureCurrent();
+              }, deadline);
+              ensureCurrent(deadline);
             }
+            return (): true => {
+              try {
+                return ensureCurrent(deadline);
+              } catch (error) {
+                throw guardFailure(error);
+              }
+            };
           } catch (error) {
-            throw new EngineeringReviewGuardFailure(
-              error instanceof AssistantBoundaryError
-                ? error.category
-                : "verification_unavailable",
-            );
+            throw guardFailure(error);
           }
         };
         let uncertain = false;

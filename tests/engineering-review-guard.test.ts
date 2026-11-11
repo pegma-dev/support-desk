@@ -501,6 +501,53 @@ describe("engineering review final host guard over real MemoryStore services", (
     expect(await f.rows()).toEqual(before);
   });
 
+  it.each([
+    ["check policy", "host check"],
+    ["check policy", "final handoff"],
+    ["installation proof", "host check"],
+    ["installation proof", "final handoff"],
+  ] as const)(
+    "denies approval when %s expires during the %s",
+    async (proof, boundary) => {
+      const f = await engineeringAiFixture(createMemoryStore());
+      await f.prepareProposal();
+      const command = await reviewCommand(f, "approve");
+      const validUntil = new Date(
+        Date.parse(f.clock.now()) + 2_000,
+      ).toISOString();
+      if (proof === "check policy")
+        f.state.checkPolicy = { ...f.state.checkPolicy, validUntil };
+      else f.state.metadataValidUntil = validUntil;
+      const before = await f.rows();
+      const transactions = f.observed.transactions.length;
+      const verifyBeforeCommit = vi.fn(async () => {
+        if (boundary === "host check") f.advance(2_500);
+      });
+      const review = vi.fn<typeof f.app.reviewEngineeringProposal>(
+        (access, input, guard) =>
+          f.app.reviewEngineeringProposal(access, input, async () => {
+            const confirm = await guard?.();
+            if (boundary === "final handoff") f.advance(2_500);
+            return confirm;
+          }),
+      );
+      const engineering = createSupportDeskEngineering({
+        ...f.baseOptions,
+        application: { ...f.app, reviewEngineeringProposal: review },
+      });
+
+      await expect(
+        engineering.reviewProposal(staff, command, { verifyBeforeCommit }),
+      ).rejects.toMatchObject({ category: "deadline" });
+      expect(review).toHaveBeenCalledOnce();
+      expect(verifyBeforeCommit).toHaveBeenCalledOnce();
+      expect(f.observed.transactions).toHaveLength(transactions);
+      expect(await f.rows()).toEqual(before);
+      expect((await f.work()).approval).toBeUndefined();
+      expect(f.createIssue).not.toHaveBeenCalled();
+    },
+  );
+
   it("rejects a non-callable JavaScript rejection guard before loading new work and preserves exact receipt replay", async () => {
     const observed = observeVersionedReads(
       createMemoryStore(),

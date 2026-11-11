@@ -10,8 +10,11 @@ durable work, exact staff review, invalidation, withdrawal, and reconciliation
 records. The optional AI package adds bounded model processing, KB draft
 delivery, exact staff review, and source retirement/reconciliation through
 `createSupportDeskLearning`, with read-only callbacks from
-`createSupportDeskLearningSourceVerifier`. It consumes the verified published
-[KB `0.1.2` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.2).
+`createSupportDeskLearningSourceVerifier`. The current AI `0.2.2` release
+consumes the application and contracts packages from the verified
+[KB `0.1.5` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.5).
+The initial SD-03 release consumed
+[KB `0.1.2`](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.2).
 SDK validation and publication do not establish host activation. No host has
 activated this behavior.
 
