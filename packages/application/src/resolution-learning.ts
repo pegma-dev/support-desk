@@ -3,6 +3,7 @@ import type { Clock } from "@pegma/spine";
 import {
   MAX_SCAN_PAGE_SIZE,
   type CollectionStore,
+  type EntityKey,
   type VersionedRecord,
 } from "@pegma/storage-core";
 import type { Ticket } from "@pegma/support-desk-contracts";
@@ -450,6 +451,54 @@ export function createResolutionLearningServices(deps: Dependencies): {
       ticket: { value: ticket.value, version: ticket.version },
       source,
       rows,
+    };
+  }
+  /** Exact-key authority and capacity observations share one local read wave. */
+  async function readView(
+    ticketId: string,
+    workKey?: EntityKey,
+  ): Promise<{
+    ticket: TicketVersion;
+    source: SourceVersion;
+    rows: readonly SupportRecord[];
+    work: SupportRecord | null;
+  }> {
+    text(ticketId, "ticketId");
+    // Observe every launched read. Report the existing ticket/source/capacity/
+    // work error order without deriving a backend key from decoded payloads.
+    const [ticketRead, sourceRead, partitionRead, workRead] =
+      await Promise.allSettled([
+        records.getVersioned({ partition: ticketId, id: "ticket" }),
+        readResolutionSource(records, ticketId),
+        records.listVersioned(ticketId),
+        workKey === undefined ? Promise.resolve(null) : records.get(workKey),
+      ] as const);
+    if (ticketRead.status === "rejected") throw ticketRead.reason;
+    const ticket = ticketRead.value;
+    if (ticket?.value.kind !== "ticket") throw new SupportDeskNotFoundError();
+    if (sourceRead.status === "rejected") throw sourceRead.reason;
+    const source = sourceRead.value;
+    if (source === null) throw new SupportDeskNotFoundError();
+    if (partitionRead.status === "rejected") throw partitionRead.reason;
+    const observed = partitionRead.value;
+    const physicalRows = observed.length;
+    if (physicalRows > deps.limits.maxRecordsPerTicket)
+      throw new SupportDeskLimitError(
+        "ticket_partition",
+        deps.limits.maxRecordsPerTicket,
+      );
+    const keys = new Set<string>();
+    for (const { value } of observed) {
+      if (value.partition !== ticketId || keys.has(value.id))
+        throw new SupportDeskConflictError("Invalid learning ticket partition");
+      keys.add(value.id);
+    }
+    if (workRead.status === "rejected") throw workRead.reason;
+    return {
+      ticket: { value: ticket.value, version: ticket.version },
+      source,
+      rows: observed.map((row) => row.value),
+      work: workRead.value,
     };
   }
   async function context(
@@ -968,15 +1017,21 @@ export function createResolutionLearningServices(deps: Dependencies): {
     },
     async readResolutionLearningSource(access, ticketId) {
       permission(access, supportPermissions.learningRead, true);
-      return snapshot((await load(ticketId)).source.value);
+      return snapshot((await readView(ticketId)).source.value);
     },
     async readResolutionLearningWork(access, key) {
       permission(access, supportPermissions.learningRead, true);
-      await load(key.ticketId);
-      integer(key.sourceGeneration, "sourceGeneration", 1);
-      const work = await records.get(
-        resolutionLearningWorkKey(key.ticketId, key.sourceGeneration),
-      );
+      const ticketId = key.ticketId;
+      const sourceGeneration = key.sourceGeneration;
+      // Invalid generations retain the existing post-resource validation order
+      // and never launch a read at an invalid work key.
+      const workKey =
+        Number.isSafeInteger(sourceGeneration) && sourceGeneration >= 1
+          ? resolutionLearningWorkKey(ticketId, sourceGeneration)
+          : undefined;
+      const view = await readView(ticketId, workKey);
+      integer(sourceGeneration, "sourceGeneration", 1);
+      const work = view.work;
       if (work?.kind !== "resolution_learning_work")
         throw new SupportDeskNotFoundError();
       return snapshot(work);
@@ -1141,7 +1196,7 @@ export function createResolutionLearningServices(deps: Dependencies): {
     async confirmResolutionLearningSource(access, fence) {
       permission(access, supportPermissions.learningProcess);
       try {
-        const { ticket, source } = await load(fence.ticketId);
+        const { ticket, source } = await readView(fence.ticketId);
         const latest = await readResolutionSource(records, fence.ticketId);
         return (
           latest?.version === source.version &&

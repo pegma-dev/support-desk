@@ -414,7 +414,7 @@ for (const [name, createStore] of learningStores) {
       ).toHaveLength(1);
     });
 
-    it("rejects a stale source confirmation when reopen commits during its awaited partition list", async () => {
+    it("rejects a stale source confirmation when reopen commits during its awaited versioned partition observation", async () => {
       const f = resolutionLearningFixture(createStore());
       await f.terminal();
       await f.confirm();
@@ -428,10 +428,10 @@ for (const [name, createStore] of learningStores) {
             get(object, property) {
               if (
                 definition.name === "support-desk.records.v1" &&
-                property === "list"
+                property === "listVersioned"
               )
                 return async (partition: string) => {
-                  const rows = await object.list(partition);
+                  const rows = await object.listVersioned(partition);
                   if (partition === "ticket" && !paused) {
                     paused = true;
                     await gate.wait();
@@ -458,7 +458,7 @@ for (const [name, createStore] of learningStores) {
           gate.reached,
           pending.then(() => {
             throw new Error(
-              "Source confirmation did not reach its real list barrier",
+              "Source confirmation did not reach its real listVersioned barrier",
             );
           }),
         ]);

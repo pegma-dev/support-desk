@@ -19,6 +19,10 @@ assistant finish reads with the existing failure and replay ordering.
 [Learning guide](RESOLUTION_LEARNING.md) · [Follow-up guide](ENGINEERING_FOLLOWUP.md)
 
 All five source packages and internal Support pins target unpublished `0.2.4`.
+Learning source, work and confirmation reads share one bounded versioned
+partition observation within each read. Later proof phases take fresh views,
+and source confirmation retains its final opaque-version check. Each host
+still needs to measure its complete invocation against its configured limits.
 These changes need its combined gates, review, trusted publication and strict
 registry verification. Their separate probe results do
 not establish host activation or an invocation/CPU allowance.
