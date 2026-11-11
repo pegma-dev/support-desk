@@ -428,10 +428,10 @@ for (const [name, createStore] of learningStores) {
             get(object, property) {
               if (
                 definition.name === "support-desk.records.v1" &&
-                property === "list"
+                property === "listVersioned"
               )
                 return async (partition: string) => {
-                  const rows = await object.list(partition);
+                  const rows = await object.listVersioned(partition);
                   if (partition === "ticket" && !paused) {
                     paused = true;
                     await gate.wait();
