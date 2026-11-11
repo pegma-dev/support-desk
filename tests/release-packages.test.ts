@@ -90,7 +90,7 @@ describe("release package metadata", () => {
     ]);
   });
 
-  it("ships the synchronized 0.2.4 package set with exact internal pins", () => {
+  it("ships the synchronized 0.2.5 package set with exact internal pins", () => {
     const manifests = RELEASE_PACKAGES.map(({ directory }) =>
       JSON.parse(
         readFileSync(
@@ -105,24 +105,24 @@ describe("release package metadata", () => {
     }>;
 
     expect(manifests.map(({ name, version }) => ({ name, version }))).toEqual([
-      { name: "@pegma/support-desk-contracts", version: "0.2.4" },
-      { name: "@pegma/support-desk-core", version: "0.2.4" },
-      { name: "@pegma/support-desk-templates", version: "0.2.4" },
-      { name: "@pegma/support-desk-application", version: "0.2.4" },
-      { name: "@pegma/support-desk-ai", version: "0.2.4" },
+      { name: "@pegma/support-desk-contracts", version: "0.2.5" },
+      { name: "@pegma/support-desk-core", version: "0.2.5" },
+      { name: "@pegma/support-desk-templates", version: "0.2.5" },
+      { name: "@pegma/support-desk-application", version: "0.2.5" },
+      { name: "@pegma/support-desk-ai", version: "0.2.5" },
     ]);
     expect(manifests[1]?.dependencies?.["@pegma/support-desk-contracts"]).toBe(
-      "0.2.4",
+      "0.2.5",
     );
     expect(manifests[3]?.dependencies?.["@pegma/support-desk-contracts"]).toBe(
-      "0.2.4",
+      "0.2.5",
     );
     expect(manifests[3]?.dependencies?.["@pegma/support-desk-core"]).toBe(
-      "0.2.4",
+      "0.2.5",
     );
     expect(
       manifests[4]?.dependencies?.["@pegma/support-desk-application"],
-    ).toBe("0.2.4");
+    ).toBe("0.2.5");
     expect(
       manifests[4]?.dependencies?.["@pegma/support-desk-contracts"],
     ).toBeUndefined();
@@ -147,7 +147,7 @@ describe("release package metadata", () => {
     const checkout = process.cwd();
     const root = mkdtempSync(join(tmpdir(), "support-desk-release-check-"));
     const script = join(checkout, "scripts", "release-packages.mjs");
-    const versions = ["v0.2.2", "v0.2.3"];
+    const versions = ["v0.2.2", "v0.2.3", "v0.2.4"];
     const evidenceFiles = [
       "package-manifest.json",
       "prepared-artifact.json",
@@ -245,7 +245,7 @@ packages:
         "@pegma/support-desk-contracts"
       ],
     ).toEqual({
-      specifier: "0.2.4",
+      specifier: "0.2.5",
       version: "link:../contracts",
     });
     expect(

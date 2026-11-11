@@ -1,8 +1,8 @@
-# Upgrading to the synchronized 0.2.3 release
+# Upgrading to the synchronized 0.2.4 release
 
-`0.2.3` is the current verified published synchronized release. Hosts retain
+`0.2.4` is the current verified published synchronized release. Hosts retain
 their own deployment and acceptance gates. See the
-[publication receipt](RELEASING.md#verified-023-publication-2026-11-10).
+[publication receipt](RELEASING.md#verified-024-publication-2026-11-11).
 The original SD-06 `0.2.0` release has its separate
 [historical receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
 The original four Support Desk packages were published at `0.1.1`. Before
@@ -18,10 +18,10 @@ registry application dependency lacks the new source exports. The five local
 bootstrap tarballs prove an isolated source assembly, not a usable registry
 dependency tree.
 
-## Unpublished 0.2.4 intake and final checks
+## Published 0.2.4 intake and final checks
 
-The synchronized `0.2.4` source candidate requires its combined gates and
-verified release before host adoption.
+The synchronized `0.2.4` release is published and strictly verified. Hosts
+retain their own adoption and activation gates.
 
 The optional `createAdmittedCustomerTicket` capability returns
 `{view, initialMode}`. Fresh intake needs current create/read-own authority
@@ -44,7 +44,7 @@ article and collection when its complete ordered provenance still matches.
 Retain each intent's exact revision and content hash through submission and
 unknown acknowledgements. See the [learning guide](RESOLUTION_LEARNING.md).
 
-The candidate also confirms the complete current KB draft after late policy
+The `0.2.4` release also confirms the complete current KB draft after late policy
 and authority reads during learning intent preparation and new review proofs.
 A changed draft stops the new operation. Exact accepted receipt recovery keeps
 its original precedence. The
@@ -53,9 +53,16 @@ late staff check and synchronous proof assertion for posting. A follow-up
 adapter must forward the supplied release proof guard's return value to the
 application.
 
+## Unpublished 0.2.5 attachments and staged learning reviews
+
+This checkout targets the synchronized `0.2.5` candidate, which requires its own
+release qualification. The [attachment contract](ATTACHMENTS.md) adds optional
+immutable blob storage, scan and download fences, and bounded cleanup. Hosts
+supply private storage, scanners and retention operations.
+
 ### Optional staged learning review capability
 
-The source candidate adds optional
+The `0.2.5` source candidate adds optional
 `ResolutionLearningApplication.stagedResolutionLearningReviews` when
 `resolutionLearning.stagedReviews: true`. The separate AI factory
 `createSupportDeskStagedLearningReviews` coordinates staff review through this
@@ -106,7 +113,7 @@ route and deployment acceptance remain required before their activation.
 ## Package and host boundary
 
 The released inventory is `@pegma/support-desk-contracts`, `-core`,
-`-templates`, `-application`, and optional `-ai`, all at exact `0.2.3` with
+`-templates`, `-application`, and optional `-ai`, all at exact `0.2.4` with
 matching internal pins. Keep one coherent set. The base application remains
 usable without AI, KB, a model provider, or GitHub.
 
@@ -200,7 +207,7 @@ boundaries before exposing the review surface.
 ## Rehearse the actual 0.1.1-to-0.2.0 upgrade
 
 The SD-06 rehearsal below is retained as historical migration evidence. For
-current `0.2.3` adoption, repeat the rehearsal against the exact selected `0.2.3`
+current `0.2.4` adoption, repeat the rehearsal against the exact selected `0.2.4`
 artifacts and record a new receipt; a `0.2.0` result does not qualify changed
 artifacts or a host's durable-store migration.
 

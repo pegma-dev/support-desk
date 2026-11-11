@@ -1,0 +1,354 @@
+{
+  "schemaVersion": 1,
+  "status": "QUALIFIED_TRUSTED_RELEASE",
+  "qualifiedAt": "2026-11-11T08:13:47.343Z",
+  "repository": "pegma-dev/support-desk",
+  "tag": "v0.2.4",
+  "tagObject": "2192e76c88e44f30ac386641aae375e8d9706b60",
+  "sourceCommit": "a5d36d986325a273df2101e33befc600f37e7457",
+  "sourceTree": "070e9c053cdbb65672cffcf89e73e15ecc8ac7af",
+  "workflow": ".github/workflows/publish.yml",
+  "environment": "npm-publish",
+  "releaseId": 441349295,
+  "runId": 42979379860,
+  "runAttempt": 3,
+  "publisherJobId": 130401236370,
+  "verificationJobId": 130404334976,
+  "workflowResult": {
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 130401103201,
+        "name": "Authenticate existing registry release artifacts",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 130401103505,
+        "name": "Verify signed release identity",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 130401104258,
+        "name": "Release gate / Node.js 22",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 130401104861,
+        "name": "Release gate / Node.js 24",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 130401105323,
+        "name": "Prepare immutable signed-tag artifacts",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 130401236370,
+        "name": "Publish exact prepared artifacts",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 130404334976,
+        "name": "Verify registry signatures, source provenance and consumer",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "successfulSteps": 94
+  },
+  "originalPreparation": {
+    "runAttempt": 1,
+    "artifactId": 13837046027,
+    "archiveSha256": "1741f98211e308a6785a08963af22b73ad83bee124dda9cd955b4df6f4d2794c",
+    "manifestSha256": "c2819c11c078fb8cfb16bf82d7e42c98a0dd8b9adc7c79c259cc46720d891172"
+  },
+  "originalExecutedGates": {
+    "nodeVersions": [
+      22,
+      24
+    ],
+    "testsPerLane": 2740,
+    "filesPerLane": 60,
+    "skipsPerLane": 0,
+    "attempt": 1,
+    "carriedIntoSuccessfulAttempt": 3
+  },
+  "recovery": {
+    "required": true,
+    "priorFailedAttempts": [
+      {
+        "attempt": 1,
+        "conclusion": "failure",
+        "failedJobId": 130387618631,
+        "skippedJobId": 130398804584
+      },
+      {
+        "attempt": 2,
+        "conclusion": "failure",
+        "failedJobId": 130399350093,
+        "skippedJobId": 130399446657
+      }
+    ],
+    "authenticatedExistingPackages": [
+      "@pegma/support-desk-contracts",
+      "@pegma/support-desk-core",
+      "@pegma/support-desk-templates",
+      "@pegma/support-desk-application"
+    ],
+    "newUploadsOnAttempt3": [
+      "@pegma/support-desk-ai"
+    ]
+  },
+  "packageWriters": [
+    {
+      "name": "@pegma/support-desk-contracts",
+      "version": "0.2.4",
+      "runId": 42979379860,
+      "runAttempt": 1,
+      "invocation": "https://github.com/pegma-dev/support-desk/actions/runs/42979379860/attempts/1",
+      "publisherJobId": 130387618631,
+      "publisherConclusion": "failure",
+      "publisherUrl": "https://github.com/pegma-dev/support-desk/actions/runs/42979379860/job/130387618631",
+      "acceptedWriteEstablishedBy": "npm-authenticated provenance and exact original registry bytes",
+      "authenticatedAuditSha256": "eb49f85b86be96ef7927c894ef87e12df81c73f68f92ad38417d56b964710a41"
+    },
+    {
+      "name": "@pegma/support-desk-core",
+      "version": "0.2.4",
+      "runId": 42979379860,
+      "runAttempt": 1,
+      "invocation": "https://github.com/pegma-dev/support-desk/actions/runs/42979379860/attempts/1",
+      "publisherJobId": 130387618631,
+      "publisherConclusion": "failure",
+      "publisherUrl": "https://github.com/pegma-dev/support-desk/actions/runs/42979379860/job/130387618631",
+      "acceptedWriteEstablishedBy": "npm-authenticated provenance and exact original registry bytes",
+      "authenticatedAuditSha256": "eb49f85b86be96ef7927c894ef87e12df81c73f68f92ad38417d56b964710a41"
+    },
+    {
+      "name": "@pegma/support-desk-templates",
+      "version": "0.2.4",
+      "runId": 42979379860,
+      "runAttempt": 1,
+      "invocation": "https://github.com/pegma-dev/support-desk/actions/runs/42979379860/attempts/1",
+      "publisherJobId": 130387618631,
+      "publisherConclusion": "failure",
+      "publisherUrl": "https://github.com/pegma-dev/support-desk/actions/runs/42979379860/job/130387618631",
+      "acceptedWriteEstablishedBy": "npm-authenticated provenance and exact original registry bytes",
+      "authenticatedAuditSha256": "eb49f85b86be96ef7927c894ef87e12df81c73f68f92ad38417d56b964710a41"
+    },
+    {
+      "name": "@pegma/support-desk-application",
+      "version": "0.2.4",
+      "runId": 42979379860,
+      "runAttempt": 1,
+      "invocation": "https://github.com/pegma-dev/support-desk/actions/runs/42979379860/attempts/1",
+      "publisherJobId": 130387618631,
+      "publisherConclusion": "failure",
+      "publisherUrl": "https://github.com/pegma-dev/support-desk/actions/runs/42979379860/job/130387618631",
+      "acceptedWriteEstablishedBy": "npm-authenticated provenance and exact original registry bytes",
+      "authenticatedAuditSha256": "eb49f85b86be96ef7927c894ef87e12df81c73f68f92ad38417d56b964710a41"
+    },
+    {
+      "name": "@pegma/support-desk-ai",
+      "version": "0.2.4",
+      "runId": 42979379860,
+      "runAttempt": 3,
+      "invocation": "https://github.com/pegma-dev/support-desk/actions/runs/42979379860/attempts/3",
+      "publisherJobId": 130401236370,
+      "publisherConclusion": "success",
+      "publisherUrl": "https://github.com/pegma-dev/support-desk/actions/runs/42979379860/job/130401236370",
+      "acceptedWriteEstablishedBy": "npm-authenticated provenance and exact original registry bytes",
+      "authenticatedAuditSha256": "eb49f85b86be96ef7927c894ef87e12df81c73f68f92ad38417d56b964710a41"
+    }
+  ],
+  "independentPostflight": {
+    "completedAt": "2026-11-11T08:13:47.343Z",
+    "node": "24.18.0",
+    "npm": "11.18.0",
+    "commands": [
+      {
+        "ordinal": "01",
+        "status": 0,
+        "stdoutSha256": "324f52ea836cd47edb7932f3992fa50b67fc7fec13a6950e1a1ddf720afab6d2",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "retainedFiles": []
+      },
+      {
+        "ordinal": "02",
+        "status": 0,
+        "stdoutSha256": "5c8ce3ef09106977b792882bd73a6e36e266358c6eb89ea5821177b4e680b26b",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "retainedFiles": [
+          {
+            "name": "package.json",
+            "sha256": "246a70bd2250eb760224fe26007a59cc8e09a50a990bea3fadaca05b6355a323"
+          },
+          {
+            "name": "package-lock.json",
+            "sha256": "163bb1b7feb791626d414ab717c08d0adcea1393b595fe06f22eada3f8230463"
+          }
+        ]
+      },
+      {
+        "ordinal": "03",
+        "status": 0,
+        "stdoutSha256": "eb49f85b86be96ef7927c894ef87e12df81c73f68f92ad38417d56b964710a41",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "retainedFiles": [
+          {
+            "name": "package.json",
+            "sha256": "246a70bd2250eb760224fe26007a59cc8e09a50a990bea3fadaca05b6355a323"
+          },
+          {
+            "name": "package-lock.json",
+            "sha256": "163bb1b7feb791626d414ab717c08d0adcea1393b595fe06f22eada3f8230463"
+          }
+        ]
+      },
+      {
+        "ordinal": "04",
+        "status": 0,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "retainedFiles": [
+          {
+            "name": "package.json",
+            "sha256": "246a70bd2250eb760224fe26007a59cc8e09a50a990bea3fadaca05b6355a323"
+          },
+          {
+            "name": "package-lock.json",
+            "sha256": "163bb1b7feb791626d414ab717c08d0adcea1393b595fe06f22eada3f8230463"
+          },
+          {
+            "name": "consumer.mjs",
+            "sha256": "39ddfb8275b8e2e960073cfca62913f980b37eb36dd2dc8ea26e8fe1f621ebcd"
+          }
+        ]
+      }
+    ]
+  },
+  "packages": [
+    {
+      "name": "@pegma/support-desk-contracts",
+      "version": "0.2.4",
+      "bytes": 6064,
+      "sha256": "59ac1cee6aa10684810d9e898547550d4e2fe7301f0b1046e16e877b893aaaac",
+      "shasum": "8e7d87bda52dda2cbf3c172f44c3d9f479bd5509",
+      "integrity": "sha512-DXZtLeDD0GO/GmInko3yg+t/oL4mm0Li2o6qG+XWaM6jqbtgf6T3F1o373n7q69KcY6Z0pcPB+z1XaXCD42CDw==",
+      "dependencies": {
+        "@pegma/spine": "0.1.2"
+      },
+      "fileCount": 7
+    },
+    {
+      "name": "@pegma/support-desk-core",
+      "version": "0.2.4",
+      "bytes": 8908,
+      "sha256": "76c0805f2b7219fc63d730fe625c85c689d18e7cad46d590a006cf9ceef3cfb4",
+      "shasum": "9511131403f464d3d98ff6b75725cad600045201",
+      "integrity": "sha512-U7vNtvjrkvonf4MTC/+0kAr03xWTVA14knChzSarLayG39cPHrcFwFL3aSXsfesG/zMcytFLkRBKPHHSOd9mdA==",
+      "dependencies": {
+        "@pegma/support-desk-contracts": "0.2.4"
+      },
+      "fileCount": 7
+    },
+    {
+      "name": "@pegma/support-desk-templates",
+      "version": "0.2.4",
+      "bytes": 7597,
+      "sha256": "6ef9ef903b897b62b0453bd0d5928ffdce6de3cb156e60060927a73547fe43e7",
+      "shasum": "9c111b9bcadb838721ee01cb95d088e175136471",
+      "integrity": "sha512-SU3le2pfKtneK2t4XH/Svgh5LsONV2ANaTzaZvCR/i+S242altOM2dYu+Hkm3ycKt2nxVchoO/XzSSi9VnsilA==",
+      "dependencies": {},
+      "fileCount": 11
+    },
+    {
+      "name": "@pegma/support-desk-application",
+      "version": "0.2.4",
+      "bytes": 331322,
+      "sha256": "3a1c035b2cc49aa9516510aba65a456e527bb9c5a81549de85ce6606ede27af3",
+      "shasum": "5cd4538fb291453bd9e3888b1349f6862763e328",
+      "integrity": "sha512-1SntxLnSKfbvEpGwafmjiOS6fbmSCAbZw4s5UihWKV0pPOImX03h+P4RZb+T2GFzY/xKf3spQgPVxR0g6zf52g==",
+      "dependencies": {
+        "@pegma/audit": "0.2.0",
+        "@pegma/authorization-core": "0.4.0",
+        "@pegma/mail": "0.1.1",
+        "@pegma/spine": "0.1.2",
+        "@pegma/storage-core": "0.4.0",
+        "@pegma/support-desk-contracts": "0.2.4",
+        "@pegma/support-desk-core": "0.2.4"
+      },
+      "fileCount": 87
+    },
+    {
+      "name": "@pegma/support-desk-ai",
+      "version": "0.2.4",
+      "bytes": 141703,
+      "sha256": "1084075c4f79a77744956d9c32dcac805cdc5bd8bce0737d92af450509b0155b",
+      "shasum": "97b21dfdfdff171026643024ba5567a156e22e8a",
+      "integrity": "sha512-w9+WAiLPTbRbe1Vb8dDJRoOn/8xtNDJmLUEKtM6p1LZH4lntvsiWlwD8GSvHH2lMwXnBrhoQ7+iiSxdi10QMMg==",
+      "dependencies": {
+        "@pegma/authorization-core": "0.4.0",
+        "@pegma/knowledge-base-application": "0.1.5",
+        "@pegma/knowledge-base-contracts": "0.1.5",
+        "@pegma/spine": "0.1.2",
+        "@pegma/support-desk-application": "0.2.4"
+      },
+      "fileCount": 123
+    }
+  ],
+  "runtimeKnowledgeDependencies": {
+    "@pegma/knowledge-base-application": "0.1.5",
+    "@pegma/knowledge-base-contracts": "0.1.5"
+  },
+  "distTagsAsObserved": [
+    {
+      "name": "@pegma/support-desk-contracts",
+      "version": "0.2.4",
+      "observedAt": "2026-11-11T08:13:46.550Z",
+      "tags": {
+        "latest": "0.2.4"
+      }
+    },
+    {
+      "name": "@pegma/support-desk-core",
+      "version": "0.2.4",
+      "observedAt": "2026-11-11T08:13:46.599Z",
+      "tags": {
+        "latest": "0.2.4"
+      }
+    },
+    {
+      "name": "@pegma/support-desk-templates",
+      "version": "0.2.4",
+      "observedAt": "2026-11-11T08:13:46.630Z",
+      "tags": {
+        "latest": "0.2.4"
+      }
+    },
+    {
+      "name": "@pegma/support-desk-application",
+      "version": "0.2.4",
+      "observedAt": "2026-11-11T08:13:46.678Z",
+      "tags": {
+        "latest": "0.2.4"
+      }
+    },
+    {
+      "name": "@pegma/support-desk-ai",
+      "version": "0.2.4",
+      "observedAt": "2026-11-11T08:13:46.732Z",
+      "tags": {
+        "bootstrap": "0.1.1",
+        "latest": "0.2.4"
+      }
+    }
+  ],
+  "developedBy": "RetireGolden, LLC"
+}

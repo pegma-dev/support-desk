@@ -10,10 +10,10 @@ See also the runnable example at
 
 ## Public packages
 
-This guide describes the verified published synchronized `0.2.3` release.
-Use exact `0.2.3` for the five Support Desk packages, including optional AI; see
-the [publication receipt](RELEASING.md#verified-023-publication-2026-11-10).
-This checkout's `0.2.4` source is an unpublished candidate and needs its own
+This guide describes the verified published synchronized `0.2.4` release.
+Use exact `0.2.4` for the five Support Desk packages, including optional AI; see
+the [publication receipt](RELEASING.md#verified-024-publication-2026-11-11).
+This checkout's `0.2.5` source is an unpublished candidate and needs its own
 combined gates, review and verified release before host adoption.
 SD-01 through SD-05 first shipped in the
 [historical `0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
@@ -82,7 +82,7 @@ uses exact KB application/contracts `0.1.5` dependencies, while the base applica
 KB or provider dependency. SD-02 source passed validation/review and merged in
 [PR #38](https://github.com/pegma-dev/support-desk/pull/38);
 that behavior first shipped in verified synchronized `0.2.0` and remains in
-current `0.2.3`, whose publication receipt is linked above. Host acceptance remains required. Do not substitute branches, copied source,
+current `0.2.4`, whose publication receipt is linked above. Host acceptance remains required. Do not substitute branches, copied source,
 local paths, or unpublished tarballs for production dependencies.
 
 SD-03's atomic-provenance prerequisite is the verified trusted
@@ -137,7 +137,7 @@ own dependency pins. The AI package's immutable
 pins `@pegma/knowledge-base-application@0.1.2` and
 `@pegma/knowledge-base-contracts@0.1.2`. Adding a newer standalone SDK does not
 replace those dependencies or establish mixed-version host acceptance. The
-current verified AI `0.2.3` manifest explicitly pins KB application/contracts
+current verified AI `0.2.4` manifest explicitly pins KB application/contracts
 `0.1.5`; hosts must adopt and qualify that coherent graph separately.
 
 #### Qualified storage adapters
@@ -396,7 +396,7 @@ Keep model activation disabled until the host gates pass. This composition
 uses the verified KB `0.1.5` set and Agent Access `0.1.1` listed above.
 SD-02's producer publication prerequisite is complete. Its optional coordinator source is
 merged after validation/review, as are SD-03 through SD-05. They first shipped
-in verified synchronized `0.2.0` and remain in current `0.2.3`, whose publication
+in verified synchronized `0.2.0` and remain in current `0.2.4`, whose publication
 receipt is linked above. The current AI consumer pins exact KB application/
 contracts `0.1.5`; the earlier `0.2.1`/KB `0.1.2` manifests remain immutable. Actual two-host
 login/client, privacy, operations, Task 12,
@@ -617,5 +617,8 @@ authorize access from the projection alone.
 - retention, export, redaction, and operator access procedures.
 
 ## Task 14 host attachment composition
+
+This section describes unpublished `0.2.5` source-candidate APIs. Their verified
+release is required before host adoption.
 
 Configure the optional `attachments` blob port and limits on the application. Wire a trusted scanner to `recordAttachmentScanResult`, verified session access to `downloadAttachment`, staff redaction to `deleteAttachment`, and an authorized cursor worker to `sweepExpiredAttachments`. Use private isolated storage and apply every returned download header. Orphan cleanup requires a host-wide stopped/drained writer fence and bounded host inventory candidates; it is never an age-only online sweep. See [ATTACHMENTS.md](./ATTACHMENTS.md) for all five activation milestones, defaults and failure recovery. Inbound MIME normalization continues discarding all attachments with bounded parsing.

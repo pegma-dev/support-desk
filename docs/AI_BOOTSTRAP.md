@@ -4,12 +4,13 @@ This records the completed one-time npm name registration for `@pegma/support-de
 not a supported host installation or the synchronized release. The immutable
 registry application `0.1.1` lacks exports required by this newer AI source.
 Importing five local source tarballs proves only that isolated assembly.
-Hosts use the separately verified published five-package `0.2.3` release.
+Hosts use the separately verified published five-package `0.2.4` release.
 Its optional AI package pins Knowledge Base application and contracts to
 exact `0.1.5`. The engineering review guard correction shipped in `0.2.3`;
-this checkout's `0.2.4` source remains an unpublished candidate. Host adoption
+this checkout's `0.2.5` source remains an unpublished candidate for attachments
+and staged human learning reviews. Host adoption
 and activation have separate gates.
-[Publication receipt](RELEASING.md#verified-023-publication-2026-11-10) · [Engineering review guide](ENGINEERING_EXPORT.md)
+[Publication receipt](RELEASING.md#verified-024-publication-2026-11-11) · [Engineering review guide](ENGINEERING_EXPORT.md)
 
 AI's `0.1.1` registration artifact remains immutable. At the `0.2.1`
 verification checkpoint on 2026-11-10, the mutable dist-tags were

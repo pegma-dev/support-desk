@@ -1,6 +1,23 @@
 # Release notes
 
-## 0.2.4 candidate — admitted intake and final host checks
+## 0.2.5 candidate — attachments and staged human learning reviews
+
+All five source packages and internal Support pins target unpublished `0.2.5`.
+The candidate combines the [attachment APIs](ATTACHMENTS.md) with opt-in
+[staged human learning reviews](RESOLUTION_LEARNING.md#opt-in-staged-human-review-source-candidate).
+The default learning reviewer remains inline. Staged admission retains an exact
+human command for a proof phase and a later commit phase, each with fresh
+current authority and complete source, draft and policy checks. Unknown ACKs,
+cancellation and exact receipt recovery retain their command ownership.
+
+The [upgrade guide](UPGRADING.md#unpublished-025-attachments-and-staged-learning-reviews)
+records the additive capability, record kinds, retained-attempt limit and typed
+outcomes. Attachment storage, scanners and retention remain host-owned, and
+inbound mail still drops attachments. AI keeps exact KB application/contracts
+`0.1.5`. Current-head gates, review and verified publication remain pending.
+SDK qualification establishes no universal query/CPU allowance or host activation.
+
+## 0.2.4 — admitted intake and final host checks, 2026-11-11
 
 An optional receipt-first customer create operation records the original
 human/assistant mode in the existing atomic create receipt. New writes use a
@@ -14,18 +31,19 @@ and collection when the complete source provenance still matches its delivery.
 Learning preparation and new review proofs compare the complete current KB
 draft again after late policy and authority reads. Follow-up posting accepts
 a bounded late staff-authority callback and retains the final proof assertion
-through the application commit boundary. The candidate also groups bounded
+through the application commit boundary. This release also groups bounded
 assistant finish reads with the existing failure and replay ordering.
 [Learning guide](RESOLUTION_LEARNING.md) · [Follow-up guide](ENGINEERING_FOLLOWUP.md)
 
-All five source packages and internal Support pins target unpublished `0.2.4`.
+All five exact `0.2.4` packages are published and strictly verified. The
+[publication receipt](RELEASING.md#verified-024-publication-2026-11-11) binds the
+original artifacts, executed gates and authenticated publication recovery.
 Learning source, work and confirmation reads share one bounded versioned
 partition observation within each read. Later proof phases take fresh views,
 and source confirmation retains its final opaque-version check. Each host
 still needs to measure its complete invocation against its configured limits.
-These changes need its combined gates, review, trusted publication and strict
-registry verification. Their separate probe results do
-not establish host activation or an invocation/CPU allowance.
+Package qualification leaves host activation and whole-invocation/CPU
+acceptance to their separate measured gates.
 
 ## 0.2.3 — final engineering review guards, 2026-11-10
 
