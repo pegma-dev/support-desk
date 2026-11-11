@@ -247,7 +247,8 @@ ID. One partition contains:
 - `message:<message-id>`: canonical customer or internal messages, including
   an immutable Support-owned outbound-content snapshot when applicable;
 - `audit|<event-id>`: `@pegma/audit@0.2.0` accepted-change events keyed by
-  `auditRecordId(event.id)` (command ID is the event ID);
+  `auditRecordId(event.id)` (ordinary commands use their command ID as the event
+  ID, with the staged review admission convention described below).
 - `command:<command-id>`: idempotency receipts with request fingerprints
   (inbound mail uses `inbound:<receipt location>` command IDs); an older
   nonqualifying reply route may reserve this key with a bounded reroute fence;
@@ -847,6 +848,66 @@ The KB integration must fail closed for an unbound intermediate draft
 and recheck every source at review/publication; Support's worker cannot grant
 publication by writing an empty provenance list or approving its own output.
 
+#### Staged human review attempts (source candidate)
+
+The optional `resolutionLearning.stagedReviews` application capability adds one
+`resolution_learning_review_attempt` at
+`learning-review-attempt:<commandId>` in the existing ticket partition. The
+original actor and complete canonical command fingerprint bind that fixed key.
+A changed payload at the same key produces a command conflict. The immutable
+intent contains actor, source/work generations, exact KB target and full policy
+stamp. The row retains phase (`proof` or `commit`), pending/held/terminal state,
+claim generation and lease, optional compact P1 binding/expiry and original
+expiry. Workers resolve current authorization for each physical stage.
+
+Admission atomically adds the attempt, its Audit action and a
+`resolution_learning_review_reservation` at the canonical
+`learning-command:<commandId>` key. The reservation holds actor, fingerprint
+and expiry coordinates. Final review or cancellation conditionally replaces
+that reservation with the canonical terminal receipt. Admission reserves two
+further rows for the eventual review and Audit, keeping five total rows across
+admission and completion. Ordinary admission accounts for `completionRows: 2`
+alongside human, withdrawal and other workflow reserves. Accepted/cancelled attempts set the reserve to
+zero. `maxStagedReviewAttempts` defaults to eight with a hard maximum of 24,
+counting all retained pending, held, accepted and cancelled attempt rows.
+Saturated admission retains prior ownership and reports the bounded limit
+error. Ticket capacity and exact-review-binding limits also apply. The complete
+attempt and largest legal later claim/proof envelope must fit the existing
+60,000-byte conservative serialized limit before admission.
+
+Admission uses logical Audit event ID
+`\u0000support.learning.review.requested:<commandId>`. Final review or
+cancellation uses the original `<commandId>` as its event ID. The leading
+escaped control character gives admission a distinct identity because caller
+command IDs exclude controls. Recovery tooling locates each event using its
+complete logical ID and the public `auditRecordId` mapper.
+
+Published Audit `0.2.0` maps the admission prefix to physical key
+`audit|%00support.learning.review.requested:<commandId>`. Its injective escaping
+maps a caller's literal `%00` to `%2500`. Support serializes the event wrapper as
+JSON, which escapes the logical control character in stored bytes and restores
+it when decoded. The actual Memory/Azurite staged-review cases check distinct
+admission and terminal history, mapped keys and serialized round trips. The
+host's Native D1 qualification checks the corresponding physical row and JSON
+readback through its adapter. [Audit identifier encoding](https://github.com/pegma-dev/audit/blob/v0.2.0/packages/audit/src/index.ts#L94-L145).
+
+`stagedResolutionLearningReviews` exposes guarded admission, exact status and
+cancellation, process-authorized `readPending`/`scanPending`, human claim, P1
+`prepare` and P2 `complete`. Scan consumes one physical Store page, counts every
+row before filtering and returns the opaque continuation. Stored metadata
+selects the original reviewer. Each mutation attempts one conditional
+transaction. Final completion fences the exact attempt version with ticket,
+source, work, review, Audit and the canonical command receipt in the same
+partition. A replacement claim or cancellation fences an older worker.
+
+Expired unresolved attempts remain held and retained. Privacy withdrawal holds
+pending attempts, removes their free-text reason and claim/proof state, and
+retains opaque exact command/fingerprint ownership for recovery. A missing
+receipt retains unknown ownership. Hosts retain unresolved attempts and
+canonical receipts, rediscover eligible pending work with bounded scans, and
+settle exact cancellation/recovery before treating a command as finished. See
+the [queued human-command contract](RESOLUTION_LEARNING.md#opt-in-staged-human-review-source-candidate).
+
 #### Physical, request, attempt, and history bounds
 
 | Bound                                    | Default / hard maximum or invariant                                                                                          |
@@ -856,6 +917,7 @@ publication by writing an empty provenance list or approving its own output.
 | Retained generation work rows per ticket | Four / eight; exhausting this budget holds new learning without dropping a trigger or blocking the human command.            |
 | Retained target articles per source      | Two / four, coalescing generations only after exact unresolved requests remain safely retained in their work rows.           |
 | Exact review bindings per source         | Sixteen / 64, enforced by a constant source counter; no automatic eviction of potentially live publication approvals.        |
+| Retained staged-review attempt rows      | Eight / 24 across pending, held and terminal states; no eviction to admit a new command.                                     |
 | Model attempts per generation            | Two / four, retained inline; no per-attempt physical rows.                                                                   |
 | Claim lease                              | 60,000 / 300,000 milliseconds; actual invocation and final commit must fit the requested lease.                              |
 | Worker lifetime                          | 300,000 / 3,600,000 milliseconds for active generation; expiry holds work, and never discards ambiguous external acceptance. |
@@ -869,8 +931,10 @@ There is no separate provenance-write step, arbitrary command sequence, or
 unbounded retry history.
 Known/unknown acceptance and the original exact request survive a new worker
 claim; an absent read does not reset the sequence or authorize a new create.
-At the maximum eight generation rows and 64 review bindings, one withdrawal
-scrubs those 72 rows plus ticket/source/Audit/receipt in at most 76 actions.
+Without staged-review attempts, the maximum eight generation rows and 64 review
+bindings require at most 76 withdrawal actions including ticket/source/Audit/receipt.
+The hard limit of 24 retained staged attempts keeps their additional privacy
+scrubs within the same 100-action transaction bound.
 
 Preparation uses the actual complete record encoder and constructs the largest
 legal subsequent completion, finish/receipt, and replacement-claim states,

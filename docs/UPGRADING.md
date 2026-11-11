@@ -53,6 +53,56 @@ late staff check and synchronous proof assertion for posting. A follow-up
 adapter must forward the supplied release proof guard's return value to the
 application.
 
+### Optional staged learning review capability
+
+The source candidate adds optional
+`ResolutionLearningApplication.stagedResolutionLearningReviews` when
+`resolutionLearning.stagedReviews: true`. The separate AI factory
+`createSupportDeskStagedLearningReviews` coordinates staff review through this
+capability, a current original-actor resolver and read-only source/KB/policy
+ports. Hosts explicitly select durable human-command semantics.
+
+Admission's fresh original-browser guard precedes durable pending acceptance.
+The admitted command remains active across browser logout until explicit
+cancellation or completion settles it. Later workers resolve the same human's
+current account/roles within the fixed operation ceiling. P1 returns
+`prepared`, ending that physical invocation. A separate delivery performs P2.
+Preserve the immutable command through status, unknown ACKs and cancellation.
+Current review/queue authority governs receipt/cancel recovery. New mutation
+proofs additionally require current KB authority. Each stage has a single CAS
+attempt, fresh independent proof and final synchronous minimum-expiry fence.
+`maxStagedReviewAttempts` defaults to eight with a hard maximum of 24 retained
+rows across pending, held and terminal states. Expired unknown commands retain
+their ownership and history.
+
+Typed handlers for `SupportDeskLimitError.field` must handle the added
+`staged_review_attempts` value. It reports the configured retained-attempt
+admission limit. Stored-record consumers must handle
+`resolution_learning_review_reservation`, the canonical command slot created
+with the pending attempt and Audit. Completion conditionally replaces this
+slot with the terminal receipt. The attempt reserves two future review/Audit
+rows after its three-row admission. Typed consumers of the optional factory
+must also handle `not_pending`, `not_claimed`, `prepared`, `completed`, `pending`
+and `held`.
+`not_pending` carries its outcome string as the queue-settlement signal.
+The host pairs it with the retained dispatch key and uses `readReviewStatus`
+for the canonical human result.
+`completed` carries the canonical accepted/cancelled receipt. Pending, busy and
+held outcomes retain the original command and queue pointer, while `prepared`
+requires a later physical invocation. `pending.phase` includes `dispatch` for
+pre-claim availability and authority-resolution failures. Authorization failures
+retain the coarse `authorization_unavailable` reason. `prepared.status` contains
+a pending status, and a terminal P1 result returns `completed` with its receipt.
+
+The optional `readScheduling: "sdk"` mode schedules bounded read waves for the
+known real read-only SDK graph. All three learning factories validate the
+runtime option as `"sdk"` or omission. Custom structural ports execute serial
+callbacks by default. Follow the
+[full staged-review contract](RESOLUTION_LEARNING.md#opt-in-staged-human-review-source-candidate)
+and [declared attempt layout](COLLECTIONS.md#staged-human-review-attempts-source-candidate).
+Release qualification and actual Native D1/CPU, host queue, customer AI/provider
+route and deployment acceptance remain required before their activation.
+
 ## Package and host boundary
 
 The released inventory is `@pegma/support-desk-contracts`, `-core`,

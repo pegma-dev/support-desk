@@ -1,4 +1,6 @@
 export { createSupportDeskAssistant } from "./coordinator.js";
+export { createSupportDeskStagedLearningReviews } from "./learning-staged-reviews.js";
+export type * from "./learning-staged-review-types.js";
 export { createSupportDeskLearning } from "./learning-coordinator.js";
 export { createSupportDeskEngineering } from "./engineering-coordinator.js";
 export { createSupportDeskReleaseFollowup } from "./release-followup-coordinator.js";

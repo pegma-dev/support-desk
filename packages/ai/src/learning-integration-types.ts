@@ -139,6 +139,8 @@ export interface SupportDeskLearningOptions extends Omit<
    * correcting a draft. Never fabricate filtered snapshots or old revisions.
    */
   readonly sources: PrivateSourcesVerifier;
+  /** Opt in only for the real SDK's read-only application/source graph. Custom ports remain serial. */
+  readonly readScheduling?: "sdk";
   /** Current draft/provenance/search and source-read authority; no publish needed. */
   readonly knowledgeAccess: LearningKnowledgeAccessPort;
   /** Separate narrow current retirement/provenance authority; no publish needed. */
@@ -266,6 +268,8 @@ export interface SupportDeskLearning {
 }
 
 export interface SupportDeskLearningSourceVerifierOptions {
+  /** Real SDK independent contributor reads only; publication checks remain serial. */
+  readonly readScheduling?: "sdk";
   /** No KB reads: callbacks must not recursively enter publication or retrieval. */
   readonly application: Pick<
     ResolutionLearningApplication,

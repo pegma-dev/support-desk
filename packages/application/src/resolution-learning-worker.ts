@@ -1,3 +1,16 @@
+import {
+  assertResolutionLearningReviewAttempt,
+  type ResolutionLearningReviewAttemptRecord,
+} from "./resolution-learning-staged-records.js";
+import { commitResolutionLearningReview } from "./resolution-learning-review-commit.js";
+import {
+  resolutionLearningReviewIdentity,
+  requireResolutionLearningReviewTicket,
+  observeResolutionLearningReview,
+  readResolutionLearningReviewSlot,
+  resolutionLearningReviewReceiptAction,
+  type ResolutionLearningReviewIdentity,
+} from "./resolution-learning-review-identity.js";
 import { hasPermission, type AccessContext } from "@pegma/authorization-core";
 import { MAX_SCAN_PAGE_SIZE, type VersionedRecord } from "@pegma/storage-core";
 import {
@@ -22,13 +35,11 @@ import {
   safeLearningSnapshot as snapshot,
   assertResolutionLearningRecord,
   maximumResolutionLearningSourceBytes,
-  resolutionLearningReviewKey,
   resolutionLearningSourceKey,
   resolutionLearningWorkKey,
   validateResolutionCandidate,
   validateResolutionRequest,
   validateResolutionTarget,
-  type ResolutionLearningReviewRecord,
   type ResolutionLearningSourceRecord,
   type ResolutionLearningWorkRecord,
 } from "./resolution-learning-records.js";
@@ -47,8 +58,6 @@ import type {
   ResolutionLearningModelBinding,
   ResolutionLearningPreparedStep,
   ResolutionLearningProcessing,
-  ResolutionLearningReviewReceipt,
-  ReviewResolutionLearningProposalCommand,
   ResolutionLearningStepResult,
 } from "./resolution-learning-types.js";
 
@@ -328,106 +337,11 @@ export function createResolutionLearningWorkerServices(
   load: (ticketId: string) => Promise<Loaded>,
 ): WorkerMethods {
   const { records, clock, options } = deps;
-  async function reviewIdentity(
-    input: ReviewResolutionLearningProposalCommand,
-    actorId: string,
-  ) {
-    const command = snapshot(
-      fields(
-        input,
-        "review learning",
-        [
-          "ticketId",
-          "sourceGeneration",
-          "commandId",
-          "correlationId",
-          "expectedWorkGeneration",
-          "target",
-          "decision",
-          "policyVersion",
-        ],
-        ["reason", "intentBinding"],
-      ),
-    ) as unknown as typeof input;
-    validateResolutionTarget(command.target);
-    integer(command.expectedWorkGeneration, "expectedWorkGeneration", 1);
-    text(command.commandId, "commandId");
-    text(command.correlationId, "correlationId");
-    text(command.policyVersion, "policyVersion");
-    if (command.intentBinding !== undefined) {
-      text(command.intentBinding, "intentBinding", 64);
-      if (!/^[0-9a-f]{64}$/.test(command.intentBinding))
-        throw new TypeError("invalid review intent binding");
-    }
-    if (command.reason !== undefined) text(command.reason, "reason");
-    if (command.decision !== "approve" && command.decision !== "reject")
-      throw new TypeError("invalid review decision");
-    text(command.ticketId, "ticketId");
-    integer(command.sourceGeneration, "sourceGeneration", 1);
-    const hash = await fingerprint({ command, actorId });
-    // Preserve every existing accepted fingerprint and generic receipt shape.
-    // Older readers see the cancellation fingerprint as a conflicting command.
-    const cancellationHash = await fingerprint({
-      operation: "cancel_resolution_learning_review",
-      reviewFingerprint: hash,
-    });
-    return {
-      command,
-      hash,
-      cancellationHash,
-      key: {
-        partition: command.ticketId,
-        id: `learning-command:${command.commandId}`,
-      },
-    };
-  }
-  type ReviewIdentity = Awaited<ReturnType<typeof reviewIdentity>>;
-  async function requireReviewTicket(identity: ReviewIdentity): Promise<void> {
-    const ticket = await records.get({
-      partition: identity.command.ticketId,
-      id: "ticket",
-    });
-    if (ticket?.kind !== "ticket") throw new SupportDeskNotFoundError();
-  }
-  async function observedReview(
-    identity: ReviewIdentity,
-  ): Promise<ResolutionLearningReviewReceipt | null> {
-    const prior = await records.get(identity.key);
-    if (prior === null) return null;
-    if (prior.kind !== "resolution_learning_receipt")
-      throw new SupportDeskConflictError("Review command reused");
-    if (
-      prior.partition !== identity.key.partition ||
-      prior.id !== identity.key.id
-    )
-      throw new SupportDeskConflictError("Review receipt identity differs");
-    fields(
-      prior.result,
-      "review receipt result",
-      ["ticketId", "sourceGeneration", "resolutionCycle", "state"],
-      ["heldReason"],
-    );
-    if (
-      prior.result.ticketId !== identity.command.ticketId ||
-      !["unverified", "eligible", "held", "withdrawn"].includes(
-        prior.result.state,
-      )
-    )
-      throw new TypeError("Invalid review receipt result");
-    integer(prior.result.sourceGeneration, "sourceGeneration", 0);
-    integer(prior.result.resolutionCycle, "resolutionCycle", 1);
-    if (prior.result.heldReason !== undefined)
-      text(prior.result.heldReason, "heldReason");
-    if (prior.fingerprint === identity.hash)
-      return { outcome: "accepted", result: snapshot(prior.result) };
-    if (prior.fingerprint === identity.cancellationHash)
-      return {
-        outcome: "cancelled",
-        ticketId: identity.command.ticketId,
-        commandId: identity.command.commandId,
-      };
-    throw new SupportDeskConflictError("Review command reused");
-  }
+  const reviewIdentity = resolutionLearningReviewIdentity;
+  const requireReviewTicket = (identity: ResolutionLearningReviewIdentity) =>
+    requireResolutionLearningReviewTicket(records, identity);
+  const observedReview = (identity: ResolutionLearningReviewIdentity) =>
+    observeResolutionLearningReview(records, identity);
   async function workAt(key: {
     ticketId: string;
     sourceGeneration: number;
@@ -1339,13 +1253,64 @@ export function createResolutionLearningWorkerServices(
         // Exact recovery needs the current ticket and human authority, not
         // spare capacity for an operation that has already committed.
         await requireReviewTicket(identity);
-        const prior = await observedReview(identity);
+        const slot = await readResolutionLearningReviewSlot(records, identity);
+        const prior = slot.receipt;
         if (prior !== null) {
           await guard();
           return prior;
         }
         const loaded = await load(command.ticketId);
-        deps.admission(loaded.ticket.value.ticket, loaded.rows, 2);
+        const candidate = loaded.rows.find(
+          (row) =>
+            row.kind === "resolution_learning_review_attempt" &&
+            row.command.commandId === command.commandId,
+        );
+        let staged:
+          | { version: string; value: ResolutionLearningReviewAttemptRecord }
+          | undefined;
+        if (candidate !== undefined) {
+          const stored = await records.getVersioned({
+            partition: command.ticketId,
+            id: candidate.id,
+          });
+          if (stored === null)
+            throw new SupportDeskConflictError("Review attempt disappeared");
+          assertResolutionLearningReviewAttempt(stored.value, {
+            partition: command.ticketId,
+            id: candidate.id,
+          });
+          if (
+            stored.value.fingerprint !== identity.hash ||
+            stored.value.reviewerId !== access.principalId
+          )
+            throw new SupportDeskConflictError("Review command reused");
+          if (
+            stored.value.state === "accepted" ||
+            stored.value.state === "cancelled" ||
+            slot.reservation === null
+          )
+            throw new SupportDeskConflictError(
+              "Terminal review receipt is unavailable",
+            );
+          const { claim: _claim, leaseUntil: _lease, ...rest } = stored.value;
+          staged = {
+            version: stored.version,
+            value: { ...rest, state: "cancelled", completionRows: 0 },
+          };
+        }
+        if (staged === undefined && slot.reservation !== null)
+          throw new SupportDeskConflictError(
+            "Review reservation has no retained attempt",
+          );
+        deps.admission(
+          loaded.ticket.value.ticket,
+          staged === undefined
+            ? loaded.rows
+            : loaded.rows.map((row) =>
+                row.id === staged.value.id ? staged.value : row,
+              ),
+          slot.reservation === null ? 2 : 1,
+        );
         const now = clock.now();
         const result = {
           ticketId: loaded.source.value.ticketId,
@@ -1362,6 +1327,15 @@ export function createResolutionLearningWorkerServices(
                 version: loaded.ticket.version,
                 value: loaded.ticket.value,
               },
+              ...(staged === undefined
+                ? []
+                : [
+                    {
+                      action: "putIfUnchanged" as const,
+                      version: staged.version,
+                      value: staged.value,
+                    },
+                  ]),
               deps.audit(
                 command,
                 loaded.ticket.value.ticket,
@@ -1369,16 +1343,13 @@ export function createResolutionLearningWorkerServices(
                 now,
                 "support.learning.review_cancelled",
               ),
-              {
-                action: "insert",
-                value: {
-                  kind: "resolution_learning_receipt",
-                  partition: command.ticketId,
-                  id: key.id,
-                  fingerprint: cancellationHash,
-                  result,
-                },
-              },
+              resolutionLearningReviewReceiptAction(slot, {
+                kind: "resolution_learning_receipt",
+                partition: command.ticketId,
+                id: key.id,
+                fingerprint: cancellationHash,
+                result,
+              }),
             ])
           ).committed
         ) {
@@ -1402,133 +1373,7 @@ export function createResolutionLearningWorkerServices(
       throw new SupportDeskConflictError();
     },
     async reviewResolutionLearningProposal(access, input, guard) {
-      permission(access, true);
-      if (typeof guard !== "function")
-        throw new TypeError(
-          "KB target review requires a read-only current-target guard",
-        );
-      const identity = await reviewIdentity(input, access.principalId);
-      const { command, hash, key } = identity;
-      for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
-        const loaded = await load(command.ticketId);
-        const work = await workAt(command);
-        const prior = await observedReview(identity);
-        if (prior?.outcome === "accepted") return prior.result;
-        if (prior?.outcome === "cancelled")
-          throw new SupportDeskConflictError("Review command cancelled");
-        if (
-          !current(loaded, work.value) ||
-          work.value.workGeneration !== command.expectedWorkGeneration ||
-          !loaded.source.value.destinations.some(
-            (entry) => entry.articleId === command.target.articleId,
-          )
-        )
-          throw new SupportDeskConflictError(
-            "Review source/work/target changed",
-          );
-        const reviewKey = await resolutionLearningReviewKey(
-          loaded.source.value,
-          command.target,
-          command.policyVersion,
-        );
-        const previousReview = await records.getVersioned(reviewKey);
-        if (
-          previousReview !== null &&
-          previousReview.value.kind !== "resolution_learning_review"
-        )
-          throw new SupportDeskConflictError("Review binding key collision");
-        if (
-          previousReview === null &&
-          loaded.source.value.reviewBindingCount >= options.maxReviewBindings
-        )
-          throw new SupportDeskLimitError(
-            "ticket_partition",
-            deps.limits.maxRecordsPerTicket,
-          );
-        deps.admission(
-          loaded.ticket.value.ticket,
-          loaded.rows,
-          previousReview === null ? 3 : 2,
-        );
-        const now = clock.now();
-        const review: ResolutionLearningReviewRecord = {
-          kind: "resolution_learning_review",
-          partition: command.ticketId,
-          id: reviewKey.id,
-          ticketId: command.ticketId,
-          sourceGeneration: loaded.source.value.sourceGeneration,
-          sourceBindingHash: loaded.source.value.sourceBindingHash!,
-          target: command.target,
-          decision: command.decision,
-          policyVersion: command.policyVersion,
-          reviewerId: access.principalId,
-          reviewedAt: now,
-          ...(command.reason === undefined ? {} : { reason: command.reason }),
-        };
-        assertResolutionLearningRecord(review, reviewKey);
-        const source: ResolutionLearningSourceRecord = {
-          ...loaded.source.value,
-          workGeneration: loaded.source.value.workGeneration + 1,
-          reviewBindingCount:
-            loaded.source.value.reviewBindingCount +
-            (previousReview === null ? 1 : 0),
-        };
-        checkRow(source);
-        const outcome = {
-          ticketId: source.ticketId,
-          sourceGeneration: source.sourceGeneration,
-          resolutionCycle: source.resolutionCycle,
-          state: source.state,
-        };
-        await guard();
-        if (
-          (
-            await records.transact(command.ticketId, [
-              {
-                action: "putIfUnchanged",
-                version: loaded.ticket.version,
-                value: loaded.ticket.value,
-              },
-              {
-                action: "putIfUnchanged",
-                version: loaded.source.version,
-                value: source,
-              },
-              {
-                action: "putIfUnchanged",
-                version: work.version,
-                value: work.value,
-              },
-              previousReview === null
-                ? { action: "insert", value: review }
-                : {
-                    action: "putIfUnchanged",
-                    version: previousReview.version,
-                    value: review,
-                  },
-              deps.audit(
-                command,
-                loaded.ticket.value.ticket,
-                access.principalId,
-                now,
-                "support.learning.reviewed",
-              ),
-              {
-                action: "insert",
-                value: {
-                  kind: "resolution_learning_receipt",
-                  partition: command.ticketId,
-                  id: key.id,
-                  fingerprint: hash,
-                  result: outcome,
-                },
-              },
-            ])
-          ).committed
-        )
-          return outcome;
-      }
-      throw new SupportDeskConflictError();
+      return commitResolutionLearningReview(deps, load, access, input, guard);
     },
   };
 }

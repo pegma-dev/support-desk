@@ -1,4 +1,8 @@
-import { hasPermission, type AccessContext } from "@pegma/authorization-core";
+import {
+  learningReviewAuthority,
+  learningReviewCommand,
+} from "./learning-review-command.js";
+import type { AccessContext } from "@pegma/authorization-core";
 import type {
   LearningProcessResult,
   LearningReviewCancellationOptions,
@@ -11,8 +15,6 @@ import type {
   SupportDeskLearningOptions,
 } from "./learning-integration-types.js";
 import {
-  SupportDeskAuthorizationError,
-  supportPermissions,
   type ResolutionLearningClaim,
   type ResolutionLearningKey,
   type ResolutionLearningSourceResult,
@@ -23,7 +25,6 @@ import {
   canonical,
   count,
   exactKeys,
-  fingerprint,
   scalar,
   snapshot,
   timestamp,
@@ -39,10 +40,7 @@ import {
   readLearningKBTarget,
 } from "./learning-kb.js";
 import { createLearningModelExecutor } from "./learning-model.js";
-import {
-  learningAuthoritySnapshot,
-  learningCheckPolicySnapshot,
-} from "./learning-request.js";
+import { learningCheckPolicySnapshot } from "./learning-request.js";
 import { createLearningReconciler } from "./learning-retirement.js";
 import {
   createLearningRuntime,
@@ -57,6 +55,8 @@ class LearningReviewGuardFailure extends AssistantBoundaryError {}
 export function createSupportDeskLearning(
   options: SupportDeskLearningOptions,
 ): SupportDeskLearning {
+  if (options.readScheduling !== undefined && options.readScheduling !== "sdk")
+    throw new TypeError("Unknown learning read scheduling");
   const attempts = count(options.storageCommandAttempts ?? 2, 3, 1);
   count(options.maxPublishedMatches ?? 5, 5, 1);
   count(options.maxExplicitDrafts ?? 5, 5);
@@ -65,20 +65,6 @@ export function createSupportDeskLearning(
     checkPolicy: options.checks,
   });
   const reconcileSource = createLearningReconciler(options);
-  function reviewAuthority(access: AccessContext): AccessContext {
-    const staff = learningAuthoritySnapshot({
-      access,
-      authorityVersion: "staff-review",
-      usageScopeRef: "staff-review",
-    }).access;
-    for (const name of [
-      supportPermissions.learningReview,
-      supportPermissions.queueRead,
-    ])
-      if (!hasPermission(staff, name))
-        throw new SupportDeskAuthorizationError(name);
-    return staff;
-  }
   async function confirmCurrentDraft(
     access: AccessContext,
     target: Awaited<ReturnType<typeof readLearningKBTarget>>,
@@ -98,56 +84,6 @@ export function createSupportDeskLearning(
       throw new AssistantBoundaryError("target_changed");
   }
 
-  async function reviewCommand(
-    access: AccessContext,
-    input: LearningReviewCommand,
-  ) {
-    const packet = snapshot(input);
-    exactKeys(packet, [
-      "intent",
-      "commandId",
-      "correlationId",
-      "decision",
-      ...(packet.reason === undefined ? [] : ["reason"]),
-    ]);
-    const intent = packet.intent;
-    exactKeys(intent, [
-      "reviewerId",
-      "ticketId",
-      "sourceGeneration",
-      "expectedWorkGeneration",
-      "target",
-      "policy",
-    ]);
-    scalar(intent.reviewerId);
-    if (intent.reviewerId !== access.principalId)
-      throw new AssistantBoundaryError("authority_changed");
-    exactKeys(intent.policy, [
-      "version",
-      "binding",
-      "verifiedAt",
-      "validUntil",
-    ]);
-    scalar(intent.policy.version);
-    scalar(intent.policy.binding);
-    timestamp(intent.policy.verifiedAt);
-    timestamp(intent.policy.validUntil);
-    // Expired historical proofs may still recover a receipt or be cancelled.
-    // Only a new submission must satisfy current policy and KB/source checks.
-    const command: ReviewResolutionLearningProposalCommand = {
-      ticketId: intent.ticketId,
-      sourceGeneration: intent.sourceGeneration,
-      expectedWorkGeneration: intent.expectedWorkGeneration,
-      target: intent.target,
-      policyVersion: intent.policy.version,
-      intentBinding: await fingerprint(intent),
-      commandId: packet.commandId,
-      correlationId: packet.correlationId,
-      decision: packet.decision,
-      ...(packet.reason === undefined ? {} : { reason: packet.reason }),
-    };
-    return { command, policy: intent.policy };
-  }
   async function reviewProposal(
     access: AccessContext,
     input: ReviewResolutionLearningProposalCommand,
@@ -156,7 +92,7 @@ export function createSupportDeskLearning(
   ): Promise<ResolutionLearningSourceResult> {
     const runtime = createLearningRuntime(options, runOptions);
     try {
-      const staff = reviewAuthority(access);
+      const staff = learningReviewAuthority(access);
       const command = snapshot(input);
       const prior = await runtime.within(() =>
         options.application.readResolutionLearningReviewReceipt(staff, command),
@@ -379,7 +315,7 @@ export function createSupportDeskLearning(
     ): Promise<LearningReviewPreparation> {
       const runtime = createLearningRuntime(options, runOptions);
       try {
-        const staff = reviewAuthority(access);
+        const staff = learningReviewAuthority(access);
         const key = snapshot(input);
         exactKeys(key, ["ticketId", "sourceGeneration"]);
         scalar(key.ticketId);
@@ -517,8 +453,8 @@ export function createSupportDeskLearning(
       input: LearningReviewCommand,
       runOptions: LearningRunOptions = {},
     ) {
-      const staff = reviewAuthority(access);
-      const value = await reviewCommand(staff, input);
+      const staff = learningReviewAuthority(access);
+      const value = await learningReviewCommand(staff, input);
       return reviewProposal(staff, value.command, runOptions, value.policy);
     },
     async readReviewReceipt(
@@ -528,8 +464,8 @@ export function createSupportDeskLearning(
     ) {
       const runtime = createLearningRuntime(options, runOptions);
       try {
-        const staff = reviewAuthority(access);
-        const { command } = await reviewCommand(staff, input);
+        const staff = learningReviewAuthority(access);
+        const { command } = await learningReviewCommand(staff, input);
         return await runtime.within(() =>
           options.application.readResolutionLearningReviewReceipt(
             staff,
@@ -551,8 +487,8 @@ export function createSupportDeskLearning(
         );
       const runtime = createLearningRuntime(options, runOptions);
       try {
-        const staff = reviewAuthority(access);
-        const { command } = await reviewCommand(staff, input);
+        const staff = learningReviewAuthority(access);
+        const { command } = await learningReviewCommand(staff, input);
         for (let attempt = 0; attempt < attempts; attempt += 1) {
           try {
             return await runtime.within(() =>

@@ -1,3 +1,5 @@
+import type { supportTicketAuditActions } from "./index.js";
+import { createResolutionLearningStagedReviewServices } from "./resolution-learning-staged.js";
 import { hasPermission, type AccessContext } from "@pegma/authorization-core";
 import type { Clock } from "@pegma/spine";
 import {
@@ -67,7 +69,8 @@ interface Dependencies {
     ticket: Ticket,
     actorId: string,
     now: string,
-    action: string,
+    action: (typeof supportTicketAuditActions)[keyof typeof supportTicketAuditActions],
+    eventId?: string,
   ): Action;
   admission(
     ticket: Ticket,
@@ -713,6 +716,32 @@ export function createResolutionLearningServices(deps: Dependencies): {
       ];
       if (privacy) {
         for (const candidate of rows) {
+          if (candidate.kind === "resolution_learning_review_attempt") {
+            const stored = await records.getVersioned({
+              partition: command.ticketId,
+              id: candidate.id,
+            });
+            if (stored?.value.kind !== "resolution_learning_review_attempt")
+              throw new SupportDeskConflictError();
+            const {
+              claim: _claim,
+              leaseUntil: _lease,
+              proof: _proof,
+              ...rest
+            } = stored.value;
+            const { reason: _reason, ...reviewCommand } = rest.command;
+            // Retain exact opaque ownership/fingerprint for receipt/cancel recovery;
+            // remove private text and fence every older in-flight claim.
+            actions.push({
+              action: "putIfUnchanged",
+              version: stored.version,
+              value: {
+                ...rest,
+                command: reviewCommand,
+                state: rest.state === "pending" ? "held" : rest.state,
+              },
+            });
+          }
           if (candidate.kind === "resolution_learning_review") {
             const review = await records.getVersioned({
               partition: command.ticketId,
@@ -793,6 +822,12 @@ export function createResolutionLearningServices(deps: Dependencies): {
     throw new SupportDeskConflictError();
   }
   const application: ResolutionLearningApplication = {
+    ...(options.stagedReviews
+      ? {
+          stagedResolutionLearningReviews:
+            createResolutionLearningStagedReviewServices(deps, load),
+        }
+      : {}),
     async enrollResolutionLearning(access, input) {
       permission(access, supportPermissions.learningEvidenceSubmit, true);
       const command = snapshot(

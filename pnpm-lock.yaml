@@ -11,6 +11,9 @@ importers:
       '@azure/data-tables':
         specifier: ^13.3.2
         version: 13.3.2
+      '@pegma/audit':
+        specifier: 0.2.0
+        version: 0.2.0
       '@pegma/authorization-core':
         specifier: 0.4.0
         version: 0.4.0
