@@ -3,6 +3,7 @@ import type { Clock } from "@pegma/spine";
 import {
   MAX_SCAN_PAGE_SIZE,
   type CollectionStore,
+  type EntityKey,
   type VersionedRecord,
 } from "@pegma/storage-core";
 import type { Ticket } from "@pegma/support-desk-contracts";
@@ -452,32 +453,35 @@ export function createResolutionLearningServices(deps: Dependencies): {
       rows,
     };
   }
-  /** One local observation; later proof phases must take their own fresh view. */
-  async function readView(ticketId: string): Promise<{
+  /** Exact-key authority and capacity observations share one local read wave. */
+  async function readView(
+    ticketId: string,
+    workKey?: EntityKey,
+  ): Promise<{
     ticket: TicketVersion;
     source: SourceVersion;
     rows: readonly SupportRecord[];
+    work: SupportRecord | null;
   }> {
     text(ticketId, "ticketId");
-    let observed: readonly VersionedRecord<SupportRecord>[];
-    try {
-      observed = await records.listVersioned(ticketId);
-    } catch {
-      // Preserve keyed missing/kind failures when an unrelated stored payload
-      // prevents whole-partition decoding. Never retain a failed observation.
-      return load(ticketId);
-    }
-    const physicalRows = observed.length;
-    const ticket = observed.find((row) => row.value.id === "ticket");
+    // Observe every launched read. Report the existing ticket/source/capacity/
+    // work error order without deriving a backend key from decoded payloads.
+    const [ticketRead, sourceRead, partitionRead, workRead] =
+      await Promise.allSettled([
+        records.getVersioned({ partition: ticketId, id: "ticket" }),
+        readResolutionSource(records, ticketId),
+        records.listVersioned(ticketId),
+        workKey === undefined ? Promise.resolve(null) : records.get(workKey),
+      ] as const);
+    if (ticketRead.status === "rejected") throw ticketRead.reason;
+    const ticket = ticketRead.value;
     if (ticket?.value.kind !== "ticket") throw new SupportDeskNotFoundError();
-    const source = observed.find(
-      (row) => row.value.id === resolutionLearningSourceKey(ticketId).id,
-    );
-    if (source === undefined) throw new SupportDeskNotFoundError();
-    if (source.value.kind !== "resolution_learning_source")
-      throw new SupportDeskConflictError(
-        "Learning source key contains another record",
-      );
+    if (sourceRead.status === "rejected") throw sourceRead.reason;
+    const source = sourceRead.value;
+    if (source === null) throw new SupportDeskNotFoundError();
+    if (partitionRead.status === "rejected") throw partitionRead.reason;
+    const observed = partitionRead.value;
+    const physicalRows = observed.length;
     if (physicalRows > deps.limits.maxRecordsPerTicket)
       throw new SupportDeskLimitError(
         "ticket_partition",
@@ -489,10 +493,12 @@ export function createResolutionLearningServices(deps: Dependencies): {
         throw new SupportDeskConflictError("Invalid learning ticket partition");
       keys.add(value.id);
     }
+    if (workRead.status === "rejected") throw workRead.reason;
     return {
       ticket: { value: ticket.value, version: ticket.version },
-      source: { value: source.value, version: source.version },
+      source,
       rows: observed.map((row) => row.value),
+      work: workRead.value,
     };
   }
   async function context(
@@ -1015,13 +1021,17 @@ export function createResolutionLearningServices(deps: Dependencies): {
     },
     async readResolutionLearningWork(access, key) {
       permission(access, supportPermissions.learningRead, true);
-      const view = await readView(key.ticketId);
-      integer(key.sourceGeneration, "sourceGeneration", 1);
-      const workKey = resolutionLearningWorkKey(
-        key.ticketId,
-        key.sourceGeneration,
-      );
-      const work = view.rows.find((row) => row.id === workKey.id);
+      const ticketId = key.ticketId;
+      const sourceGeneration = key.sourceGeneration;
+      // Invalid generations retain the existing post-resource validation order
+      // and never launch a read at an invalid work key.
+      const workKey =
+        Number.isSafeInteger(sourceGeneration) && sourceGeneration >= 1
+          ? resolutionLearningWorkKey(ticketId, sourceGeneration)
+          : undefined;
+      const view = await readView(ticketId, workKey);
+      integer(sourceGeneration, "sourceGeneration", 1);
+      const work = view.work;
       if (work?.kind !== "resolution_learning_work")
         throw new SupportDeskNotFoundError();
       return snapshot(work);

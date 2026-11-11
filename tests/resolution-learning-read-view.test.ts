@@ -1,16 +1,20 @@
-import type {
-  CollectionDefinition,
-  EntityKey,
-  Store,
+import {
+  StorageError,
+  type CollectionDefinition,
+  type EntityKey,
+  type StoredRecord,
+  type Store,
 } from "@pegma/storage-core";
 import {
   SupportDeskAuthorizationError,
+  SupportDeskConflictError,
   SupportDeskLimitError,
   SupportDeskNotFoundError,
   supportPermissions,
   supportRecords,
   type ResolutionLearningSourceRecord,
   type ResolutionSourceFence,
+  type SupportRecord,
 } from "@pegma/support-desk-application";
 import { describe, expect, it } from "vitest";
 import { handlingBarrier } from "../test/handling-fixtures.js";
@@ -85,6 +89,36 @@ function fence(source: ResolutionLearningSourceRecord): ResolutionSourceFence {
   };
 }
 
+/** Copy encoded bytes at a different real backend key, without faking a read. */
+async function copyAtKey(backing: Store, key: EntityKey, value: SupportRecord) {
+  const physical = backing.collection<StoredRecord>({
+    name: supportRecords.name,
+    key: () => key,
+    codec: {
+      encode: (record) => record,
+      decode: (record) => record,
+    },
+  });
+  await physical.put(supportRecords.codec.encode(value));
+}
+
+function readCalls(sourceGeneration?: number): ReadCall[] {
+  return [
+    { operation: "getVersioned", partition: "ticket", id: "ticket" },
+    { operation: "getVersioned", partition: "ticket", id: "learning-source" },
+    { operation: "listVersioned", partition: "ticket" },
+    ...(sourceGeneration === undefined
+      ? []
+      : [
+          {
+            operation: "get" as const,
+            partition: "ticket",
+            id: `resolution-learning:${sourceGeneration}`,
+          },
+        ]),
+  ];
+}
+
 async function reached(
   gate: ReturnType<typeof handlingBarrier>,
   pending: Promise<unknown>,
@@ -105,7 +139,7 @@ async function reached(
 for (const [name, createStore] of learningStores) {
   describe(`versioned learning read views (${name})`, () => {
     it.each(["source", "work", "confirmation"] as const)(
-      "reads %s from one whole-partition observation and retains the final source fence",
+      "groups exact-key %s reads with one capacity observation and retains the final source fence",
       async (operation) => {
         const backing = createStore();
         const observed = observeReads(backing);
@@ -121,9 +155,7 @@ for (const [name, createStore] of learningStores) {
           expect(
             await f.app.readResolutionLearningSource(staff, "ticket"),
           ).toEqual(source);
-          expect(observed.calls).toEqual([
-            { operation: "listVersioned", partition: "ticket" },
-          ]);
+          expect(observed.calls).toEqual(readCalls());
         } else if (operation === "work") {
           expect(
             await f.app.readResolutionLearningWork(staff, {
@@ -131,15 +163,13 @@ for (const [name, createStore] of learningStores) {
               sourceGeneration: source.sourceGeneration,
             }),
           ).toEqual(work);
-          expect(observed.calls).toEqual([
-            { operation: "listVersioned", partition: "ticket" },
-          ]);
+          expect(observed.calls).toEqual(readCalls(source.sourceGeneration));
         } else {
           expect(
             await f.app.confirmResolutionLearningSource(service, fence(source)),
           ).toBe(true);
           expect(observed.calls).toEqual([
-            { operation: "listVersioned", partition: "ticket" },
+            ...readCalls(),
             {
               operation: "getVersioned",
               partition: "ticket",
@@ -334,62 +364,145 @@ for (const [name, createStore] of learningStores) {
       ).toBe(false);
     });
 
-    it("keeps missing-ticket precedence when an orphan payload cannot be decoded", async () => {
-      const backing = createStore();
-      const f = resolutionLearningFixture(backing);
-      interface EncodedRow {
-        readonly partition: string;
-        readonly id: string;
-        readonly payload: string;
-      }
-      // Write an actual corrupted encoded row through the real adapter. Domain
-      // reads still use supportRecords' real decoder and are never replaced.
-      const physical = backing.collection<EncodedRow>({
-        name: supportRecords.name,
-        key: (value) => ({ partition: value.partition, id: value.id }),
-        codec: {
-          encode: (value) => ({ ...value }),
-          decode(value) {
-            if (
-              typeof value.partition !== "string" ||
-              typeof value.id !== "string" ||
-              typeof value.payload !== "string"
-            )
-              throw new TypeError("Invalid encoded corruption fixture");
-            return {
-              partition: value.partition,
-              id: value.id,
-              payload: value.payload,
-            };
-          },
+    it("propagates a real partition-read failure without a fallback observation or write", async () => {
+      const observed = observeReads(createStore());
+      const f = resolutionLearningFixture(observed.store);
+      await f.terminal();
+      const { source } = await f.confirm();
+      const before = await f.rows();
+      const transactions = f.observed.transactions.length;
+      for (const { read, work } of [
+        {
+          read: () => f.app.readResolutionLearningSource(staff, "ticket"),
+          work: false,
         },
-      });
-      const ticketId = "missing-ticket-with-orphan";
-      await physical.put({ partition: ticketId, id: "orphan", payload: "{" });
-      const before = await physical.list(ticketId);
-      await expect(
-        backing.collection(supportRecords).list(ticketId),
-      ).rejects.toThrow();
-
-      await expect(
-        f.app.readResolutionLearningSource(staff, ticketId),
-      ).rejects.toBeInstanceOf(SupportDeskNotFoundError);
-      await expect(
-        f.app.readResolutionLearningWork(staff, {
-          ticketId,
-          sourceGeneration: 1,
-        }),
-      ).rejects.toBeInstanceOf(SupportDeskNotFoundError);
-      expect(
-        await f.app.confirmResolutionLearningSource(service, {
-          ticketId,
-          sourceGeneration: 1,
-          resolutionCycle: 1,
-          sourceBindingHash: "a".repeat(64),
-        }),
-      ).toBe(false);
-      expect(await physical.list(ticketId)).toEqual(before);
+        {
+          read: () =>
+            f.app.readResolutionLearningWork(staff, {
+              ticketId: "ticket",
+              sourceGeneration: source.sourceGeneration,
+            }),
+          work: true,
+        },
+        {
+          read: () =>
+            f.app.confirmResolutionLearningSource(service, fence(source)),
+          work: false,
+        },
+      ]) {
+        const failure = new StorageError(
+          "Synthetic partition response was lost",
+        );
+        observed.calls.length = 0;
+        // The backend performs the actual read; only its returned response is
+        // lost. Do not replace it with a successful domain result.
+        observed.afterNextPartitionRead(async () => {
+          throw failure;
+        });
+        await expect(read()).rejects.toBe(failure);
+        expect(observed.calls).toEqual(
+          readCalls(work ? source.sourceGeneration : undefined),
+        );
+        expect(f.observed.transactions).toHaveLength(transactions);
+        expect(await f.rows()).toEqual(before);
+      }
     });
+
+    it.each(["ticket", "source", "work"] as const)(
+      "does not accept a copied %s payload after its canonical physical row is deleted",
+      async (kind) => {
+        const backing = createStore();
+        const f = resolutionLearningFixture(backing);
+        await f.terminal();
+        const { source } = await f.confirm();
+        const records = backing.collection(supportRecords);
+        const key = {
+          partition: "ticket",
+          id:
+            kind === "ticket"
+              ? "ticket"
+              : kind === "source"
+                ? "learning-source"
+                : `resolution-learning:${source.sourceGeneration}`,
+        };
+        const canonical = await records.getVersioned(key);
+        if (canonical === null)
+          throw new Error("Expected the actual canonical row");
+        await copyAtKey(
+          backing,
+          { partition: "ticket", id: `orphan-${kind}` },
+          canonical.value,
+        );
+        expect(await records.deleteIfUnchanged(key, canonical.version)).toBe(
+          true,
+        );
+        expect(await records.getVersioned(key)).toBeNull();
+        const before = await f.rows();
+        expect(before.some((row) => row.id === key.id)).toBe(true);
+
+        await expect(
+          f.app.readResolutionLearningWork(staff, {
+            ticketId: "ticket",
+            sourceGeneration: source.sourceGeneration,
+          }),
+        ).rejects.toBeInstanceOf(SupportDeskNotFoundError);
+        if (kind !== "work") {
+          await expect(
+            f.app.readResolutionLearningSource(staff, "ticket"),
+          ).rejects.toBeInstanceOf(SupportDeskNotFoundError);
+          expect(
+            await f.app.confirmResolutionLearningSource(service, fence(source)),
+          ).toBe(false);
+        } else {
+          expect(
+            await f.app.readResolutionLearningSource(staff, "ticket"),
+          ).toEqual(source);
+          expect(
+            await f.app.confirmResolutionLearningSource(service, fence(source)),
+          ).toBe(true);
+        }
+        expect(await f.rows()).toEqual(before);
+      },
+    );
+
+    it.each(["duplicate-id", "foreign-partition"] as const)(
+      "rejects a real stored %s observation without writing",
+      async (corruption) => {
+        const backing = createStore();
+        const f = resolutionLearningFixture(backing);
+        await f.terminal();
+        const { source } = await f.confirm();
+        const message = (await f.rows()).find((row) => row.kind === "message");
+        if (message === undefined || message.kind !== "message")
+          throw new Error("Expected an actual message row");
+        const value =
+          corruption === "duplicate-id"
+            ? message
+            : {
+                ...message,
+                partition: "foreign-ticket",
+                id: "foreign-message",
+              };
+        await copyAtKey(
+          backing,
+          { partition: "ticket", id: "corrupted-message-envelope" },
+          value,
+        );
+        const before = await f.rows();
+        for (const read of [
+          () => f.app.readResolutionLearningSource(staff, "ticket"),
+          () =>
+            f.app.readResolutionLearningWork(staff, {
+              ticketId: "ticket",
+              sourceGeneration: source.sourceGeneration,
+            }),
+          () => f.app.confirmResolutionLearningSource(service, fence(source)),
+        ]) {
+          await expect(read()).rejects.toBeInstanceOf(SupportDeskConflictError);
+        }
+        expect(await f.rows()).toEqual(before);
+      },
+    );
 
     it("keeps an accepted evidence receipt exact after reads and reopening", async () => {
       const f = resolutionLearningFixture(createStore());
