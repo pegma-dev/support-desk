@@ -3,15 +3,18 @@
 SD-03's source merged in [PR #39](https://github.com/pegma-dev/support-desk/pull/39)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current synchronized release is `0.2.1`; see its
-[publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
+The current synchronized release is `0.2.2`; see its
+[publication receipt](RELEASING.md#verified-022-publication-2026-11-10).
 The ticket application implements enrollment, structured resolution evidence,
 durable work, exact staff review, invalidation, withdrawal, and reconciliation
 records. The optional AI package adds bounded model processing, KB draft
 delivery, exact staff review, and source retirement/reconciliation through
 `createSupportDeskLearning`, with read-only callbacks from
-`createSupportDeskLearningSourceVerifier`. It consumes the verified published
-[KB `0.1.2` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.2).
+`createSupportDeskLearningSourceVerifier`. The current AI `0.2.2` release
+consumes the application and contracts packages from the verified
+[KB `0.1.5` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.5).
+The initial SD-03 release consumed
+[KB `0.1.2`](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.2).
 SDK validation and publication do not establish host activation. No host has
 activated this behavior.
 
@@ -297,9 +300,11 @@ authority. The exact-target and recovery contracts are exercised in
 [the work suite](../tests/resolution-learning-work.test.ts) and the
 [released-KB integration suite](../tests/resolution-learning-kb.test.ts).
 
-## Exact review intent recovery (unpublished 0.2.2 candidate)
+<a id="exact-review-intent-recovery-unpublished-022-candidate"></a>
 
-The current qualified release remains `0.2.1`. The candidate adds a read-only
+## Exact review intent recovery (0.2.2)
+
+Published `0.2.2` adds a read-only
 `prepareReviewIntent(access, {ticketId, sourceGeneration})` operation. It derives
 an immutable `intent` and the actual private `draft` through the current Support
 work, KB/provenance and independent policy ports. The intent includes its

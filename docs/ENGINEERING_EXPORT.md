@@ -3,10 +3,10 @@
 SD-04's source merged in [PR #40](https://github.com/pegma-dev/support-desk/pull/40)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current synchronized release is `0.2.1`; see its
-[publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
-This handbook describes its contracts and host responsibilities, not host
-activation. There is no runnable host recipe here. Scope comes from the
+The current synchronized release is `0.2.2`; see its
+[publication receipt](RELEASING.md#verified-022-publication-2026-11-10).
+This handbook describes released contracts, explicitly marked source-candidate
+changes, and host responsibilities, not host activation. There is no runnable host recipe here. Scope comes from the
 [approved plan](KNOWLEDGE_AI_PLAN.md#bug-evaluation-routing-and-github-export)
 and the [collection checkpoint](COLLECTIONS.md#sd-04-engineering-layout-checkpoint).
 
@@ -153,6 +153,28 @@ proposal. Approval binds its content and request hashes, source generation,
 repository identity/current metadata and visibility, policy, routing, and check
 results. Editing any bound fact requires fresh checks and review. The coordinator
 rechecks current authority and remote facts immediately before dispatch.
+
+**Unpublished `0.2.3` source candidate.** For a new decision, pass a trusted
+read-only `verifyBeforeCommit` callback in the coordinator's
+`reviewProposal(access, command, { signal, verifyBeforeCommit })` options. Use
+it to check the original browser session and current staff role. Approval
+finishes its external proof and current repository and policy observations
+before the callback. Rejection checks the current invocation and reviewer,
+with no export proof requirement. Direct application callers may omit the
+rejection guard.
+
+The coordinator bounds the callback by the invocation's signal and deadline.
+After the guard, the application checks reviewer permissions, source and proof
+expiry and capacity synchronously before its conditional transaction. When the
+coordinator receives a precommit callback refusal on its first attempt, it
+returns the safe `verification_unavailable` category without a retry. An
+earlier uncertain write can still yield `review_acknowledgement_unknown`. The
+partition transaction protects its own record versions. Authority in separate
+stores can change after observation.
+
+An exact accepted receipt is returned before the mutation guard or external
+proof, subject to current review and queue permissions. Hosts still check
+current authority when admitting the request and before returning its result.
 
 `link_existing_issue` records a private Support association with the approved
 existing issue. It sends no comment, changes no external issue, and grants no

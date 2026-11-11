@@ -2,27 +2,20 @@
 
 Optional, provider-neutral Support Desk answer, learning, engineering, and
 release follow-up coordination.
-The current verified published synchronized release is `0.2.1`;
-see the [publication receipt](../../docs/RELEASING.md#verified-021-publication-2026-11-10).
-Host activation retains its own acceptance gates. Its KB dependencies are
-the exact verified published `0.1.2` application and contracts packages.
+The current verified published synchronized release is `0.2.2`;
+see the [publication receipt](../../docs/RELEASING.md#verified-022-publication-2026-11-10).
+Its exact internal Support application pin is `0.2.2`; external KB application
+and contracts pins are exact `0.1.5`. Host activation and whole-invocation/CPU
+acceptance retain separate gates. The published `0.2.1`/KB `0.1.2` artifacts
+and their original receipts remain immutable.
 
-The published synchronized `0.2.1` patch includes assistant-answering read
-batching in the application. Its exact internal Support application pin is
-`0.2.1`; both external KB pins remain `0.1.2`. Its completed validation, review,
-trusted publication and strict registry verification are recorded in the
-receipt above. This does not establish host activation, live-provider acceptance
-or a universal query or CPU budget.
-
-The synchronized `0.2.2` source is an **unpublished patch candidate** for
-[opt-in staged retrieval](#opt-in-staged-retrieval-022-candidate). Its exact
-internal Support application pin is `0.2.2`; both external KB application and
-contracts pins advance to exact `0.1.5`, matching the repository's development
-and test assembly. Validate the complete resolved dependency graph and packed
-consumer with these exact pins; the published `0.2.1`/KB `0.1.2` receipt does
-not qualify this changed graph. Source and package metadata do not publish this
-candidate or establish host activation, live-provider acceptance, or a universal
-query or CPU budget.
+This checkout is the synchronized **unpublished `0.2.3` candidate** for the
+[engineering review guard correction](../../docs/ENGINEERING_EXPORT.md).
+Its exact internal Support application pin is `0.2.3`; KB pins remain `0.1.5`.
+The candidate moves the supplied approval guard after current repository/policy
+observations and honors a supplied final rejection guard. It retains receipt-
+first replay and offers bounded checks, not cross-store atomicity. These changes
+are not in `0.2.2` and await full current-head gates, review and verified publication.
 
 The base Support Desk application works without this package, a KB, or a model.
 Customer request-person and staff takeover remain deterministic application
@@ -135,9 +128,11 @@ there is no retention-mode or provider fallback. The resolver must recheck
 current configuration on every invocation, including final validation. These
 typed evidence references do not independently verify a provider's settings.
 
-## Opt-in staged retrieval (0.2.2 candidate)
+<a id="opt-in-staged-retrieval-022-candidate"></a>
 
-The unpublished `0.2.2` candidate accepts `stagedRetrieval: true` in
+## Opt-in staged retrieval (0.2.2)
+
+Published `0.2.2` accepts `stagedRetrieval: true` in
 `createSupportDeskAssistant(options)` to split retrieval and paid generation
 across two physical invocations. Both the application's attempt limit and
 `AssistantBudgets.maxAttempts` must allow at least two attempts. Retrieval
@@ -176,10 +171,10 @@ success or permission to call the provider in that invocation. A later callback
 must inspect the actual durable state before deciding whether it can proceed.
 
 This changes no stored layout or provider, privacy, permission, token, cost,
-duration, or source-confirmation limit. Current-head validation, review, trusted
-publication and strict registry verification remain required before host
-production adoption. Source tests do not prove a native host's whole-workflow
-Free-plan call budget, CPU budget, or live activation.
+duration, or source-confirmation limit. The exact `0.2.2` publication is verified;
+hosts must separately qualify their installed graph and actual production
+composition. Source tests and SDK publication do not prove a native host's
+whole-workflow Free-plan call budget, CPU budget, or live activation.
 
 ## Model boundary
 

@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 1,
+  "status": "verified",
+  "qualifiedAt": "2026-11-10T22:05:24.516Z",
+  "repository": "pegma-dev/support-desk",
+  "tag": "v0.2.2",
+  "tagObject": "087a817e7ea5940c895205f0e718d43e0d841f69",
+  "sourceCommit": "99cf4e67da1d2357d99fd80389a96318a6e2cc93",
+  "sourceTree": "a680f830c5ee5b27ab056efc0d8bde517e85c8a1",
+  "workflow": ".github/workflows/publish.yml",
+  "environment": "npm-publish",
+  "releaseId": 440944834,
+  "runId": 42907283767,
+  "runAttempt": 1,
+  "publisherJobId": 130151047472,
+  "verificationJobId": 130161276758,
+  "workflowResult": {
+    "conclusion": "success",
+    "successfulJobs": 7,
+    "successfulSteps": 94,
+    "skippedSteps": 0,
+    "recoveryRequired": false
+  },
+  "originalPreparation": {
+    "artifactId": 13806500809,
+    "archiveBytes": 490778,
+    "archiveSha256": "aea7c164b2c5b25d3d7a827d1bac24aac65909a6c4bd1b983e6c9e2e890ca106",
+    "manifestSha256": "3fd79ca5400e57f6c0edb8657441f38bb16043a3a0ea1d0cfda595dcc848853d",
+    "preservedAsset": "support-desk-v0.2.2-original-artifact-13806500809.zip",
+    "strictFileCount": 6
+  },
+  "originalExecutedGates": [
+    {
+      "node": "22.23.4",
+      "jobId": 130148535547,
+      "commands": 6,
+      "testCases": 2600,
+      "testFiles": 57,
+      "failures": 0,
+      "skips": 0
+    },
+    {
+      "node": "24.22.2",
+      "jobId": 130148535638,
+      "commands": 6,
+      "testCases": 2600,
+      "testFiles": 57,
+      "failures": 0,
+      "skips": 0
+    }
+  ],
+  "independentPostflight": {
+    "node": "24.18.0",
+    "npm": "11.18.0",
+    "npmArchiveSha256": "73f6155215ebabf4ed96dca1f567c2372cc713c33af2e5b9b62fde4e92373e2e",
+    "realCommands": 4,
+    "failedCommands": 0,
+    "originalRegistryBytesAndDependencies": true,
+    "genuineRegistrySignatureAndSigstoreAudit": true,
+    "auditInvalid": 0,
+    "auditMissing": 0,
+    "auditedRecords": 16,
+    "verifiedRootPackages": [
+      {
+        "name": "@pegma/support-desk-core",
+        "version": "0.2.2"
+      },
+      {
+        "name": "@pegma/support-desk-application",
+        "version": "0.2.2"
+      },
+      {
+        "name": "@pegma/support-desk-templates",
+        "version": "0.2.2"
+      },
+      {
+        "name": "@pegma/support-desk-ai",
+        "version": "0.2.2"
+      },
+      {
+        "name": "@pegma/support-desk-contracts",
+        "version": "0.2.2"
+      }
+    ],
+    "sourceTagAndWorkflowProvenance": true,
+    "cleanRegistryInstallScriptsDisabled": true,
+    "publicExportsImported": 6,
+    "resultSha256": "e83d7a09327edfbbbe93cb4cc76f16f8ba4b4b22d8b3f0ea28ec859af15cebd3",
+    "rawNpmAuditSha256": "ed1a5569704c9a81a8f93c3c1a61153148337ba7717b35ba2afe80c7f476780d"
+  },
+  "packages": [
+    {
+      "name": "@pegma/support-desk-contracts",
+      "version": "0.2.2",
+      "bytes": 5946,
+      "sha256": "9fffe0c22e1bdad8a0bbf185bbfd62235258398007fc958753cca2372f76d775",
+      "shasum": "9a8205329dd38625557da387ef791202bac7f867",
+      "integrity": "sha512-uk8oDJNvc+NU+uR8wWq8VHCS7rVZXvf87iN22uENwXeLSBBBF0iOWgFJ+qIlFPKNuUpLnkFBRIcV2kM+Znr3xQ=="
+    },
+    {
+      "name": "@pegma/support-desk-core",
+      "version": "0.2.2",
+      "bytes": 8775,
+      "sha256": "71c528fe4ca801a161d07f65dfb2ee6425ff248fa2dd0e7aeb2a389e26a51832",
+      "shasum": "3e3e57ecea5d92f2cd74d2e35194349419d94e48",
+      "integrity": "sha512-uKRbPAD7YK1WMebphuu/pIvS9xlA+gH0nthFAaw4vZA1kg6vWu743RYrJ8/TcwnnEoX8O5GY0jcnvKzeTkLbgw=="
+    },
+    {
+      "name": "@pegma/support-desk-templates",
+      "version": "0.2.2",
+      "bytes": 7396,
+      "sha256": "7ca2dacd7b52811c501ef1b3115f3887567d52c0d80c990bbcd0d4ac78aee41c",
+      "shasum": "e8856e5d90cd8c8bba5d0b7cfd9bd67824d2a67c",
+      "integrity": "sha512-Vg/6XUzRM5ywfRlOgZl1kBSC1+uXCFZMcDCtCaSKFdMtR0goKmlSvbpC3tca6d+BmyPVth+OUhnH1u34xvKOug=="
+    },
+    {
+      "name": "@pegma/support-desk-application",
+      "version": "0.2.2",
+      "bytes": 324270,
+      "sha256": "260b7b0b3ea968e85d5b31ce4ae136105d838e38614ad59027ff2255dd82cdac",
+      "shasum": "4f13e47360f45ea08a27fefff24faad7856b3ac1",
+      "integrity": "sha512-Q1/KvlFpoFpl7atVM4RZugJtXh0x7Vbo5ntD9gW2q0DFPQKEKDT1ZTXLjXdAUcb7LDDwlYv35qdrJlMlhvkmTQ=="
+    },
+    {
+      "name": "@pegma/support-desk-ai",
+      "version": "0.2.2",
+      "bytes": 140545,
+      "sha256": "7278dc97d281b9f952b10f67f73b7fee51b0830b03a23ff1cd23df52bb897fe5",
+      "shasum": "dee3f4447f7158b8a13685b65c0aa4d50fa03b52",
+      "integrity": "sha512-Y9b+TdIsbtliD/ZHkOIuUHDK/wFXGLlP7tfGKAteoavroECxFSenle1bqS626BjodVWum7672o5n64dfrXvVXA=="
+    }
+  ],
+  "runtimeKnowledgeDependencies": {
+    "@pegma/knowledge-base-application": "0.1.5",
+    "@pegma/knowledge-base-contracts": "0.1.5"
+  },
+  "distTagsAsObserved": [
+    {
+      "name": "@pegma/support-desk-contracts",
+      "version": "0.2.2",
+      "observedAt": "2026-11-10T22:05:24.336Z",
+      "tags": {
+        "latest": "0.2.2"
+      }
+    },
+    {
+      "name": "@pegma/support-desk-core",
+      "version": "0.2.2",
+      "observedAt": "2026-11-10T22:05:24.379Z",
+      "tags": {
+        "latest": "0.2.2"
+      }
+    },
+    {
+      "name": "@pegma/support-desk-templates",
+      "version": "0.2.2",
+      "observedAt": "2026-11-10T22:05:24.423Z",
+      "tags": {
+        "latest": "0.2.2"
+      }
+    },
+    {
+      "name": "@pegma/support-desk-application",
+      "version": "0.2.2",
+      "observedAt": "2026-11-10T22:05:24.470Z",
+      "tags": {
+        "latest": "0.2.2"
+      }
+    },
+    {
+      "name": "@pegma/support-desk-ai",
+      "version": "0.2.2",
+      "observedAt": "2026-11-10T22:05:24.516Z",
+      "tags": {
+        "bootstrap": "0.1.1",
+        "latest": "0.2.2"
+      }
+    }
+  ],
+  "links": {
+    "release": "https://github.com/pegma-dev/support-desk/releases/tag/v0.2.2",
+    "source": "https://github.com/pegma-dev/support-desk/commit/99cf4e67da1d2357d99fd80389a96318a6e2cc93",
+    "publicationRun": "https://github.com/pegma-dev/support-desk/actions/runs/42907283767",
+    "verificationJob": "https://github.com/pegma-dev/support-desk/actions/runs/42907283767/job/130161276758"
+  },
+  "limits": [
+    "SDK release qualification only; host deployment, privacy and operational checks, requested clients, live-provider evaluation and supervised pilots remain separate.",
+    "No universal Workers Free query or CPU guarantee is established. Hosts must measure their complete invocations.",
+    "The default assistant path remains monolithic. Durable staging requires opt-in, at least two permitted attempts and a physical return/resume boundary.",
+    "Staged preparation binds the full validated configuration and authority snapshots; changed evidence fails closed before paid work.",
+    "Dist-tags are mutable observations. Original artifact bytes, hashes and signed source identify the immutable release."
+  ],
+  "developedBy": "RetireGolden, LLC"
+}

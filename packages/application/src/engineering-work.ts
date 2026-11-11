@@ -2087,6 +2087,8 @@ export function createEngineeringWorkerServices(
           throw new TypeError(
             "Engineering approval requires a current read-only guard",
           );
+        if (guard !== undefined && typeof guard !== "function")
+          throw new TypeError("Engineering review guard must be a function");
         const loaded = await load(command.ticketId);
         const stored = await workAt(command);
         const work = stored.value;
@@ -2136,10 +2138,13 @@ export function createEngineeringWorkerServices(
         deps.admission(loaded.ticket.value.ticket, loaded.rows, 2);
         const result = outcome(next);
         if (command.decision === "approve") {
-          await guard!();
           await currentRepository(proposal.request);
           await freshPolicy(access, proposal);
         }
+        // The host's current-browser guard follows every SDK external proof
+        // await. Rejection needs no export proof, but honors a supplied guard.
+        const assertProofCurrent =
+          guard === undefined ? undefined : await guard();
         permission(access, true, actorId);
         if (!current(loaded, work) || runNow() >= deadline)
           throw new SupportDeskConflictError(
@@ -2155,16 +2160,36 @@ export function createEngineeringWorkerServices(
           reserveReachable(next);
         }
         if (
-          await save(loaded, stored, next, loaded.source.value, [
-            deps.audit(
-              command,
-              loaded.ticket.value.ticket,
-              actorId,
-              clock.now(),
-              "support.engineering.reviewed",
-            ),
-            receipt(command, hash, result),
-          ])
+          await save(
+            loaded,
+            stored,
+            next,
+            loaded.source.value,
+            [
+              deps.audit(
+                command,
+                loaded.ticket.value.ticket,
+                actorId,
+                clock.now(),
+                "support.engineering.reviewed",
+              ),
+              receipt(command, hash, result),
+            ],
+            () => {
+              if (runNow() >= deadline)
+                throw new SupportDeskConflictError(
+                  "Engineering review checks expired",
+                );
+              if (
+                assertProofCurrent !== undefined &&
+                (typeof assertProofCurrent !== "function" ||
+                  assertProofCurrent() !== true)
+              )
+                throw new SupportDeskConflictError(
+                  "Engineering review proof is not current",
+                );
+            },
+          )
         ) {
           permission(access, true, actorId);
           return result;

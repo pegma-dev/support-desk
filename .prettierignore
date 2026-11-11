@@ -7,3 +7,5 @@ pnpm-lock.yaml
 # Original CI manifest: preserve its independently recorded byte digest.
 /docs/releases/v0.2.0/package-manifest.json
 /docs/releases/v0.2.1/package-manifest.json
+# Published release evidence is retained byte for byte.
+/docs/releases/v0.2.2/

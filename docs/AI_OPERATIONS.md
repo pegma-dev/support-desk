@@ -1,8 +1,8 @@
 # Optional AI operations
 
 This runbook describes the merged SD-01 through SD-05 contracts assembled by
-the current verified published synchronized `0.2.1` release; see its
-[publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
+the current verified published synchronized `0.2.2` release; see its
+[publication receipt](RELEASING.md#verified-022-publication-2026-11-10).
 SDK publication does not establish production deployment, verified host data
 controls, or pilot acceptance. Use exact published artifacts and complete each
 host's own [upgrade rehearsal](UPGRADING.md).

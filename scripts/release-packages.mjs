@@ -13,6 +13,19 @@ const NODE_RANGE = ">=22";
 const REVIEWED_PNPM_VERSION = "10.34.5";
 const REVIEWED_NPM_VERSION = "11.18.0";
 const STABLE_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
+// GitHub asset digests verified at the v0.2.2 release handoff.
+const RELEASE_EVIDENCE_SHA256 = {
+  "package-manifest.json":
+    "3fd79ca5400e57f6c0edb8657441f38bb16043a3a0ea1d0cfda595dcc848853d",
+  "prepared-artifact.json":
+    "42b064bd6c2f2182cbd51f768d64322b12d4c682f9ebd261eff292a5771d19ad",
+  "qualified-release-notes.md":
+    "1a9d600dc06772cc9f6f2ee9b9d9e7c41b0106b8ae4682142fd41aed7a0217cc",
+  "registry-verification.json":
+    "0d5d1c7e0763ccc02eab94367c259fc009403fe6c608c4e7c6675da54c99d4a4",
+  "verification-job.json":
+    "fc0fa9bc339c97aa1db813d203ad758679e3346ec2b9d1ce3a6e129aa7147050",
+};
 const DEPENDENCY_SECTIONS = [
   "dependencies",
   "devDependencies",
@@ -857,6 +870,24 @@ function defaultRoot() {
   return resolve(dirname(fileURLToPath(import.meta.url)), "..");
 }
 
+async function validateReleaseEvidence(root) {
+  for (const [name, expected] of Object.entries(RELEASE_EVIDENCE_SHA256)) {
+    const path = `docs/releases/v0.2.2/${name}`;
+    const bytes = await readFile(join(root, path)).catch((error) => {
+      if (error.code === "ENOENT") {
+        fail(`published release evidence is missing: ${path}`);
+      }
+      throw error;
+    });
+    const actual = createHash("sha256").update(bytes).digest("hex");
+    if (actual !== expected) {
+      fail(
+        `published release evidence SHA-256 mismatch: ${path} (expected ${expected}, got ${actual})`,
+      );
+    }
+  }
+}
+
 async function main() {
   const [command, ...arguments_] = process.argv.slice(2);
   if (command === "publish") {
@@ -866,7 +897,8 @@ async function main() {
   }
   const options = parseArguments(arguments_);
   if (command === "check") {
-    await validateRepository(options);
+    const { root } = await validateRepository(options);
+    await validateReleaseEvidence(root);
     process.stdout.write("Release metadata is valid.\n");
     return;
   }

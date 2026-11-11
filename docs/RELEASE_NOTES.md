@@ -1,17 +1,40 @@
 # Release notes
 
-## 0.2.2 — staged retrieval and exact review recovery (unreleased)
+## 0.2.3 — final engineering review guards (unreleased)
 
-All five source packages are synchronized at `0.2.2` for this unpublished
-candidate. The optional AI package advances its exact KB application/contracts
-runtime dependencies to `0.1.5`; repository development/test pins use the same
-versions. The complete resolved graph and packed consumer require their own
-candidate validation. Published `0.2.1` artifacts retain their exact KB `0.1.2`
-dependencies and immutable verification history.
+All five source packages and internal Support pins are synchronized at `0.2.3`
+for this unpublished candidate. The optional AI package keeps exact KB
+application/contracts `0.1.5` dependencies. Published `0.2.2` remains current.
+
+For new `reviewEngineeringProposal` approval, the application completes its
+repository/policy observations before invoking the supplied commit guard, then
+rechecks the original reviewer's permissions and verification expiry before
+the existing partition CAS. Rejection honors a supplied guard at the final
+boundary without requiring repository, routing, model or export proofs. The
+coordinator supplies a current-staff rejection guard; trusted direct application
+callers may still omit a rejection guard. Exact accepted receipts replay first
+under current review/queue authorization.
+
+The correction supplies bounded fresh observations around a partition commit,
+not cross-store atomicity or continuous authority. It is not part of published
+`0.2.2` and requires its own full Node 22/24 gates, current-head review, trusted
+publication and strict verification. See the [engineering guide](ENGINEERING_EXPORT.md).
+Host/provider/client/privacy, Free CPU and activation gates remain separate.
+
+## 0.2.2 — staged retrieval and exact review recovery, 2026-11-10
+
+All five exact `0.2.2` packages are published and strictly verified. The optional
+AI package advances its exact KB application/contracts runtime dependencies to
+`0.1.5`; repository development/test pins use the same versions. The release's
+Node 22/24 gates, original prepared artifacts, trusted publication and strict
+registry/consumer verification are bound in the
+[2026-11-10 publication receipt](RELEASING.md#verified-022-publication-2026-11-10).
+Published `0.2.1` artifacts retain their exact KB `0.1.2` dependencies and
+immutable verification history.
 
 [Opt-in staged retrieval](ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval)
 splits preparation and paid generation across separate physical invocations;
-see the [AI package guide](../packages/ai/README.md#opt-in-staged-retrieval-022-candidate).
+see the [AI package guide](../packages/ai/README.md#opt-in-staged-retrieval-022).
 Omission retains the monolithic path. Preparation consumes an existing attempt,
 so both application and verified-configuration caps must allow at least two
 attempts, without resetting counters or raising caps. After `prepared`, the
@@ -34,7 +57,7 @@ finish/handoff before new usage reservation or a model call. Fresh live
 validation remains required; do not ignore fields or reuse stale evidence to
 force a match.
 
-The candidate also adds [exact learning review recovery](RESOLUTION_LEARNING.md#exact-review-intent-recovery-unpublished-022-candidate).
+The release also adds [exact learning review recovery](RESOLUTION_LEARNING.md#exact-review-intent-recovery-022).
 Read-only preparation returns the actual draft and full immutable intent;
 submission, receipt read and explicit atomic cancellation share its original
 actor/command/decision binding. Historical acceptance can replay after source
@@ -47,12 +70,10 @@ commands add optional `intentBinding`, and older callers fail closed on those
 commands or cancellation fingerprints. Hosts must adopt the new union and keep
 unknown packets until an exact accepted/cancelled acknowledgement.
 
-The candidate requires its own full current-head Node 22/24 gates, review,
-trusted publication and strict registry/consumer verification. Host adoption
-separately requires measured invocation/CPU acceptance; this protocol establishes
-no universal Free-plan budget.
-The current qualified release remains `0.2.1`; its receipt and history below
-are unchanged.
+This qualifies the exact SDK release. Host adoption separately requires its own
+published dependency graph, invocation/CPU measurements and acceptance; the
+protocol establishes no universal Free-plan budget. The dated `0.2.1` and
+`0.2.0` receipts and original artifacts below remain unchanged.
 
 ## 0.2.1 — assistant-answering read batching, 2026-11-10
 

@@ -168,11 +168,11 @@ collision hints. Customer DTOs and automatic customer mail omit these fields.
 Calendars and presence stay host-owned. Task 12 remains pending on both hosts'
 durable-store production evidence. Source work does not publish a package.
 
-All five packages have verified published `0.2.1` versions. The synchronized
-`0.2.0` artifacts remain immutable history. The original four names also retain
+All five packages have verified published `0.2.2` versions. The synchronized
+`0.2.1` and `0.2.0` artifacts remain immutable history. The original four names also retain
 their published `0.1.0`/`0.1.1` artifacts; the AI name's `0.1.1` is a separate
 registration-only bootstrap. Follow the
-[publication receipt](docs/RELEASING.md#verified-021-publication-2026-11-10)
+[publication receipt](docs/RELEASING.md#verified-022-publication-2026-11-10)
 and release operations. Customer services return safe DTOs; staff
 services return the authoritative ticket for authorized staff only, and the
 staff queue scans a confirmed projection that is never authorization evidence.
@@ -189,21 +189,27 @@ binds the original artifacts, completed Node 22/24 gates and strict registry
 verification. Earlier release receipts and host activation gates are unchanged;
 grouped reads do not establish a universal query or CPU budget.
 
-All five source packages are synchronized at **unpublished `0.2.2` candidate**
-versions for [opt-in durable staged retrieval](docs/ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval);
-see the [AI package guide](packages/ai/README.md#opt-in-staged-retrieval-022-candidate).
-The candidate's optional AI package uses exact KB application/contracts `0.1.5`
-runtime pins, with matching repository development/test pins. The published
-`0.2.1` artifacts retain their original KB `0.1.2` dependencies; their receipt
-does not qualify the candidate's changed dependency graph.
-The default remains monolithic. Staged preparation consumes an existing attempt;
-both application and verified-configuration attempt caps must permit at least
-two attempts without resetting or raising them. After `prepared`, the host
-must return from that physical invocation and resume only in a subsequent one.
-The candidate needs its own full current-head gates, review, trusted `0.2.2`
-publication and strict verification. Host adoption separately requires measured
-whole-invocation and CPU proof. The qualified `0.2.1` release remains current;
-no Free-plan acceptance is implied.
+Published `0.2.2` adds [opt-in durable staged retrieval](docs/ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval)
+and exact learning review-intent recovery. Its optional AI package and matching
+repository development/test pins use exact KB application/contracts `0.1.5`.
+The default remains monolithic. Preparation consumes an existing attempt;
+both application and verified-configuration caps must allow at least two,
+without resetting counters or raising caps. Exhaustive `AssistantProcessResult`
+handlers must accept the added `prepared` union member even when opt-in is OFF.
+After `prepared`, the host must return from that physical invocation and resume
+only in a subsequent one. Stable complete configuration/authority snapshots and
+fresh live guards remain required. Publication does not establish Free-plan or
+host invocation/CPU acceptance.
+
+All five source packages are synchronized at **unpublished `0.2.3` candidate**
+versions for the [engineering review guard correction](docs/ENGINEERING_EXPORT.md).
+Approval runs the supplied commit guard after current repository/policy
+observations; supplied rejection guards run at the final mutation boundary.
+Direct application rejection may still omit its guard, and receipt-first replay
+retains current review/queue authority. These bounded observations are not
+cross-store atomicity. The correction is not in published `0.2.2`; full
+current-head gates, review, trusted publication and strict verification remain
+required before hosts rely on it. No provider, client or activation gate closes.
 
 SD-01 is implemented in source via
 [PR #34](https://github.com/pegma-dev/support-desk/pull/34): optional handling
@@ -212,15 +218,16 @@ messages with exact completion fences, and adds deterministic owned
 request-person, staff takeover, private success evidence, human queue
 selection, and bounded atomic handoff work. It adds no model, KB dependency,
 or package; its behavior first shipped in synchronized `0.2.0` and remains in
-current `0.2.1`. Do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
+current `0.2.2`. Do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
 activation gates after verified SDK publication.
 Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
 preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
-both producers' final release preparation are merged. All four KB packages have
-verified trusted `0.1.4` registry releases; Agent Access has verified trusted
-`0.1.1`. Their manual
-`0.1.0` bootstrap receipts remain historical and have no OIDC provenance;
-the separate trusted releases close the producer publication gates. SD-02
+both producers' final release preparation are merged. The
+[standalone authoring recipe](docs/HOST_COMPOSITION.md#kb-authoring-producers)
+selects all four strictly verified KB `0.1.5` packages and verified Agent
+Access `0.1.1`. The trusted releases close the producer publication gates.
+Their manual `0.1.0` bootstrap receipts remain historical and have no OIDC
+provenance. SD-02
 merged in [PR #38](https://github.com/pegma-dev/support-desk/pull/38), adding
 optional `@pegma/support-desk-ai` and bounded turn work to the existing ticket
 partition. SD-03 merged in [PR #39](https://github.com/pegma-dev/support-desk/pull/39),
@@ -235,8 +242,9 @@ signed `v0.2.0` at `efc9d733b3d305d24cf4197444e1d76c99bdb777`; see
 `docs/RELEASING.md` for the dated receipt. Its public composition example lives in `examples/ai`;
 the migration and operations handbooks are `docs/UPGRADING.md` and
 `docs/AI_OPERATIONS.md`. The base application has no KB or provider dependency; actual KB
-`0.1.2` dependencies belong only to the
-optional AI package. See [assistant coordination](docs/ASSISTANT_COORDINATION.md)
+`0.1.5` application/contracts dependencies belong only to the current
+optional AI `0.2.2` package and unpublished `0.2.3` candidate. Older `0.2.0` and
+`0.2.1` AI manifests retain their original `0.1.2` pins. See [assistant coordination](docs/ASSISTANT_COORDINATION.md)
 and its [layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint).
 PG-01/RG-01 consume exact verified published producers and still require actual
 existing-login/Admin consent and requested-client proof before activation or

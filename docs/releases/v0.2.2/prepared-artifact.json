@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "repository": "pegma-dev/support-desk",
+  "tag": "v0.2.2",
+  "sourceCommit": "99cf4e67da1d2357d99fd80389a96318a6e2cc93",
+  "sourceTree": "a680f830c5ee5b27ab056efc0d8bde517e85c8a1",
+  "runId": 42907283767,
+  "runAttempt": 1,
+  "releaseId": 440944834,
+  "manifestSha256": "3fd79ca5400e57f6c0edb8657441f38bb16043a3a0ea1d0cfda595dcc848853d",
+  "originalArtifact": {
+    "id": 13806500809,
+    "name": "support-desk-release-42907283767-1",
+    "bytes": 490778,
+    "sha256": "aea7c164b2c5b25d3d7a827d1bac24aac65909a6c4bd1b983e6c9e2e890ca106",
+    "apiDigest": "sha256:aea7c164b2c5b25d3d7a827d1bac24aac65909a6c4bd1b983e6c9e2e890ca106",
+    "createdAt": "2026-11-10T21:44:34Z",
+    "apiUrl": "https://api.github.com/repos/pegma-dev/support-desk/actions/artifacts/13806500809",
+    "preservedAsset": "support-desk-v0.2.2-original-artifact-13806500809.zip"
+  },
+  "projection": "Selected public fields from the authenticated original Actions artifact API. The original ZIP and manifest are preserved byte for byte."
+}

@@ -6,6 +6,7 @@ import type {
 } from "@pegma/support-desk-application";
 import type {
   EngineeringProcessResult,
+  EngineeringReviewOptions,
   EngineeringServiceAuthority,
   SupportDeskEngineering,
   SupportDeskEngineeringOptions,
@@ -159,7 +160,7 @@ export function createSupportDeskEngineering(
     async reviewProposal(
       access: AccessContext,
       input: ReviewEngineeringProposalCommand,
-      run: { readonly signal?: AbortSignal } = {},
+      run: EngineeringReviewOptions = {},
     ) {
       const runtime = createLearningRuntime(options, run);
       try {
@@ -180,46 +181,76 @@ export function createSupportDeskEngineering(
         const command = snapshot(input);
         ensureStaffCurrent();
         let processingAuthority: EngineeringServiceAuthority | undefined;
-        // No generation configuration is consulted here: current source,
-        // repository and independent approval gates govern this staff decision.
-        const guard = async (): Promise<void> => {
+        const ensureCurrent = (deadline = runtime.deadline): true => {
+          runtime.ensure(deadline);
+          ensureStaffCurrent();
+          return true;
+        };
+        const guardFailure = (error: unknown) =>
+          new EngineeringReviewGuardFailure(
+            error instanceof AssistantBoundaryError
+              ? error.category
+              : "verification_unavailable",
+          );
+        const guard = async () => {
           try {
-            ensureStaffCurrent();
-            const work = snapshot(
-              await runtime.within(() =>
-                options.application.readEngineeringWork(access, {
-                  ticketId: command.ticketId,
-                  sourceGeneration: command.sourceGeneration,
-                }),
-              ),
-            );
-            ensureStaffCurrent();
-            const proposal = work.proposal;
-            if (
-              proposal === undefined ||
-              proposal.proposalHash !== command.proposalHash ||
-              work.workGeneration !== command.expectedWorkGeneration
-            )
-              throw new AssistantBoundaryError("proposal_changed");
-            processingAuthority ??= await engineeringProcessingAuthority(
-              options.serviceAccess,
-              runtime,
-            );
-            await engineeringProposalGuard(
-              options,
-              work,
-              proposal,
-              runtime,
-              runtime.deadline,
-              processingAuthority,
-            );
-            ensureStaffCurrent();
+            let deadline = runtime.deadline;
+            ensureCurrent(deadline);
+            // Only approval needs current external export proof. Rejection
+            // still checks the invocation and original staff authority.
+            if (command.decision === "approve") {
+              const work = snapshot(
+                await runtime.within(() =>
+                  options.application.readEngineeringWork(access, {
+                    ticketId: command.ticketId,
+                    sourceGeneration: command.sourceGeneration,
+                  }),
+                ),
+              );
+              ensureCurrent();
+              const proposal = work.proposal;
+              if (
+                proposal === undefined ||
+                proposal.proposalHash !== command.proposalHash ||
+                work.workGeneration !== command.expectedWorkGeneration
+              )
+                throw new AssistantBoundaryError("proposal_changed");
+              processingAuthority ??= await engineeringProcessingAuthority(
+                options.serviceAccess,
+                runtime,
+              );
+              ensureCurrent();
+              deadline = await engineeringProposalGuard(
+                options,
+                work,
+                proposal,
+                runtime,
+                deadline,
+                processingAuthority,
+              );
+              ensureCurrent(deadline);
+            }
+            const verifyBeforeCommit = run.verifyBeforeCommit;
+            if (verifyBeforeCommit !== undefined) {
+              await runtime.within(async () => {
+                ensureStaffCurrent();
+                try {
+                  await verifyBeforeCommit();
+                } catch {
+                  throw new AssistantBoundaryError("verification_unavailable");
+                }
+              }, deadline);
+              ensureCurrent(deadline);
+            }
+            return (): true => {
+              try {
+                return ensureCurrent(deadline);
+              } catch (error) {
+                throw guardFailure(error);
+              }
+            };
           } catch (error) {
-            throw new EngineeringReviewGuardFailure(
-              error instanceof AssistantBoundaryError
-                ? error.category
-                : "verification_unavailable",
-            );
+            throw guardFailure(error);
           }
         };
         let uncertain = false;
@@ -231,7 +262,7 @@ export function createSupportDeskEngineering(
               options.application.reviewEngineeringProposal(
                 access,
                 command,
-                command.decision === "approve" ? guard : undefined,
+                guard,
               ),
             );
             ensureStaffCurrent();

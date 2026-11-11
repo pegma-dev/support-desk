@@ -10,9 +10,11 @@ See also the runnable example at
 
 ## Public packages
 
-This guide describes the verified published synchronized `0.2.1` release.
-Use exact `0.2.1` for the five Support Desk packages, including optional AI; see
-the [publication receipt](RELEASING.md#verified-021-publication-2026-11-10).
+This guide describes the verified published synchronized `0.2.2` release.
+Use exact `0.2.2` for the five Support Desk packages, including optional AI; see
+the [publication receipt](RELEASING.md#verified-022-publication-2026-11-10).
+This checkout's `0.2.3` engineering guard correction is unpublished and needs
+its own full gates, review and verified release before host adoption.
 SD-01 through SD-05 first shipped in the
 [historical `0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
 The older base `0.1.1` packages remain immutable history. The
@@ -72,15 +74,15 @@ and [Agent Access release handoff](https://github.com/pegma-dev/agent-access/blo
 The completed manual bootstrap has no OIDC provenance; the separate trusted
 `0.1.1` receipts supply historical verified producer evidence. Earlier npm
 404 observations and the `a444e21` source fixture are historical only. The
-current KB protocol proof composes four packed KB packages with registry
+recorded synthetic KB protocol proof used four packed KB packages with registry
 `@pegma/agent-access@0.1.1`.
 
 The KB-05 publication prerequisite for SD-02 is closed. The optional AI package
-uses exact KB `0.1.2` dependencies, while the base application has no
+uses exact KB application/contracts `0.1.5` dependencies, while the base application has no
 KB or provider dependency. SD-02 source passed validation/review and merged in
 [PR #38](https://github.com/pegma-dev/support-desk/pull/38);
 that behavior first shipped in verified synchronized `0.2.0` and remains in
-current `0.2.1`, whose publication receipt is linked above. Host acceptance remains required. Do not substitute branches, copied source,
+current `0.2.2`, whose publication receipt is linked above. Host acceptance remains required. Do not substitute branches, copied source,
 local paths, or unpublished tarballs for production dependencies.
 
 SD-03's atomic-provenance prerequisite is the verified trusted
@@ -98,18 +100,26 @@ The later [KB `0.1.3` release](https://github.com/pegma-dev/knowledge-base/relea
 added shared test reports and staff confirmation. Its signed source is
 [`8b4c25aa6a40f0c56be97f07e3b7b5ac6136a99b`](https://github.com/pegma-dev/knowledge-base/commit/8b4c25aa6a40f0c56be97f07e3b7b5ac6136a99b);
 [strict verification job 128906942012](https://github.com/pegma-dev/knowledge-base/actions/runs/42533473529/job/128906942012)
-passed on release run 42533473529, attempt 5. That immutable release remains
-history; the current producer is `0.1.4`.
+passed on release run 42533473529, attempt 5. That release remains historical
+evidence.
 
 #### Current standalone authoring recipe
 
-New standalone KB-authoring production recipes select these exact packages:
+This host composition pins these exact published packages.
 
-- `@pegma/knowledge-base-contracts@0.1.4`
-- `@pegma/knowledge-base-core@0.1.4`
-- `@pegma/knowledge-base-application@0.1.4`
-- `@pegma/knowledge-base-mcp@0.1.4`
+- `@pegma/knowledge-base-contracts@0.1.5`
+- `@pegma/knowledge-base-core@0.1.5`
+- `@pegma/knowledge-base-application@0.1.5`
+- `@pegma/knowledge-base-mcp@0.1.5`
 - `@pegma/agent-access@0.1.1`
+
+All four Knowledge Base `0.1.5` packages passed strict registry verification
+against signed source `6dae20df8dace50ad961d9c5fe8d28c90bf4918f`. Each host
+qualifies its installed dependency graph, permissions and actual client flows.
+[Knowledge Base release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.5) · [Registry verification receipt](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.5/registry-verification.json)
+
+The earlier authoring recipe selected the four Knowledge Base `0.1.4` packages
+with Agent Access `0.1.1`.
 
 The [KB `0.1.4` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.4)
 binds signed source
@@ -121,11 +131,14 @@ writer provenance, and public consumers. The release retains the original
 prepared artifact and documents recovery without another package write.
 Agent Access `0.1.1` retains its source and strict verification receipt above.
 
-This standalone recipe does not upgrade `@pegma/support-desk-ai@0.2.1`:
-its immutable [published manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.1/packages/ai/package.json)
+The earlier standalone recipe and `@pegma/support-desk-ai@0.2.1` retained their
+own dependency pins. The AI package's immutable
+[published manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.1/packages/ai/package.json)
 pins `@pegma/knowledge-base-application@0.1.2` and
 `@pegma/knowledge-base-contracts@0.1.2`. Adding a newer standalone SDK does not
-replace those dependencies or establish mixed-version host acceptance.
+replace those dependencies or establish mixed-version host acceptance. The
+current verified AI `0.2.2` manifest explicitly pins KB application/contracts
+`0.1.5`; hosts must adopt and qualify that coherent graph separately.
 
 #### Qualified storage adapters
 
@@ -379,13 +392,13 @@ human ticket immediately. Future/nonpositive/malformed/inactive hints are
 refused; missing or inactive hints can still leave a temporary repair gap.
 
 SD-01 includes no AI provider, knowledge retrieval, learning, or publication.
-Keep model activation disabled until the host gates pass. All four KB packages
-have strictly verified trusted `0.1.4` releases and Agent Access has verified `0.1.1`, closing SD-02's
-producer publication prerequisite. SD-02's optional coordinator source is
+Keep model activation disabled until the host gates pass. This composition
+uses the verified KB `0.1.5` set and Agent Access `0.1.1` listed above.
+SD-02's producer publication prerequisite is complete. Its optional coordinator source is
 merged after validation/review, as are SD-03 through SD-05. They first shipped
-in verified synchronized `0.2.0` and remain in current `0.2.1`, whose publication
-receipt is linked above. The current AI consumer retains its exact KB `0.1.2`
-dependencies. Actual two-host
+in verified synchronized `0.2.0` and remain in current `0.2.2`, whose publication
+receipt is linked above. The current AI consumer pins exact KB application/
+contracts `0.1.5`; the earlier `0.2.1`/KB `0.1.2` manifests remain immutable. Actual two-host
 login/client, privacy, operations, Task 12,
 full-workflow, and pilot evidence remain separate gates.
 
