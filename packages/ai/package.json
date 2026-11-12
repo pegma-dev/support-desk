@@ -18,6 +18,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./openrouter": {
+      "types": "./dist/openrouter/index.d.ts",
+      "import": "./dist/openrouter/index.js"
     }
   },
   "engines": {
@@ -38,6 +42,8 @@
     "@pegma/knowledge-base-application": "0.1.6",
     "@pegma/knowledge-base-contracts": "0.1.6",
     "@pegma/spine": "0.1.2",
-    "@pegma/support-desk-application": "0.2.9"
+    "@pegma/support-desk-application": "0.2.9",
+    "@pegma/storage-core": "0.4.0",
+    "zod": "4.4.3"
   }
 }

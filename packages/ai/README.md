@@ -315,3 +315,27 @@ disclosure, retention/export/deletion, production durable-store operation,
 evaluations, complete-workflow acceptance, and supervised pilots remain their
 separate activation gates. Provider SDKs, credentials, model selection, HTTP,
 customer UI, schedulers, and operational content logging remain host work.
+
+## Optional OpenRouter adapter source candidate
+
+The unpublished source candidate exposes provider adapters through
+`@pegma/support-desk-ai/openrouter`. The AI root entry remains provider-neutral.
+The optional entry contains the bounded transport, purpose-isolated durable
+usage ledger and engineering/learning independent-check adapters ported from
+the tested Pegma reference host.
+
+Both independent-check constructors require the original options object and a
+second, immutable logical host argument. `pegma.dev` retains its existing route
+hashes, `ic2` receipt encoding and MAC domain. A different host has a separate
+route and MAC binding, including when its signing key bytes match. The
+[focused fixtures](../../test/openrouter-fixtures.ts) exercise this API through
+actual SDK Source/Work reads; the [packed consumer](../../examples/ai/synthetic-ports.ts)
+checks its public declarations.
+
+Hosts supply current authority, purpose-specific route/privacy evidence,
+qualified token counting, credentials, receipt keys, bounded durable funding
+and retention. Importing the entry performs no network, Store, key or route
+activity. Source-reading verifiers observe current domain state. The read-free
+SDK verifiers authenticate the exact receipt inside the SDK's existing current
+Source/Work/target/authority and conditional-commit boundary. Neither verifier
+establishes customer activation, publication approval or a whole-host budget.
