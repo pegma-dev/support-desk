@@ -516,7 +516,7 @@ work became consumable after its exact public artifacts, signatures,
 provenance, and clean consumer were verified in
 [release run 42436081951](https://github.com/pegma-dev/knowledge-base/actions/runs/42436081951).
 At this historical checkpoint the optional delivery adapter pinned the verified
-public `0.1.2` producers. Current AI `0.2.7` explicitly pins KB application/
+public `0.1.2` producers. Current AI `0.2.8` explicitly pins KB application/
 contracts `0.1.6`; this does not rewrite the checkpoint's dependency evidence.
 SD-03 later merged in [PR #39](https://github.com/pegma-dev/support-desk/pull/39)
 and first shipped in the verified `0.2.0` release. The current `0.2.8` release

@@ -34,7 +34,7 @@ fallback. It does not extend that observation to all seven controls. See the
 Its optional AI package pins exact verified public KB application/contracts
 `0.1.6`; the `0.2.9` candidate retains that dependency graph. The `0.2.8` source additions retained in `0.2.9` add late host controls to the separate non-post follow-up methods and
 optional callback-scoped reassessment/post read observations; see
-the [follow-up contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
+the [published 0.2.8 follow-up contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
 Qualify the complete published consumer graph for the host; the candidate
 remains unpublished. See the [source handoff](RELEASING.md#source-version-029).
 

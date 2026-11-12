@@ -1,6 +1,7 @@
 import type { CollectionDefinition, Store } from "@pegma/storage-core";
 import {
   SupportDeskAuthorizationError,
+  hasDirectEngineeringHandoff,
   supportPermissions,
   supportRecords,
   type CompleteEngineeringModelCommand,
@@ -72,6 +73,77 @@ async function advanceVersion(store: Store, id: string) {
 
 for (const [name, createStore] of engineeringStores) {
   describe(`bounded observed worker phases (${name})`, () => {
+    it("certifies only the actual built-in object and unchanged invoked methods", async () => {
+      const f = await engineeringAiFixture(createStore());
+      const prepare = f.app.prepareEngineeringModelObserved!;
+      const begin = workerPorts(f).begin;
+      expect(hasDirectEngineeringHandoff(f.app, "model", prepare)).toBe(true);
+      expect(hasDirectEngineeringHandoff(f.app, "dispatch", begin)).toBe(true);
+      for (const application of [
+        { ...f.app },
+        new Proxy(f.app, {}),
+        {},
+        null,
+      ]) {
+        expect(hasDirectEngineeringHandoff(application, "model", prepare)).toBe(
+          false,
+        );
+        expect(
+          hasDirectEngineeringHandoff(application, "dispatch", begin),
+        ).toBe(false);
+      }
+      const wrapper: typeof prepare = (...args) => prepare(...args);
+      f.app.prepareEngineeringModelObserved = wrapper;
+      expect(hasDirectEngineeringHandoff(f.app, "model", wrapper)).toBe(false);
+      expect(hasDirectEngineeringHandoff(f.app, "dispatch", begin)).toBe(false);
+      f.app.prepareEngineeringModelObserved = prepare;
+      // Restoring the original property cannot certify an earlier wrapped call.
+      expect(hasDirectEngineeringHandoff(f.app, "model", wrapper)).toBe(false);
+      expect(hasDirectEngineeringHandoff(f.app, "model", prepare)).toBe(true);
+      Object.defineProperty(f.app, "prepareEngineeringModelObserved", {
+        configurable: true,
+        get: () => prepare,
+      });
+      expect(hasDirectEngineeringHandoff(f.app, "model", prepare)).toBe(false);
+    });
+
+    it.each(["ticket", "engineering-source", "engineering-work:1"] as const)(
+      "reconfirms the real %s version after an already-prepared guard awaits",
+      async (id) => {
+        const backing = createStore();
+        const f = await engineeringAiFixture(backing);
+        const owner = await f.claim();
+        const command = {
+          ...owner.fence,
+          binding: await f.modelBinding(owner),
+        };
+        const prepared = await f.app.prepareEngineeringModel(
+          engineeringService,
+          command,
+        );
+        const beforeTransactions = f.observed.transactions.length;
+        let guards = 0;
+        const finalAssertion = vi.fn((): true => true);
+        const replay = await f.app.prepareEngineeringModelObserved!(
+          engineeringService,
+          command,
+          async (scope) => {
+            await scope.confirm(engineeringService);
+            scope.read(engineeringService);
+            guards += 1;
+            if (guards === 1) await advanceVersion(backing, id);
+            return finalAssertion;
+          },
+        );
+        expect(replay).toEqual(prepared);
+        expect(guards).toBe(2);
+        expect(finalAssertion).toHaveBeenCalledOnce();
+        expect(f.observed.transactions).toHaveLength(beforeTransactions);
+        expect((await f.work()).modelAttempts).toHaveLength(1);
+        expect(f.generate).not.toHaveBeenCalled();
+      },
+    );
+
     it("plans from the App-owned source without standalone source or context hydration", async () => {
       const f = await engineeringAiFixture(createStore());
       const ports = workerPorts(f);
@@ -82,14 +154,12 @@ for (const [name, createStore] of engineeringStores) {
       const readContext = vi.fn(async () => {
         throw new Error("Unexpected standalone context hydration");
       });
+      f.app.prepareEngineeringModelPlanned = plan;
+      f.app.readEngineeringSource = readSource;
+      f.app.readEngineeringContext = readContext;
       const engine = createSupportDeskEngineering({
         ...f.baseOptions,
-        application: {
-          ...f.app,
-          prepareEngineeringModelPlanned: plan,
-          readEngineeringSource: readSource,
-          readEngineeringContext: readContext,
-        },
+        application: f.app,
       });
       expect(await engine.processWork(f.nextCommand())).toMatchObject({
         outcome: "candidate",
@@ -308,6 +378,75 @@ for (const [name, createStore] of engineeringStores) {
       ).rejects.toThrow(SupportDeskAuthorizationError);
       expect(await f.rows()).toEqual(before);
     });
+
+    it.each(["withdraw", "supersede"] as const)(
+      "preserves the current %s result after accepted model completion loses its ACK",
+      async (change) => {
+        const f = await engineeringAiFixture(createStore());
+        const ports = workerPorts(f);
+        const commands: CompleteEngineeringModelCommand[] = [];
+        let afterChange: Awaited<ReturnType<Fixture["rows"]>> | undefined;
+        const engine = createSupportDeskEngineering({
+          ...f.baseOptions,
+          application: {
+            ...f.app,
+            async completeEngineeringModelObserved(...args) {
+              commands.push(structuredClone(args[1]));
+              const accepted = await ports.complete(...args);
+              if (commands.length === 1) {
+                expect(accepted.status).toBe("candidate");
+                if (change === "withdraw")
+                  await f.app.withdrawEngineeringSource(engineeringStaff, {
+                    ...f.command("withdraw-after-committed-model"),
+                    reason: "privacy_withdrawal",
+                  });
+                else {
+                  const next = await f.claim(
+                    "superseding-completed-model",
+                    "current-engineering-worker",
+                  );
+                  await f.app.finishEngineeringWork(engineeringService, {
+                    ...next.fence,
+                    disposition: "superseded",
+                    accounting: "accounted",
+                    reason: "superseded-after-model-completion",
+                  });
+                }
+                afterChange = await f.rows();
+                throw new Error(
+                  "Lost actual completion ACK after current state changed",
+                );
+              }
+              return accepted;
+            },
+          },
+        });
+        const expectedStatus = change === "withdraw" ? "held" : "superseded";
+        expect(await engine.processWork(f.nextCommand())).toMatchObject({
+          outcome: "held",
+          result: { status: expectedStatus },
+        });
+        expect(commands).toHaveLength(2);
+        expect(commands[1]).toEqual(commands[0]);
+        expect(afterChange).toBeDefined();
+        expect(await f.rows()).toEqual(afterChange);
+        const work = await f.work();
+        expect(work.status).toBe(expectedStatus);
+        expect(work.lastCompletion).toBeDefined();
+        if (change === "withdraw") {
+          expect((await f.source()).state).toBe("withdrawn");
+          expect(work.candidate).toBeUndefined();
+        }
+        expect(f.generate).toHaveBeenCalledOnce();
+        expect(f.reserve).toHaveBeenCalledOnce();
+        expect(f.reconcile).toHaveBeenCalledOnce();
+        expect(f.reconcile).toHaveBeenCalledWith(expect.anything(), {
+          state: "known",
+          usage: f.answer().usage,
+        });
+        expect(f.createIssue).not.toHaveBeenCalled();
+      },
+    );
 
     it("leaves the same pending outcome after authorized permanent withdrawal without futile finish writes", async () => {
       const f = await engineeringAiFixture(createStore());
@@ -556,6 +695,118 @@ for (const [name, createStore] of engineeringStores) {
         expect(f.generate).toHaveBeenCalledOnce();
       },
     );
+
+    for (const phase of ["model", "dispatch"] as const) {
+      it.each(["withdraw", "role"] as const)(
+        `withholds the physical ${phase} call after %s during a structural adapter return tail`,
+        async (change) => {
+          const f = await engineeringAiFixture(createStore());
+          if (phase === "dispatch") {
+            await f.prepareProposal();
+            await f.approve();
+          }
+          const prepare = f.app.prepareEngineeringModelObserved!;
+          const begin = workerPorts(f).begin;
+          let changed = false;
+          const revoke = async () => {
+            changed = true;
+            if (change === "withdraw")
+              await f.app.withdrawEngineeringSource(engineeringStaff, {
+                ...f.command(`withdraw-in-${phase}-adapter-tail`),
+                reason: "privacy_withdrawal",
+              });
+            else
+              f.state.authority = {
+                ...f.state.authority,
+                access: {
+                  ...f.state.authority.access,
+                  permissions: f.state.authority.access.permissions.filter(
+                    (permission) =>
+                      permission !== supportPermissions.engineeringProcess,
+                  ),
+                },
+              };
+          };
+          const engine = createSupportDeskEngineering({
+            ...f.baseOptions,
+            application: {
+              ...f.app,
+              async prepareEngineeringModelObserved(...args) {
+                const result = await prepare(...args);
+                if (
+                  phase === "model" &&
+                  f.reserve.mock.calls.length > 0 &&
+                  !changed
+                )
+                  await revoke();
+                return result;
+              },
+              async beginEngineeringDispatchObserved(...args) {
+                const result = await begin(...args);
+                if (phase === "dispatch" && result !== null && !changed)
+                  await revoke();
+                return result;
+              },
+            },
+          });
+          const result = await engine.processWork(f.nextCommand());
+          expect(changed).toBe(true);
+          expect(["held", "pending"]).toContain(result.outcome);
+          expect(f.generate).toHaveBeenCalledTimes(phase === "model" ? 0 : 1);
+          expect(f.createIssue).not.toHaveBeenCalled();
+          if (phase === "model")
+            expect(f.reconcile).toHaveBeenCalledWith(expect.anything(), {
+              state: "not_called",
+            });
+          else {
+            expect((await f.work()).dispatch).toBeDefined();
+            expect((await f.work()).acknowledgement).toBeUndefined();
+          }
+        },
+      );
+    }
+
+    it("does not leave a prepared-model write ACK after reserving usage", async () => {
+      const f = await engineeringAiFixture(createStore());
+      const reserve = f.reserve.getMockImplementation()!;
+      let delayedWrites = 0;
+      f.reserve.mockImplementation(async (...args) => {
+        const result = await reserve(...args);
+        f.observed.intercept(async (trace, commit) => {
+          const prepared = trace.actions.some(
+            (action) =>
+              "value" in action &&
+              typeof action.value === "object" &&
+              action.value !== null &&
+              "kind" in action.value &&
+              action.value.kind === "engineering_work" &&
+              "status" in action.value &&
+              action.value.status === "prepared",
+          );
+          if (!prepared) return commit();
+          f.observed.intercept(undefined);
+          const committed = await commit();
+          if (committed.committed) {
+            delayedWrites += 1;
+            await f.app.withdrawEngineeringSource(engineeringStaff, {
+              ...f.command("withdraw-during-prepared-write-ack"),
+              reason: "privacy_withdrawal",
+            });
+          }
+          return committed;
+        });
+        return result;
+      });
+      const result = await f.engineering.processWork(f.nextCommand());
+      if (delayedWrites > 0) {
+        expect((await f.source()).state).toBe("withdrawn");
+        expect(f.generate).not.toHaveBeenCalled();
+      }
+      expect(delayedWrites).toBe(0);
+      expect(result.outcome).toBe("candidate");
+      expect(f.generate).toHaveBeenCalledOnce();
+      expect(f.reserve).toHaveBeenCalledOnce();
+    });
 
     it("keeps fresh Source confirmation after the last post-start policy await", async () => {
       const f = await engineeringAiFixture(createStore());

@@ -446,7 +446,7 @@ AUTH-01 lifecycle source, synthetic SDK proof, KB-04 transport source exit,
 and both producers' release preparation are merged. The earlier Support Desk
 AI `0.2.1` package retains its exact KB `0.1.2` runtime dependencies and dated
 verification record. The publication status above identifies the selected
-`0.2.7` graph.
+`0.2.8` graph.
 [Historical `0.2.1` receipt](RELEASING.md#verified-021-publication-2026-11-10) · [Current publication status](#current-publication-status)
 PG-01/RG-01 consume their reviewed exact verified registry sets. Retained KB-04 real two-host
 acceptance under P00-CREDENTIAL/P00-MCP and

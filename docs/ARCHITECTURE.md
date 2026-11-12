@@ -387,7 +387,7 @@ activation, and pilot gates remain pending. Follow the
 
 ### SD-02 optional coordination
 
-The optional `@pegma/support-desk-ai@0.2.7` package composes exact published KB
+The optional `@pegma/support-desk-ai@0.2.8` package composes exact published KB
 `0.1.6` APIs with five fixed turn operations on the base application. The
 application has no KB/provider dependency. Causal signed-in web ingress writes
 bounded `assistant_turn` work in the existing ticket partition with its

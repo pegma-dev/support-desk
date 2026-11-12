@@ -1,5 +1,6 @@
 import {
   engineeringModelManifestHash,
+  hasDirectEngineeringHandoff,
   type CompleteEngineeringModelCommand,
   type EngineeringClaim,
   type EngineeringPreparedModel,
@@ -546,17 +547,19 @@ export async function processEngineeringModel(
       runtime,
       providerDeadline,
     );
+    const observedPrepare = options.application.prepareEngineeringModelObserved;
     if (
       canonical(
         checkedPreparation(
           await runtime.within(
             () =>
-              options.application.prepareEngineeringModelObserved === undefined
+              observedPrepare === undefined
                 ? options.application.prepareEngineeringModel(
                     current.access,
                     command,
                   )
-                : options.application.prepareEngineeringModelObserved(
+                : observedPrepare.call(
+                    options.application,
                     current.access,
                     command,
                     async (observation) => {
@@ -573,7 +576,13 @@ export async function processEngineeringModel(
       ) !== canonical(prepared)
     )
       throw new AssistantBoundaryError("preparation_mismatch");
-    if (options.application.prepareEngineeringModelObserved === undefined)
+    if (
+      !hasDirectEngineeringHandoff(
+        options.application,
+        "model",
+        observedPrepare,
+      )
+    )
       await verifyCurrent(providerDeadline, true);
     runtime.ensure(providerDeadline);
     observation = { state: "unknown" };
@@ -653,7 +662,11 @@ export async function processEngineeringModel(
         );
         return {
           outcome:
-            accepted.status === "restricted" ? "restricted" : "candidate",
+            accepted.status === "candidate"
+              ? "candidate"
+              : accepted.status === "restricted"
+                ? "restricted"
+                : "held",
           result: accepted,
         };
       } catch (error) {

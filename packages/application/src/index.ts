@@ -97,6 +97,7 @@ import {
 } from "./engineering-records.js";
 import { createEngineeringPolicyServices } from "./engineering-policy.js";
 import { createEngineeringWorkerServices } from "./engineering-work.js";
+import { registerEngineeringHandoff } from "./engineering-handoff.js";
 import { createEngineeringReconciliationServices } from "./engineering-reconciliation.js";
 import type { EngineeringDependencies } from "./engineering-internal.js";
 import type {
@@ -306,6 +307,7 @@ export async function cleanupUnreferencedAttachmentBlobs(options: {
 }
 
 export type * from "./engineering-types.js";
+export { hasDirectEngineeringHandoff } from "./engineering-handoff.js";
 export { matchesEngineeringSourceFence } from "./engineering-records.js";
 export type * from "./engineering-followup-types.js";
 export type {
@@ -6566,7 +6568,8 @@ export function createSupportDeskApplication(options: {
     mutateHandling,
   });
 
-  return {
+  const application: SupportDeskApplication &
+    AdmittedCustomerTicketApplication = {
     async downloadAttachment(access, input) {
       requireIdentifier(access.principalId, "principalId");
       const actorId = access.principalId;
@@ -8816,6 +8819,7 @@ export function createSupportDeskApplication(options: {
       return supportAudit.history(records, ticketId);
     },
   };
+  return registerEngineeringHandoff(application);
 
   async function mutateLifecycle(
     access: AccessContext,

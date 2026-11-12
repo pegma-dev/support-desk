@@ -37,6 +37,17 @@ usage handling. There is no record migration or new paid opportunity. See the
 [worker observation contract](ENGINEERING_EXPORT.md#candidate-029-worker-observations).
 Host invocation/CPU and release qualification remain separate from source tests.
 
+Reconfirming an already-prepared model through the guarded observation path is
+read-only: after the guard returns, the application confirms the opaque Ticket,
+Source and Work versions and applies the final proof, claim and expiry checks.
+New preparation and the unguarded legacy path retain their conditional writes.
+The AI physical-call shortcut applies only to the exact built-in application
+object with its unchanged observed methods. Spread objects, proxies and wrapped
+methods receive independent current checks and their additional bounded reads
+after returning; forwarding an observation does not certify an adapter's later
+awaits or confer permissions. Completion ACK recovery
+preserves a current held or superseded result instead of reporting a candidate.
+
 ## Published 0.2.8 follow-up host guards
 
 The `0.2.8` source additions, retained by `0.2.9`, add optional `EngineeringMutationOptions`

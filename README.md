@@ -193,9 +193,9 @@ The organization profile is at
 | `@pegma/support-desk-ai`          | Optional answers, resolution learning, engineering export and follow-up |
 
 All five packages are published under the `@pegma` scope at verified
-[`0.2.7`](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.7). The optional AI package's
+[`0.2.8`](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.8). The optional AI package's
 registration-only `bootstrap` remains `0.1.1`; earlier registry versions are
-immutable history. The [publication receipt](docs/RELEASING.md#verified-027-publication-2026-11-11)
+immutable history. The [publication receipt](docs/RELEASING.md#verified-028-publication-2026-11-12)
 records the original artifacts and strict verification. There is
 deliberately no storage package and no access package. Inbound mail processing
 is implemented (Buildout Task 11); host adapters, production hardening, and the

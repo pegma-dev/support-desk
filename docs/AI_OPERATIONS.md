@@ -29,7 +29,7 @@ replace SDK proof. Web posting retains its authorization/delivery guarantees
 and can use a per-attempt application-owned read observation with fresh opaque
 confirmations; the compatibility fallback remains. Keep hosts on
 the verified `0.2.8` tuple until the next release is published and qualified.
-See the [candidate contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards)
+See the [published 0.2.8 contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards)
 and [current source handoff](RELEASING.md#source-version-029).
 
 ## Controls and human fallback

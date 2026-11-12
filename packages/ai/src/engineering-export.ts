@@ -1,5 +1,6 @@
 import {
   engineeringExportChecksBinding,
+  hasDirectEngineeringHandoff,
   engineeringRoutingBinding,
   engineeringRoutingBindingHash,
   engineeringStaffSelectionHash,
@@ -575,8 +576,8 @@ export async function dispatchEngineeringExport(
         throw error;
       }
     };
-    if (options.application.beginEngineeringDispatchObserved === undefined)
-      await guard();
+    const observedBegin = options.application.beginEngineeringDispatchObserved;
+    if (observedBegin === undefined) await guard();
     let beginFailure: string | undefined;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
@@ -588,7 +589,7 @@ export async function dispatchEngineeringExport(
         );
         const value = await runtime.within(
           () =>
-            options.application.beginEngineeringDispatchObserved === undefined
+            observedBegin === undefined
               ? options.application.beginEngineeringDispatch(
                   current.access,
                   begin,
@@ -596,7 +597,8 @@ export async function dispatchEngineeringExport(
                     await guard();
                   },
                 )
-              : options.application.beginEngineeringDispatchObserved(
+              : observedBegin.call(
+                  options.application,
                   current.access,
                   begin,
                   guard,
@@ -637,17 +639,20 @@ export async function dispatchEngineeringExport(
         stage: "dispatch",
         ...(beginFailure === undefined ? {} : { reason: beginFailure }),
       };
-    const guardedDeadline =
-      options.application.beginEngineeringDispatchObserved === undefined
-        ? await engineeringProposalGuard(
-            options,
-            claim.work,
-            proposal,
-            runtime,
-            phase,
-            processingAuthority,
-          )
-        : verifiedDeadline;
+    const guardedDeadline = !hasDirectEngineeringHandoff(
+      options.application,
+      "dispatch",
+      observedBegin,
+    )
+      ? await engineeringProposalGuard(
+          options,
+          claim.work,
+          proposal,
+          runtime,
+          phase,
+          processingAuthority,
+        )
+      : verifiedDeadline;
     runtime.ensure(guardedDeadline);
     const request = permit.request;
     if (request.operation === "create_issue") {

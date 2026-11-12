@@ -716,6 +716,49 @@ export function createEngineeringWorkerServices(
       },
     };
   }
+  async function preparedModelCurrent(
+    access: AccessContext,
+    loaded: EngineeringLoaded,
+    stored: EngineeringWorkVersion,
+    actorId: string,
+  ): Promise<boolean> {
+    const source = await records.getVersioned(
+      engineeringSourceKey(stored.value.ticketId),
+    );
+    permission(access, false, actorId);
+    if (source?.version !== loaded.source.version) return false;
+    const [ticket, work] = await Promise.allSettled([
+      Promise.resolve().then(() =>
+        records.getVersioned({
+          partition: stored.value.ticketId,
+          id: "ticket",
+        }),
+      ),
+      Promise.resolve().then(() =>
+        records.getVersioned(
+          engineeringWorkKey(
+            stored.value.ticketId,
+            stored.value.sourceGeneration,
+          ),
+        ),
+      ),
+    ]);
+    permission(access, false, actorId);
+    if (ticket.status === "rejected") throw ticket.reason;
+    if (ticket.value?.value.kind !== "ticket")
+      throw new SupportDeskNotFoundError();
+    if (work.status === "rejected") throw work.reason;
+    if (
+      ticket.value.version !== loaded.ticket.version ||
+      work.value?.version !== stored.version
+    )
+      return false;
+    const finalSource = await records.getVersioned(
+      engineeringSourceKey(stored.value.ticketId),
+    );
+    permission(access, false, actorId);
+    return finalSource?.version === loaded.source.version;
+  }
   async function modelGuard(
     guard: EngineeringModelCommitGuard,
     loaded: EngineeringLoaded,
@@ -1558,6 +1601,12 @@ export function createEngineeringWorkerServices(
           throw new SupportDeskConflictError(
             "Engineering model deadline exceeds live claim",
           );
+        const assertDeadline = () => {
+          if (deadline <= runNow())
+            throw new SupportDeskConflictError(
+              "Engineering prepared model deadline expired",
+            );
+        };
         const existing = work.modelAttempts.find(
           (entry) => canonical(entry.binding) === canonical(binding),
         );
@@ -1573,23 +1622,29 @@ export function createEngineeringWorkerServices(
             guard === undefined
               ? undefined
               : await modelGuard(guard, loaded, stored, actorId);
+          if (guard !== undefined) {
+            if (!(await preparedModelCurrent(access, loaded, stored, actorId)))
+              continue;
+            permission(access, false, actorId);
+            live(loaded, work, command, runNow());
+            assertProof?.();
+            assertDeadline();
+            return {
+              stepId: existing.stepId,
+              requestHash: existing.requestHash,
+              maxCandidateBytes: 16_000,
+            };
+          }
           live(loaded, work, command, runNow());
+          assertDeadline();
           permission(access, false, actorId);
           if (
-            await save(
-              loaded,
-              stored,
-              work,
-              loaded.source.value,
-              [],
-              guard === undefined
-                ? undefined
-                : () => {
-                    permission(access, false, actorId);
-                    live(loaded, work, command, runNow());
-                    assertProof?.();
-                  },
-            )
+            await save(loaded, stored, work, loaded.source.value, [], () => {
+              permission(access, false, actorId);
+              live(loaded, work, command, runNow());
+              assertProof?.();
+              assertDeadline();
+            })
           ) {
             permission(access, false, actorId);
             return {
@@ -1638,27 +1693,21 @@ export function createEngineeringWorkerServices(
           guard === undefined
             ? undefined
             : await modelGuard(guard, loaded, stored, actorId);
+        assertDeadline();
         await freshPolicy(access, {
           policyGeneration: manifest.policyGeneration,
           policyHash: manifest.policyHash,
         });
         live(loaded, work, command, runNow());
+        assertDeadline();
         permission(access, false, actorId);
         if (
-          await save(
-            loaded,
-            stored,
-            next,
-            loaded.source.value,
-            [],
-            guard === undefined
-              ? undefined
-              : () => {
-                  permission(access, false, actorId);
-                  live(loaded, work, command, runNow());
-                  assertProof?.();
-                },
-          )
+          await save(loaded, stored, next, loaded.source.value, [], () => {
+            permission(access, false, actorId);
+            live(loaded, work, command, runNow());
+            assertProof?.();
+            assertDeadline();
+          })
         ) {
           permission(access, false, actorId);
           return { stepId, requestHash, maxCandidateBytes: 16_000 };

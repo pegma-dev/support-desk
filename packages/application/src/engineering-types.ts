@@ -516,7 +516,7 @@ export interface RecordEngineeringReconciliationCommand extends EngineeringKey {
     | { readonly outcome: "unknown"; readonly reason?: string };
 }
 export type EngineeringCommitGuard = () => void | Promise<void>;
-/** A single model CAS attempt; read consumes a fresh opaque-version confirmation. */
+/** One bounded model attempt; read consumes a fresh opaque-version confirmation. */
 export interface EngineeringModelObservation {
   read(access: AccessContext): {
     readonly source: EngineeringSourceRecord;

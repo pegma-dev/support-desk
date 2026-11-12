@@ -21,7 +21,7 @@ All four KB packages have strictly verified trusted `0.1.6` registry
 releases. Agent Access remains verified at `0.1.1`. The producer releases
 close SD-02's publication prerequisite. The optional AI package includes bounded turn work,
 first shipped in verified synchronized `0.2.0` and retained in the current
-`0.2.7` release; see the
+`0.2.8` release; see the
 [publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
 The current AI release pins exact KB application/contracts `0.1.6`. The
 standalone authoring recipe selects all four KB `0.1.6` packages and Agent

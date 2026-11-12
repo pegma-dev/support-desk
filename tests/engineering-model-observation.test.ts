@@ -103,6 +103,85 @@ function observedPorts(f: Fixture) {
 
 for (const [name, createStore] of engineeringStores) {
   describe(`model operation observations (${name})`, () => {
+    for (const existing of [false, true]) {
+      it.each(["guard-await", "transaction-handoff"] as const)(
+        `rejects an expired shorter binding deadline at %s for ${existing ? "existing" : "new"} preparation while the claim remains live`,
+        async (phase) => {
+          const f = await engineeringAiFixture(createStore());
+          const owner = await f.claim();
+          const deadline = new Date(
+            Date.parse(f.clock.now()) + 5_000,
+          ).toISOString();
+          const command: PrepareEngineeringModelCommand = {
+            ...owner.fence,
+            binding: await f.modelBinding(owner, { deadline }),
+          };
+          if (existing)
+            await f.app.prepareEngineeringModel(engineeringService, command);
+          const before = await f.rows();
+          const records = f.store.collection(supportRecords);
+          const key = { partition: "ticket", id: "engineering-work:1" };
+          const beforeVersion = await records.getVersioned(key);
+          const expire = () => {
+            f.advance(5_000);
+            expect(Date.parse(f.clock.now())).toBe(Date.parse(deadline));
+            expect(Date.parse(owner.leaseUntil)).toBeGreaterThan(
+              Date.parse(f.clock.now()),
+            );
+          };
+          const guard = vi.fn(async () => {
+            // Returning void is supported; the application owns the deadline.
+            if (phase === "guard-await") {
+              await Promise.resolve();
+              expire();
+              return;
+            }
+            return (): true => {
+              expire();
+              return true;
+            };
+          });
+          await expect(
+            observedPorts(f).prepare(engineeringService, command, guard),
+          ).rejects.toThrow("deadline");
+          expect(guard).toHaveBeenCalledOnce();
+          expect(await f.rows()).toEqual(before);
+          expect(await records.getVersioned(key)).toEqual(beforeVersion);
+          expect((await f.work()).modelAttempts).toHaveLength(existing ? 1 : 0);
+          expect(f.generate).not.toHaveBeenCalled();
+          expect(f.reserve).not.toHaveBeenCalled();
+        },
+      );
+
+      it(`accepts a still-live shorter binding deadline for ${existing ? "existing" : "new"} preparation without a second attempt`, async () => {
+        const f = await engineeringAiFixture(createStore());
+        const owner = await f.claim();
+        const deadline = new Date(
+          Date.parse(f.clock.now()) + 5_000,
+        ).toISOString();
+        const command: PrepareEngineeringModelCommand = {
+          ...owner.fence,
+          binding: await f.modelBinding(owner, { deadline }),
+        };
+        const original = existing
+          ? await f.app.prepareEngineeringModel(engineeringService, command)
+          : undefined;
+        const accepted = await observedPorts(f).prepare(
+          engineeringService,
+          command,
+          async () => {
+            await Promise.resolve();
+            f.advance(4_999);
+          },
+        );
+        if (original !== undefined) expect(accepted).toEqual(original);
+        expect(Date.parse(f.clock.now())).toBeLessThan(Date.parse(deadline));
+        expect((await f.work()).modelAttempts).toHaveLength(1);
+        expect(f.generate).not.toHaveBeenCalled();
+        expect(f.reserve).not.toHaveBeenCalled();
+      });
+    }
+
     it("reduces protected rehydration while preserving all authority callbacks and the legacy structural fallback", async () => {
       const results = [];
       for (const legacy of [false, true]) {
@@ -139,7 +218,7 @@ for (const [name, createStore] of engineeringStores) {
           candidate: (await f.work()).candidate,
         });
       }
-      expect(results[0]).toMatchObject({ source: 6, work: 7, ticket: 4 });
+      expect(results[0]).toMatchObject({ source: 8, work: 8, ticket: 5 });
       expect(results[1]).toMatchObject({ source: 10, work: 8, ticket: 7 });
       expect(results[0]!.authority).toBe(results[1]!.authority);
       expect(results[0]!.candidate).toEqual(results[1]!.candidate);
