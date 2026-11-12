@@ -429,12 +429,16 @@ export function createSupportDeskReleaseFollowup(
         };
         const reassess = options.application.reassessEngineeringFollowupBundle;
         if (reassess !== undefined) {
-          let deadline = runtime.deadline;
-          const mutationOptions = mutationOptionsFor(() => deadline, true);
+          let phaseDeadline = runtime.deadline;
+          let verificationDeadline = phaseDeadline;
+          const mutationOptions = mutationOptionsFor(
+            () => verificationDeadline,
+            true,
+          );
           let failure: unknown;
           for (let attempt = 0; attempt < attempts; attempt += 1) {
             try {
-              runtime.ensure(deadline);
+              runtime.ensure(phaseDeadline);
               ensureStaff();
               const result = await runtime.within(() =>
                 reassess.call(
@@ -484,7 +488,8 @@ export function createSupportDeskReleaseFollowup(
                       runtime,
                       observeCurrent,
                     );
-                    deadline = Math.min(deadline, checked.deadline);
+                    phaseDeadline = Math.min(phaseDeadline, checked.deadline);
+                    verificationDeadline = phaseDeadline;
                     return {
                       candidateHash: work.candidateHash!,
                       exactBundle: checked.bundle,
@@ -492,8 +497,8 @@ export function createSupportDeskReleaseFollowup(
                       checkPolicyVersion: checked.checkPolicyVersion,
                       guard: async () => {
                         await checked.guard();
-                        deadline = Math.min(
-                          deadline,
+                        verificationDeadline = Math.min(
+                          phaseDeadline,
                           checked.verificationDeadline,
                         );
                       },
@@ -607,6 +612,12 @@ export function createSupportDeskReleaseFollowup(
             return result;
           } catch (error) {
             failure = error;
+            // A host overrun is terminal; only non-deadline failures may renew proof.
+            if (
+              error instanceof AssistantBoundaryError &&
+              error.category === "deadline"
+            )
+              break;
           }
         }
         const accepted = await recover();

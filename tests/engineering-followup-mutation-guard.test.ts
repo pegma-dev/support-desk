@@ -541,6 +541,135 @@ for (const [name, createStore] of engineeringFollowupStores) {
       }
     }
 
+    it.each([
+      "paid worker",
+      "legacy staff",
+      "application-owned staff",
+    ] as const)(
+      "re-verifies rolling final proof after a transient precommit failure for %s",
+      async (path) => {
+        const f = await engineeringFollowupAiFixture(createStore());
+        const prepared =
+          path === "paid worker" ? undefined : await f.prepareBundle();
+        if (path === "paid worker")
+          expect(await f.followup.processWork(f.nextCommand())).toMatchObject({
+            outcome: "candidate",
+          });
+        const before = await f.rows();
+        let failureRows: Awaited<ReturnType<typeof f.rows>> | undefined;
+        let failureTransactions: number | undefined;
+        let verifies = 0;
+        let failed = false;
+        let guardVisits = 0;
+        const transient = async (guard: () => void | Promise<void>) => {
+          await guard();
+          guardVisits += 1;
+          if (!failed) {
+            failed = true;
+            failureRows = await f.rows();
+            failureTransactions = f.observed.transactions.length;
+            f.advance(1_500);
+            throw new Error(
+              "Transient application failure after real proof, before commit",
+            );
+          }
+        };
+        const { reassessEngineeringFollowupBundle: optional, ...legacy } =
+          f.app;
+        const application =
+          path === "application-owned staff"
+            ? {
+                ...f.app,
+                reassessEngineeringFollowupBundle: (async (
+                  access,
+                  command,
+                  planner,
+                  options,
+                ) =>
+                  optional!.call(
+                    f.app,
+                    access,
+                    command,
+                    async (observation) => {
+                      const plan = await planner(observation);
+                      return { ...plan, guard: () => transient(plan.guard) };
+                    },
+                    options,
+                  )) satisfies NonNullable<typeof optional>,
+              }
+            : {
+                ...legacy,
+                prepareEngineeringFollowupBundle: (async (
+                  access,
+                  command,
+                  guard,
+                  options,
+                ) =>
+                  f.app.prepareEngineeringFollowupBundle(
+                    access,
+                    command,
+                    () => transient(guard),
+                    options,
+                  )) satisfies typeof f.app.prepareEngineeringFollowupBundle,
+              };
+        const followup = createSupportDeskReleaseFollowup({
+          ...f.baseOptions,
+          application,
+          checks: {
+            ...f.baseOptions.checks,
+            async verify(...args) {
+              const receipt = await f.baseOptions.checks.verify(...args);
+              verifies += 1;
+              return receipt === null || verifies < 2
+                ? receipt
+                : {
+                    ...receipt,
+                    validUntil: new Date(
+                      Date.parse(f.clock.now()) + 1_000,
+                    ).toISOString(),
+                  };
+            },
+          },
+        });
+        if (path === "paid worker") {
+          expect(await followup.processWork(f.nextCommand())).toMatchObject({
+            outcome: "prepared",
+          });
+        } else {
+          const host = vi.fn(async () => {
+            f.advance(500);
+          });
+          expect(
+            await followup.prepareStaffReassessment(
+              staff,
+              {
+                ...f.command(`rolling-retry-${path}`),
+                ...f.key,
+                expectedWorkGeneration: prepared!.workGeneration,
+              },
+              { verifyBeforeCommit: host },
+            ),
+          ).toMatchObject({
+            status: "bundle_prepared",
+            workGeneration: prepared!.workGeneration + 1,
+          });
+          expect(host).toHaveBeenCalledOnce();
+        }
+        expect(failed).toBe(true);
+        expect(guardVisits).toBe(2);
+        expect(verifies).toBeGreaterThanOrEqual(3);
+        expect(f.generate).toHaveBeenCalledOnce();
+        if (failureRows === undefined || failureTransactions === undefined)
+          throw new Error(
+            "The actual precommit failure boundary was not observed",
+          );
+        if (path !== "paid worker") expect(failureRows).toEqual(before);
+        // The worker may claim before verification; exactly one later bundle commits.
+        expect(f.observed.transactions).toHaveLength(failureTransactions + 1);
+        expect((await f.rows()).length).toBe(failureRows.length + 2);
+      },
+    );
+
     it("preserves paid-worker receipt recovery after a shorter final proof expires", async () => {
       const f = await engineeringFollowupAiFixture(createStore());
       expect(await f.followup.processWork(f.nextCommand())).toMatchObject({

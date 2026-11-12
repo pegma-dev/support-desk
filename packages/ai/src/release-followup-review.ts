@@ -341,7 +341,7 @@ export async function prepareCheckedReleaseFollowupBundle(
       );
       // Bound this final verification without changing the worker's phase budget.
       verificationDeadline = Math.min(
-        verificationDeadline,
+        deadline,
         expiry,
         timestamp(freshProof.attestation.validUntil),
       );
