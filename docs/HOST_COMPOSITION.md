@@ -195,6 +195,8 @@ core, application and MCP at `0.1.7`, with Agent Access unchanged at `0.1.1`.
 All four KB packages passed strict public verification from signed source
 `27074b8bba76817ea6960606cf29d8fc239943b0`:
 [KB `0.1.7` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.7) · [Registry verification](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.7/registry-verification.json).
+[Retained asset identities and verification chronology](RELEASING.md#source-version-029)
+record the original preparation, public asset IDs and SHA-256 digests.
 This changes no published Support Desk `0.2.8` dependency or host activation.
 
 The earlier authoring recipe selected the four Knowledge Base `0.1.4` packages
