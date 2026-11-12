@@ -9,6 +9,135 @@ import {
   CHECK_END as END,
 } from "../test/openrouter-fixtures.js";
 
+describe("independent checker per-attempt message budgets", () => {
+  it.each(["engineering", "learning"] as const)(
+    "rejects five %s messages under a route20/context2 budget before credentials or admission",
+    async (kind) => {
+      const f = await fixture();
+      await f.model.resolve();
+      const input = {
+        ...f.input,
+        kind,
+        facts: { messages: ["One", "Two", "Three", "Four", "Five"] },
+      };
+      const key = vi.fn(() => "fictional-provider-key");
+      const admission = vi.fn(async () => {});
+      const physical = vi.fn();
+      f.options.readApiKey = key;
+      const context = {
+        ...f.context,
+        budgets: { ...f.context.budgets, maxMessages: 2 },
+        beforePhysicalCall: admission,
+        onPhysicalCall: physical,
+      };
+      // This public signature has no per-attempt context; its route-only
+      // budget remains valid while generate enforces the tighter attempt.
+      expect(f.model.withinBudget(input, f.c)).toBe(true);
+      await expect(f.model.generate(input, context, f.c)).rejects.toMatchObject(
+        {
+          code: "invalid_input",
+        },
+      );
+      expect(key).not.toHaveBeenCalled();
+      expect(admission).not.toHaveBeenCalled();
+      expect(physical).not.toHaveBeenCalled();
+      expect(f.state.calls).toBe(0);
+    },
+  );
+  it.each([1, 2, 3])(
+    "enforces a context2 cap at the %i-message boundary without truncation",
+    async (count) => {
+      const f = await fixture();
+      await f.model.resolve();
+      const messages = Array.from(
+        { length: count },
+        (_, index) => `Message ${index + 1}`,
+      );
+      const input = { ...f.input, facts: { messages } };
+      const key = vi.fn(() => "fictional-provider-key");
+      f.options.readApiKey = key;
+      const context = {
+        ...f.context,
+        budgets: { ...f.context.budgets, maxMessages: 2 },
+      };
+      if (count > 2) {
+        await expect(
+          f.model.generate(input, context, f.c),
+        ).rejects.toMatchObject({ code: "invalid_input" });
+        expect(key).not.toHaveBeenCalled();
+        expect(f.state.calls).toBe(0);
+      } else {
+        const result = await f.model.generate(input, context, f.c);
+        expect(f.model.parseVerdict(result.outputJson)).toEqual(verdict);
+        expect(f.state.calls).toBe(1);
+        const body = JSON.parse(String(f.state.requests[0]!.init.body));
+        expect(JSON.parse(body.messages[1].content).facts.messages).toEqual(
+          messages,
+        );
+      }
+    },
+  );
+  it.each([
+    { label: "missing", value: undefined, code: "usage_invalid" },
+    { label: "null", value: null, code: "usage_invalid" },
+    { label: "zero", value: 0, code: "invalid_input" },
+    { label: "negative", value: -1, code: "usage_invalid" },
+    { label: "fractional", value: 1.5, code: "usage_invalid" },
+    { label: "NaN", value: NaN, code: "usage_invalid" },
+    { label: "infinite", value: Infinity, code: "usage_invalid" },
+    { label: "text", value: "2", code: "usage_invalid" },
+    { label: "above route", value: 21, code: "usage_invalid" },
+  ])(
+    "rejects $label context cap with the existing transport error before credentials",
+    async ({ label, value, code }) => {
+      const f = await fixture();
+      await f.model.resolve();
+      const key = vi.fn(() => "fictional-provider-key");
+      const admission = vi.fn(async () => {});
+      f.options.readApiKey = key;
+      const context = {
+        ...f.context,
+        budgets: { ...f.context.budgets },
+        beforePhysicalCall: admission,
+      };
+      if (label === "missing")
+        Reflect.deleteProperty(context.budgets, "maxMessages");
+      else Reflect.set(context.budgets, "maxMessages", value);
+      await expect(
+        f.model.generate(f.input, context, f.c),
+      ).rejects.toMatchObject({ code });
+      expect(key).not.toHaveBeenCalled();
+      expect(admission).not.toHaveBeenCalled();
+      expect(f.state.calls).toBe(0);
+    },
+  );
+  it.each(["messages grow", "context tightens"] as const)(
+    "rechecks the effective cap after an awaited source fence when %s",
+    async (change) => {
+      const f = await fixture();
+      await f.model.resolve();
+      const input = { ...f.input, facts: { messages: ["One", "Two"] } };
+      const context = {
+        ...f.context,
+        budgets: {
+          ...f.context.budgets,
+          maxMessages: change === "messages grow" ? 2 : 5,
+        },
+      };
+      const fence = vi.fn(async () => {
+        await Promise.resolve();
+        if (change === "messages grow") input.facts.messages.push("Three");
+        else context.budgets.maxMessages = 1;
+      });
+      await expect(
+        f.model.generate(input, { ...context, beforePhysicalCall: fence }, f.c),
+      ).rejects.toMatchObject({ code: "invalid_input" });
+      expect(fence).toHaveBeenCalledTimes(1);
+      expect(f.state.calls).toBe(0);
+    },
+  );
+});
+
 describe("purpose-qualified independent checker transport", () => {
   it.each(["engineering", "learning"] as const)(
     "preserves every %s message at the independent route's exact limit",

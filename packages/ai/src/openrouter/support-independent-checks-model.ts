@@ -12,6 +12,7 @@ import {
   type SupportOpenRouterContext,
   usableCredential,
   array,
+  integer,
 } from "./support-openrouter-model.js";
 
 export const INDEPENDENT_CHECK_PURPOSE = "support_independent_check";
@@ -167,16 +168,21 @@ export interface IndependentCheckContext extends SupportOpenRouterContext {
 function requireMessageBudget(
   input: IndependentCheckInput,
   configured: IndependentCheckConfiguration,
+  context?: IndependentCheckContext,
 ): void {
   try {
-    const maximum = configured.budgets.maxMessages;
+    const limit = integer(
+      configured.budgets.maxMessages,
+      100,
+      1,
+      "invalid_input",
+    );
+    const maximum =
+      context === undefined
+        ? limit
+        : integer(context.budgets?.maxMessages, limit);
     const facts = input.facts;
-    if (
-      !Number.isSafeInteger(maximum) ||
-      maximum < 1 ||
-      maximum > 100 ||
-      !isPlainObject(facts)
-    )
+    if (maximum < 1 || !isPlainObject(facts))
       throw new SupportOpenRouterModelError("invalid_input");
     const messages = Object.getOwnPropertyDescriptor(facts, "messages");
     if (
@@ -187,7 +193,12 @@ function requireMessageBudget(
       )
     )
       throw new SupportOpenRouterModelError("invalid_input");
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof SupportOpenRouterModelError &&
+      error.code === "usage_invalid"
+    )
+      throw error;
     throw new SupportOpenRouterModelError("invalid_input");
   }
 }
@@ -422,7 +433,7 @@ export function createSupportIndependentCheckModel(
           return JSON.stringify(verdict.parse(strictJson(content).value));
         },
         validate(input, context, config) {
-          requireMessageBudget(input, config);
+          requireMessageBudget(input, config, context);
           if (
             input.trustedInstructions !== config.trustedInstructions ||
             !["engineering", "learning"].includes(input.kind) ||
@@ -526,7 +537,7 @@ export function createSupportIndependentCheckModel(
         });
         const route = source.currentRoute(configured.version);
         if (!route) throw new SupportOpenRouterModelError("route_unavailable");
-        requireMessageBudget(input, configured);
+        requireMessageBudget(input, configured, context);
         const credential = options.readApiKey?.(route.credentialRef);
         if (!usableCredential(credential))
           throw new SupportOpenRouterModelError("credential_unavailable");
