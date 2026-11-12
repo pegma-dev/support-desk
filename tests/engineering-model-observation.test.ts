@@ -15,6 +15,7 @@ import { createSupportDeskEngineering } from "@pegma/support-desk-ai";
 import { describe, expect, it, vi } from "vitest";
 import {
   engineeringAiFixture,
+  engineeringBarrier,
   engineeringService,
   engineeringStaff,
   engineeringStores,
@@ -24,6 +25,7 @@ type Read = { method: string; id?: string };
 function observe(backing: Store) {
   const reads: Read[] = [];
   let intercept: ((read: Read) => void | Promise<void>) | undefined;
+  let afterRead: ((read: Read) => void | Promise<void>) | undefined;
   const store: Store = {
     collection<T>(definition: CollectionDefinition<T>) {
       const target = backing.collection(definition);
@@ -46,9 +48,16 @@ function observe(backing: Store) {
               };
               reads.push(read);
               const pending = intercept?.(read);
-              return pending === undefined
-                ? Reflect.apply(value, object, args)
-                : pending.then(() => Reflect.apply(value, object, args));
+              const result =
+                pending === undefined
+                  ? Reflect.apply(value, object, args)
+                  : pending.then(() => Reflect.apply(value, object, args));
+              return afterRead === undefined
+                ? result
+                : Promise.resolve(result).then(async (value) => {
+                    await afterRead?.(read);
+                    return value;
+                  });
             };
           return typeof value === "function" ? value.bind(object) : value;
         },
@@ -60,6 +69,9 @@ function observe(backing: Store) {
     reads,
     intercept(hook?: typeof intercept) {
       intercept = hook;
+    },
+    afterRead(hook?: typeof afterRead) {
+      afterRead = hook;
     },
   };
 }
@@ -445,6 +457,208 @@ for (const [name, createStore] of engineeringStores) {
           "expired",
         );
       expect((await f.work()).modelAttempts).toHaveLength(1);
+    });
+
+    it("starts the bounded Ticket read before the real receipt Work ACK returns", async () => {
+      const observed = observe(createStore());
+      const f = await engineeringAiFixture(observed.store);
+      const { complete } = await completion(f);
+      const barrier = engineeringBarrier();
+      let ticketStarted = false;
+      let holdWork = true;
+      observed.intercept((read) => {
+        if (read.id === "ticket") ticketStarted = true;
+      });
+      observed.afterRead((read) => {
+        if (read.id === "engineering-work:1" && holdWork) {
+          holdWork = false;
+          return barrier.wait();
+        }
+      });
+      const pending = observedPorts(f).complete(
+        engineeringService,
+        complete,
+        async (scope) => {
+          await scope.confirm(engineeringService);
+          scope.read(engineeringService);
+        },
+      );
+      await barrier.reached;
+      try {
+        expect(ticketStarted).toBe(true);
+      } finally {
+        barrier.release();
+        await expect(pending).resolves.toMatchObject({ status: "candidate" });
+      }
+      expect((await f.work()).candidate).toEqual(f.assessment());
+      expect((await f.work()).modelAttempts).toHaveLength(1);
+      expect(f.generate).not.toHaveBeenCalled();
+    });
+
+    it.each(["throw", "reject", "pending"] as const)(
+      "recovers an exact accepted receipt without awaiting or interpreting a %s Ticket preload",
+      async (failure) => {
+        const observed = observe(createStore());
+        const f = await engineeringAiFixture(observed.store);
+        const { complete } = await completion(f);
+        const accepted = await observedPorts(f).complete(
+          engineeringService,
+          complete,
+          async (scope) => {
+            await scope.confirm(engineeringService);
+            scope.read(engineeringService);
+          },
+        );
+        const before = await f.rows();
+        const barrier = engineeringBarrier();
+        const ticketError = new Error(
+          "synthetic speculative Ticket unavailable",
+        );
+        const guard = vi.fn(async () => {
+          throw new Error("Exact receipt must bypass guard");
+        });
+        observed.reads.length = 0;
+        observed.intercept((read) => {
+          if (read.id !== "ticket") return;
+          if (failure === "throw") throw ticketError;
+          if (failure === "reject") return Promise.reject(ticketError);
+          return barrier.wait();
+        });
+        try {
+          await expect(
+            observedPorts(f).complete(
+              {
+                ...engineeringService,
+                permissions: [supportPermissions.engineeringProcess],
+              },
+              complete,
+              guard,
+            ),
+          ).resolves.toEqual(accepted);
+          expect(guard).not.toHaveBeenCalled();
+          expect(
+            observed.reads.some(
+              (read) =>
+                read.id === "engineering-source" || read.method === "list",
+            ),
+          ).toBe(false);
+        } finally {
+          barrier.release();
+          observed.intercept();
+        }
+        expect(await f.rows()).toEqual(before);
+      },
+    );
+
+    it.each(["throw", "reject"] as const)(
+      "surfaces the actual %s Ticket failure when no completion receipt exists",
+      async (failure) => {
+        const observed = observe(createStore());
+        const f = await engineeringAiFixture(observed.store);
+        const { complete } = await completion(f);
+        const before = await f.rows();
+        const ticketError = new Error("synthetic required Ticket unavailable");
+        const guard = vi.fn(async () => {});
+        observed.reads.length = 0;
+        observed.intercept((read) => {
+          if (read.id !== "ticket") return;
+          if (failure === "throw") throw ticketError;
+          return Promise.reject(ticketError);
+        });
+        await expect(
+          observedPorts(f).complete(engineeringService, complete, guard),
+        ).rejects.toBe(ticketError);
+        expect(guard).not.toHaveBeenCalled();
+        expect(
+          observed.reads.some(
+            (read) =>
+              read.id === "engineering-source" || read.method === "list",
+          ),
+        ).toBe(false);
+        observed.intercept();
+        expect(await f.rows()).toEqual(before);
+      },
+    );
+
+    it("retries the real Ticket CAS after a preloaded opaque version changes", async () => {
+      const backing = createStore();
+      const observed = observe(backing);
+      const f = await engineeringAiFixture(observed.store);
+      const { complete } = await completion(f);
+      let changed = false;
+      observed.afterRead(async (read) => {
+        if (read.id === "ticket" && !changed) {
+          changed = true;
+          await advanceVersion(backing, { partition: "ticket", id: "ticket" });
+        }
+      });
+      const guard = vi.fn(async (scope: EngineeringModelObservation) => {
+        await scope.confirm(engineeringService);
+        scope.read(engineeringService);
+      });
+      await expect(
+        observedPorts(f).complete(engineeringService, complete, guard),
+      ).resolves.toMatchObject({ status: "candidate" });
+      expect(changed).toBe(true);
+      expect(guard).toHaveBeenCalledTimes(2);
+      expect((await f.work()).modelAttempts).toHaveLength(1);
+      expect((await f.work()).candidate).toEqual(f.assessment());
+    });
+
+    it("rejects new completion after the real Ticket is reopened during preload", async () => {
+      const observed = observe(createStore());
+      const f = await engineeringAiFixture(observed.store);
+      const { complete } = await completion(f);
+      let changed = false;
+      let after: Awaited<ReturnType<Fixture["rows"]>> | undefined;
+      observed.afterRead(async (read) => {
+        if (read.id === "ticket" && !changed) {
+          changed = true;
+          await f.app.resolveTicket(
+            engineeringStaff,
+            f.command("resolved-during-completion-preload"),
+          );
+          await f.app.reopenTicket(
+            engineeringStaff,
+            f.command("reopened-during-completion-preload"),
+          );
+          after = await f.rows();
+        }
+      });
+      const guard = vi.fn(async () => {});
+      await expect(
+        observedPorts(f).complete(engineeringService, complete, guard),
+      ).rejects.toThrow();
+      expect(changed).toBe(true);
+      expect(guard).not.toHaveBeenCalled();
+      expect((await f.work()).candidate).toBeUndefined();
+      expect(await f.rows()).toEqual(after);
+    });
+
+    it("rejects new completion with a missing real Ticket without changing retained Work", async () => {
+      const observed = observe(createStore());
+      const f = await engineeringAiFixture(observed.store);
+      const { complete } = await completion(f);
+      const records = f.store.collection(supportRecords);
+      const ticket = await records.getVersioned({
+        partition: "ticket",
+        id: "ticket",
+      });
+      if (ticket === null)
+        throw new Error("Actual Ticket missing before deletion");
+      expect(
+        await records.deleteIfUnchanged(
+          { partition: "ticket", id: "ticket" },
+          ticket.version,
+        ),
+      ).toBe(true);
+      const before = await f.rows();
+      const guard = vi.fn(async () => {});
+      await expect(
+        observedPorts(f).complete(engineeringService, complete, guard),
+      ).rejects.toThrow();
+      expect(guard).not.toHaveBeenCalled();
+      expect(await f.rows()).toEqual(before);
     });
 
     it("recovers an exact accepted completion after withdrawal and read-grant loss without new proof", async () => {
