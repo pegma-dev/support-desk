@@ -3,6 +3,7 @@ import {
   type ResolutionLearningReviewAttemptRecord,
 } from "./resolution-learning-staged-records.js";
 import { commitResolutionLearningReview } from "./resolution-learning-review-commit.js";
+import { registerResolutionLearningDelivery } from "./resolution-learning-delivery-handoff.js";
 import {
   resolutionLearningReviewIdentity,
   requireResolutionLearningReviewTicket,
@@ -53,6 +54,11 @@ import type {
   PrepareResolutionLearningStepCommand,
   ResolutionLearningApplication,
   ResolutionLearningChecksBinding,
+  ResolutionLearningCommitGuard,
+  ResolutionLearningDeliveryFence,
+  ResolutionLearningDeliveryGuard,
+  ResolutionLearningDeliveryObservation,
+  ResolutionLearningStagedDeliveryApplication,
   ResolutionLearningClaimFence,
   ResolutionLearningDeliveryRequest,
   ResolutionLearningModelBinding,
@@ -172,6 +178,7 @@ type WorkerMethods = Pick<
   | "reviewResolutionLearningProposal"
   | "readResolutionLearningReviewReceipt"
   | "cancelResolutionLearningReview"
+  | "stagedResolutionLearningDelivery"
 >;
 function permission(access: AccessContext, review = false): void {
   text(access.principalId, "principalId");
@@ -182,6 +189,10 @@ function permission(access: AccessContext, review = false): void {
     throw new SupportDeskAuthorizationError(name);
   if (review && !hasPermission(access, supportPermissions.queueRead))
     throw new SupportDeskAuthorizationError(supportPermissions.queueRead);
+}
+function deliveryAssert(assertion: (() => true) | void): void {
+  if (assertion !== undefined && assertion() !== true)
+    throw new SupportDeskConflictError("Delivery closing assertion refused");
 }
 function checkRow(
   row: ResolutionLearningWorkRecord | ResolutionLearningSourceRecord,
@@ -444,7 +455,766 @@ export function createResolutionLearningWorkerServices(
       recoveredModelPreparation,
     };
   }
+  function deliveryObservation(
+    loaded: Loaded,
+    stored: VersionedRecord<ResolutionLearningWorkRecord>,
+    actorId: string,
+  ) {
+    let open = true;
+    let confirmed = false;
+    const check = (reader: AccessContext) => {
+      permission(reader);
+      if (!open || reader.principalId !== actorId)
+        throw new SupportDeskConflictError(
+          "Delivery observation expired or actor changed",
+        );
+      for (const name of [
+        supportPermissions.learningRead,
+        supportPermissions.queueRead,
+      ])
+        if (!hasPermission(reader, name))
+          throw new SupportDeskAuthorizationError(name);
+    };
+    const observation = Object.freeze<ResolutionLearningDeliveryObservation>({
+      read(reader) {
+        check(reader);
+        return snapshot({ source: loaded.source.value, work: stored.value });
+      },
+      async confirm(reader) {
+        check(reader);
+        const source = await records.getVersioned(
+          resolutionLearningSourceKey(stored.value.ticketId),
+        );
+        check(reader);
+        if (source?.version !== loaded.source.version)
+          throw new SupportDeskConflictError("Delivery Source changed");
+        const [ticket, work] = await Promise.allSettled([
+          records.getVersioned({
+            partition: stored.value.ticketId,
+            id: "ticket",
+          }),
+          records.getVersioned(
+            resolutionLearningWorkKey(
+              stored.value.ticketId,
+              stored.value.sourceGeneration,
+            ),
+          ),
+        ]);
+        check(reader);
+        if (ticket.status === "rejected") throw ticket.reason;
+        if (work.status === "rejected") throw work.reason;
+        if (
+          ticket.value?.version !== loaded.ticket.version ||
+          work.value?.version !== stored.version
+        )
+          throw new SupportDeskConflictError("Delivery Ticket or Work changed");
+        confirmed = true;
+      },
+    });
+    return {
+      observation,
+      close() {
+        open = false;
+      },
+      ensure() {
+        if (!confirmed)
+          throw new SupportDeskConflictError(
+            "Delivery observation was not confirmed",
+          );
+      },
+    };
+  }
+  async function prepareStep(
+    access: AccessContext,
+    input: PrepareResolutionLearningStepCommand,
+    deliveryGuard?: ResolutionLearningDeliveryGuard,
+  ): Promise<ResolutionLearningPreparedStep> {
+    permission(access);
+    const command = snapshot(
+      fields(input, "prepare learning", [
+        "ticketId",
+        "sourceGeneration",
+        "workerId",
+        "claimId",
+        "claimGeneration",
+        "step",
+        ...(input.step === "model"
+          ? ["binding"]
+          : [
+              "candidateHash",
+              "verifiedCheckReceipt",
+              "policyVersion",
+              "targetDecisionHash",
+              "exactRequest",
+            ]),
+      ]),
+    ) as unknown as PrepareResolutionLearningStepCommand;
+    validateFence(command);
+    if (
+      deliveryGuard !== undefined &&
+      (typeof deliveryGuard !== "function" || command.step !== "kb_delivery")
+    )
+      throw new TypeError("Staged delivery preparation requires its guard");
+    const checkpoint =
+      deliveryGuard === undefined
+        ? undefined
+        : await fingerprint({ operation: "staged_delivery_prepare", command });
+    if (!options.enabled && deliveryGuard === undefined)
+      throw new SupportDeskConflictError("Learning processing disabled");
+    if (command.step !== "model" && command.step !== "kb_delivery")
+      throw new TypeError("invalid learning step");
+    for (
+      let attempt = 0;
+      attempt < (deliveryGuard === undefined ? deps.maxConflictAttempts : 1);
+      attempt += 1
+    ) {
+      const loaded = await load(command.ticketId);
+      const stored = await workAt(command);
+      const work = stored.value;
+      if (
+        checkpoint !== undefined &&
+        work.lastFinish?.fingerprint === checkpoint &&
+        work.exactRequest !== undefined
+      )
+        return {
+          step: "kb_delivery",
+          stepId: work.stepId!,
+          requestHash: work.requestHash!,
+        };
+      if (!options.enabled)
+        throw new SupportDeskConflictError("Learning processing disabled");
+      live(loaded, work, command);
+      const savePrepared = async (
+        next: ResolutionLearningWorkRecord,
+        nextSource: ResolutionLearningSourceRecord = loaded.source.value,
+      ): Promise<boolean> => {
+        if (deliveryGuard === undefined)
+          return save(loaded, stored, next, nextSource);
+        const scope = deliveryObservation(loaded, stored, access.principalId);
+        let assertion: Awaited<ReturnType<ResolutionLearningDeliveryGuard>>;
+        try {
+          assertion = await deliveryGuard(scope.observation);
+          scope.ensure();
+        } finally {
+          scope.close();
+        }
+        if (assertion !== undefined && typeof assertion !== "function")
+          throw new TypeError("Invalid staged delivery assertion");
+        live(loaded, work, command);
+        const released: ResolutionLearningWorkRecord = {
+          ...withoutLease(next),
+          status: "prepared",
+          lastFinish: { fingerprint: checkpoint! },
+        };
+        deliveryAssert(assertion);
+        const committed = await save(loaded, stored, released, nextSource);
+        if (committed) deliveryAssert(assertion);
+        return committed;
+      };
+      let next: ResolutionLearningWorkRecord;
+      let prepared: ResolutionLearningPreparedStep;
+      let nextSource = loaded.source.value;
+      if (command.step === "model") {
+        const binding = fields(command.binding, "model binding", [
+          "inputManifest",
+          "inputFingerprint",
+          "inputManifestHash",
+          "configVersion",
+          "promptVersion",
+          "modelVersion",
+          "checkPolicyVersion",
+          "budgetsHash",
+          "usageReservationId",
+          "deadline",
+        ]);
+        for (const name of Object.keys(binding).filter(
+          (key) => key !== "deadline" && key !== "inputManifest",
+        ))
+          text(binding[name], `binding.${name}`);
+        if (
+          (await resolutionLearningManifestHash(
+            command.binding.inputManifest,
+          )) !== command.binding.inputManifestHash
+        )
+          throw new SupportDeskConflictError(
+            "Input manifest fingerprint mismatch",
+          );
+        const manifest = command.binding.inputManifest;
+        if (
+          canonical(manifest.workingSolutionMessageIds) !==
+            canonical(work.workingSolutionMessageIds) ||
+          canonical(manifest.product) !==
+            canonical({
+              productId: work.product!.productId,
+              version: work.product!.version,
+              buildId: work.product!.buildId,
+              binding: work.product!.binding,
+              contextVersion: work.product!.contextVersion,
+            }) ||
+          manifest.messages.some(
+            (reference) =>
+              !loaded.rows.some(
+                (row) =>
+                  row.kind === "message" &&
+                  row.message.visibility === "customer" &&
+                  row.message.id === reference.messageId &&
+                  row.ordinal === reference.ordinal &&
+                  row.ordinal <= work.acceptedTicketRevision,
+              ),
+          )
+        )
+          throw new SupportDeskConflictError(
+            "Input manifest differs from authoritative source",
+          );
+        const deadline = timestamp(binding.deadline, "binding.deadline");
+        if (
+          deadline <= timestamp(clock.now(), "now") ||
+          deadline > timestamp(work.deadline, "work.deadline") ||
+          deadline > timestamp(work.leaseUntil!, "leaseUntil")
+        )
+          throw new SupportDeskConflictError(
+            "Model deadline exceeds live claim",
+          );
+        const existing = work.modelAttempts.find(
+          (entry) => canonical(entry.binding) === canonical(command.binding),
+        );
+        if (existing !== undefined) {
+          if (
+            existing.preparedClaimGeneration !== command.claimGeneration ||
+            existing.stepId !== work.stepId ||
+            work.stage !== "model"
+          )
+            throw new SupportDeskConflictError(
+              "Model preparation belongs to another invocation",
+            );
+          live(loaded, work, command);
+          if (await savePrepared(work))
+            return {
+              step: "model",
+              stepId: existing.stepId,
+              requestHash: existing.requestHash,
+              maxCandidateBytes: 16_000,
+            };
+          continue;
+        }
+        if (
+          work.modelAttempts.some(
+            (entry) =>
+              entry.preparedClaimGeneration === command.claimGeneration,
+          )
+        )
+          throw new SupportDeskConflictError(
+            "This invocation already prepared a model request",
+          );
+        if (
+          work.exactRequest !== undefined ||
+          work.candidate !== undefined ||
+          work.modelAttempts.length >= options.maxModelAttempts
+        )
+          throw new SupportDeskConflictError(
+            "Learning model attempt budget exhausted",
+          );
+        const requestHash = await fingerprint(command.binding);
+        const stepId = await fingerprint({
+          ticketId: work.ticketId,
+          sourceGeneration: work.sourceGeneration,
+          modelAttempt: work.modelAttempts.length + 1,
+          requestHash,
+        });
+        next = {
+          ...work,
+          stage: "model",
+          status: "prepared",
+          stepId,
+          requestHash,
+          workGeneration: work.workGeneration + 1,
+          modelAttempts: [
+            ...work.modelAttempts,
+            {
+              preparedClaimGeneration: command.claimGeneration,
+              stepId,
+              requestHash,
+              binding: command.binding,
+              accounting: "unknown",
+            },
+          ],
+        };
+        prepared = {
+          step: "model",
+          stepId,
+          requestHash,
+          maxCandidateBytes: 16_000,
+        };
+      } else {
+        validateResolutionRequest(command.exactRequest);
+        text(command.candidateHash, "candidateHash");
+        text(command.verifiedCheckReceipt, "verifiedCheckReceipt");
+        text(command.policyVersion, "policyVersion");
+        text(command.targetDecisionHash, "targetDecisionHash");
+        if (
+          work.candidateHash !== command.candidateHash ||
+          (work.candidate === undefined && work.exactRequest === undefined)
+        )
+          throw new SupportDeskConflictError("Candidate changed");
+        const reference = command.exactRequest.sourceReferences.find(
+          (item) => item.id === loaded.source.value.sourceId,
+        );
+        if (
+          reference === undefined ||
+          reference.system !== "pegma.support-desk" ||
+          reference.resourceId !== work.ticketId ||
+          reference.version !== work.sourceBindingHash
+        )
+          throw new SupportDeskConflictError("Exact source reference missing");
+        const applicability = work.candidate?.applicability ?? {
+          productId: work.product!.productId,
+          version: work.product!.version,
+          buildId: work.product!.buildId,
+        };
+        const binding = await resolutionLearningDeliveryBinding({
+          candidateHash: command.candidateHash,
+          sourceBindingHash: work.sourceBindingHash,
+          policyVersion: command.policyVersion,
+          targetDecisionHash: command.targetDecisionHash,
+          applicability,
+          exactRequest: command.exactRequest,
+        });
+        const verified =
+          options.checks === undefined
+            ? null
+            : await options.checks.verify(
+                command.verifiedCheckReceipt,
+                binding,
+              );
+        live(loaded, work, command);
+        if (
+          verified === null ||
+          canonical(verified.binding) !== canonical(binding) ||
+          [
+            verified.privacy,
+            verified.factual,
+            verified.applicability,
+            verified.duplication,
+          ].some((check) => check !== "passed") ||
+          timestamp(verified.validUntil, "check.validUntil") <
+            timestamp(clock.now(), "now")
+        )
+          throw new SupportDeskConflictError(
+            "Independent learning checks missing or stale",
+          );
+        if (work.exactRequest !== undefined) {
+          if (
+            work.requestHash !== binding.requestHash ||
+            canonical(work.exactRequest) !== canonical(command.exactRequest)
+          )
+            throw new SupportDeskConflictError(
+              "Prepared KB request cannot change",
+            );
+          if (await savePrepared(work))
+            return {
+              step: "kb_delivery",
+              stepId: work.stepId!,
+              requestHash: work.requestHash!,
+            };
+          continue;
+        }
+        const destination = nextSource.destinations.find(
+          (target) => target.articleId === command.exactRequest.articleId,
+        );
+        if (
+          destination?.acceptance === "unknown" &&
+          (destination.reconciliation !== "confirmed" ||
+            destination.lastReconciliation?.proof === undefined)
+        )
+          throw new SupportDeskConflictError(
+            "Prior destination write still requires reconciliation",
+          );
+        if (
+          destination === undefined &&
+          nextSource.destinations.length >= options.maxTargets
+        )
+          throw new SupportDeskLimitError(
+            "ticket_partition",
+            deps.limits.maxRecordsPerTicket,
+          );
+        const stepId = await fingerprint({
+          ticketId: work.ticketId,
+          sourceGeneration: work.sourceGeneration,
+          requestHash: binding.requestHash,
+        });
+        const { candidate: _candidate, ...rest } = work;
+        next = {
+          ...rest,
+          stage: "kb_delivery",
+          status: "prepared",
+          stepId,
+          requestHash: binding.requestHash,
+          exactRequest: command.exactRequest,
+          verifiedCheckReceipt: command.verifiedCheckReceipt,
+          checkPolicyVersion: command.policyVersion,
+          targetDecisionHash: command.targetDecisionHash,
+          workGeneration: work.workGeneration + 1,
+        };
+        const entry = {
+          articleId: command.exactRequest.articleId,
+          sourceGeneration: work.sourceGeneration,
+          stepId,
+          requestHash: binding.requestHash,
+          acceptance: "unknown" as const,
+          reconciliation: "pending" as const,
+        };
+        nextSource = {
+          ...nextSource,
+          reconciliationPending: true,
+          destinations: [
+            ...nextSource.destinations.filter(
+              (target) => target.articleId !== entry.articleId,
+            ),
+            entry,
+          ],
+          workGeneration: nextSource.workGeneration + 1,
+        };
+        prepared = {
+          step: "kb_delivery",
+          stepId,
+          requestHash: binding.requestHash,
+        };
+      }
+      reserveReachable(next);
+      checkRow(nextSource);
+      if (await savePrepared(next, nextSource)) return prepared;
+    }
+    throw new SupportDeskConflictError();
+  }
+
+  async function completeStep(
+    access: AccessContext,
+    input:
+      | CompleteResolutionLearningStepCommand
+      | (ResolutionLearningDeliveryFence & { readonly step: "kb_delivery" }),
+    guard: ResolutionLearningCommitGuard,
+    plan?: Parameters<
+      ResolutionLearningStagedDeliveryApplication["complete"]
+    >[2],
+  ): Promise<ResolutionLearningStepResult> {
+    permission(access);
+    if (typeof guard !== "function")
+      throw new TypeError(
+        "Learning completion requires a read-only current-input guard",
+      );
+    let command = snapshot(
+      fields(
+        input,
+        "complete learning",
+        [
+          "ticketId",
+          "sourceGeneration",
+          "workerId",
+          "claimId",
+          "claimGeneration",
+          "stepId",
+          "requestHash",
+          "step",
+          ...(input.step === "model"
+            ? ["candidate", "accounting"]
+            : plan === undefined
+              ? ["historicalAck", "currentTargetBinding"]
+              : []),
+        ],
+        input.step === "model" ? ["processing"] : [],
+      ),
+    ) as unknown as CompleteResolutionLearningStepCommand;
+    validateFence(command);
+    text(command.stepId, "stepId");
+    text(command.requestHash, "requestHash");
+    const completion = await fingerprint(
+      plan === undefined
+        ? command
+        : { operation: "staged_delivery_complete", command },
+    );
+    for (
+      let attempt = 0;
+      attempt < (plan === undefined ? deps.maxConflictAttempts : 1);
+      attempt += 1
+    ) {
+      const loaded = await load(command.ticketId);
+      const stored = await workAt(command);
+      const work = stored.value;
+      if (work.lastCompletion?.fingerprint === completion) {
+        if (plan === undefined) await guard();
+        return outcome(work);
+      }
+      if (plan !== undefined && !options.enabled)
+        throw new SupportDeskConflictError("Learning processing disabled");
+      live(loaded, work, command);
+      if (
+        work.stepId !== command.stepId ||
+        work.requestHash !== command.requestHash ||
+        work.stage !== command.step
+      )
+        throw new SupportDeskConflictError("Prepared learning step changed");
+      let planned: Awaited<ReturnType<NonNullable<typeof plan>>> | undefined;
+      if (plan !== undefined) {
+        if (
+          command.step !== "kb_delivery" ||
+          work.acknowledgement === undefined
+        )
+          throw new SupportDeskConflictError(
+            "Staged delivery acknowledgement missing",
+          );
+        const scope = deliveryObservation(loaded, stored, access.principalId);
+        try {
+          planned = await plan(scope.observation);
+          scope.ensure();
+        } finally {
+          scope.close();
+        }
+        if (typeof planned?.assertCurrent !== "function")
+          throw new TypeError(
+            "Staged delivery completion requires a closing assertion",
+          );
+        validateResolutionTarget(planned.target);
+        command = {
+          ...command,
+          historicalAck: work.acknowledgement,
+          currentTargetBinding: planned.target,
+        };
+      }
+      let next: ResolutionLearningWorkRecord;
+      let nextSource = loaded.source.value;
+      if (command.step === "model") {
+        const modelCommand = command;
+        const preparedAttempt = work.modelAttempts.find(
+          (entry) =>
+            entry.stepId === command.stepId &&
+            entry.requestHash === command.requestHash,
+        );
+        if (
+          preparedAttempt === undefined ||
+          preparedAttempt.preparedClaimGeneration !== command.claimGeneration
+        )
+          throw new SupportDeskConflictError(
+            "Model completion belongs to another invocation",
+          );
+        validateResolutionCandidate(command.candidate);
+        if (!["accounted", "unknown"].includes(modelCommand.accounting))
+          throw new TypeError("Invalid model accounting");
+        processing(modelCommand.processing);
+        if (
+          canonical(command.candidate.applicability) !==
+          canonical({
+            productId: work.product!.productId,
+            version: work.product!.version,
+            buildId: work.product!.buildId,
+          })
+        )
+          throw new SupportDeskConflictError(
+            "Candidate applicability differs from trusted product",
+          );
+        const candidateHash = await fingerprint(command.candidate);
+        next = {
+          ...withoutLease(work),
+          status: "candidate",
+          candidate: command.candidate,
+          candidateHash,
+          workGeneration: work.workGeneration + 1,
+          lastCompletion: { fingerprint: completion },
+          modelAttempts: work.modelAttempts.map((entry) =>
+            entry.stepId !== command.stepId
+              ? entry
+              : {
+                  ...entry,
+                  accounting: modelCommand.accounting,
+                  ...(modelCommand.processing === undefined
+                    ? {}
+                    : { processing: modelCommand.processing }),
+                },
+          ),
+        };
+      } else {
+        const deliveryCommand = command;
+        validateResolutionTarget(command.currentTargetBinding);
+        const ack = fields(
+          deliveryCommand.historicalAck,
+          "KB acknowledgement",
+          ["id", "generation", "articleRevision", "contentHash", "state"],
+        );
+        for (const key of ["id", "contentHash", "state"])
+          text(ack[key], `ack.${key}`);
+        integer(ack.generation, "ack.generation", 1);
+        integer(ack.articleRevision, "ack.articleRevision", 1);
+        if (
+          work.exactRequest === undefined ||
+          deliveryCommand.historicalAck.id !== work.exactRequest.articleId ||
+          command.currentTargetBinding.articleId !== work.exactRequest.articleId
+        )
+          throw new SupportDeskConflictError(
+            "KB acknowledgement target mismatch",
+          );
+        const agrees =
+          deliveryCommand.historicalAck.articleRevision ===
+            command.currentTargetBinding.articleRevision &&
+          deliveryCommand.historicalAck.contentHash ===
+            command.currentTargetBinding.contentHash;
+        next = {
+          ...withoutLease(work),
+          status: agrees ? "completed" : "held",
+          acknowledgement: deliveryCommand.historicalAck,
+          target: command.currentTargetBinding,
+          workGeneration: work.workGeneration + 1,
+          lastCompletion: { fingerprint: completion },
+          ...(agrees ? {} : { heldReason: "kb_target_changed" }),
+        };
+        nextSource = {
+          ...nextSource,
+          workGeneration: nextSource.workGeneration + 1,
+          destinations: nextSource.destinations.map((entry) =>
+            entry.articleId === deliveryCommand.historicalAck.id
+              ? {
+                  ...entry,
+                  acceptance: "accepted" as const,
+                  reconciliation: agrees
+                    ? ("confirmed" as const)
+                    : ("pending" as const),
+                }
+              : entry,
+          ),
+        };
+        nextSource = {
+          ...nextSource,
+          reconciliationPending: nextSource.destinations.some(
+            (entry) => entry.reconciliation !== "confirmed",
+          ),
+        };
+      }
+      checkRow(next);
+      if (planned === undefined) await guard();
+      else deliveryAssert(planned.assertCurrent);
+      live(loaded, work, command);
+      if (
+        command.step === "model" &&
+        timestamp(
+          work.modelAttempts.find((entry) => entry.stepId === command.stepId)!
+            .binding.deadline,
+          "model.deadline",
+        ) <= timestamp(clock.now(), "now")
+      )
+        throw new SupportDeskConflictError("Prepared model deadline expired");
+      if (await save(loaded, stored, next, nextSource)) {
+        if (planned !== undefined) deliveryAssert(planned.assertCurrent);
+        return outcome(next);
+      }
+    }
+    throw new SupportDeskConflictError();
+  }
+
+  const stagedDelivery = registerResolutionLearningDelivery(
+    Object.freeze<ResolutionLearningStagedDeliveryApplication>({
+      async prepare(access, command, guard) {
+        const prepared = await prepareStep(access, command, guard);
+        if (prepared.step !== "kb_delivery")
+          throw new SupportDeskConflictError("Delivery step changed");
+        return prepared;
+      },
+      async write(access, input, deliver) {
+        permission(access);
+        if (typeof deliver !== "function")
+          throw new TypeError("Delivery write requires its planner");
+        const command = snapshot(
+          fields(input, "delivery write", [
+            "ticketId",
+            "sourceGeneration",
+            "workerId",
+            "claimId",
+            "claimGeneration",
+            "stepId",
+            "requestHash",
+          ]),
+        ) as unknown as typeof input;
+        validateFence(command);
+        text(command.stepId, "stepId");
+        text(command.requestHash, "requestHash");
+        const identity = await fingerprint({
+          operation: "staged_delivery_write",
+          command,
+        });
+        const loaded = await load(command.ticketId);
+        const stored = await workAt(command);
+        const work = stored.value;
+        if (
+          work.lastFinish?.fingerprint === identity &&
+          work.acknowledgement !== undefined
+        )
+          return outcome(work);
+        if (!options.enabled)
+          throw new SupportDeskConflictError("Learning processing disabled");
+        live(loaded, work, command);
+        if (
+          work.stage !== "kb_delivery" ||
+          work.exactRequest === undefined ||
+          work.stepId !== command.stepId ||
+          work.requestHash !== command.requestHash ||
+          work.acknowledgement !== undefined
+        )
+          throw new SupportDeskConflictError("Prepared delivery changed");
+        const scope = deliveryObservation(loaded, stored, access.principalId);
+        let planned: Awaited<
+          ReturnType<
+            Parameters<ResolutionLearningStagedDeliveryApplication["write"]>[2]
+          >
+        >;
+        try {
+          planned = await deliver(scope.observation);
+          scope.ensure();
+        } finally {
+          scope.close();
+        }
+        if (typeof planned?.assertCurrent !== "function")
+          throw new TypeError("Delivery requires its closing assertion");
+        const ack = fields(planned.historicalAck, "KB acknowledgement", [
+          "id",
+          "generation",
+          "articleRevision",
+          "contentHash",
+          "state",
+        ]);
+        for (const name of ["id", "contentHash", "state"])
+          text(ack[name], `ack.${name}`);
+        integer(ack.generation, "ack.generation", 1);
+        integer(ack.articleRevision, "ack.articleRevision", 1);
+        if (planned.historicalAck.id !== work.exactRequest.articleId)
+          throw new SupportDeskConflictError(
+            "Delivery acknowledgement changed",
+          );
+        const next: ResolutionLearningWorkRecord = {
+          ...withoutLease(work),
+          status: "prepared",
+          acknowledgement: snapshot(planned.historicalAck),
+          workGeneration: work.workGeneration + 1,
+          lastFinish: { fingerprint: identity },
+        };
+        reserveReachable(next);
+        live(loaded, work, command);
+        deliveryAssert(planned.assertCurrent);
+        if (!(await save(loaded, stored, next)))
+          throw new SupportDeskConflictError();
+        deliveryAssert(planned.assertCurrent);
+        return outcome(next);
+      },
+      complete(access, command, plan) {
+        if (typeof plan !== "function")
+          throw new TypeError("Delivery completion requires a planner");
+        return completeStep(
+          access,
+          { ...command, step: "kb_delivery" },
+          async () => {},
+          plan,
+        );
+      },
+    }),
+  );
   return {
+    stagedResolutionLearningDelivery: stagedDelivery,
     async scanResolutionLearningCandidates(access, input) {
       permission(access);
       const bounds = fields(input, "learning scan", ["limit"], ["cursor"]);
@@ -614,483 +1384,10 @@ export function createResolutionLearningWorkerServices(
       }
       throw new SupportDeskConflictError();
     },
-    async prepareResolutionLearningStep(access, input) {
-      permission(access);
-      const command = snapshot(
-        fields(input, "prepare learning", [
-          "ticketId",
-          "sourceGeneration",
-          "workerId",
-          "claimId",
-          "claimGeneration",
-          "step",
-          ...(input.step === "model"
-            ? ["binding"]
-            : [
-                "candidateHash",
-                "verifiedCheckReceipt",
-                "policyVersion",
-                "targetDecisionHash",
-                "exactRequest",
-              ]),
-        ]),
-      ) as unknown as PrepareResolutionLearningStepCommand;
-      validateFence(command);
-      if (!options.enabled)
-        throw new SupportDeskConflictError("Learning processing disabled");
-      if (command.step !== "model" && command.step !== "kb_delivery")
-        throw new TypeError("invalid learning step");
-      for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
-        const loaded = await load(command.ticketId);
-        const stored = await workAt(command);
-        const work = stored.value;
-        live(loaded, work, command);
-        let next: ResolutionLearningWorkRecord;
-        let prepared: ResolutionLearningPreparedStep;
-        let nextSource = loaded.source.value;
-        if (command.step === "model") {
-          const binding = fields(command.binding, "model binding", [
-            "inputManifest",
-            "inputFingerprint",
-            "inputManifestHash",
-            "configVersion",
-            "promptVersion",
-            "modelVersion",
-            "checkPolicyVersion",
-            "budgetsHash",
-            "usageReservationId",
-            "deadline",
-          ]);
-          for (const name of Object.keys(binding).filter(
-            (key) => key !== "deadline" && key !== "inputManifest",
-          ))
-            text(binding[name], `binding.${name}`);
-          if (
-            (await resolutionLearningManifestHash(
-              command.binding.inputManifest,
-            )) !== command.binding.inputManifestHash
-          )
-            throw new SupportDeskConflictError(
-              "Input manifest fingerprint mismatch",
-            );
-          const manifest = command.binding.inputManifest;
-          if (
-            canonical(manifest.workingSolutionMessageIds) !==
-              canonical(work.workingSolutionMessageIds) ||
-            canonical(manifest.product) !==
-              canonical({
-                productId: work.product!.productId,
-                version: work.product!.version,
-                buildId: work.product!.buildId,
-                binding: work.product!.binding,
-                contextVersion: work.product!.contextVersion,
-              }) ||
-            manifest.messages.some(
-              (reference) =>
-                !loaded.rows.some(
-                  (row) =>
-                    row.kind === "message" &&
-                    row.message.visibility === "customer" &&
-                    row.message.id === reference.messageId &&
-                    row.ordinal === reference.ordinal &&
-                    row.ordinal <= work.acceptedTicketRevision,
-                ),
-            )
-          )
-            throw new SupportDeskConflictError(
-              "Input manifest differs from authoritative source",
-            );
-          const deadline = timestamp(binding.deadline, "binding.deadline");
-          if (
-            deadline <= timestamp(clock.now(), "now") ||
-            deadline > timestamp(work.deadline, "work.deadline") ||
-            deadline > timestamp(work.leaseUntil!, "leaseUntil")
-          )
-            throw new SupportDeskConflictError(
-              "Model deadline exceeds live claim",
-            );
-          const existing = work.modelAttempts.find(
-            (entry) => canonical(entry.binding) === canonical(command.binding),
-          );
-          if (existing !== undefined) {
-            if (
-              existing.preparedClaimGeneration !== command.claimGeneration ||
-              existing.stepId !== work.stepId ||
-              work.stage !== "model"
-            )
-              throw new SupportDeskConflictError(
-                "Model preparation belongs to another invocation",
-              );
-            live(loaded, work, command);
-            if (await save(loaded, stored, work))
-              return {
-                step: "model",
-                stepId: existing.stepId,
-                requestHash: existing.requestHash,
-                maxCandidateBytes: 16_000,
-              };
-            continue;
-          }
-          if (
-            work.modelAttempts.some(
-              (entry) =>
-                entry.preparedClaimGeneration === command.claimGeneration,
-            )
-          )
-            throw new SupportDeskConflictError(
-              "This invocation already prepared a model request",
-            );
-          if (
-            work.exactRequest !== undefined ||
-            work.candidate !== undefined ||
-            work.modelAttempts.length >= options.maxModelAttempts
-          )
-            throw new SupportDeskConflictError(
-              "Learning model attempt budget exhausted",
-            );
-          const requestHash = await fingerprint(command.binding);
-          const stepId = await fingerprint({
-            ticketId: work.ticketId,
-            sourceGeneration: work.sourceGeneration,
-            modelAttempt: work.modelAttempts.length + 1,
-            requestHash,
-          });
-          next = {
-            ...work,
-            stage: "model",
-            status: "prepared",
-            stepId,
-            requestHash,
-            workGeneration: work.workGeneration + 1,
-            modelAttempts: [
-              ...work.modelAttempts,
-              {
-                preparedClaimGeneration: command.claimGeneration,
-                stepId,
-                requestHash,
-                binding: command.binding,
-                accounting: "unknown",
-              },
-            ],
-          };
-          prepared = {
-            step: "model",
-            stepId,
-            requestHash,
-            maxCandidateBytes: 16_000,
-          };
-        } else {
-          validateResolutionRequest(command.exactRequest);
-          text(command.candidateHash, "candidateHash");
-          text(command.verifiedCheckReceipt, "verifiedCheckReceipt");
-          text(command.policyVersion, "policyVersion");
-          text(command.targetDecisionHash, "targetDecisionHash");
-          if (
-            work.candidateHash !== command.candidateHash ||
-            (work.candidate === undefined && work.exactRequest === undefined)
-          )
-            throw new SupportDeskConflictError("Candidate changed");
-          const reference = command.exactRequest.sourceReferences.find(
-            (item) => item.id === loaded.source.value.sourceId,
-          );
-          if (
-            reference === undefined ||
-            reference.system !== "pegma.support-desk" ||
-            reference.resourceId !== work.ticketId ||
-            reference.version !== work.sourceBindingHash
-          )
-            throw new SupportDeskConflictError(
-              "Exact source reference missing",
-            );
-          const applicability = work.candidate?.applicability ?? {
-            productId: work.product!.productId,
-            version: work.product!.version,
-            buildId: work.product!.buildId,
-          };
-          const binding = await resolutionLearningDeliveryBinding({
-            candidateHash: command.candidateHash,
-            sourceBindingHash: work.sourceBindingHash,
-            policyVersion: command.policyVersion,
-            targetDecisionHash: command.targetDecisionHash,
-            applicability,
-            exactRequest: command.exactRequest,
-          });
-          const verified =
-            options.checks === undefined
-              ? null
-              : await options.checks.verify(
-                  command.verifiedCheckReceipt,
-                  binding,
-                );
-          live(loaded, work, command);
-          if (
-            verified === null ||
-            canonical(verified.binding) !== canonical(binding) ||
-            [
-              verified.privacy,
-              verified.factual,
-              verified.applicability,
-              verified.duplication,
-            ].some((check) => check !== "passed") ||
-            timestamp(verified.validUntil, "check.validUntil") <
-              timestamp(clock.now(), "now")
-          )
-            throw new SupportDeskConflictError(
-              "Independent learning checks missing or stale",
-            );
-          if (work.exactRequest !== undefined) {
-            if (
-              work.requestHash !== binding.requestHash ||
-              canonical(work.exactRequest) !== canonical(command.exactRequest)
-            )
-              throw new SupportDeskConflictError(
-                "Prepared KB request cannot change",
-              );
-            if (await save(loaded, stored, work))
-              return {
-                step: "kb_delivery",
-                stepId: work.stepId!,
-                requestHash: work.requestHash!,
-              };
-            continue;
-          }
-          const destination = nextSource.destinations.find(
-            (target) => target.articleId === command.exactRequest.articleId,
-          );
-          if (
-            destination?.acceptance === "unknown" &&
-            (destination.reconciliation !== "confirmed" ||
-              destination.lastReconciliation?.proof === undefined)
-          )
-            throw new SupportDeskConflictError(
-              "Prior destination write still requires reconciliation",
-            );
-          if (
-            destination === undefined &&
-            nextSource.destinations.length >= options.maxTargets
-          )
-            throw new SupportDeskLimitError(
-              "ticket_partition",
-              deps.limits.maxRecordsPerTicket,
-            );
-          const stepId = await fingerprint({
-            ticketId: work.ticketId,
-            sourceGeneration: work.sourceGeneration,
-            requestHash: binding.requestHash,
-          });
-          const { candidate: _candidate, ...rest } = work;
-          next = {
-            ...rest,
-            stage: "kb_delivery",
-            status: "prepared",
-            stepId,
-            requestHash: binding.requestHash,
-            exactRequest: command.exactRequest,
-            verifiedCheckReceipt: command.verifiedCheckReceipt,
-            checkPolicyVersion: command.policyVersion,
-            targetDecisionHash: command.targetDecisionHash,
-            workGeneration: work.workGeneration + 1,
-          };
-          const entry = {
-            articleId: command.exactRequest.articleId,
-            sourceGeneration: work.sourceGeneration,
-            stepId,
-            requestHash: binding.requestHash,
-            acceptance: "unknown" as const,
-            reconciliation: "pending" as const,
-          };
-          nextSource = {
-            ...nextSource,
-            reconciliationPending: true,
-            destinations: [
-              ...nextSource.destinations.filter(
-                (target) => target.articleId !== entry.articleId,
-              ),
-              entry,
-            ],
-            workGeneration: nextSource.workGeneration + 1,
-          };
-          prepared = {
-            step: "kb_delivery",
-            stepId,
-            requestHash: binding.requestHash,
-          };
-        }
-        reserveReachable(next);
-        checkRow(nextSource);
-        if (await save(loaded, stored, next, nextSource)) return prepared;
-      }
-      throw new SupportDeskConflictError();
-    },
-    async completeResolutionLearningStep(access, input, guard) {
-      permission(access);
-      if (typeof guard !== "function")
-        throw new TypeError(
-          "Learning completion requires a read-only current-input guard",
-        );
-      const command = snapshot(
-        fields(
-          input,
-          "complete learning",
-          [
-            "ticketId",
-            "sourceGeneration",
-            "workerId",
-            "claimId",
-            "claimGeneration",
-            "stepId",
-            "requestHash",
-            "step",
-            ...(input.step === "model"
-              ? ["candidate", "accounting"]
-              : ["historicalAck", "currentTargetBinding"]),
-          ],
-          input.step === "model" ? ["processing"] : [],
-        ),
-      ) as unknown as CompleteResolutionLearningStepCommand;
-      validateFence(command);
-      text(command.stepId, "stepId");
-      text(command.requestHash, "requestHash");
-      const completion = await fingerprint(command);
-      for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
-        const loaded = await load(command.ticketId);
-        const stored = await workAt(command);
-        const work = stored.value;
-        if (work.lastCompletion?.fingerprint === completion) {
-          await guard();
-          return outcome(work);
-        }
-        live(loaded, work, command);
-        if (
-          work.stepId !== command.stepId ||
-          work.requestHash !== command.requestHash ||
-          work.stage !== command.step
-        )
-          throw new SupportDeskConflictError("Prepared learning step changed");
-        let next: ResolutionLearningWorkRecord;
-        let nextSource = loaded.source.value;
-        if (command.step === "model") {
-          const preparedAttempt = work.modelAttempts.find(
-            (entry) =>
-              entry.stepId === command.stepId &&
-              entry.requestHash === command.requestHash,
-          );
-          if (
-            preparedAttempt === undefined ||
-            preparedAttempt.preparedClaimGeneration !== command.claimGeneration
-          )
-            throw new SupportDeskConflictError(
-              "Model completion belongs to another invocation",
-            );
-          validateResolutionCandidate(command.candidate);
-          if (!["accounted", "unknown"].includes(command.accounting))
-            throw new TypeError("Invalid model accounting");
-          processing(command.processing);
-          if (
-            canonical(command.candidate.applicability) !==
-            canonical({
-              productId: work.product!.productId,
-              version: work.product!.version,
-              buildId: work.product!.buildId,
-            })
-          )
-            throw new SupportDeskConflictError(
-              "Candidate applicability differs from trusted product",
-            );
-          const candidateHash = await fingerprint(command.candidate);
-          next = {
-            ...withoutLease(work),
-            status: "candidate",
-            candidate: command.candidate,
-            candidateHash,
-            workGeneration: work.workGeneration + 1,
-            lastCompletion: { fingerprint: completion },
-            modelAttempts: work.modelAttempts.map((entry) =>
-              entry.stepId !== command.stepId
-                ? entry
-                : {
-                    ...entry,
-                    accounting: command.accounting,
-                    ...(command.processing === undefined
-                      ? {}
-                      : { processing: command.processing }),
-                  },
-            ),
-          };
-        } else {
-          validateResolutionTarget(command.currentTargetBinding);
-          const ack = fields(command.historicalAck, "KB acknowledgement", [
-            "id",
-            "generation",
-            "articleRevision",
-            "contentHash",
-            "state",
-          ]);
-          for (const key of ["id", "contentHash", "state"])
-            text(ack[key], `ack.${key}`);
-          integer(ack.generation, "ack.generation", 1);
-          integer(ack.articleRevision, "ack.articleRevision", 1);
-          if (
-            work.exactRequest === undefined ||
-            command.historicalAck.id !== work.exactRequest.articleId ||
-            command.currentTargetBinding.articleId !==
-              work.exactRequest.articleId
-          )
-            throw new SupportDeskConflictError(
-              "KB acknowledgement target mismatch",
-            );
-          const agrees =
-            command.historicalAck.articleRevision ===
-              command.currentTargetBinding.articleRevision &&
-            command.historicalAck.contentHash ===
-              command.currentTargetBinding.contentHash;
-          next = {
-            ...withoutLease(work),
-            status: agrees ? "completed" : "held",
-            acknowledgement: command.historicalAck,
-            target: command.currentTargetBinding,
-            workGeneration: work.workGeneration + 1,
-            lastCompletion: { fingerprint: completion },
-            ...(agrees ? {} : { heldReason: "kb_target_changed" }),
-          };
-          nextSource = {
-            ...nextSource,
-            workGeneration: nextSource.workGeneration + 1,
-            destinations: nextSource.destinations.map((entry) =>
-              entry.articleId === command.historicalAck.id
-                ? {
-                    ...entry,
-                    acceptance: "accepted" as const,
-                    reconciliation: agrees
-                      ? ("confirmed" as const)
-                      : ("pending" as const),
-                  }
-                : entry,
-            ),
-          };
-          nextSource = {
-            ...nextSource,
-            reconciliationPending: nextSource.destinations.some(
-              (entry) => entry.reconciliation !== "confirmed",
-            ),
-          };
-        }
-        checkRow(next);
-        await guard();
-        live(loaded, work, command);
-        if (
-          command.step === "model" &&
-          timestamp(
-            work.modelAttempts.find((entry) => entry.stepId === command.stepId)!
-              .binding.deadline,
-            "model.deadline",
-          ) <= timestamp(clock.now(), "now")
-        )
-          throw new SupportDeskConflictError("Prepared model deadline expired");
-        if (await save(loaded, stored, next, nextSource)) return outcome(next);
-      }
-      throw new SupportDeskConflictError();
-    },
+    prepareResolutionLearningStep: (access, input) =>
+      prepareStep(access, input),
+    completeResolutionLearningStep: (access, input, guard) =>
+      completeStep(access, input, guard),
     async finishResolutionLearningWork(access, input) {
       permission(access);
       const command = snapshot(
