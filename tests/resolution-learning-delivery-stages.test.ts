@@ -13,6 +13,7 @@ import type { SupportDeskLearningOptions } from "../packages/ai/src/learning-int
 import {
   learningKbFixture,
   learningKbBarrier,
+  learningKbStores,
 } from "../test/resolution-learning-kb-fixtures.js";
 
 async function fixture(store: Store = createMemoryStore()) {
@@ -48,8 +49,10 @@ async function fixture(store: Store = createMemoryStore()) {
   return { ...f, options, learning, key, process, work };
 }
 
-function committedAckLoss(stage: "prepared" | "acknowledged" | "completed") {
-  const backing = createMemoryStore();
+function committedAckLoss(
+  stage: "prepared" | "acknowledged" | "completed",
+  backing: Store = createMemoryStore(),
+) {
   let lost = false;
   const isWork = (value: unknown): value is ResolutionLearningWorkRecord =>
     value !== null &&
@@ -734,4 +737,251 @@ describe("opt-in physical learning delivery stages (Memory)", () => {
       },
     );
   }
+});
+
+function createDeliveryAzuriteStore(): Store {
+  const provider = learningKbStores.find(([name]) => name === "Azurite");
+  if (provider === undefined)
+    throw new Error("Existing Azurite fixture missing");
+  return provider[1]();
+}
+
+describe("opt-in physical learning delivery stages (Azurite)", () => {
+  it("runs separate released claims through one private draft and rejects a stale opaque version", async () => {
+    const f = await fixture(createDeliveryAzuriteStore());
+    expect((await f.process()).outcome).toBe("candidate");
+    const candidate = await f.work();
+    const records = f.backing.collection(supportRecords);
+    const key = { partition: candidate.partition, id: candidate.id };
+    const original = await records.getVersioned(key);
+    if (original === null) throw new Error("Actual Azure Work missing");
+    expect(await f.process()).toMatchObject({
+      outcome: "pending",
+      stage: "delivery",
+      checkpoint: "prepared",
+    });
+    const prepared = await f.work();
+    const preparedVersion = await records.getVersioned(key);
+    if (preparedVersion === null)
+      throw new Error("Prepared Azure Work missing");
+    expect(prepared.claim).toBeUndefined();
+    expect(prepared.leaseUntil).toBeUndefined();
+    expect(prepared.exactRequest).toBeDefined();
+    expect(preparedVersion.version).not.toBe(original.version);
+    expect(
+      await records.putIfUnchanged(preparedVersion.value, original.version),
+    ).toBe(false);
+    expect(await f.work()).toEqual(prepared);
+    expect(await f.process()).toMatchObject({
+      outcome: "pending",
+      stage: "delivery",
+      checkpoint: "acknowledged",
+    });
+    const acknowledged = await f.work();
+    expect(acknowledged.claim).toBeUndefined();
+    expect(acknowledged.leaseUntil).toBeUndefined();
+    expect(acknowledged.exactRequest).toEqual(prepared.exactRequest);
+    expect(acknowledged.acknowledgement?.articleRevision).toBe(1);
+    expect(acknowledged.target).toBeUndefined();
+    expect((await f.process()).outcome).toBe("delivered");
+    const completed = await f.work();
+    expect(completed.status).toBe("completed");
+    const target = await f.kb.getDraft(f.access.draftService, {
+      articleId: completed.target!.articleId,
+    });
+    expect(target.hasPublication).toBe(false);
+    expect(target.revision.number).toBe(1);
+    expect(f.ports.generate).toHaveBeenCalledOnce();
+    expect(
+      f.ports.knowledgeCalls.filter((call) => call.operation === "createDraft"),
+    ).toHaveLength(1);
+  });
+
+  it("recovers a committed KB response loss by replaying byte-identical mutation arguments", async () => {
+    const f = await fixture(createDeliveryAzuriteStore());
+    await reach(f, "write");
+    const original = (await f.work()).exactRequest;
+    let lose = true;
+    f.interceptKnowledge(async (call, invoke) => {
+      const result = await invoke();
+      if (lose && call.operation === "createDraft") {
+        lose = false;
+        throw new Error("Fictional Azure KB response loss");
+      }
+      return result;
+    });
+    expect(await f.process()).toEqual({
+      outcome: "pending",
+      stage: "delivery",
+    });
+    expect((await f.work()).exactRequest).toEqual(original);
+    expect(await f.process()).toMatchObject({ checkpoint: "acknowledged" });
+    expect((await f.process()).outcome).toBe("delivered");
+    const writes = f.ports.knowledgeCalls.filter(
+      (call) => call.operation === "createDraft",
+    );
+    expect(writes).toHaveLength(2);
+    expect(JSON.stringify(writes[1]!.args)).toBe(
+      JSON.stringify(writes[0]!.args),
+    );
+    expect((await f.work()).acknowledgement?.articleRevision).toBe(1);
+    expect(f.ports.generate).toHaveBeenCalledOnce();
+  });
+
+  it("recovers an ACK checkpoint committed before response loss without another KB write", async () => {
+    const fault = committedAckLoss(
+      "acknowledged",
+      createDeliveryAzuriteStore(),
+    );
+    const f = await fixture(fault.store);
+    await reach(f, "write");
+    expect(await f.process()).toEqual({
+      outcome: "pending",
+      stage: "delivery",
+    });
+    expect(fault.lost()).toBe(true);
+    const retained = await f.work();
+    expect(retained.claim).toBeUndefined();
+    expect(retained.acknowledgement).toBeDefined();
+    expect((await f.process()).outcome).toBe("delivered");
+    expect((await f.work()).exactRequest).toEqual(retained.exactRequest);
+    expect(
+      f.ports.knowledgeCalls.filter((call) => call.operation === "createDraft"),
+    ).toHaveLength(1);
+  });
+
+  it("rejects an identical-body Azure Work rewrite at the private prewrite version fence", async () => {
+    const f = await fixture(createDeliveryAzuriteStore());
+    await reach(f, "write");
+    const gate = learningKbBarrier();
+    let armed = true;
+    f.interceptKnowledge(async (call, invoke) => {
+      const result = await invoke();
+      if (armed && call.operation === "getValidationRequirements") {
+        armed = false;
+        await gate.wait();
+      }
+      return result;
+    });
+    const pending = f.process();
+    try {
+      await Promise.race([
+        gate.reached,
+        pending.then(() => {
+          throw new Error("Azure proof barrier was not reached");
+        }),
+      ]);
+      const work = await f.work();
+      const records = f.backing.collection(supportRecords);
+      const key = { partition: work.partition, id: work.id };
+      const before = await records.getVersioned(key);
+      if (before === null) throw new Error("Azure claimed Work missing");
+      expect(await records.putIfUnchanged(before.value, before.version)).toBe(
+        true,
+      );
+      const after = await records.getVersioned(key);
+      expect(after?.value).toEqual(before.value);
+      expect(after?.version).not.toBe(before.version);
+    } finally {
+      gate.release();
+    }
+    expect(await pending).not.toHaveProperty("checkpoint");
+    expect((await f.work()).acknowledgement).toBeUndefined();
+    expect(
+      f.ports.knowledgeCalls.filter((call) => call.operation === "createDraft"),
+    ).toHaveLength(0);
+  });
+
+  it("holds an identical-body Azure rewrite after KB commit and recovers the exact receipt", async () => {
+    const f = await fixture(createDeliveryAzuriteStore());
+    await reach(f, "write");
+    let rewrite = true;
+    f.interceptKnowledge(async (call, invoke) => {
+      const result = await invoke();
+      if (rewrite && call.operation === "createDraft") {
+        rewrite = false;
+        const work = await f.work();
+        const records = f.backing.collection(supportRecords);
+        const key = { partition: work.partition, id: work.id };
+        const before = await records.getVersioned(key);
+        if (before === null)
+          throw new Error("Azure Work missing after actual KB commit");
+        expect(await records.putIfUnchanged(before.value, before.version)).toBe(
+          true,
+        );
+        const after = await records.getVersioned(key);
+        expect(after?.value).toEqual(before.value);
+        expect(after?.version).not.toBe(before.version);
+      }
+      return result;
+    });
+    expect(await f.process()).toEqual({
+      outcome: "pending",
+      stage: "delivery",
+    });
+    expect((await f.work()).acknowledgement).toBeUndefined();
+    expect(await f.process()).toMatchObject({ checkpoint: "acknowledged" });
+    expect((await f.process()).outcome).toBe("delivered");
+    const writes = f.ports.knowledgeCalls.filter(
+      (call) => call.operation === "createDraft",
+    );
+    expect(writes).toHaveLength(2);
+    expect(JSON.stringify(writes[1]!.args)).toBe(
+      JSON.stringify(writes[0]!.args),
+    );
+    expect((await f.work()).acknowledgement?.articleRevision).toBe(1);
+  });
+
+  it.each(["Source", "process grant"] as const)(
+    "denies a late %s change during actual Azure-backed proof",
+    async (change) => {
+      const f = await fixture(createDeliveryAzuriteStore());
+      await reach(f, "write");
+      const gate = learningKbBarrier();
+      let armed = true;
+      f.interceptKnowledge(async (call, invoke) => {
+        const result = await invoke();
+        if (armed && call.operation === "getValidationRequirements") {
+          armed = false;
+          await gate.wait();
+        }
+        return result;
+      });
+      const pending = f.process();
+      try {
+        await Promise.race([
+          gate.reached,
+          pending.then(() => {
+            throw new Error("Azure proof did not reach its read");
+          }),
+        ]);
+        if (change === "Source")
+          await f.support.app.withdrawResolutionLearningSource(f.access.staff, {
+            ...f.support.command("azure-late-withdrawal"),
+            reason: "privacy_withdrawal",
+          });
+        else
+          f.state.serviceAuthority = {
+            ...f.state.serviceAuthority,
+            access: {
+              ...f.state.serviceAuthority.access,
+              permissions: f.state.serviceAuthority.access.permissions.filter(
+                (name) => name !== supportPermissions.learningProcess,
+              ),
+            },
+          };
+      } finally {
+        gate.release();
+      }
+      const result = await pending;
+      expect(result.outcome).not.toBe("delivered");
+      expect(result).not.toHaveProperty("checkpoint");
+      expect(
+        f.ports.knowledgeCalls.filter(
+          (call) => call.operation === "createDraft",
+        ),
+      ).toHaveLength(0);
+      expect((await f.work()).acknowledgement).toBeUndefined();
+    },
+  );
 });
