@@ -5,10 +5,18 @@
 ## 0.2.7 candidate — engineering read batching
 
 All five local package versions and internal Support pins target source version
-`0.2.7`. The optional AI package and matching development
-graph still pin genuine KB application/contracts `0.1.5`. Final alignment to
-`0.1.6` is planned only after its public release is verified, before this
-version is merged or released. No unpublished KB artifact substitutes for it.
+`0.2.7`, which remains unpublished. The optional AI package and matching
+development graph pin exact KB application/contracts `0.1.6`, from the
+[verified public KB release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6)
+at signed source `b2946e149078e0ef460f970c2271c196ea9fc759`. The earlier
+published Support `0.2.6` tuple retains its exact KB `0.1.5` dependencies.
+
+The answer coordinator records valid, matching and representable actual
+provider usage before enforcing answer budgets. An over-budget response is
+rejected and handed to human support while its known usage is reconciled under
+the existing reservation identity. Invalid identity/currency or nonfinite or
+unrepresentable usage retains conservative unknown-usage handling. Budget caps
+and public ports are unchanged.
 
 The optional application method `readEngineeringContext(access, fence)`
 returns an authorized `EngineeringReadContext` with `source` and optional

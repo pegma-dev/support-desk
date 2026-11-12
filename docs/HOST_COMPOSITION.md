@@ -31,6 +31,10 @@ The `0.2.7` candidate separately supplies an optional per-attempt observation
 to approval guards, with lazy authorized reads and a legacy standalone-read
 fallback. It does not extend that observation to all seven controls. See the
 [approval contract](ENGINEERING_EXPORT.md#candidate-027-approval-observation).
+Its optional AI package and development graph now pin verified public KB
+application/contracts `0.1.6`; published Support `0.2.6` retains KB `0.1.5`.
+See the [current source dependency contract](RELEASING.md#source-version-027)
+and qualify the complete published graph after Support `0.2.7` is released.
 
 Options use a plain object with the two named, enumerable own data fields.
 Unknown keys, accessors and inherited options fail validation. The optional

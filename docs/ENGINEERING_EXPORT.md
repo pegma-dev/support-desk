@@ -27,7 +27,9 @@ the optional context, or uses its original sequential Source-validation/Work
 read fallback when the structural application port omits it. No observation
 crosses an external proof boundary, and accepted receipts still precede new
 proof reads. This adds no permission, cache, Store primitive or atomic-snapshot
-guarantee.
+guarantee. The candidate AI package pins exact verified public KB
+application/contracts `0.1.6`; see the
+[current source dependency contract](RELEASING.md#source-version-027).
 Hosts must measure the complete invocation, including their own authentication,
 proofs, limiter and closing checks; grouped reads do not establish a universal
 Workers query or CPU budget.

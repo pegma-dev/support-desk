@@ -38,9 +38,11 @@ permission to skip later proofs. See the
 [approval observation contract](ENGINEERING_EXPORT.md#candidate-027-approval-observation).
 
 Continue using the verified `0.2.6` tuple until `0.2.7`
-is published and its original artifacts are verified. The current source keeps
-exact KB application/contracts `0.1.5`; alignment to verified public `0.1.6`
-remains pending and must precede this version's merge/release. See the
+is published and its original artifacts are verified. Its current candidate
+uses exact KB application/contracts `0.1.6` from the
+[verified public KB release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6).
+Qualify that complete candidate graph; the published `0.2.6`/KB `0.1.5`
+artifacts remain unchanged. See the
 [source release contract](RELEASING.md#source-version-027).
 
 <a id="unpublished-026-guarded-engineering-controls"></a>

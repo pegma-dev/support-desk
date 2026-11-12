@@ -18,11 +18,11 @@ importers:
         specifier: 0.4.0
         version: 0.4.0
       '@pegma/knowledge-base-application':
-        specifier: 0.1.5
-        version: 0.1.5
+        specifier: 0.1.6
+        version: 0.1.6
       '@pegma/knowledge-base-contracts':
-        specifier: 0.1.5
-        version: 0.1.5
+        specifier: 0.1.6
+        version: 0.1.6
       '@pegma/mail':
         specifier: 0.1.1
         version: 0.1.1
@@ -69,11 +69,11 @@ importers:
         specifier: 0.4.0
         version: 0.4.0
       '@pegma/knowledge-base-application':
-        specifier: 0.1.5
-        version: 0.1.5
+        specifier: 0.1.6
+        version: 0.1.6
       '@pegma/knowledge-base-contracts':
-        specifier: 0.1.5
-        version: 0.1.5
+        specifier: 0.1.6
+        version: 0.1.6
       '@pegma/spine':
         specifier: 0.1.2
         version: 0.1.2
@@ -664,16 +664,16 @@ packages:
     resolution: {integrity: sha512-GkagQwyDfKokB2Nm9EAo6cvKB8c90VN6Or6IdaWeMwCeuseOxDZ8ccxKqccW9YorByE6rHhr2nbxjsNWorZTHQ==}
     engines: {node: '>=22'}
 
-  '@pegma/knowledge-base-application@0.1.5':
-    resolution: {integrity: sha512-tH9Hw+BSVmLzQPzdyhK9YaiAthWEwgYuG0Ef2kxT7FohMqYq4iaW/vDOHQdGa/gIMAlULqS/p0vCOPr7rPQfdA==}
+  '@pegma/knowledge-base-application@0.1.6':
+    resolution: {integrity: sha512-i7rD3uWz4XSuii7Kx3Y2l1tn3TK6WHfjBpJxkmdxYLVes2cBYaaQ3KgCjSbU5m0W01w0SmDPDOLsvFWdHGFDow==}
     engines: {node: '>=22'}
 
-  '@pegma/knowledge-base-contracts@0.1.5':
-    resolution: {integrity: sha512-TgK0HNLlBJ6a3EYS0aBmF+UO9v2ykK0xVYPo51Cmcn1ET15Fj90w3dpyzBX7dRomi1aGBAW3FX4X+djrayqbzg==}
+  '@pegma/knowledge-base-contracts@0.1.6':
+    resolution: {integrity: sha512-/jntfNSu0OGrDpaEg+Mhi1kv9ek8thbEBObT9WYmeo6laPr4jEmYqiLi+zBT52SinMmnGEUGU3f0dzeM9i2CQQ==}
     engines: {node: '>=22'}
 
-  '@pegma/knowledge-base-core@0.1.5':
-    resolution: {integrity: sha512-ZuaXkuuyuMN+n1xGfPcXvInvwdNsCQpjo8m9GhFmc0fu1reisj0oeVzF4i9DvYbhHqMA6QoZgIUBUCVijLd9ug==}
+  '@pegma/knowledge-base-core@0.1.6':
+    resolution: {integrity: sha512-VKK5r8vNed9b2BZJQTAf68faW6mjjR/SLCooOtLvQsw5xhYjvNwfkri2cqPLVSZ44xMQXNRlx1nD1DfddNkoKw==}
     engines: {node: '>=22'}
 
   '@pegma/mail@0.1.1':
@@ -3026,22 +3026,22 @@ snapshots:
     dependencies:
       '@pegma/authorization-contracts': 0.4.0
 
-  '@pegma/knowledge-base-application@0.1.5':
+  '@pegma/knowledge-base-application@0.1.6':
     dependencies:
       '@pegma/audit': 0.2.0
       '@pegma/authorization-core': 0.4.0
-      '@pegma/knowledge-base-contracts': 0.1.5
-      '@pegma/knowledge-base-core': 0.1.5
+      '@pegma/knowledge-base-contracts': 0.1.6
+      '@pegma/knowledge-base-core': 0.1.6
       '@pegma/spine': 0.1.2
       '@pegma/storage-core': 0.4.0
 
-  '@pegma/knowledge-base-contracts@0.1.5':
+  '@pegma/knowledge-base-contracts@0.1.6':
     dependencies:
       '@pegma/spine': 0.1.2
 
-  '@pegma/knowledge-base-core@0.1.5':
+  '@pegma/knowledge-base-core@0.1.6':
     dependencies:
-      '@pegma/knowledge-base-contracts': 0.1.5
+      '@pegma/knowledge-base-contracts': 0.1.6
 
   '@pegma/mail@0.1.1':
     dependencies:

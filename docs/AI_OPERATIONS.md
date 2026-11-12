@@ -23,7 +23,10 @@ and [current source contract](RELEASING.md#source-version-027).
 Candidate `0.2.7` also offers a callback-scoped
 [approval observation](ENGINEERING_EXPORT.md#candidate-027-approval-observation)
 under current service read/policy access, with unchanged late proof and host
-authority checks. The compatibility fallback remains available.
+authority checks. The compatibility fallback remains available. This
+unpublished candidate pins the verified public KB application/contracts
+`0.1.6`; published `0.2.6` retains KB `0.1.5`. See the
+[current dependency contract](RELEASING.md#source-version-027).
 
 ## Controls and human fallback
 

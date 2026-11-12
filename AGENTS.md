@@ -176,8 +176,9 @@ in `0.2.6` and adds an optional authorized engineering read context plus a
 compatible per-attempt approval-guard observation; see the
 [candidate notes](docs/RELEASE_NOTES.md#027-engineering-read-batching) and
 [host guard contract](docs/ENGINEERING_EXPORT.md#026-candidate-guarded-engineering-controls).
-The current source still pins exact KB application/contracts `0.1.5`; alignment
-to verified public `0.1.6` remains pending before this candidate's merge/release.
+The current source pins exact KB application/contracts `0.1.6`, from the
+[verified public KB release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6)
+at signed source `b2946e149078e0ef460f970c2271c196ea9fc759`.
 The root package remains private at `0.0.0`. Do not treat a candidate pack or
 source checkout as a verified registry release.
 

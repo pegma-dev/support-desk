@@ -49,9 +49,18 @@ adds an optional callback-scoped approval observation with lazy authorized
 reads, later Source/Work confirmation and the original structural-port fallback;
 see the [release notes](RELEASE_NOTES.md#027-engineering-read-batching)
 and [engineering read phases](ENGINEERING_EXPORT.md#entry-points-and-authority).
-The optional AI package keeps exact KB application/contracts `0.1.5`.
-Final `0.1.6` alignment waits for its verified public release and must precede
-this version's merge/release; no unpublished KB lock or artifact is accepted.
+The optional AI package and matching development/test graph pin exact KB
+application/contracts `0.1.6`, from signed source
+[`b2946e149078e0ef460f970c2271c196ea9fc759`](https://github.com/pegma-dev/knowledge-base/commit/b2946e149078e0ef460f970c2271c196ea9fc759)
+and the [verified public KB release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6).
+All four KB artifacts passed exact registry-byte, native signature/source-provenance
+and clean-consumer verification; the separate
+[unprivileged verifier](https://github.com/pegma-dev/knowledge-base/actions/runs/43120006429/attempts/5)
+also passed. Support `0.2.7` remains unpublished. Earlier candidate budget
+evidence on KB `0.1.5` is historical; the complete `0.1.6` candidate graph
+requires its own qualification before release. No unpublished KB lock or
+artifact is accepted, and the published Support `0.2.6`/KB `0.1.5` tuple
+remains unchanged.
 
 Merge and validate source before following the signed-tag, original-artifact
 preparation and trusted-publisher procedure below. Local checks and development packs do not establish registry

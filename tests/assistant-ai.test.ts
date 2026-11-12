@@ -300,6 +300,176 @@ for (const [name, createStore] of handlingStores) {
         JSON.stringify(await f.app.readCustomerTicket(customer, "ticket")),
       ).not.toContain("LATE_PROVIDER_PROSE");
     });
+
+    it.each(["cost", "input", "output", "context"] as const)(
+      "settles known actual %s overage before rejecting the answer, including duplicate callbacks and a lost finish ACK",
+      async (overage) => {
+        const f = await assistantAiFixture(createStore());
+        if (overage === "context")
+          setBudgets(f, {
+            maxContextTokens: f.state.configuration.budgets.maxInputTokens,
+          });
+        const budgets = f.state.configuration.budgets;
+        const usage = {
+          ...f.answer([]).usage,
+          ...(overage === "cost"
+            ? { costMicros: budgets.maxCostMicros + 1 }
+            : {}),
+          ...(overage === "input"
+            ? { inputTokens: budgets.maxInputTokens + 1 }
+            : {}),
+          ...(overage === "output"
+            ? { outputTokens: budgets.maxOutputTokens + 1 }
+            : {}),
+          ...(overage === "context"
+            ? { inputTokens: budgets.maxInputTokens }
+            : {}),
+        };
+        f.setModel(async (_input, context) => ({
+          ...f.answer(
+            context.allSourceReferences,
+            "REJECTED_OVER_BUDGET_ANSWER",
+          ),
+          usage,
+        }));
+        let lostAcknowledgement = false;
+        const finish = vi.fn<
+          AssistantTurnApplication["finishAssistantTurnAttempt"]
+        >(async (...args) => {
+          const accepted = await f.app.finishAssistantTurnAttempt(...args);
+          if (!lostAcknowledgement) {
+            lostAcknowledgement = true;
+            throw new Error("Synthetic lost ACK after real handoff commit");
+          }
+          return accepted;
+        });
+        const assistant = createSupportDeskAssistant({
+          ...f.baseOptions,
+          application: { ...f.app, finishAssistantTurnAttempt: finish },
+        });
+        const command = await f.nextCommand();
+        const settled = await Promise.all([
+          assistant.processTurn(command),
+          assistant.processTurn(command),
+        ]);
+        expect(settled.map((result) => result.outcome).sort()).toEqual([
+          "finished",
+          "not_claimed",
+        ]);
+        expect(f.generate).toHaveBeenCalledOnce();
+        expect(f.reserve).toHaveBeenCalledOnce();
+        expect(f.reconcile).toHaveBeenCalledOnce();
+        const context = f.generate.mock.calls[0]![1];
+        expect(f.reconcile).toHaveBeenCalledWith(
+          {
+            operationId: context.operationId,
+            attemptId: context.attemptId,
+            inputFingerprint: context.inputFingerprint,
+            usageReservationId: context.usageReservationId,
+          },
+          { state: "known", usage },
+        );
+        expect(finish).toHaveBeenCalledTimes(2);
+        expect(finish.mock.calls[1]).toEqual(finish.mock.calls[0]);
+        expect(await assistantMessages(f)).toEqual([]);
+        expect(await f.app.readHandoffWork(staff, "ticket")).toMatchObject([
+          { reason: "capacity" },
+        ]);
+        expect(
+          (await f.rows()).filter((row) => row.kind === "assistant_turn"),
+        ).toMatchObject([
+          {
+            status: "escalated",
+            preparedAttempts: [{ accounting: "accounted" }],
+            processing: { ...usage, failureCategory: "budget_exceeded" },
+          },
+        ]);
+        const rows = await f.rows();
+        await expect(assistant.processTurn(command)).resolves.toEqual({
+          outcome: "not_claimed",
+        });
+        expect(f.generate).toHaveBeenCalledOnce();
+        expect(f.reconcile).toHaveBeenCalledOnce();
+        expect(await f.rows()).toEqual(rows);
+        expect(
+          JSON.stringify(await f.app.readCustomerTicket(customer, "ticket")),
+        ).not.toContain("REJECTED_OVER_BUDGET_ANSWER");
+      },
+    );
+
+    it.each([
+      "negative-input",
+      "fractional-output",
+      "nan-cost",
+      "infinite-cost",
+      "unsafe-cost",
+      "unsafe-token-total",
+      "wrong-provider",
+      "wrong-model",
+      "missing-request",
+      "currency",
+      "extra-usage-field",
+    ] as const)(
+      "retains an unknown conservative usage hold for %s without an answer or duplicate reconciliation",
+      async (invalid) => {
+        const f = await assistantAiFixture(createStore());
+        f.setModel(async (_input, context) => {
+          const result = f.answer(context.allSourceReferences);
+          if (invalid === "wrong-provider")
+            return { ...result, provider: "unselected-provider" };
+          if (invalid === "wrong-model")
+            return { ...result, model: "unselected-model" };
+          if (invalid === "missing-request")
+            return { ...result, requestId: "" };
+          return {
+            ...result,
+            usage: {
+              ...result.usage,
+              ...(invalid === "negative-input" ? { inputTokens: -1 } : {}),
+              ...(invalid === "fractional-output" ? { outputTokens: 0.5 } : {}),
+              ...(invalid === "nan-cost" ? { costMicros: Number.NaN } : {}),
+              ...(invalid === "infinite-cost"
+                ? { costMicros: Number.POSITIVE_INFINITY }
+                : {}),
+              ...(invalid === "unsafe-cost"
+                ? { costMicros: Number.MAX_SAFE_INTEGER + 1 }
+                : {}),
+              ...(invalid === "unsafe-token-total"
+                ? { inputTokens: Number.MAX_SAFE_INTEGER, outputTokens: 1 }
+                : {}),
+              ...(invalid === "currency" ? { currency: "EUR" } : {}),
+              ...(invalid === "extra-usage-field"
+                ? { unverifiedCharge: 10 }
+                : {}),
+            },
+          };
+        });
+        const command = await f.nextCommand();
+        await expect(f.assistant.processTurn(command)).resolves.toMatchObject({
+          outcome: "finished",
+        });
+        expect(f.generate).toHaveBeenCalledOnce();
+        expect(f.reconcile).toHaveBeenCalledOnce();
+        expect(f.reconcile).toHaveBeenCalledWith(expect.anything(), {
+          state: "unknown",
+        });
+        expect(await assistantMessages(f)).toEqual([]);
+        expect(await f.app.readHandoffWork(staff, "ticket")).toHaveLength(1);
+        expect(
+          (await f.rows()).filter((row) => row.kind === "assistant_turn"),
+        ).toMatchObject([
+          {
+            status: "escalated",
+            preparedAttempts: [{ accounting: "unknown" }],
+          },
+        ]);
+        await expect(f.assistant.processTurn(command)).resolves.toEqual({
+          outcome: "not_claimed",
+        });
+        expect(f.generate).toHaveBeenCalledOnce();
+        expect(f.reconcile).toHaveBeenCalledOnce();
+      },
+    );
   });
 }
 

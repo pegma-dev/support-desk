@@ -10,9 +10,11 @@ approval guards can also receive a lazy per-attempt observation under current
 service read/policy access; later Source/Work confirmation, fresh policy and
 late host/closing authority checks remain. Older ports retain their original
 standalone proof path. These optimizations do not qualify a complete Native
-request or CPU budget. Its internal Support application pin is exact `0.2.7`; external KB application/
-contracts remain exact `0.1.5` until verified public `0.1.6` alignment before
-merge/release.
+request or CPU budget. Its internal Support application pin is exact `0.2.7`;
+external KB application/contracts pins are exact verified public `0.1.6`, from
+signed source `b2946e149078e0ef460f970c2271c196ea9fc759` and the
+[KB release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6).
+The complete candidate graph retains its own qualification before release.
 
 Optional, provider-neutral Support Desk answer, learning, engineering, and
 release follow-up coordination.

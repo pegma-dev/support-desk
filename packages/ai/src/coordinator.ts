@@ -43,7 +43,8 @@ import {
   answerTextAllowance,
   escalationReasons,
   modelDecision,
-  modelUsage,
+  observedModelUsage,
+  assertModelUsageBudget,
   processingMetadata,
 } from "./output.js";
 import {
@@ -609,9 +610,10 @@ export function createSupportDeskAssistant(
           // Reconciliation below therefore remains unknown and conservative.
           throw error;
         }
-        const usage: AssistantModelUsage = modelUsage(result, config);
+        const usage: AssistantModelUsage = observedModelUsage(result, config);
         observation = { state: "known", usage };
         processing = processingMetadata(result, usage);
+        assertModelUsageBudget(usage, config);
         const decision = modelDecision(
           result,
           config,
