@@ -497,5 +497,6 @@ export interface EngineeringFollowupApplication {
   submitEngineeringFollowupRetestResult(
     access: AccessContext,
     command: SubmitEngineeringFollowupRetestResultCommand,
+    options?: EngineeringMutationOptions,
   ): Promise<EngineeringFollowupRetestResult>;
 }

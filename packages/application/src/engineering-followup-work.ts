@@ -1848,7 +1848,7 @@ export function createEngineeringFollowupWorkServices(
       }
       throw new SupportDeskConflictError();
     },
-    async submitEngineeringFollowupRetestResult(access, input) {
+    async submitEngineeringFollowupRetestResult(access, input, control) {
       const actorId = access.principalId;
       const authorize = () =>
         permission(
@@ -1857,6 +1857,7 @@ export function createEngineeringFollowupWorkServices(
           actorId,
         );
       authorize();
+      const mutation = engineeringMutationBoundary(control);
       const command = snapshot(
         fields(input, "submit follow-up retest", [
           "ticketId",
@@ -1886,6 +1887,7 @@ export function createEngineeringFollowupWorkServices(
             throw new SupportDeskConflictError("Wrong retest receipt kind");
           return previous;
         }
+        mutation?.ensure();
         const loaded = await load(command.ticketId);
         const stored = await workAt(command);
         const work = stored.value;
@@ -2097,21 +2099,41 @@ export function createEngineeringFollowupWorkServices(
         )
           throw new SupportDeskConflictError("Follow-up retest proof expired");
         if (
-          await save(loaded, stored, next, [
-            ...others.map((entry): EngineeringAction => ({
-              action: "putIfUnchanged",
-              version: entry.stored.version,
-              value: entry.next,
-            })),
-            deps.audit(
-              command,
-              loaded.ticket.value.ticket,
-              actorId,
-              clock.now(),
-              supportTicketAuditActions.engineeringFollowupRetestRecorded,
-            ),
-            receipt(command, hash, outcome),
-          ])
+          await save(
+            loaded,
+            stored,
+            next,
+            [
+              ...others.map((entry): EngineeringAction => ({
+                action: "putIfUnchanged",
+                version: entry.stored.version,
+                value: entry.next,
+              })),
+              deps.audit(
+                command,
+                loaded.ticket.value.ticket,
+                actorId,
+                clock.now(),
+                supportTicketAuditActions.engineeringFollowupRetestRecorded,
+              ),
+              receipt(command, hash, outcome),
+            ],
+            loaded.head?.value,
+            mutation,
+            () => {
+              authorize();
+              if (
+                now() >=
+                Math.min(
+                  timestamp(verified.validUntil, "validUntil"),
+                  timestamp(proof.attestation.validUntil, "validUntil"),
+                )
+              )
+                throw new SupportDeskConflictError(
+                  "Follow-up retest proof expired",
+                );
+            },
+          )
         ) {
           authorize();
           return outcome;
