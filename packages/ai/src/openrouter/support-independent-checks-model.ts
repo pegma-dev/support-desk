@@ -1,12 +1,17 @@
 import type { Clock } from "@pegma/spine";
 import { z } from "zod";
-import { knowledgeDigest, checkedLogicalHost } from "./canonical-digest.js";
+import {
+  knowledgeDigest,
+  checkedLogicalHost,
+  isPlainObject,
+} from "./canonical-digest.js";
 import {
   createSupportOpenRouterModel,
   SupportOpenRouterModelError,
   strictJson,
   type SupportOpenRouterContext,
   usableCredential,
+  array,
 } from "./support-openrouter-model.js";
 
 export const INDEPENDENT_CHECK_PURPOSE = "support_independent_check";
@@ -157,6 +162,34 @@ export interface IndependentCheckContext extends SupportOpenRouterContext {
     signal: AbortSignal,
   ) => Promise<void | (() => true)>;
   readonly onPhysicalCall?: () => void;
+}
+
+function requireMessageBudget(
+  input: IndependentCheckInput,
+  configured: IndependentCheckConfiguration,
+): void {
+  try {
+    const maximum = configured.budgets.maxMessages;
+    const facts = input.facts;
+    if (
+      !Number.isSafeInteger(maximum) ||
+      maximum < 1 ||
+      maximum > 100 ||
+      !isPlainObject(facts)
+    )
+      throw new SupportOpenRouterModelError("invalid_input");
+    const messages = Object.getOwnPropertyDescriptor(facts, "messages");
+    if (
+      !messages ||
+      !("value" in messages) ||
+      array(messages.value, maximum, 1).some(
+        (message) => typeof message !== "string",
+      )
+    )
+      throw new SupportOpenRouterModelError("invalid_input");
+  } catch {
+    throw new SupportOpenRouterModelError("invalid_input");
+  }
 }
 
 const verdict = z
@@ -389,6 +422,7 @@ export function createSupportIndependentCheckModel(
           return JSON.stringify(verdict.parse(strictJson(content).value));
         },
         validate(input, context, config) {
+          requireMessageBudget(input, config);
           if (
             input.trustedInstructions !== config.trustedInstructions ||
             !["engineering", "learning"].includes(input.kind) ||
@@ -410,6 +444,7 @@ export function createSupportIndependentCheckModel(
           input.trustedInstructions !== configured.trustedInstructions
         )
           return false;
+        requireMessageBudget(input, configured);
         const payload = JSON.stringify(input);
         return (
           new TextEncoder().encode(payload).length <=
@@ -491,6 +526,7 @@ export function createSupportIndependentCheckModel(
         });
         const route = source.currentRoute(configured.version);
         if (!route) throw new SupportOpenRouterModelError("route_unavailable");
+        requireMessageBudget(input, configured);
         const credential = options.readApiKey?.(route.credentialRef);
         if (!usableCredential(credential))
           throw new SupportOpenRouterModelError("credential_unavailable");

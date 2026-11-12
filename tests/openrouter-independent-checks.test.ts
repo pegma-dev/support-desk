@@ -12,6 +12,79 @@ import { engineeringStaff } from "../test/engineering-fixtures.js";
 
 const signal = () => new AbortController().signal;
 describe("portable independent checker receipt and Store contracts", () => {
+  it("holds actual over-limit Source messages before durable admission, usage reserve or provider access", async () => {
+    const f = await actualEngineeringCheckerFixture("pegma.dev", false, {
+      maxMessages: 1,
+      secondVisibleMessage: true,
+    });
+    const source = await f.f.app.readEngineeringSource(
+      f.service,
+      f.f.key.ticketId,
+    );
+    if (source.evidence?.kind !== "staff_verified_failure")
+      throw new Error("Expected actual staff verification evidence");
+    expect(source.evidence.visibleMessageIds).toHaveLength(2);
+    const key = vi.fn(() => "fictional-provider-key");
+    Reflect.set(f.options, "readApiKey", key);
+    f.calls.length = 0;
+    const result = await f.adapter
+      .engineeringFor(f.f.key)
+      .check(f.input, f.context);
+    expect(result.outcome).toBe("held");
+    expect(f.p.state.calls).toBe(0);
+    expect(key).not.toHaveBeenCalled();
+    expect(
+      f.calls.filter((call) =>
+        call.startsWith(independentCheckAttempts.name + ":"),
+      ),
+    ).toEqual([]);
+    expect(
+      f.calls.filter((call) =>
+        call.startsWith("pegma.support-independent-checks.usage.v1:"),
+      ),
+    ).toEqual([]);
+    expect(
+      await f.store.collection(independentCheckAttempts).get({
+        partition: "support_independent_check",
+        id: "attempts",
+      }),
+    ).toBeNull();
+    expect(f.f.createIssue).not.toHaveBeenCalled();
+  });
+  it("checks the same actual Source's complete message set at its exact independent limit", async () => {
+    const f = await actualEngineeringCheckerFixture("pegma.dev", false, {
+      maxMessages: 2,
+      secondVisibleMessage: true,
+    });
+    const source = await f.f.app.readEngineeringSource(
+      f.service,
+      f.f.key.ticketId,
+    );
+    if (source.evidence?.kind !== "staff_verified_failure")
+      throw new Error("Expected actual staff verification evidence");
+    expect(source.evidence.visibleMessageIds).toHaveLength(2);
+    const result = await f.adapter
+      .engineeringFor(f.f.key)
+      .check(f.input, f.context);
+    expect(result.outcome).toBe("checked");
+    expect(f.p.state.calls).toBe(1);
+    const body = JSON.parse(String(f.p.state.requests[0]!.init.body));
+    const input = JSON.parse(body.messages[1].content);
+    expect(input.facts.messages).toHaveLength(2);
+    const detail = await f.f.app.readStaffTicket(f.service, f.f.key.ticketId);
+    expect(input.facts.messages).toEqual(
+      source.evidence.visibleMessageIds.map(
+        (id) => detail.messages.find((message) => message.id === id)!.body,
+      ),
+    );
+    expect(JSON.stringify(input)).not.toContain(
+      "PRIVATE_ENGINEERING_INTERNAL_NOTE",
+    );
+    expect(JSON.stringify(input)).not.toContain(
+      "PRIVATE_ENGINEERING_VERIFICATION_REFERENCE",
+    );
+    expect(f.f.createIssue).not.toHaveBeenCalled();
+  });
   it("retains the PG ic2/MAC bytes and separates current-source and SDK zero-I/O verifiers", async () => {
     const f = await actualEngineeringCheckerFixture();
     const originalSign = crypto.subtle.sign.bind(crypto.subtle);

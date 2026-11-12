@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createSupportIndependentCheckModel,
   SupportOpenRouterModelError,
@@ -10,6 +10,123 @@ import {
 } from "../test/openrouter-fixtures.js";
 
 describe("purpose-qualified independent checker transport", () => {
+  it.each(["engineering", "learning"] as const)(
+    "preserves every %s message at the independent route's exact limit",
+    async (kind) => {
+      const f = await fixture("pegma.dev", undefined, undefined, 1);
+      await f.model.resolve();
+      const input = { ...f.input, kind };
+      expect(f.model.withinBudget(input, f.c)).toBe(true);
+      await f.model.generate(input, f.context, f.c);
+      const body = JSON.parse(String(f.state.requests[0]!.init.body));
+      expect(JSON.parse(body.messages[1].content).facts.messages).toEqual(
+        input.facts.messages,
+      );
+      expect(f.state.calls).toBe(1);
+    },
+  );
+  it.each(["engineering", "learning"] as const)(
+    "refuses over-limit %s messages before credentials, source fence or provider",
+    async (kind) => {
+      const f = await fixture("pegma.dev", undefined, undefined, 1);
+      await f.model.resolve();
+      const input = {
+        ...f.input,
+        kind,
+        facts: { ...f.input.facts, messages: ["First", "Second"] },
+      };
+      const key = vi.fn(() => "fictional-provider-key");
+      const fence = vi.fn(async () => {});
+      f.options.readApiKey = key;
+      expect(f.model.withinBudget(input, f.c)).toBe(false);
+      await expect(
+        f.model.generate(
+          input,
+          { ...f.context, beforePhysicalCall: fence },
+          f.c,
+        ),
+      ).rejects.toMatchObject({ code: "invalid_input" });
+      expect(key).not.toHaveBeenCalled();
+      expect(fence).not.toHaveBeenCalled();
+      expect(f.state.calls).toBe(0);
+    },
+  );
+  it.each(["engineering", "learning"] as const)(
+    "direct %s generation cannot bypass the message cap",
+    async (kind) => {
+      const f = await fixture("pegma.dev", undefined, undefined, 1);
+      await f.model.resolve();
+      const input = {
+        ...f.input,
+        kind,
+        facts: { ...f.input.facts, messages: ["First", "Second"] },
+      };
+      const key = vi.fn(() => "fictional-provider-key");
+      const fence = vi.fn(async () => {});
+      f.options.readApiKey = key;
+      await expect(
+        f.model.generate(
+          input,
+          { ...f.context, beforePhysicalCall: fence },
+          f.c,
+        ),
+      ).rejects.toMatchObject({ code: "invalid_input" });
+      expect(key).not.toHaveBeenCalled();
+      expect(fence).not.toHaveBeenCalled();
+      expect(f.state.calls).toBe(0);
+    },
+  );
+  it("rechecks the message cap inside transport validation after an awaited source fence", async () => {
+    const f = await fixture("pegma.dev", undefined, undefined, 1);
+    await f.model.resolve();
+    const input = {
+      ...f.input,
+      facts: { ...f.input.facts, messages: ["First"] },
+    };
+    const fence = vi.fn(async () => {
+      await Promise.resolve();
+      input.facts.messages.push("Second");
+    });
+    await expect(
+      f.model.generate(input, { ...f.context, beforePhysicalCall: fence }, f.c),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    expect(fence).toHaveBeenCalledTimes(1);
+    expect(f.state.calls).toBe(0);
+  });
+  it.each([
+    ["null facts", null],
+    ["array facts", []],
+    ["missing messages", {}],
+    ["nonarray messages", { messages: "not an array" }],
+    ["empty messages", { messages: [] }],
+    ["nontext message", { messages: [1] }],
+    ["sparse messages", { messages: Array(1) }],
+    [
+      "accessor messages",
+      Object.defineProperty({}, "messages", {
+        get() {
+          throw new Error("Untrusted accessor must not escape");
+        },
+      }),
+    ],
+  ])(
+    "fails closed for %s before reading a credential",
+    async (_label, facts) => {
+      const f = await fixture();
+      await f.model.resolve();
+      const input = { ...f.input, facts };
+      const key = vi.fn(() => "fictional-provider-key");
+      f.options.readApiKey = key;
+      expect(f.model.withinBudget(input, f.c)).toBe(false);
+      await expect(
+        f.model.generate(input, f.context, f.c),
+      ).rejects.toMatchObject({
+        code: "invalid_input",
+      });
+      expect(key).not.toHaveBeenCalled();
+      expect(f.state.calls).toBe(0);
+    },
+  );
   it("sends complete untrusted content through the actual transport with qualified provider policy and tokenizer", async () => {
     const f = await fixture();
     expect(await f.model.resolve()).not.toBeNull();

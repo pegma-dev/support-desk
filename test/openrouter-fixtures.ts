@@ -25,6 +25,7 @@ export async function checkerModelFixture(
   host = "pegma.dev",
   policyVersion = "fictional-check-policy",
   startsAt = CHECK_START,
+  maxMessages = 20,
 ) {
   const endsAt = new Date(Date.parse(startsAt) + 3_600_000).toISOString();
   const c: IndependentCheckRoute["configuration"] = {
@@ -42,7 +43,7 @@ export async function checkerModelFixture(
     trustedInstructions: "Compare only supplied fictional facts.",
     framingTokens: 512,
     budgets: {
-      maxMessages: 20,
+      maxMessages,
       maxInputBytes: 65_536,
       maxInputTokens: 16_000,
       maxContextTokens: 20_000,
@@ -194,7 +195,10 @@ export async function checkerModelFixture(
   const input = {
     trustedInstructions: c.trustedInstructions,
     kind: "engineering" as const,
-    facts: { actualBehavior: "The export appears empty." },
+    facts: {
+      messages: ["The export appears empty."],
+      actualBehavior: "The export appears empty.",
+    },
     candidate: { actualBehavior: "The export is empty." },
     outbound: {
       body: "Export is empty. <!-- hidden unverified claim -->",
@@ -223,6 +227,10 @@ import {
 export async function actualEngineeringCheckerFixture(
   host = "pegma.dev",
   deferred = false,
+  inputBudget: {
+    readonly maxMessages?: number;
+    readonly secondVisibleMessage?: boolean;
+  } = {},
 ) {
   const backing = createMemoryStore();
   const calls: string[] = [];
@@ -241,7 +249,15 @@ export async function actualEngineeringCheckerFixture(
       });
     },
   };
-  const f = await engineeringAiFixture(store);
+  const f = await engineeringAiFixture(
+    store,
+    inputBudget.secondVisibleMessage
+      ? {
+          notificationBody:
+            "Synthetic export remains empty after verification.",
+        }
+      : {},
+  );
   const first = await f.engineering.processWork(f.nextCommand());
   if (first.outcome !== "candidate")
     throw new Error(
@@ -256,6 +272,7 @@ export async function actualEngineeringCheckerFixture(
     host,
     f.state.checkPolicy.version,
     f.clock.now(),
+    inputBudget.maxMessages,
   );
   const repositories = f.engineeringOptions.repositoryMetadata;
   if (!repositories)
