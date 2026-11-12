@@ -10,11 +10,13 @@ import {
 } from "@pegma/knowledge-base-application";
 import {
   resolutionLearningDeliveryBinding,
+  hasDirectResolutionLearningDelivery,
   type CompleteResolutionLearningStepCommand,
   type FinishResolutionLearningWorkCommand,
   type PrepareResolutionLearningStepCommand,
   type ResolutionLearningChecksBinding,
   type ResolutionLearningClaim,
+  type ResolutionLearningDeliveryObservation,
   type ResolutionLearningDeliveryRequest,
   type ResolutionLearningPreparedStep,
 } from "@pegma/support-desk-application";
@@ -859,13 +861,49 @@ export async function processLearningKBClaim(
       runtime.ensure(Math.min(phase, receiptDeadline));
       return receiptDeadline;
     };
+    const verifyClosingChecks = async (phase: number): Promise<number> => {
+      const currentPolicy = await runtime.within(
+        () => options.checks.resolvePolicy(policy.version, runtime.signal),
+        phase,
+      );
+      if (
+        currentPolicy.outcome !== "ready" ||
+        canonical(
+          learningCheckPolicySnapshot(
+            currentPolicy.policy,
+            timestamp(options.clock.now()),
+          ),
+        ) !== canonical(policy)
+      )
+        throw new AssistantBoundaryError("check_policy_changed");
+      const until = Math.min(phase, await verifyReceipt(phase));
+      const currentConfig = await runtime.within(
+        () => options.configuration.resolve(config.version, runtime.signal),
+        until,
+      );
+      if (
+        currentConfig.outcome !== "ready" ||
+        canonical(
+          learningConfigurationSnapshot(
+            currentConfig.configuration,
+            timestamp(options.clock.now()),
+          ),
+        ) !== canonical(config)
+      )
+        throw new AssistantBoundaryError("configuration_changed");
+      runtime.ensure(until);
+      return until;
+    };
     const verifyCurrent = async (
       phase: number,
+      observation?: ResolutionLearningDeliveryObservation,
     ): Promise<{
       support: typeof support;
       knowledge: typeof knowledge;
       receiptDeadline: number;
+      contributors: (typeof claim.sourceFence)[];
     }> => {
+      const contributors = [claim.sourceFence];
       const currentSupport = await learningServiceAuthority(
         options,
         runtime,
@@ -881,7 +919,17 @@ export async function processLearningKBClaim(
         canonical(currentKnowledge) !== canonical(knowledge)
       )
         throw new AssistantBoundaryError("authority_changed");
-      if (
+      const observed = observation?.read(currentSupport.access);
+      if (observed !== undefined) {
+        if (
+          canonical(learningSourceFence(observed.source)) !==
+            canonical(claim.sourceFence) ||
+          canonical(observed.work.claim) !== canonical(claim.fence) ||
+          observed.work.requestHash !== claim.work.requestHash ||
+          observed.work.candidateHash !== claim.work.candidateHash
+        )
+          throw new AssistantBoundaryError("source_changed");
+      } else if (
         (await runtime.within(
           () =>
             options.application.confirmResolutionLearningSource(
@@ -912,27 +960,38 @@ export async function processLearningKBClaim(
           foreign = true;
           continue;
         }
-        const contributor = await runtime.within(
-          () =>
-            options.application.readResolutionLearningSource(
-              currentSupport.access,
-              reference.resourceId,
-            ),
-          phase,
-        );
+        const ownObservation =
+          observed !== undefined &&
+          reference.resourceId === claim.fence.ticketId;
+        const contributor = ownObservation
+          ? observed.source
+          : await runtime.within(
+              () =>
+                options.application.readResolutionLearningSource(
+                  currentSupport.access,
+                  reference.resourceId,
+                ),
+              phase,
+            );
         if (
           canonical(learningSourceReference(contributor)) !==
             canonical(reference) ||
-          (await runtime.within(
-            () =>
-              options.application.confirmResolutionLearningSource(
-                currentSupport.access,
-                learningSourceFence(contributor),
-              ),
-            phase,
-          )) !== true
+          (!ownObservation &&
+            (await runtime.within(
+              () =>
+                options.application.confirmResolutionLearningSource(
+                  currentSupport.access,
+                  learningSourceFence(contributor),
+                ),
+              phase,
+            )) !== true)
         )
           throw new AssistantBoundaryError("contributor_changed");
+        const fence = learningSourceFence(contributor);
+        if (
+          !contributors.some((known) => canonical(known) === canonical(fence))
+        )
+          contributors.push(fence);
       }
       if (exactRequest.operation === "update") {
         const observed = await readLearningKBTarget(
@@ -1033,8 +1092,232 @@ export async function processLearningKBClaim(
         support: currentSupport,
         knowledge: currentKnowledge,
         receiptDeadline,
+        contributors,
       };
     };
+    const closeStagedCurrent = async (
+      current: Awaited<ReturnType<typeof verifyCurrent>>,
+      observation: ResolutionLearningDeliveryObservation,
+      phase: number,
+    ) => {
+      const foreign = current.contributors.filter(
+        (fence) => fence.ticketId !== claim.fence.ticketId,
+      );
+      const confirm = (fence: (typeof foreign)[number]) =>
+        runtime.within(
+          () =>
+            options.application.confirmResolutionLearningSource(
+              current.support.access,
+              fence,
+            ),
+          phase,
+        );
+      let confirmations: readonly boolean[];
+      if (options.readScheduling === "sdk")
+        confirmations = await learningReadWave(foreign, confirm);
+      else {
+        const results: boolean[] = [];
+        for (const fence of foreign) results.push(await confirm(fence));
+        confirmations = results;
+      }
+      if (confirmations.some((result) => result !== true))
+        throw new AssistantBoundaryError("contributor_changed");
+      await runtime.within(
+        () => observation.confirm(current.support.access),
+        phase,
+      );
+      const closingSupport = await learningServiceAuthority(
+        options,
+        runtime,
+        phase,
+      );
+      const closingKnowledge = await learningKnowledgeAuthority(
+        options.knowledgeAccess,
+        runtime,
+        phase,
+      );
+      if (
+        canonical(closingSupport) !== canonical(support) ||
+        canonical(closingKnowledge) !== canonical(knowledge)
+      )
+        throw new AssistantBoundaryError("authority_changed");
+      runtime.ensure(Math.min(phase, current.receiptDeadline));
+      return {
+        ...current,
+        support: closingSupport,
+        knowledge: closingKnowledge,
+      };
+    };
+    const verifyStagedCurrent = async (
+      phase: number,
+      observation: ResolutionLearningDeliveryObservation,
+    ) =>
+      closeStagedCurrent(
+        await verifyCurrent(phase, observation),
+        observation,
+        phase,
+      );
+    if (options.deliveryMode === "staged") {
+      const staged = options.application.stagedResolutionLearningDelivery;
+      if (!hasDirectResolutionLearningDelivery(staged))
+        throw new AssistantBoundaryError("staged_delivery_unavailable");
+      const stageFence = {
+        ...claim.fence,
+        stepId: claim.work.stepId!,
+        requestHash: claim.work.requestHash!,
+      };
+      if (claim.work.exactRequest === undefined) {
+        const command = snapshot({
+          ...claim.fence,
+          step: "kb_delivery" as const,
+          candidateHash: claim.work.candidateHash!,
+          verifiedCheckReceipt: receipt,
+          policyVersion: policy.version,
+          targetDecisionHash,
+          exactRequest,
+        });
+        const result = await runtime.within(
+          () =>
+            staged.prepare(support.access, command, async (observation) => {
+              const current = await verifyStagedCurrent(
+                externalDeadline,
+                observation,
+              );
+              const until = Math.min(externalDeadline, current.receiptDeadline);
+              return () => {
+                runtime.ensure(until);
+                return true as const;
+              };
+            }),
+          externalDeadline,
+        );
+        if (
+          result.step !== "kb_delivery" ||
+          result.requestHash !== binding.requestHash
+        )
+          throw new AssistantBoundaryError("preparation_mismatch");
+        return {
+          outcome: "pending",
+          stage: "delivery",
+          checkpoint: "prepared",
+        };
+      }
+      prepared = {
+        step: "kb_delivery",
+        stepId: scalar(claim.work.stepId),
+        requestHash: scalar(claim.work.requestHash),
+      };
+      if (claim.work.acknowledgement === undefined) {
+        await runtime.within(
+          () =>
+            staged.write(support.access, stageFence, async (observation) => {
+              const current = await verifyStagedCurrent(
+                externalDeadline,
+                observation,
+              );
+              const until = Math.min(externalDeadline, current.receiptDeadline);
+              runtime.ensure(until);
+              invoked = true;
+              const input = {
+                articleId: exactRequest.articleId,
+                collectionId: exactRequest.collectionId,
+                draft: payload.draft,
+                sourceReferences: exactRequest.sourceReferences,
+                expectedGeneration: exactRequest.originalExpectedGeneration,
+                commandId: exactRequest.commandId,
+                correlationId: exactRequest.correlationId,
+              };
+              const accepted = await runtime.within(
+                () =>
+                  exactRequest.operation === "create"
+                    ? options.knowledge.createDraft(
+                        current.knowledge.access,
+                        input,
+                      )
+                    : options.knowledge.updateDraft(
+                        current.knowledge.access,
+                        input,
+                      ),
+                until,
+              );
+              const historicalAck = acknowledgement(
+                accepted.value,
+                exactRequest.articleId,
+              );
+              const closing = await learningServiceAuthority(
+                options,
+                runtime,
+                until,
+              );
+              if (canonical(closing) !== canonical(support))
+                throw new AssistantBoundaryError("authority_changed");
+              return {
+                historicalAck,
+                assertCurrent: () => {
+                  runtime.ensure(until);
+                  return true as const;
+                },
+              };
+            }),
+          externalDeadline,
+        );
+        return {
+          outcome: "pending",
+          stage: "delivery",
+          checkpoint: "acknowledged",
+        };
+      }
+      const result = await runtime.within(
+        () =>
+          staged.complete(support.access, stageFence, async (observation) => {
+            const current = await verifyCurrent(deadline, observation);
+            const until = Math.min(deadline, current.receiptDeadline);
+            const actual = await readLearningKBTarget(
+              options,
+              current.knowledge.access,
+              exactRequest.articleId,
+              runtime,
+              until,
+            );
+            await confirmLearningKBCurrent(
+              options,
+              current.knowledge.access,
+              actual,
+              runtime,
+              until,
+            );
+            if (
+              actual.draft.revision.collectionId !==
+                exactRequest.collectionId ||
+              actual.draft.revision.kind !== scope.kind ||
+              canonical(actual.draft.revision.applicability) !==
+                canonical(payload.draft.applicability) ||
+              canonical(actual.provenance.snapshot.references) !==
+                canonical(exactRequest.sourceReferences) ||
+              canonical(actual.draft.revision.validationPolicy) !==
+                canonical(payload.requirements.validationPolicy)
+            )
+              throw new AssistantBoundaryError("target_changed");
+            const target = await learningTargetBinding(
+              actual.draft.revision,
+              actual.provenance.snapshot,
+            );
+            const closingDeadline = await verifyClosingChecks(until);
+            await closeStagedCurrent(current, observation, closingDeadline);
+            return {
+              target,
+              assertCurrent: () => {
+                runtime.ensure(closingDeadline);
+                return true as const;
+              },
+            };
+          }),
+        deadline,
+      );
+      return result.status === "completed"
+        ? { outcome: "delivered", result }
+        : { outcome: "held", reason: "kb_target_changed", result };
+    }
     await verifyCurrent(externalDeadline);
     if (base !== undefined) {
       const fresh = await readLearningKBTarget(
@@ -1198,7 +1481,8 @@ export async function processLearningKBClaim(
           runtime,
           guardDeadline,
         );
-        runtime.ensure(guardDeadline);
+        const closingDeadline = await verifyClosingChecks(guardDeadline);
+        runtime.ensure(closingDeadline);
       } catch (error) {
         throw new DeliveryGuardFailure(
           error instanceof AssistantBoundaryError

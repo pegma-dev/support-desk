@@ -180,6 +180,18 @@ Exact verified public KB application/contracts `0.1.6` remain unchanged. The
 root stays private at `0.0.0`; source or candidate packs do not qualify registry
 publication or a host's complete query/CPU budget.
 
+The unpublished `0.2.9` candidate also adds opt-in
+[`deliveryMode: 'staged'`](docs/RESOLUTION_LEARNING.md#opt-in-staged-draft-delivery-029-candidate)
+with durable prepare/write checkpoints that release the claim and a later
+physical completion phase.
+Staged reconciliation advances one unconfirmed destination per invocation and
+yields after one retirement attempt for later fresh readback.
+Closing policy/receipt checks apply to inline delivery too. The optional
+[`./openrouter` entry](packages/ai/README.md#optional-openrouter-adapter-source-candidate)
+keeps the AI root provider-neutral and requires explicit host binding with
+separate host stores, keys and current privacy/configuration evidence. Native
+Workers Free 50/100 qualification remains pending.
+
 All five packages have verified published `0.2.8` versions. The synchronized
 `0.2.1` and `0.2.0` artifacts remain immutable history. The original four names also retain
 their published `0.1.0`/`0.1.1` artifacts; the AI name's `0.1.1` is a separate

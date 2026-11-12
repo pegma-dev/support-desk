@@ -149,6 +149,7 @@ import {
   planResolutionLearningTicketMutation,
 } from "./resolution-learning.js";
 export type * from "./resolution-learning-types.js";
+export { hasDirectResolutionLearningDelivery } from "./resolution-learning-delivery-handoff.js";
 export type * from "./resolution-learning-staged-types.js";
 export type {
   ResolutionLearningReviewAttemptRecord,

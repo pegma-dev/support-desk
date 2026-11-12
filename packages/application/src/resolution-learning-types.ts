@@ -272,6 +272,57 @@ export interface ResolutionLearningStepResult extends ResolutionLearningKey {
   readonly candidateHash?: string;
   readonly target?: ResolutionLearningTarget;
 }
+/** Exact prepared delivery coordinates, never permission or a stored proof. */
+export interface ResolutionLearningDeliveryFence extends ResolutionLearningClaimFence {
+  readonly stepId: string;
+  readonly requestHash: string;
+}
+export type ResolutionLearningDeliveryAssertion = () => true;
+/** Exists only inside one built-in App call, with current named reader grants. */
+export interface ResolutionLearningDeliveryObservation {
+  read(access: AccessContext): {
+    readonly source: ResolutionLearningSourceRecord;
+    readonly work: ResolutionLearningWorkRecord;
+  };
+  confirm(access: AccessContext): Promise<void>;
+}
+export type ResolutionLearningDeliveryGuard = (
+  observation: ResolutionLearningDeliveryObservation,
+) =>
+  | void
+  | ResolutionLearningDeliveryAssertion
+  | Promise<void | ResolutionLearningDeliveryAssertion>;
+/** SDK-owned atomic checkpoints; optional for existing structural applications. */
+export interface ResolutionLearningStagedDeliveryApplication {
+  prepare(
+    access: AccessContext,
+    command: Extract<
+      PrepareResolutionLearningStepCommand,
+      { readonly step: "kb_delivery" }
+    >,
+    guard: ResolutionLearningDeliveryGuard,
+  ): Promise<
+    Extract<ResolutionLearningPreparedStep, { readonly step: "kb_delivery" }>
+  >;
+  write(
+    access: AccessContext,
+    command: ResolutionLearningDeliveryFence,
+    deliver: (observation: ResolutionLearningDeliveryObservation) => Promise<{
+      readonly historicalAck: NonNullable<
+        ResolutionLearningWorkRecord["acknowledgement"]
+      >;
+      readonly assertCurrent: ResolutionLearningDeliveryAssertion;
+    }>,
+  ): Promise<ResolutionLearningStepResult>;
+  complete(
+    access: AccessContext,
+    command: ResolutionLearningDeliveryFence,
+    plan: (observation: ResolutionLearningDeliveryObservation) => Promise<{
+      readonly target: ResolutionLearningTarget;
+      readonly assertCurrent: ResolutionLearningDeliveryAssertion;
+    }>,
+  ): Promise<ResolutionLearningStepResult>;
+}
 export interface ResolutionLearningProcessing {
   readonly provider?: string;
   readonly model?: string;
@@ -376,6 +427,7 @@ export interface RecordResolutionLearningReconciliationCommand {
   };
 }
 export interface ResolutionLearningApplication {
+  readonly stagedResolutionLearningDelivery?: ResolutionLearningStagedDeliveryApplication;
   readonly stagedResolutionLearningReviews?: ResolutionLearningStagedReviewApplication;
   enrollResolutionLearning(
     access: AccessContext,

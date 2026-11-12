@@ -666,3 +666,31 @@ export async function createSyntheticPorts(clock: Clock, prefix: string) {
     otherSources,
   };
 }
+
+/** Packed-consumer compile proof for the separately imported optional provider surface. */
+type OptionalOpenRouterSurface =
+  typeof import("@pegma/support-desk-ai/openrouter");
+type AssertOptionalProviderContract<Value extends true> = Value;
+export type SyntheticIndependentCheckerHostIsRequired =
+  AssertOptionalProviderContract<
+    Parameters<
+      OptionalOpenRouterSurface["createSupportIndependentChecks"]
+    >["length"] extends 2
+      ? true
+      : false
+  >;
+export type SyntheticIndependentModelHostIsRequired =
+  AssertOptionalProviderContract<
+    Parameters<
+      OptionalOpenRouterSurface["createSupportIndependentCheckModel"]
+    >["length"] extends 2
+      ? true
+      : false
+  >;
+export type SyntheticOptionalOpenRouterFactories = Pick<
+  OptionalOpenRouterSurface,
+  | "createSupportOpenRouterModel"
+  | "createSupportModelUsageLedger"
+  | "createSupportIndependentCheckModel"
+  | "createSupportIndependentChecks"
+>;

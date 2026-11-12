@@ -7,6 +7,17 @@ proof and opaque-version checks remain; older structural ports keep their
 standalone fallback. See the [candidate notes](../../docs/RELEASE_NOTES.md#029-engineering-worker-observations)
 and [worker contract](../../docs/ENGINEERING_EXPORT.md#candidate-029-worker-observations).
 
+The candidate exposes the optional SDK-owned
+`stagedResolutionLearningDelivery` capability with its exact own `prepare`,
+`write` and `complete` methods. It retains one immutable KB request, historical
+acknowledgement, current target checks and atomic claim release at delivery
+checkpoints. Fresh authority, Source/Work/Ticket versions, claim and deadline
+fences remain required. The AI option `deliveryMode: 'staged'` requires the
+original capability and methods before claiming work. Existing inline delivery
+remains available to structural ports. See [staged draft delivery](../../docs/RESOLUTION_LEARNING.md#opt-in-staged-draft-delivery-029-candidate).
+The source candidate is unpublished and current Native Workers Free 50/100
+qualification remains pending.
+
 Authorized customer ticket services and provider-neutral durable outbox
 records for Support Desk. The host supplies an `@pegma/storage-core` `Store`
 and a trusted Authorization Core access context.

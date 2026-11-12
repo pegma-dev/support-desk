@@ -506,19 +506,44 @@ export function createEngineeringWorkerServices(
       throw new SupportDeskNotFoundError();
     return { value: stored.value, version: stored.version };
   }
+  type PreparedTicketRead = Promise<
+    | {
+        readonly ok: true;
+        readonly value: Awaited<ReturnType<typeof records.getVersioned>>;
+      }
+    | { readonly ok: false; readonly error: unknown }
+  >;
+  function prepareTicketRead(ticketId: string): PreparedTicketRead {
+    const failed = (error: unknown) => ({ ok: false as const, error });
+    try {
+      return records
+        .getVersioned({ partition: ticketId, id: "ticket" })
+        .then((value) => ({ ok: true as const, value }), failed);
+    } catch (error) {
+      return Promise.resolve(failed(error));
+    }
+  }
   async function observedModelLoad(
     access: AccessContext,
     command: EngineeringClaimFence,
     actorId: string,
     completion?: string,
+    ticketRead?: PreparedTicketRead,
   ): Promise<
     | { loaded: EngineeringLoaded; stored: EngineeringWorkVersion }
     | { accepted: EngineeringStepResult }
   > {
-    const ticket = await records.getVersioned({
-      partition: command.ticketId,
-      id: "ticket",
-    });
+    const preparedTicket =
+      ticketRead === undefined ? undefined : await ticketRead;
+    if (preparedTicket !== undefined && !preparedTicket.ok)
+      throw preparedTicket.error;
+    const ticket =
+      preparedTicket === undefined
+        ? await records.getVersioned({
+            partition: command.ticketId,
+            id: "ticket",
+          })
+        : preparedTicket.value;
     permission(access, false, actorId);
     if (ticket?.value.kind !== "ticket") throw new SupportDeskNotFoundError();
     const source = await readEngineeringSourceVersion(
@@ -1752,7 +1777,11 @@ export function createEngineeringWorkerServices(
       const runNow = effectiveTime(deps);
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
         permission(access, false, actorId);
+        let ticketRead: PreparedTicketRead | undefined;
         if (observationGuard !== undefined) {
+          // Start both bounded reads in one wave. Exact receipt recovery never
+          // awaits or interprets the speculative Ticket, including its failure.
+          ticketRead = prepareTicketRead(command.ticketId);
           const accepted = await workAt(command);
           permission(access, false, actorId);
           if (accepted.value.lastCompletion?.fingerprint === completion)
@@ -1761,7 +1790,13 @@ export function createEngineeringWorkerServices(
         const observed =
           observationGuard === undefined
             ? undefined
-            : await observedModelLoad(access, command, actorId, completion);
+            : await observedModelLoad(
+                access,
+                command,
+                actorId,
+                completion,
+                ticketRead,
+              );
         if (observed !== undefined && "accepted" in observed)
           return observed.accepted;
         const loaded =

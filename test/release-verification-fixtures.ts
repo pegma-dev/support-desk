@@ -105,6 +105,8 @@ export const releaseVerificationPackages = [
       "@pegma/knowledge-base-contracts": "0.1.6",
       "@pegma/spine": "0.1.2",
       "@pegma/support-desk-application": releaseVerificationVersion,
+      "@pegma/storage-core": "0.4.0",
+      zod: "4.4.3",
     },
   },
 ] as const;
@@ -135,6 +137,16 @@ export function releaseFixtureTarball(manifest: Record<string, unknown>) {
       "export const syntheticRetireGolden = true;\n";
     files["dist/retiregolden.d.ts"] =
       "export declare const syntheticRetireGolden = true;\n";
+  }
+  if (
+    typeof manifest.exports === "object" &&
+    manifest.exports !== null &&
+    "./openrouter" in manifest.exports
+  ) {
+    files["dist/openrouter/index.js"] =
+      "export const syntheticOpenRouter = true;\n";
+    files["dist/openrouter/index.d.ts"] =
+      "export declare const syntheticOpenRouter = true;\n";
   }
   const chunks: Buffer[] = [];
   for (const [name, text] of Object.entries(files)) {
@@ -203,6 +215,14 @@ export function releaseArtifactFixture() {
               "./retiregolden": {
                 types: "./dist/retiregolden.d.ts",
                 import: "./dist/retiregolden.js",
+              },
+            }
+          : {}),
+        ...(definition.directory === "ai"
+          ? {
+              "./openrouter": {
+                types: "./dist/openrouter/index.d.ts",
+                import: "./dist/openrouter/index.js",
               },
             }
           : {}),

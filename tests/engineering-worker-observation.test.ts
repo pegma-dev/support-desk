@@ -320,7 +320,7 @@ for (const [name, createStore] of engineeringStores) {
       },
     );
 
-    it("recovers accepted completion with one exact Work read and refuses changed packets or absent permission", async () => {
+    it("recovers accepted completion with a caught Ticket and exact Work wave and refuses changed packets or absent permission", async () => {
       const observed = readProbe(createStore());
       const f = await engineeringAiFixture(observed.store);
       const ports = workerPorts(f);
@@ -349,6 +349,7 @@ for (const [name, createStore] of engineeringStores) {
         ports.complete(engineeringService, command, guard),
       ).resolves.toMatchObject({ status: "candidate" });
       expect(observed.reads).toEqual([
+        "ticket",
         `engineering-work:${command.sourceGeneration}`,
       ]);
       expect(guard).not.toHaveBeenCalled();

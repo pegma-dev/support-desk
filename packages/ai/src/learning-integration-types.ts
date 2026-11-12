@@ -141,6 +141,8 @@ export interface SupportDeskLearningOptions extends Omit<
   readonly sources: PrivateSourcesVerifier;
   /** Opt in only for the real SDK's read-only application/source graph. Custom ports remain serial. */
   readonly readScheduling?: "sdk";
+  /** Return after each durable delivery checkpoint; resume in a new invocation. */
+  readonly deliveryMode?: "staged";
   /** Current draft/provenance/search and source-read authority; no publish needed. */
   readonly knowledgeAccess: LearningKnowledgeAccessPort;
   /** Separate narrow current retirement/provenance authority; no publish needed. */
@@ -207,7 +209,12 @@ export type LearningProcessResult =
       readonly reason: string;
       readonly result?: ResolutionLearningStepResult;
     }
-  | { readonly outcome: "pending"; readonly stage: "delivery" };
+  | {
+      readonly outcome: "pending";
+      readonly stage: "delivery";
+      /** Durable App progress and claim release; not a custom check port's billing receipt. */
+      readonly checkpoint?: "prepared" | "acknowledged";
+    };
 
 export interface LearningReconciliationResult {
   readonly outcome: "reconciled" | "pending" | "blocked";

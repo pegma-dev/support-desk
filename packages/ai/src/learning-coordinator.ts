@@ -15,6 +15,7 @@ import type {
   SupportDeskLearningOptions,
 } from "./learning-integration-types.js";
 import {
+  hasDirectResolutionLearningDelivery,
   type ResolutionLearningClaim,
   type ResolutionLearningKey,
   type ResolutionLearningSourceResult,
@@ -57,6 +58,8 @@ export function createSupportDeskLearning(
 ): SupportDeskLearning {
   if (options.readScheduling !== undefined && options.readScheduling !== "sdk")
     throw new TypeError("Unknown learning read scheduling");
+  if (options.deliveryMode !== undefined && options.deliveryMode !== "staged")
+    throw new TypeError("Unknown learning delivery mode");
   const attempts = count(options.storageCommandAttempts ?? 2, 3, 1);
   count(options.maxPublishedMatches ?? 5, 5, 1);
   count(options.maxExplicitDrafts ?? 5, 5);
@@ -248,6 +251,13 @@ export function createSupportDeskLearning(
       command: ProcessLearningWorkCommand,
       runOptions: LearningRunOptions = {},
     ): Promise<LearningProcessResult> {
+      if (
+        options.deliveryMode === "staged" &&
+        !hasDirectResolutionLearningDelivery(
+          options.application.stagedResolutionLearningDelivery,
+        )
+      )
+        return { outcome: "held", reason: "staged_delivery_unavailable" };
       const runtime = createLearningRuntime(options, runOptions);
       // A caller replay identity can never be the owner of two physical calls.
       const claimCommand = snapshot({

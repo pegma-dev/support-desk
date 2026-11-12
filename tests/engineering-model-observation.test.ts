@@ -15,6 +15,7 @@ import { createSupportDeskEngineering } from "@pegma/support-desk-ai";
 import { describe, expect, it, vi } from "vitest";
 import {
   engineeringAiFixture,
+  engineeringBarrier,
   engineeringService,
   engineeringStaff,
   engineeringStores,
@@ -23,7 +24,12 @@ import {
 type Read = { method: string; id?: string };
 function observe(backing: Store) {
   const reads: Read[] = [];
+  const forwarded: Read[] = [];
+  const outstanding = new Set<Promise<unknown>>();
   let intercept: ((read: Read) => void | Promise<void>) | undefined;
+  let afterRead: ((read: Read) => void | Promise<void>) | undefined;
+  let serializeTicketBeforeWork = false;
+  let ticketRead: Promise<unknown> | undefined;
   const store: Store = {
     collection<T>(definition: CollectionDefinition<T>) {
       const target = backing.collection(definition);
@@ -46,9 +52,38 @@ function observe(backing: Store) {
               };
               reads.push(read);
               const pending = intercept?.(read);
-              return pending === undefined
-                ? Reflect.apply(value, object, args)
-                : pending.then(() => Reflect.apply(value, object, args));
+              const after = afterRead;
+              const invoke = () => {
+                forwarded.push(read);
+                return Reflect.apply(value, object, args);
+              };
+              const start = () =>
+                pending === undefined ? invoke() : pending.then(invoke);
+              const result =
+                serializeTicketBeforeWork &&
+                read.id === "engineering-work:1" &&
+                ticketRead !== undefined
+                  ? ticketRead.then(start)
+                  : start();
+              const observed =
+                after === undefined
+                  ? Promise.resolve(result)
+                  : Promise.resolve(result).then(async (value) => {
+                      await after(read);
+                      return value;
+                    });
+              outstanding.add(observed);
+              void observed.then(
+                () => {
+                  outstanding.delete(observed);
+                },
+                () => {
+                  outstanding.delete(observed);
+                },
+              );
+              if (serializeTicketBeforeWork && read.id === "ticket")
+                ticketRead = observed;
+              return observed;
             };
           return typeof value === "function" ? value.bind(object) : value;
         },
@@ -58,11 +93,26 @@ function observe(backing: Store) {
   return {
     store,
     reads,
+    forwarded,
     intercept(hook?: typeof intercept) {
       intercept = hook;
     },
+    afterRead(hook?: typeof afterRead) {
+      afterRead = hook;
+    },
+    serializeTicketBeforeWork(enabled: boolean) {
+      serializeTicketBeforeWork = enabled;
+      ticketRead = undefined;
+    },
+    async drain() {
+      while (outstanding.size > 0) await Promise.allSettled([...outstanding]);
+    },
+    pendingCount() {
+      return outstanding.size;
+    },
   };
 }
+
 type Fixture = Awaited<ReturnType<typeof engineeringAiFixture>>;
 async function preparation(f: Fixture) {
   const owner = await f.claim();
@@ -445,6 +495,255 @@ for (const [name, createStore] of engineeringStores) {
           "expired",
         );
       expect((await f.work()).modelAttempts).toHaveLength(1);
+    });
+
+    it("keeps Ticket and receipt Work concurrently in flight and rejects a sequential Store control within a bounded probe", async () => {
+      for (const sequential of [false, true]) {
+        const observed = observe(createStore());
+        const f = await engineeringAiFixture(observed.store);
+        const { complete } = await completion(f);
+        const ticket = engineeringBarrier();
+        const work = engineeringBarrier();
+        let holdTicket = true;
+        let holdWork = true;
+        observed.serializeTicketBeforeWork(sequential);
+        observed.afterRead((read) => {
+          if (read.id === "ticket" && holdTicket) {
+            holdTicket = false;
+            return ticket.wait();
+          }
+          if (read.id === "engineering-work:1" && holdWork) {
+            holdWork = false;
+            return work.wait();
+          }
+        });
+        const pending = observedPorts(f).complete(
+          engineeringService,
+          complete,
+          async (scope) => {
+            await scope.confirm(engineeringService);
+            scope.read(engineeringService);
+          },
+        );
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const concurrent = await Promise.race([
+            Promise.all([ticket.reached, work.reached]).then(() => true),
+            new Promise<boolean>((resolve) => {
+              timer = setTimeout(() => resolve(false), 2_000);
+            }),
+          ]);
+          expect(
+            concurrent,
+            sequential
+              ? "The serial control must not reach Work while the real Ticket ACK is held"
+              : "Both genuine keyed reads must reach their ACK barriers before either is released",
+          ).toBe(!sequential);
+          if (!sequential) expect(observed.pendingCount()).toBe(2);
+        } finally {
+          if (timer !== undefined) clearTimeout(timer);
+          ticket.release();
+          work.release();
+          try {
+            await expect(pending).resolves.toMatchObject({
+              status: "candidate",
+            });
+            await observed.drain();
+          } finally {
+            observed.intercept();
+            observed.afterRead();
+            observed.serializeTicketBeforeWork(false);
+          }
+        }
+        expect(observed.pendingCount()).toBe(0);
+        expect((await f.work()).candidate).toEqual(f.assessment());
+        expect((await f.work()).modelAttempts).toHaveLength(1);
+        expect(f.generate).not.toHaveBeenCalled();
+      }
+    });
+
+    it.each(["throw", "reject", "pending"] as const)(
+      "recovers an exact accepted receipt without awaiting or interpreting a %s Ticket preload",
+      async (failure) => {
+        const observed = observe(createStore());
+        const f = await engineeringAiFixture(observed.store);
+        const { complete } = await completion(f);
+        const accepted = await observedPorts(f).complete(
+          engineeringService,
+          complete,
+          async (scope) => {
+            await scope.confirm(engineeringService);
+            scope.read(engineeringService);
+          },
+        );
+        const before = await f.rows();
+        const barrier = engineeringBarrier();
+        const ticketError = new Error(
+          "synthetic speculative Ticket unavailable",
+        );
+        const guard = vi.fn(async () => {
+          throw new Error("Exact receipt must bypass guard");
+        });
+        observed.reads.length = 0;
+        observed.intercept((read) => {
+          if (read.id !== "ticket") return;
+          if (failure === "throw") throw ticketError;
+          if (failure === "reject") return Promise.reject(ticketError);
+        });
+        observed.afterRead((read) => {
+          if (failure !== "pending") return;
+          if (read.id === "ticket") return barrier.wait();
+          // Deliver Work only once the actual Ticket read is parked at its ACK.
+          if (read.id === "engineering-work:1") return barrier.reached;
+        });
+        try {
+          await expect(
+            observedPorts(f).complete(
+              {
+                ...engineeringService,
+                permissions: [supportPermissions.engineeringProcess],
+              },
+              complete,
+              guard,
+            ),
+          ).resolves.toEqual(accepted);
+          expect(guard).not.toHaveBeenCalled();
+          expect(
+            observed.reads.some(
+              (read) =>
+                read.id === "engineering-source" || read.method === "list",
+            ),
+          ).toBe(false);
+          const forwardedAtReturn = observed.forwarded.length;
+          barrier.release();
+          await observed.drain();
+          expect(observed.pendingCount()).toBe(0);
+          expect(observed.forwarded).toHaveLength(forwardedAtReturn);
+          const replacement = vi.fn();
+          observed.afterRead(replacement);
+          await Promise.resolve();
+          await observed.drain();
+          expect(replacement).not.toHaveBeenCalled();
+          expect(observed.forwarded).toHaveLength(forwardedAtReturn);
+        } finally {
+          barrier.release();
+          await observed.drain();
+          observed.intercept();
+          observed.afterRead();
+        }
+        expect(await f.rows()).toEqual(before);
+      },
+    );
+
+    it.each(["throw", "reject"] as const)(
+      "surfaces the actual %s Ticket failure when no completion receipt exists",
+      async (failure) => {
+        const observed = observe(createStore());
+        const f = await engineeringAiFixture(observed.store);
+        const { complete } = await completion(f);
+        const before = await f.rows();
+        const ticketError = new Error("synthetic required Ticket unavailable");
+        const guard = vi.fn(async () => {});
+        observed.reads.length = 0;
+        observed.intercept((read) => {
+          if (read.id !== "ticket") return;
+          if (failure === "throw") throw ticketError;
+          return Promise.reject(ticketError);
+        });
+        await expect(
+          observedPorts(f).complete(engineeringService, complete, guard),
+        ).rejects.toBe(ticketError);
+        expect(guard).not.toHaveBeenCalled();
+        expect(
+          observed.reads.some(
+            (read) =>
+              read.id === "engineering-source" || read.method === "list",
+          ),
+        ).toBe(false);
+        observed.intercept();
+        expect(await f.rows()).toEqual(before);
+      },
+    );
+
+    it("retries the real Ticket CAS after a preloaded opaque version changes", async () => {
+      const backing = createStore();
+      const observed = observe(backing);
+      const f = await engineeringAiFixture(observed.store);
+      const { complete } = await completion(f);
+      let changed = false;
+      observed.afterRead(async (read) => {
+        if (read.id === "ticket" && !changed) {
+          changed = true;
+          await advanceVersion(backing, { partition: "ticket", id: "ticket" });
+        }
+      });
+      const guard = vi.fn(async (scope: EngineeringModelObservation) => {
+        await scope.confirm(engineeringService);
+        scope.read(engineeringService);
+      });
+      await expect(
+        observedPorts(f).complete(engineeringService, complete, guard),
+      ).resolves.toMatchObject({ status: "candidate" });
+      expect(changed).toBe(true);
+      expect(guard).toHaveBeenCalledTimes(2);
+      expect((await f.work()).modelAttempts).toHaveLength(1);
+      expect((await f.work()).candidate).toEqual(f.assessment());
+    });
+
+    it("rejects new completion after the real Ticket is reopened during preload", async () => {
+      const observed = observe(createStore());
+      const f = await engineeringAiFixture(observed.store);
+      const { complete } = await completion(f);
+      let changed = false;
+      let after: Awaited<ReturnType<Fixture["rows"]>> | undefined;
+      observed.afterRead(async (read) => {
+        if (read.id === "ticket" && !changed) {
+          changed = true;
+          await f.app.resolveTicket(
+            engineeringStaff,
+            f.command("resolved-during-completion-preload"),
+          );
+          await f.app.reopenTicket(
+            engineeringStaff,
+            f.command("reopened-during-completion-preload"),
+          );
+          after = await f.rows();
+        }
+      });
+      const guard = vi.fn(async () => {});
+      await expect(
+        observedPorts(f).complete(engineeringService, complete, guard),
+      ).rejects.toThrow();
+      expect(changed).toBe(true);
+      expect(guard).not.toHaveBeenCalled();
+      expect((await f.work()).candidate).toBeUndefined();
+      expect(await f.rows()).toEqual(after);
+    });
+
+    it("rejects new completion with a missing real Ticket without changing retained Work", async () => {
+      const observed = observe(createStore());
+      const f = await engineeringAiFixture(observed.store);
+      const { complete } = await completion(f);
+      const records = f.store.collection(supportRecords);
+      const ticket = await records.getVersioned({
+        partition: "ticket",
+        id: "ticket",
+      });
+      if (ticket === null)
+        throw new Error("Actual Ticket missing before deletion");
+      expect(
+        await records.deleteIfUnchanged(
+          { partition: "ticket", id: "ticket" },
+          ticket.version,
+        ),
+      ).toBe(true);
+      const before = await f.rows();
+      const guard = vi.fn(async () => {});
+      await expect(
+        observedPorts(f).complete(engineeringService, complete, guard),
+      ).rejects.toThrow();
+      expect(guard).not.toHaveBeenCalled();
+      expect(await f.rows()).toEqual(before);
     });
 
     it("recovers an exact accepted completion after withdrawal and read-grant loss without new proof", async () => {

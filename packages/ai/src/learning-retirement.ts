@@ -369,7 +369,15 @@ export function createLearningReconciler(
     try {
       const initialAuthority = await authority();
       const initial = await readView(initialAuthority);
-      for (const original of initial.destinations) {
+      const destinations =
+        options.deliveryMode === "staged"
+          ? initial.destinations
+              .filter(
+                (destination) => destination.reconciliation !== "confirmed",
+              )
+              .slice(0, 1)
+          : initial.destinations;
+      for (const original of destinations) {
         if (original.reconciliation === "confirmed") continue;
         processedDestinations += 1;
         let resolved = false;
@@ -456,21 +464,24 @@ export function createLearningReconciler(
               expectedGeneration: kb.generation,
               sourceSnapshotHash: kb.published?.hash ?? kb.current.hash,
             });
+            let retirementAttempted = false;
             try {
               await confirmObservation();
               const fresh = await sameAuthority(current);
-              await runtime.within(() =>
-                knowledge.retireArticle(fresh.access, {
+              await runtime.within(() => {
+                retirementAttempted = true;
+                return knowledge.retireArticle(fresh.access, {
                   articleId: kb.articleId,
                   expectedGeneration: kb.generation,
                   commandId: `support-learning-retire:${operationHash}`,
                   correlationId: `support-learning-reconcile:${operationHash}`,
-                }),
-              );
+                });
+              });
             } catch {
               // Every invoked KB error may follow acceptance. The next bounded
               // pass reobserves full membership; equal observations reuse this ID.
             }
+            if (options.deliveryMode === "staged" && retirementAttempted) break;
             continue;
           }
           if (
