@@ -177,13 +177,17 @@ export function defineCannedResponseCatalog(
   input: unknown,
 ): readonly CannedResponseDefinition[] {
   if (input === undefined) return Object.freeze([]);
-  if (
-    !Array.isArray(input) ||
-    input.length > 64 ||
-    Reflect.ownKeys(input).length !== input.length + 1
-  )
+  if (!Array.isArray(input))
+    throw new TypeError(
+      "Canned response catalog must be an array of definitions",
+    );
+  if (input.length > 64)
     throw new TypeError(
       "Canned response catalog must contain at most 64 definitions",
+    );
+  if (Reflect.ownKeys(input).length !== input.length + 1)
+    throw new TypeError(
+      "Canned response catalog must be a dense array without extra properties",
     );
   const result: CannedResponseDefinition[] = [];
   const seen = new Set<string>();

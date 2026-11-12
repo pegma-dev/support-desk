@@ -452,8 +452,9 @@ The catalog accepts at most 64 physical versions, with no duplicate `(id, versio
 IDs and variable names match `^[a-z][a-z0-9_]{0,31}$`; versions are positive safe
 integers. Titles are at most 120 characters, templates and expanded messages at
 most 16,000 UTF-16 code units, with at most 16 unique variables and 2,000 code
-units per supplied value. Application `maxMessageCharacters` may impose a lower
-bound. Values must match the declared variables exactly. Empty/whitespace-only
+units per supplied value. Application `limits.maxMessageCharacters` may impose
+a stricter upper limit, counted in Unicode code points rather than UTF-16 code
+units. Values must match the declared variables exactly. Empty/whitespace-only
 text, controls (except tab, CR and LF in message text), unknown fields,
 accessors, inherited fields, sparse arrays and hidden properties are refused.
 Tokens are only `{{name}}`; substitution is literal, single-pass, and never reads
@@ -463,6 +464,10 @@ interpret substituted content as Markdown or executable markup.
 
 An unavailable version, invalid expansion or wrong target is a `TypeError` before
 new ticket writes. Existing revision/capacity errors and HTTP mapping apply.
+Server diagnostics distinguish an unavailable version, a target mismatch and
+an expanded-body mismatch, without including template content or values. Keep
+the browser-facing validation response stable and content-free; do not expose
+raw exception messages or parse them as an API contract.
 The command fingerprint binds the body, exact version, canonical value map,
 revision hint, attachments and notification. Exact accepted replay is checked
 before catalog lookup, so withdrawing a definition refuses new uses without

@@ -125,18 +125,33 @@ for (const [name, fixture] of [
       const store = fixture();
       const app = await setup(store);
       const before = await store.collection(supportRecords).list("ticket");
-      for (const command of [
-        { ...reply, body: "Edited without a matching preview" },
-        { ...reply, cannedResponse: { ...selection, version: 2 } },
-        { ...reply, cannedResponse: { id: "missing", version: 1, values: {} } },
-        {
-          ...reply,
-          body: catalog[1]!.body,
-          cannedResponse: { id: "investigate", version: 2, values: {} },
-        },
-      ])
+      for (const [command, diagnostic] of [
+        [
+          { ...reply, body: "Edited without a matching preview" },
+          "Canned response body does not match the approved expansion",
+        ],
+        [
+          { ...reply, cannedResponse: { ...selection, version: 2 } },
+          "Canned response version is unavailable",
+        ],
+        [
+          {
+            ...reply,
+            cannedResponse: { id: "missing", version: 1, values: {} },
+          },
+          "Canned response version is unavailable",
+        ],
+        [
+          {
+            ...reply,
+            body: catalog[1]!.body,
+            cannedResponse: { id: "investigate", version: 2, values: {} },
+          },
+          "Canned response target does not match the staff command",
+        ],
+      ] as const)
         await expect(app.replyAsStaff(staff, command)).rejects.toThrow(
-          TypeError,
+          new TypeError(diagnostic),
         );
       await expect(app.addNote(staff, reply)).rejects.toThrow(TypeError);
       expect(await store.collection(supportRecords).list("ticket")).toEqual(
@@ -212,8 +227,12 @@ for (const [name, fixture] of [
         cannedResponseId: "investigate",
         cannedResponseVersion: "2",
       });
+      const topic = '<b>question & "details"</b>';
+      const publicBody = `We will review ${topic}.`;
       const accepted = await app.replyAsStaff(staff, {
         ...reply,
+        body: publicBody,
+        cannedResponse: { ...selection, values: { topic } },
         commandId: "public-reply",
         messageId: "public-reply",
         expectedRevision: 2,
@@ -230,7 +249,7 @@ for (const [name, fixture] of [
       const visible = await app.readCustomerTicket(customer, "ticket");
       expect(visible.messages.map((item) => item.body)).toEqual([
         "Please help",
-        reply.body,
+        publicBody,
       ]);
       expect(JSON.stringify(visible)).not.toMatch(
         /investigate|cannedResponse|acknowledge|Private investigation/,
@@ -249,7 +268,10 @@ for (const [name, fixture] of [
         }),
         { message: visible.messages.at(-1)!.body },
       );
-      expect(html.html).toBe("<p>We will review your question.</p>");
+      expect(html.plainText).toBe(publicBody);
+      expect(html.html).toBe(
+        "<p>We will review &lt;b&gt;question &amp; &quot;details&quot;&lt;/b&gt;.</p>",
+      );
       expect(
         JSON.stringify(rows.filter((row) => row.kind === "delivery_job")),
       ).not.toMatch(/cannedResponse|investigate|Private investigation/);

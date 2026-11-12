@@ -4605,13 +4605,15 @@ export function createSupportDeskApplication(options: {
     const definition = cannedResponses.find(
       (item) => item.id === selection.id && item.version === selection.version,
     );
-    if (
-      definition === undefined ||
-      definition.target !== target ||
-      renderCannedResponse(definition, selection.values) !== command.body
-    )
+    if (definition === undefined)
+      throw new TypeError("Canned response version is unavailable");
+    if (definition.target !== target)
       throw new TypeError(
-        "Canned response is unavailable or does not match the approved body and target",
+        "Canned response target does not match the staff command",
+      );
+    if (renderCannedResponse(definition, selection.values) !== command.body)
+      throw new TypeError(
+        "Canned response body does not match the approved expansion",
       );
   }
   const allowedTags = new Set(

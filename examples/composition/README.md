@@ -11,6 +11,9 @@ or a real mail SDK.
 - customer create, list, read, and reply through
   `@pegma/support-desk-application`;
 - staff detail, queue, note, assign, priority, and reply;
+- `runCannedResponseExampleFlow`: a data-only preview followed by explicit staff
+  reply/note commands, exact committed replay, customer isolation and
+  transactional template provenance;
 - `runLifecycleExampleFlow`: normalized staff tags, the synthetic host
   response-target policy (also wired to inbound), due-soon queue filtering,
   first response and resolution milestones, safe stale-revision hints, and

@@ -83,6 +83,10 @@ describe("plain-text canned responses", () => {
 
   it("validates and snapshots the bounded deployment catalog, including every physical slot", () => {
     expect(defineCannedResponseCatalog(undefined)).toEqual([]);
+    for (const input of [null, "mistyped", { review: definition }])
+      expect(() => defineCannedResponseCatalog(input)).toThrow(
+        "must be an array of definitions",
+      );
     expect(() =>
       defineCannedResponseCatalog(Array(65).fill(definition)),
     ).toThrow(TypeError);
@@ -101,7 +105,12 @@ describe("plain-text canned responses", () => {
     expect(() => defineCannedResponse({ ...definition, variables })).toThrow(
       TypeError,
     );
-    expect(() => defineCannedResponseCatalog(new Array(1))).toThrow(TypeError);
+    expect(() => defineCannedResponseCatalog(new Array(1))).toThrow(
+      "must be a dense array without extra properties",
+    );
+    expect(() =>
+      defineCannedResponseCatalog(Object.assign([definition], { extra: true })),
+    ).toThrow("must be a dense array without extra properties");
     expect(() => defineCannedResponse(Object.create(definition))).toThrow(
       TypeError,
     );
