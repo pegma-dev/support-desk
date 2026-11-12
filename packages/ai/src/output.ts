@@ -49,6 +49,16 @@ export function modelUsage(
   result: AssistantModelResult,
   config: VerifiedAssistantConfiguration,
 ): AssistantModelUsage {
+  const usage = observedModelUsage(result, config);
+  assertModelUsageBudget(usage, config);
+  return usage;
+}
+
+/** A representable provider charge remains known even when it exceeds permission. */
+export function observedModelUsage(
+  result: AssistantModelResult,
+  config: VerifiedAssistantConfiguration,
+): AssistantModelUsage {
   if (result.provider !== config.provider || result.model !== config.model)
     throw new AssistantBoundaryError("provider_mismatch");
   scalar(result.provider);
@@ -56,15 +66,26 @@ export function modelUsage(
   scalar(result.requestId);
   const usage = snapshot(result.usage);
   exactKeys(usage, ["inputTokens", "outputTokens", "costMicros", "currency"]);
+  count(usage.inputTokens, Number.MAX_SAFE_INTEGER);
+  count(usage.outputTokens, Number.MAX_SAFE_INTEGER);
+  count(usage.inputTokens + usage.outputTokens, Number.MAX_SAFE_INTEGER);
+  count(usage.costMicros, Number.MAX_SAFE_INTEGER);
+  scalar(usage.currency, 12);
+  if (usage.currency !== config.budgets.currency)
+    throw new AssistantBoundaryError("budget_exceeded");
+  return usage;
+}
+
+/** Accepting a billing observation never authorizes an over-budget answer. */
+export function assertModelUsageBudget(
+  usage: AssistantModelUsage,
+  config: VerifiedAssistantConfiguration,
+): void {
   count(usage.inputTokens, config.budgets.maxInputTokens);
   count(usage.outputTokens, config.budgets.maxOutputTokens);
   if (usage.inputTokens + usage.outputTokens > config.budgets.maxContextTokens)
     throw new AssistantBoundaryError("budget_exceeded");
   count(usage.costMicros, config.budgets.maxCostMicros);
-  scalar(usage.currency, 12);
-  if (usage.currency !== config.budgets.currency)
-    throw new AssistantBoundaryError("budget_exceeded");
-  return usage;
 }
 
 export function processingMetadata(

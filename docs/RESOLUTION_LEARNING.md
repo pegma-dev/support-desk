@@ -3,14 +3,14 @@
 SD-03's source merged in [PR #39](https://github.com/pegma-dev/support-desk/pull/39)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current synchronized release is `0.2.5`; see its
-[publication receipt](RELEASING.md#verified-025-publication-2026-11-11).
+The current synchronized release is `0.2.6`; see its
+[publication receipt](RELEASING.md#verified-026-publication-2026-11-11).
 The ticket application implements enrollment, structured resolution evidence,
 durable work, exact staff review, invalidation, withdrawal, and reconciliation
 records. The optional AI package adds bounded model processing, KB draft
 delivery, exact staff review, and source retirement/reconciliation through
 `createSupportDeskLearning`, with read-only callbacks from
-`createSupportDeskLearningSourceVerifier`. The current AI `0.2.5` release
+`createSupportDeskLearningSourceVerifier`. The current AI `0.2.6` release
 consumes the application and contracts packages from the verified
 [KB `0.1.5` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.5).
 The initial SD-03 release consumed

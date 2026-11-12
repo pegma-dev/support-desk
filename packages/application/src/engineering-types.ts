@@ -302,6 +302,11 @@ export interface EngineeringKey {
 export interface EngineeringSourceFence extends EngineeringKey {
   readonly sourceBindingHash: string;
 }
+/** One bounded authorized read; no Work is read for an ineligible/different Source. */
+export interface EngineeringReadContext {
+  readonly source: EngineeringSourceRecord;
+  readonly work?: EngineeringWorkRecord;
+}
 export interface EngineeringClaimFence extends EngineeringKey {
   readonly workerId: string;
   readonly claimId: string;
@@ -511,9 +516,21 @@ export interface RecordEngineeringReconciliationCommand extends EngineeringKey {
     | { readonly outcome: "unknown"; readonly reason?: string };
 }
 export type EngineeringCommitGuard = () => void | Promise<void>;
+/** One review attempt's existing observations; opaque versions never leave the app. */
+export interface EngineeringReviewObservation {
+  readWork(access: AccessContext): EngineeringWorkRecord;
+  read(access: AccessContext): {
+    readonly source: EngineeringSourceRecord;
+    readonly work: EngineeringWorkRecord;
+    readonly policy: EngineeringPolicySnapshot;
+  };
+  /** Source-first confirmation after external proof; the transaction fences Ticket. */
+  confirm(access: AccessContext): Promise<void>;
+}
 /** A review guard may supply a synchronous proof check for the transaction boundary. */
-export type EngineeringReviewCommitGuard = () =>
-  void | (() => true) | Promise<void | (() => true)>;
+export type EngineeringReviewCommitGuard = (
+  observation?: EngineeringReviewObservation,
+) => void | (() => true) | Promise<void | (() => true)>;
 
 /** Optional live host fence for the seven documented engineering controls. */
 export interface EngineeringMutationOptions {
@@ -550,6 +567,11 @@ export interface EngineeringApplication {
     access: AccessContext,
     key: EngineeringKey,
   ): Promise<EngineeringWorkRecord>;
+  /** Optional combined view; older application implementations remain compatible. */
+  readEngineeringContext?(
+    access: AccessContext,
+    fence: EngineeringSourceFence,
+  ): Promise<EngineeringReadContext>;
   scanEngineeringCandidates(
     access: AccessContext,
     bounds: { readonly limit: number; readonly cursor?: string },

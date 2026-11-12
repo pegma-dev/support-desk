@@ -32,6 +32,7 @@ import type {
   EngineeringRoutingDecision,
   EngineeringStepResult,
   EngineeringPolicySnapshot,
+  EngineeringReviewObservation,
 } from "./engineering-types.js";
 import {
   safeEngineeringSnapshot as snapshot,
@@ -2157,14 +2158,95 @@ export function createEngineeringWorkerServices(
         reserveReachable(next);
         deps.admission(loaded.ticket.value.ticket, loaded.rows, 2);
         const result = outcome(next);
+        let observation: EngineeringReviewObservation | undefined;
+        let observing = true;
         if (command.decision === "approve") {
           await currentRepository(proposal.request);
-          await freshPolicy(access, proposal);
+          const policy = await freshPolicy(access, proposal);
+          const readPermission = (
+            reader: AccessContext,
+            principal = reader.principalId,
+          ) => {
+            text(reader.principalId, "principalId");
+            if (!observing || reader.principalId !== principal)
+              throw new SupportDeskConflictError(
+                "Engineering review observation expired",
+              );
+            for (const name of [
+              supportPermissions.engineeringRead,
+              supportPermissions.queueRead,
+            ])
+              if (!hasPermission(reader, name))
+                throw new SupportDeskAuthorizationError(name);
+            if (
+              loaded.source.value.security !== "ordinary" ||
+              loaded.source.value.state === "restricted" ||
+              work.security !== "ordinary" ||
+              work.status === "restricted" ||
+              (work.candidate !== undefined &&
+                work.candidate.security !== "ordinary")
+            )
+              if (
+                !hasPermission(
+                  reader,
+                  supportPermissions.engineeringRestrictedRead,
+                )
+              )
+                throw new SupportDeskAuthorizationError(
+                  supportPermissions.engineeringRestrictedRead,
+                );
+          };
+          observation = {
+            readWork(reader) {
+              readPermission(reader);
+              return snapshot(work);
+            },
+            read(reader) {
+              readPermission(reader);
+              if (
+                !hasPermission(reader, supportPermissions.engineeringProcess) &&
+                !hasPermission(reader, supportPermissions.engineeringPolicyRead)
+              )
+                throw new SupportDeskAuthorizationError(
+                  supportPermissions.engineeringPolicyRead,
+                );
+              return {
+                source: snapshot(loaded.source.value),
+                work: snapshot(work),
+                policy: snapshot(policy),
+              };
+            },
+            async confirm(reader) {
+              const principal = reader.principalId;
+              readPermission(reader, principal);
+              const source = await records.getVersioned(
+                engineeringSourceKey(command.ticketId),
+              );
+              readPermission(reader, principal);
+              if (source?.version !== loaded.source.version)
+                throw new SupportDeskConflictError(
+                  "Engineering review source changed",
+                );
+              const latestWork = await records.getVersioned(
+                engineeringWorkKey(command.ticketId, command.sourceGeneration),
+              );
+              readPermission(reader, principal);
+              if (latestWork?.version !== stored.version)
+                throw new SupportDeskConflictError(
+                  "Engineering review work changed",
+                );
+            },
+          };
         }
         // The host's current-browser guard follows every SDK external proof
         // await. Rejection needs no export proof, but honors a supplied guard.
-        const assertProofCurrent =
-          guard === undefined ? undefined : await guard();
+        let assertProofCurrent;
+        try {
+          assertProofCurrent =
+            guard === undefined ? undefined : await guard(observation);
+        } finally {
+          observing = false;
+        }
         permission(access, true, actorId);
         if (!current(loaded, work) || runNow() >= deadline)
           throw new SupportDeskConflictError(

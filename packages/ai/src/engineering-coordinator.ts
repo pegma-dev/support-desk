@@ -2,6 +2,7 @@ import type { AccessContext } from "@pegma/authorization-core";
 import type {
   ClaimEngineeringWorkCommand,
   EngineeringClaim,
+  EngineeringReviewObservation,
   ReviewEngineeringProposalCommand,
 } from "@pegma/support-desk-application";
 import type {
@@ -192,7 +193,7 @@ export function createSupportDeskEngineering(
               ? error.category
               : "verification_unavailable",
           );
-        const guard = async () => {
+        const guard = async (observation?: EngineeringReviewObservation) => {
           try {
             let deadline = runtime.deadline;
             ensureCurrent(deadline);
@@ -200,12 +201,14 @@ export function createSupportDeskEngineering(
             // still checks the invocation and original staff authority.
             if (command.decision === "approve") {
               const work = snapshot(
-                await runtime.within(() =>
-                  options.application.readEngineeringWork(access, {
-                    ticketId: command.ticketId,
-                    sourceGeneration: command.sourceGeneration,
-                  }),
-                ),
+                observation === undefined
+                  ? await runtime.within(() =>
+                      options.application.readEngineeringWork(access, {
+                        ticketId: command.ticketId,
+                        sourceGeneration: command.sourceGeneration,
+                      }),
+                    )
+                  : observation.readWork(access),
               );
               ensureCurrent();
               const proposal = work.proposal;
@@ -215,10 +218,11 @@ export function createSupportDeskEngineering(
                 work.workGeneration !== command.expectedWorkGeneration
               )
                 throw new AssistantBoundaryError("proposal_changed");
-              processingAuthority ??= await engineeringProcessingAuthority(
-                options.serviceAccess,
-                runtime,
-              );
+              if (observation === undefined)
+                processingAuthority ??= await engineeringProcessingAuthority(
+                  options.serviceAccess,
+                  runtime,
+                );
               ensureCurrent();
               deadline = await engineeringProposalGuard(
                 options,
@@ -227,6 +231,10 @@ export function createSupportDeskEngineering(
                 runtime,
                 deadline,
                 processingAuthority,
+                observation,
+                (authority) => {
+                  processingAuthority ??= authority;
+                },
               );
               ensureCurrent(deadline);
             }

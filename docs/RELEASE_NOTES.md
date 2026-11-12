@@ -1,10 +1,55 @@
 # Release notes
 
-## 0.2.6 candidate — guarded engineering controls
+<a id="027-engineering-read-batching"></a>
 
-**Unpublished source candidate.** All five local package versions and internal
-Support pins target `0.2.6`; the current verified registry release remains
-[`0.2.5`](RELEASING.md#verified-025-publication-2026-11-11).
+## 0.2.7 candidate — engineering read batching
+
+All five local package versions and internal Support pins target source version
+`0.2.7`, which remains unpublished. The optional AI package and matching
+development graph pin exact KB application/contracts `0.1.6`, from the
+[verified public KB release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6)
+at signed source `b2946e149078e0ef460f970c2271c196ea9fc759`. The earlier
+published Support `0.2.6` tuple retains its exact KB `0.1.5` dependencies.
+
+The answer coordinator records valid, matching and representable actual
+provider usage before enforcing answer budgets. An over-budget response is
+rejected and handed to human support while its known usage is reconciled under
+the existing reservation identity. Invalid identity/currency or nonfinite or
+unrepresentable usage retains conservative unknown-usage handling. Budget caps
+and public ports are unchanged.
+
+The optional application method `readEngineeringContext(access, fence)`
+returns an authorized `EngineeringReadContext` with `source` and optional
+`work`. It shares Source/Ticket hydration while retaining Source-first
+permission, privacy and fence checks before Work reads, plus later opaque
+Source/Work confirmations. Standalone readers retain their conditional read
+order. The AI coordinator uses the context when available and keeps its
+sequential Source-validation/Work fallback for structural ports that omit it.
+The shared `matchesEngineeringSourceFence` helper uses the same eligibility
+and fence checks. Receipt-first recovery, independent export proofs, expiry
+checks and conditional transactions remain unchanged. There is no new
+permission, Store primitive, cache or atomic-snapshot promise.
+
+Approval guards may receive an optional lazy `EngineeringReviewObservation`
+for the same attempt's authorized Work, Source and pre-guard policy. The AI
+coordinator uses current service access and confirms Source then Work after
+external proof. The existing transaction still fences Ticket/Source/Work; final
+policy, late host and closing authority checks remain. Existing guards may
+ignore the argument, and older structural ports retain the standalone read
+fallback. The observation expires when that guard settles.
+
+The [engineering guide](ENGINEERING_EXPORT.md#entry-points-and-authority)
+describes the read phases. This change does not establish a host's complete
+Workers query/CPU budget, provider qualification, deployment or activation.
+
+<a id="026-candidate--guarded-engineering-controls"></a>
+
+## 0.2.6 — guarded engineering controls, 2026-11-11
+
+All five synchronized packages and exact internal Support pins are published
+and strictly verified at `0.2.6`. The
+[publication receipt](RELEASING.md#verified-026-publication-2026-11-11)
+records the unchanged original artifacts and authenticated recovery.
 
 Seven engineering application controls accept an optional third
 `EngineeringMutationOptions` argument: enrollment, evidence submission,
@@ -21,8 +66,8 @@ excludes a new commit; an uncertain handoff still needs exact-command recovery.
 This does not make independent host authority stores part of the Support
 transaction. See the [engineering contract](ENGINEERING_EXPORT.md#026-candidate-guarded-engineering-controls)
 and [upgrade guide](UPGRADING.md#unpublished-026-guarded-engineering-controls).
-There is no new layout, model/provider dependency or AI coordinator method;
-exact KB `0.1.5` pins and existing publication/host-qualification gates remain.
+The release adds no layout, model/provider dependency or AI coordinator method.
+Its exact KB pins remain `0.1.5`; host qualification and activation remain separate.
 
 <a id="025-candidate--attachments-and-staged-human-learning-reviews"></a>
 

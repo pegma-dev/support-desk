@@ -26,6 +26,7 @@ import {
   engineeringSourceKey,
   engineeringWorkKey,
   safeEngineeringSnapshot as snapshot,
+  matchesEngineeringSourceFence,
   validateEngineeringEvidence,
   validateEngineeringEvidenceInput,
   validateEngineeringProduct,
@@ -48,6 +49,9 @@ import type {
   EngineeringEvidence,
   EngineeringIssueAcknowledgement,
   EngineeringMismatch,
+  EngineeringKey,
+  EngineeringSourceFence,
+  EngineeringReadContext,
   EngineeringMutationOptions,
   EngineeringProductContext,
   EngineeringSecurity,
@@ -66,6 +70,7 @@ type EvidenceMethods = Pick<
   | "withdrawEngineeringSource"
   | "readEngineeringSource"
   | "readEngineeringWork"
+  | "readEngineeringContext"
 >;
 
 class EngineeringTrustUnavailable extends Error {}
@@ -677,6 +682,133 @@ export function createEngineeringEvidenceServices(
     throw new SupportDeskConflictError();
   }
 
+  function readContext(
+    access: AccessContext,
+    key: EngineeringKey,
+  ): Promise<EngineeringWorkRecord>;
+  function readContext(
+    access: AccessContext,
+    key: EngineeringKey,
+    fence: EngineeringSourceFence,
+  ): Promise<EngineeringReadContext>;
+  async function readContext(
+    access: AccessContext,
+    key: EngineeringKey,
+    fence?: EngineeringSourceFence,
+  ): Promise<EngineeringReadContext | EngineeringWorkRecord> {
+    const actorId = access.principalId;
+    permission(access, supportPermissions.engineeringRead, actorId);
+    const input = snapshot(
+      fields(key, "engineering work key", ["ticketId", "sourceGeneration"]),
+    ) as unknown as typeof key;
+    text(input.ticketId, "ticketId");
+    integer(input.sourceGeneration, "sourceGeneration", 1);
+    for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
+      const source = await readEngineeringSourceVersion(
+        records,
+        input.ticketId,
+      );
+      permission(access, supportPermissions.engineeringRead, actorId);
+      if (source === null) throw new SupportDeskNotFoundError();
+      privateRead(access, source.value.security, actorId);
+      if (source.value.state === "restricted")
+        permission(
+          access,
+          supportPermissions.engineeringRestrictedRead,
+          actorId,
+        );
+      // A terminal or different Source cannot authorize a Work read. Keep
+      // the Source reader's Ticket/opaque-version checks before returning it.
+      if (
+        fence !== undefined &&
+        !matchesEngineeringSourceFence(source.value, fence)
+      ) {
+        if (source.value.state !== "withdrawn") {
+          const ticket = await records.get({
+            partition: input.ticketId,
+            id: "ticket",
+          });
+          permission(access, supportPermissions.engineeringRead, actorId);
+          if (ticket?.kind !== "ticket") throw new SupportDeskNotFoundError();
+        }
+        const latest = await readEngineeringSourceVersion(
+          records,
+          input.ticketId,
+        );
+        permission(access, supportPermissions.engineeringRead, actorId);
+        if (latest?.version !== source.version) continue;
+        privateRead(access, source.value.security, actorId);
+        if (source.value.state === "restricted")
+          permission(
+            access,
+            supportPermissions.engineeringRestrictedRead,
+            actorId,
+          );
+        return { source: snapshot(source.value) };
+      }
+      const work = await records.getVersioned(
+        engineeringWorkKey(input.ticketId, input.sourceGeneration),
+      );
+      permission(access, supportPermissions.engineeringRead, actorId);
+      if (work?.value.kind !== "engineering_work")
+        throw new SupportDeskNotFoundError();
+      privateRead(access, source.value.security, actorId);
+      privateRead(access, work.value.security, actorId);
+      if (
+        source.value.state === "restricted" ||
+        work.value.status === "restricted" ||
+        (work.value.candidate !== undefined &&
+          work.value.candidate.security !== "ordinary")
+      )
+        permission(
+          access,
+          supportPermissions.engineeringRestrictedRead,
+          actorId,
+        );
+      if (source.value.state !== "withdrawn") {
+        const ticket = await records.get({
+          partition: input.ticketId,
+          id: "ticket",
+        });
+        permission(access, supportPermissions.engineeringRead, actorId);
+        if (ticket?.kind !== "ticket") throw new SupportDeskNotFoundError();
+      }
+      const latest = await readEngineeringSourceVersion(
+        records,
+        input.ticketId,
+      );
+      permission(access, supportPermissions.engineeringRead, actorId);
+      const latestWork = await records.getVersioned(
+        engineeringWorkKey(input.ticketId, input.sourceGeneration),
+      );
+      permission(access, supportPermissions.engineeringRead, actorId);
+      if (
+        latest?.version !== source.version ||
+        latestWork?.version !== work.version
+      )
+        continue;
+      privateRead(access, source.value.security, actorId);
+      privateRead(access, work.value.security, actorId);
+      if (
+        source.value.state === "restricted" ||
+        work.value.status === "restricted" ||
+        (work.value.candidate !== undefined &&
+          work.value.candidate.security !== "ordinary")
+      )
+        permission(
+          access,
+          supportPermissions.engineeringRestrictedRead,
+          actorId,
+        );
+      // Project synchronously after the final permission/version checks, so the
+      // legacy reader adds no asynchronous handoff after its closing checks.
+      return fence === undefined
+        ? snapshot(work.value)
+        : { source: snapshot(source.value), work: snapshot(work.value) };
+    }
+    throw new SupportDeskConflictError();
+  }
+
   const application: EvidenceMethods = {
     async enrollEngineeringSource(access, input, control) {
       const mutation = engineeringMutationBoundary(control);
@@ -1229,85 +1361,26 @@ export function createEngineeringEvidenceServices(
       throw new SupportDeskConflictError();
     },
 
-    async readEngineeringWork(access, key) {
-      const actorId = access.principalId;
-      permission(access, supportPermissions.engineeringRead, actorId);
-      const input = snapshot(
-        fields(key, "engineering work key", ["ticketId", "sourceGeneration"]),
-      ) as unknown as typeof key;
-      text(input.ticketId, "ticketId");
-      integer(input.sourceGeneration, "sourceGeneration", 1);
-      for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
-        const source = await readEngineeringSourceVersion(
-          records,
-          input.ticketId,
-        );
-        permission(access, supportPermissions.engineeringRead, actorId);
-        if (source === null) throw new SupportDeskNotFoundError();
-        privateRead(access, source.value.security, actorId);
-        if (source.value.state === "restricted")
-          permission(
-            access,
-            supportPermissions.engineeringRestrictedRead,
-            actorId,
-          );
-        const work = await records.getVersioned(
-          engineeringWorkKey(input.ticketId, input.sourceGeneration),
-        );
-        permission(access, supportPermissions.engineeringRead, actorId);
-        if (work?.value.kind !== "engineering_work")
-          throw new SupportDeskNotFoundError();
-        privateRead(access, source.value.security, actorId);
-        privateRead(access, work.value.security, actorId);
-        if (
-          source.value.state === "restricted" ||
-          work.value.status === "restricted" ||
-          (work.value.candidate !== undefined &&
-            work.value.candidate.security !== "ordinary")
-        )
-          permission(
-            access,
-            supportPermissions.engineeringRestrictedRead,
-            actorId,
-          );
-        if (source.value.state !== "withdrawn") {
-          const ticket = await records.get({
-            partition: input.ticketId,
-            id: "ticket",
-          });
-          permission(access, supportPermissions.engineeringRead, actorId);
-          if (ticket?.kind !== "ticket") throw new SupportDeskNotFoundError();
-        }
-        const latest = await readEngineeringSourceVersion(
-          records,
-          input.ticketId,
-        );
-        permission(access, supportPermissions.engineeringRead, actorId);
-        const latestWork = await records.getVersioned(
-          engineeringWorkKey(input.ticketId, input.sourceGeneration),
-        );
-        permission(access, supportPermissions.engineeringRead, actorId);
-        if (
-          latest?.version !== source.version ||
-          latestWork?.version !== work.version
-        )
-          continue;
-        privateRead(access, source.value.security, actorId);
-        privateRead(access, work.value.security, actorId);
-        if (
-          source.value.state === "restricted" ||
-          work.value.status === "restricted" ||
-          (work.value.candidate !== undefined &&
-            work.value.candidate.security !== "ordinary")
-        )
-          permission(
-            access,
-            supportPermissions.engineeringRestrictedRead,
-            actorId,
-          );
-        return snapshot(work.value);
-      }
-      throw new SupportDeskConflictError();
+    readEngineeringWork: (access, key) => readContext(access, key),
+
+    async readEngineeringContext(access, input) {
+      permission(access, supportPermissions.engineeringRead);
+      const fence = snapshot(
+        fields(input, "engineering source fence", [
+          "ticketId",
+          "sourceGeneration",
+          "sourceBindingHash",
+        ]),
+      ) as unknown as EngineeringSourceFence;
+      text(fence.sourceBindingHash, "sourceBindingHash");
+      return readContext(
+        access,
+        {
+          ticketId: fence.ticketId,
+          sourceGeneration: fence.sourceGeneration,
+        },
+        fence,
+      );
     },
   };
   return { application, load };

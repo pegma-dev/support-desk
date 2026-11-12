@@ -1,8 +1,8 @@
 # Optional AI operations
 
 This runbook describes the merged SD-01 through SD-05 contracts assembled by
-the current verified published synchronized `0.2.5` release; see its
-[publication receipt](RELEASING.md#verified-025-publication-2026-11-11).
+the current verified published synchronized `0.2.6` release; see its
+[publication receipt](RELEASING.md#verified-026-publication-2026-11-11).
 SDK publication does not establish production deployment, verified host data
 controls, or pilot acceptance. Use exact published artifacts and complete each
 host's own [upgrade rehearsal](UPGRADING.md).
@@ -13,11 +13,20 @@ The workflows are separate: [answers](ASSISTANT_COORDINATION.md),
 [release follow-up](ENGINEERING_FOLLOWUP.md). The base application remains
 usable with all optional AI capabilities disabled.
 
-The local synchronized `0.2.6` source candidate adds optional final host guards
-and caller cancellation to seven engineering application controls. It is
-unpublished and adds no AI coordinator method, model/provider dependency or
-activation. Keep the verified `0.2.5` tuple for adoption until the next release
-is verified. See the [candidate engineering contract](ENGINEERING_EXPORT.md#026-candidate-guarded-engineering-controls).
+Published `0.2.6` adds optional final host guards and caller cancellation to
+seven engineering application controls. The local synchronized `0.2.7` source
+candidate retains them and remains unpublished. Keep the verified `0.2.6` tuple
+for adoption until the next release is verified. SDK publication does not
+activate a provider or host. See the
+[guarded engineering contract](ENGINEERING_EXPORT.md#026-candidate-guarded-engineering-controls)
+and [current source contract](RELEASING.md#source-version-027).
+Candidate `0.2.7` also offers a callback-scoped
+[approval observation](ENGINEERING_EXPORT.md#candidate-027-approval-observation)
+under current service read/policy access, with unchanged late proof and host
+authority checks. The compatibility fallback remains available. This
+unpublished candidate pins the verified public KB application/contracts
+`0.1.6`; published `0.2.6` retains KB `0.1.5`. See the
+[current dependency contract](RELEASING.md#source-version-027).
 
 ## Controls and human fallback
 

@@ -5,8 +5,10 @@ dependencies. The root command builds the SDK and these TypeScript files,
 then runs `run.ts` from its compiled output. Node 22 and 24 are supported.
 
 The example uses public package entry points, an actual Storage Core Store,
-the released KB `0.1.5` application and contracts packages, and all four
-optional Support Desk coordinators. It uses no provider SDK, network client, mail provider, host
+the released KB `0.1.6` application and contracts packages, and all four
+optional Support Desk coordinators from the unpublished `0.2.7` source candidate.
+The current checkout's Node 22/24 example gates exercise that development graph;
+it is not a published Support `0.2.7` consumer qualification. It uses no provider SDK, network client, mail provider, host
 framework, or production credentials. Its scripted `github.createIssue`
 throws; the engineering flow only links an existing fictional issue privately.
 
@@ -48,9 +50,10 @@ must supply their own current authorities, verified provider route and
 evaluations, release attesters, usage ledger, and operational controls.
 Separate instances keep their own Store, configuration, cursors, and secrets.
 
-The current synchronized Support Desk `0.2.5` release is published and strictly verified;
-see the [publication receipt](../../docs/RELEASING.md#verified-025-publication-2026-11-11).
-Production adoption retains its own host acceptance gates.
+The current synchronized Support Desk `0.2.6` release is published and strictly verified;
+see the [publication receipt](../../docs/RELEASING.md#verified-026-publication-2026-11-11).
+Its published AI package pins KB `0.1.5`; the `0.2.7`/KB `0.1.6` graph above
+is development-only. Production adoption retains its own host acceptance gates.
 See [the existing human-support example](../composition/README.md),
 [host composition](../../docs/HOST_COMPOSITION.md), and the individual
 [assistant](../../docs/ASSISTANT_COORDINATION.md),

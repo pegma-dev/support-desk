@@ -1,8 +1,8 @@
-# Upgrading to the synchronized 0.2.5 release
+# Upgrading to the synchronized 0.2.6 release
 
-`0.2.5` is the current verified published synchronized release. Hosts retain
+`0.2.6` is the current verified published synchronized release. Hosts retain
 their own deployment and acceptance gates. See the
-[publication receipt](RELEASING.md#verified-025-publication-2026-11-11).
+[publication receipt](RELEASING.md#verified-026-publication-2026-11-11).
 The original SD-06 `0.2.0` release has its separate
 [historical receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
 The original four Support Desk packages were published at `0.1.1`. Before
@@ -18,13 +18,41 @@ registry application dependency lacks the new source exports. The five local
 bootstrap tarballs prove an isolated source assembly, not a usable registry
 dependency tree.
 
-## Unpublished 0.2.6 guarded engineering controls
+## Unpublished 0.2.7 source candidate
 
-The local five-package `0.2.6` tuple is a source candidate. Continue using the
-verified published tuple above until `0.2.6` is published and its original
-artifacts are verified. When adopting that future release, synchronize all
-five Support package versions and exact internal pins. External KB
-application/contracts stay at `0.1.5`.
+The local five-package `0.2.7` tuple retains the guarded engineering controls
+from published `0.2.6` and adds optional
+`EngineeringApplication.readEngineeringContext(access, fence)`, returning
+`{source, work?}`. Structural application ports may omit the method; the AI
+coordinator retains its sequential Source-validation/Work read fallback. See
+the [read contract](ENGINEERING_EXPORT.md#entry-points-and-authority).
+
+`EngineeringReviewCommitGuard` also accepts an optional
+`EngineeringReviewObservation` for a new approval attempt. Existing callbacks
+may ignore it. Wrappers can forward the argument to retain the optimized path;
+older structural application ports keep the original standalone-read fallback.
+The observation is callback-scoped and retains current read, queue and privacy
+grants. Policy access uses the existing resolver rule: `engineeringProcess` or
+`engineeringPolicyRead` plus `queueRead`. It supplies no retained authority or
+permission to skip later proofs. See the
+[approval observation contract](ENGINEERING_EXPORT.md#candidate-027-approval-observation).
+
+Continue using the verified `0.2.6` tuple until `0.2.7`
+is published and its original artifacts are verified. Its current candidate
+uses exact KB application/contracts `0.1.6` from the
+[verified public KB release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6).
+Qualify that complete candidate graph; the published `0.2.6`/KB `0.1.5`
+artifacts remain unchanged. See the
+[source release contract](RELEASING.md#source-version-027).
+
+<a id="unpublished-026-guarded-engineering-controls"></a>
+
+## Published 0.2.6 guarded engineering controls
+
+The synchronized five-package `0.2.6` tuple is published and strictly verified.
+When upgrading from `0.2.5`, synchronize all five Support versions and exact
+internal pins. The optional AI package keeps exact KB application/contracts
+`0.1.5`.
 
 The seven controls listed in the
 [engineering guide](ENGINEERING_EXPORT.md#026-candidate-guarded-engineering-controls)
@@ -40,7 +68,7 @@ A transaction already handed to the Store cannot be undone by aborting the
 caller. Exact accepted receipts do not invoke the new callback or proof, but
 current method permissions and the host's current admission/delivery checks
 still apply. Invalid JavaScript option/guard shapes fail closed. Qualification
-must include the host's real authority reads and storage budget; this candidate
+must include the host's real authority reads and storage budget; the SDK release
 establishes no universal query/CPU allowance.
 
 ## Published 0.2.4 intake and final checks
@@ -140,7 +168,7 @@ route and deployment acceptance remain required before their activation.
 ## Package and host boundary
 
 The released inventory is `@pegma/support-desk-contracts`, `-core`,
-`-templates`, `-application`, and optional `-ai`, all at exact `0.2.5` with
+`-templates`, `-application`, and optional `-ai`, all at exact `0.2.6` with
 matching internal pins. Keep one coherent set. The base application remains
 usable without AI, KB, a model provider, or GitHub.
 
@@ -234,7 +262,7 @@ boundaries before exposing the review surface.
 ## Rehearse the actual 0.1.1-to-0.2.0 upgrade
 
 The SD-06 rehearsal below is retained as historical migration evidence. For
-current `0.2.5` adoption, repeat the rehearsal against the exact selected `0.2.5`
+current `0.2.6` adoption, repeat the rehearsal against the exact selected `0.2.6`
 artifacts and record a new receipt; a `0.2.0` result does not qualify changed
 artifacts or a host's durable-store migration.
 

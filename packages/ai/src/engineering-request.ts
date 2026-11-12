@@ -12,6 +12,7 @@ import {
 } from "./boundary.js";
 import { hasPermission } from "@pegma/authorization-core";
 import {
+  matchesEngineeringSourceFence,
   SupportDeskAuthorizationError,
   SupportDeskConflictError,
   supportPermissions,
@@ -24,6 +25,7 @@ import type {
   EngineeringProductContext,
   EngineeringSourceFence,
   EngineeringSourceRecord,
+  EngineeringReviewObservation,
 } from "@pegma/support-desk-application";
 import type {
   EngineeringConfigurationPort,
@@ -122,21 +124,12 @@ export async function engineeringSource(
   return readEngineeringSource(options, fence, current, runtime, deadline);
 }
 
-function validateEngineeringSource(
+export function validateEngineeringSource(
   raw: EngineeringSourceRecord,
   fence: EngineeringSourceFence,
 ): EngineeringSourceRecord {
   const source = snapshot(raw);
-  if (
-    source.ticketId !== fence.ticketId ||
-    source.sourceGeneration !== fence.sourceGeneration ||
-    source.sourceBindingHash !== fence.sourceBindingHash ||
-    source.state !== "eligible" ||
-    source.security !== "ordinary" ||
-    source.product === undefined ||
-    source.evidence === undefined ||
-    source.evidenceFingerprint === undefined
-  )
+  if (!matchesEngineeringSourceFence(source, fence))
     throw new AssistantBoundaryError(
       source.security !== "ordinary" || source.state === "restricted"
         ? "security_restricted"
@@ -212,6 +205,7 @@ export async function engineeringCurrentFacts(
   authority: EngineeringServiceAuthority,
   runtime: LearningRuntime,
   deadline = runtime.deadline,
+  observation?: EngineeringReviewObservation,
 ) {
   const current = await engineeringProcessingAuthority(
     options.serviceAccess,
@@ -220,23 +214,43 @@ export async function engineeringCurrentFacts(
     deadline,
   );
   const policy = await engineeringPolicy(options, current, runtime, deadline);
-  const source = await readEngineeringSource(
-    options,
-    fence,
-    current,
-    runtime,
-    deadline,
-  );
-  const work = snapshot(
-    await runtime.within(
-      () =>
-        options.application.readEngineeringWork(current.access, {
-          ticketId: fence.ticketId,
-          sourceGeneration: fence.sourceGeneration,
-        }),
+  const readContext = options.application.readEngineeringContext;
+  let source: EngineeringSourceRecord;
+  let work;
+  if (observation !== undefined) {
+    await runtime.within(() => observation.confirm(current.access), deadline);
+    const context = observation.read(current.access);
+    source = validateEngineeringSource(context.source, fence);
+    work = snapshot(context.work);
+  } else if (readContext === undefined) {
+    // Keep the original conditional read order for older application ports.
+    source = await readEngineeringSource(
+      options,
+      fence,
+      current,
+      runtime,
       deadline,
-    ),
-  );
+    );
+    work = snapshot(
+      await runtime.within(
+        () =>
+          options.application.readEngineeringWork(current.access, {
+            ticketId: fence.ticketId,
+            sourceGeneration: fence.sourceGeneration,
+          }),
+        deadline,
+      ),
+    );
+  } else {
+    const context = await runtime.within(
+      () => readContext.call(options.application, current.access, fence),
+      deadline,
+    );
+    source = validateEngineeringSource(context.source, fence);
+    if (context.work === undefined)
+      throw new AssistantBoundaryError("source_changed");
+    work = snapshot(context.work);
+  }
   if (
     work.ticketId !== fence.ticketId ||
     work.sourceGeneration !== fence.sourceGeneration ||

@@ -15,8 +15,15 @@ import { gzipSync } from "node:zlib";
 import { vi } from "vitest";
 import type { ReleasePorts } from "../scripts/release-verification.mjs";
 
-/** Explicit candidate pin; the verifier still checks real source package metadata. */
-export const releaseVerificationVersion = "0.2.6";
+/** Build current-coordinate fixtures from source; assertions still pin the expected release. */
+export const releaseVerificationVersion = (
+  JSON.parse(
+    readFileSync(
+      join(process.cwd(), "packages", "contracts", "package.json"),
+      "utf8",
+    ),
+  ) as { version: string }
+).version;
 /** Read only the checkout's public commit identity; no Git process or config. */
 export function releaseCheckoutCommit(root = process.cwd()) {
   const dotGit = join(root, ".git");
@@ -94,8 +101,8 @@ export const releaseVerificationPackages = [
     name: "@pegma/support-desk-ai",
     dependencies: {
       "@pegma/authorization-core": "0.4.0",
-      "@pegma/knowledge-base-application": "0.1.5",
-      "@pegma/knowledge-base-contracts": "0.1.5",
+      "@pegma/knowledge-base-application": "0.1.6",
+      "@pegma/knowledge-base-contracts": "0.1.6",
       "@pegma/spine": "0.1.2",
       "@pegma/support-desk-application": releaseVerificationVersion,
     },
@@ -297,7 +304,7 @@ export function releaseAuditCertificate(
               0x86,
               Buffer.from(
                 options.identity ??
-                  "https://github.com/pegma-dev/support-desk/.github/workflows/publish.yml@refs/tags/v0.2.6",
+                  `https://github.com/pegma-dev/support-desk/.github/workflows/publish.yml@refs/tags/v${releaseVerificationVersion}`,
               ),
             ),
           ),
@@ -407,13 +414,13 @@ export function releaseAuditFixture(
               workflow: {
                 repository: "https://github.com/pegma-dev/support-desk",
                 path: ".github/workflows/publish.yml",
-                ref: "refs/tags/v0.2.6",
+                ref: `refs/tags/v${releaseVerificationVersion}`,
               },
             },
             internalParameters: { github: { event_name: "release" } },
             resolvedDependencies: [
               {
-                uri: "git+https://github.com/pegma-dev/support-desk@refs/tags/v0.2.6",
+                uri: `git+https://github.com/pegma-dev/support-desk@refs/tags/v${releaseVerificationVersion}`,
                 digest: { gitCommit: releaseVerificationCommit },
               },
             ],
@@ -478,10 +485,10 @@ export function releaseRegistryFixture(
 ) {
   const registry = "https://registry.npmjs.org/";
   const metadataUrl = (name: string) =>
-    `${registry}${encodeURIComponent(name)}/0.2.6`;
+    `${registry}${encodeURIComponent(name)}/${releaseVerificationVersion}`;
   const packageUrl = (name: string) => `${registry}${encodeURIComponent(name)}`;
   const tarballUrl = (name: string) =>
-    `${registry}${name}/-/${name.split("/").at(-1)}-0.2.6.tgz`;
+    `${registry}${name}/-/${name.split("/").at(-1)}-${releaseVerificationVersion}.tgz`;
   const documents = new Map(
     f.packages.map(({ record, packageJson }) => [
       metadataUrl(record.name),
@@ -498,7 +505,7 @@ export function releaseRegistryFixture(
             },
           ],
           attestations: {
-            url: `${registry}-/npm/v1/attestations/${encodeURIComponent(record.name)}@0.2.6`,
+            url: `${registry}-/npm/v1/attestations/${encodeURIComponent(record.name)}@${releaseVerificationVersion}`,
             provenance: { predicateType: "https://slsa.dev/provenance/v1" },
           },
         },
@@ -516,7 +523,10 @@ export function releaseRegistryFixture(
       packageUrl(record.name),
       {
         name: record.name,
-        "dist-tags": { latest: "0.2.6" } as Record<string, string>,
+        "dist-tags": { latest: releaseVerificationVersion } as Record<
+          string,
+          string
+        >,
       },
     ]),
   );
@@ -819,11 +829,10 @@ export function releasePublishingEnvironment() {
     GITHUB_EVENT_NAME: "release",
     GITHUB_REPOSITORY: "pegma-dev/support-desk",
     GITHUB_SERVER_URL: "https://github.com",
-    GITHUB_REF: "refs/tags/v0.2.6",
+    GITHUB_REF: `refs/tags/v${releaseVerificationVersion}`,
     GITHUB_SHA: releaseVerificationCommit,
     GITHUB_WORKFLOW_SHA: releaseVerificationCommit,
-    GITHUB_WORKFLOW_REF:
-      "pegma-dev/support-desk/.github/workflows/publish.yml@refs/tags/v0.2.6",
+    GITHUB_WORKFLOW_REF: `pegma-dev/support-desk/.github/workflows/publish.yml@refs/tags/v${releaseVerificationVersion}`,
     RELEASE_ENVIRONMENT: "npm-publish",
     RUNNER_ENVIRONMENT: "github-hosted",
     ACTIONS_ID_TOKEN_REQUEST_URL:
