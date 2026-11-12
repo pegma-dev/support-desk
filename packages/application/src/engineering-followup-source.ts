@@ -1,4 +1,5 @@
 import { hasPermission, type AccessContext } from "@pegma/authorization-core";
+import { engineeringMutationBoundary } from "./engineering-mutation-guard.js";
 import type { CollectionStore } from "@pegma/storage-core";
 import {
   SupportDeskAuthorizationError,
@@ -43,11 +44,11 @@ import type {
 import type {
   EngineeringFollowupDependencies,
   EngineeringFollowupLoaded,
-  EngineeringFollowupLoad,
   EngineeringFollowupMutationPlan,
   EngineeringFollowupSourceChangeContext,
   EngineeringFollowupWorkVersion,
   EngineeringFollowupReassessmentPurpose,
+  EngineeringFollowupReassessmentSeed,
 } from "./engineering-followup-internal.js";
 import type { EngineeringAction } from "./engineering-internal.js";
 
@@ -62,6 +63,91 @@ export function engineeringFollowupPermission(
     throw new SupportDeskAuthorizationError(name);
   if (staff && !hasPermission(access, supportPermissions.queueRead))
     throw new SupportDeskAuthorizationError(supportPermissions.queueRead);
+}
+
+/** Data observations are operation-local; authority is checked afresh on every use. */
+export function engineeringFollowupObservation(
+  deps: EngineeringFollowupDependencies,
+  current: EngineeringFollowupReassessmentSeed,
+  actorId: string,
+  authorize: (reader: AccessContext) => void,
+) {
+  let active = true;
+  const check = (reader: AccessContext): void => {
+    if (!active)
+      throw new SupportDeskConflictError("Follow-up observation expired");
+    authorize(reader);
+    if (
+      current.loaded.source.value.security !== "ordinary" ||
+      current.work.value.security !== "ordinary"
+    )
+      engineeringFollowupPermission(
+        reader,
+        supportPermissions.engineeringRestrictedRead,
+        actorId,
+        true,
+      );
+  };
+  return {
+    check,
+    close: () => {
+      active = false;
+    },
+    async confirm(reader: AccessContext): Promise<void> {
+      check(reader);
+      const versions = [
+        {
+          key: {
+            partition: current.loaded.source.value.partition,
+            id: current.loaded.source.value.id,
+          },
+          version: current.loaded.source.version,
+        },
+        {
+          key: {
+            partition: current.engineeringWork.value.partition,
+            id: current.engineeringWork.value.id,
+          },
+          version: current.engineeringWork.version,
+        },
+        {
+          key: {
+            partition: current.work.value.partition,
+            id: current.work.value.id,
+          },
+          version: current.work.version,
+        },
+        {
+          key: engineeringFollowupHeadKey(current.loaded.source.value.ticketId),
+          version: current.loaded.head?.version,
+        },
+        {
+          key: {
+            partition: current.loaded.ticket.value.partition,
+            id: "ticket",
+          },
+          version: current.loaded.ticket.version,
+        },
+      ];
+      for (const expected of versions) {
+        const latest = await deps.records.getVersioned(expected.key);
+        check(reader);
+        if (
+          (latest?.value.kind === "engineering_source" ||
+            latest?.value.kind === "engineering_followup_work") &&
+          latest.value.security !== "ordinary"
+        )
+          engineeringFollowupPermission(
+            reader,
+            supportPermissions.engineeringRestrictedRead,
+            actorId,
+            true,
+          );
+        if (latest?.version !== expected.version)
+          throw new SupportDeskConflictError("Follow-up observation changed");
+      }
+    },
+  };
 }
 export function engineeringFollowupNow(
   deps: EngineeringFollowupDependencies,
@@ -856,16 +942,27 @@ export function createEngineeringFollowupSourceServices(
   deps: EngineeringFollowupDependencies,
 ) {
   const { records, clock, options } = deps;
-  const load: EngineeringFollowupLoad = async (ticketId) => {
+  const load = async (
+    ticketId: string,
+    authorize?: (source?: EngineeringFollowupLoaded["source"]["value"]) => void,
+    initialSource?: EngineeringFollowupLoaded["source"],
+  ): Promise<EngineeringFollowupLoaded> => {
     text(ticketId, "ticketId");
     const ticket = await records.getVersioned({
       partition: ticketId,
       id: "ticket",
     });
-    const source = await records.getVersioned(engineeringSourceKey(ticketId));
+    authorize?.();
+    const source =
+      initialSource ??
+      (await records.getVersioned(engineeringSourceKey(ticketId)));
+    authorize?.(
+      source?.value.kind === "engineering_source" ? source.value : undefined,
+    );
     const head = await records.getVersioned(
       engineeringFollowupHeadKey(ticketId),
     );
+    authorize?.();
     if (
       ticket?.value.kind !== "ticket" ||
       source?.value.kind !== "engineering_source"
@@ -874,6 +971,7 @@ export function createEngineeringFollowupSourceServices(
     if (head !== null && head.value.kind !== "engineering_followup_head")
       throw new SupportDeskConflictError("Follow-up head key collision");
     const rows = await records.list(ticketId);
+    authorize?.();
     if (rows.length > deps.limits.maxRecordsPerTicket)
       throw new SupportDeskLimitError(
         "ticket_partition",
@@ -908,9 +1006,15 @@ export function createEngineeringFollowupSourceServices(
     key: { readonly ticketId: string; readonly workId: string },
     now = engineeringFollowupNow(deps),
     purpose: EngineeringFollowupReassessmentPurpose = "bundle",
+    seed?: EngineeringFollowupReassessmentSeed,
+    authorize?: (source?: EngineeringFollowupLoaded["source"]["value"]) => void,
+    initialSource?: EngineeringFollowupLoaded["source"],
   ) {
-    const loaded = await load(key.ticketId);
-    const work = await workAt(key);
+    authorize?.();
+    const loaded =
+      seed?.loaded ?? (await load(key.ticketId, authorize, initialSource));
+    const work = seed?.work ?? (await workAt(key));
+    authorize?.(loaded.source.value);
     const value = work.value;
     engineeringFollowupWeb(loaded);
     if (
@@ -936,11 +1040,18 @@ export function createEngineeringFollowupSourceServices(
       throw new SupportDeskConflictError(
         "Follow-up has no eligible retained draft or explicit model recovery",
       );
-    const associated = await engineeringFollowupAssociation(
-      deps,
-      loaded,
-      value.semanticIdentity,
-    );
+    const associated =
+      seed === undefined
+        ? await engineeringFollowupAssociation(
+            deps,
+            loaded,
+            value.semanticIdentity,
+          )
+        : {
+            association: seed.association,
+            engineeringWork: seed.engineeringWork,
+          };
+    authorize?.(loaded.source.value);
     const proofContext = engineeringFollowupProofContext(
       loaded,
       associated.association,
@@ -954,6 +1065,7 @@ export function createEngineeringFollowupSourceServices(
         options.releaseEvidence!.confirm(value.context!, proofContext, signal),
       ),
     );
+    authorize?.(loaded.source.value);
     engineeringFollowupValidateProof(
       proof,
       proofContext,
@@ -1315,7 +1427,7 @@ export function createEngineeringFollowupSourceServices(
       }
       throw new SupportDeskConflictError();
     },
-    async observeEngineeringFollowup(access, input) {
+    async observeEngineeringFollowup(access, input, control) {
       const actorId = access.principalId;
       const authorize = () =>
         engineeringFollowupPermission(
@@ -1324,6 +1436,7 @@ export function createEngineeringFollowupSourceServices(
           actorId,
         );
       authorize();
+      const mutation = engineeringMutationBoundary(control);
       const command = snapshot(
         fields(input, "observe follow-up", [
           "ticketId",
@@ -1362,6 +1475,7 @@ export function createEngineeringFollowupSourceServices(
             throw new SupportDeskConflictError("Follow-up command reused");
           return snapshot(prior.result);
         }
+        mutation?.ensure();
         const admitted = await (async () => {
           const loaded = await load(command.ticketId);
           engineeringFollowupWeb(loaded);
@@ -1645,6 +1759,14 @@ export function createEngineeringFollowupSourceServices(
           result,
         };
         checkEngineeringFollowupRecordCapacity(receipt);
+        if (mutation !== undefined) {
+          const assertHostCurrent = await mutation.verify();
+          assertHostCurrent();
+          authorize();
+          if (now() >= timestamp(proof.attestation.validUntil, "validUntil"))
+            throw new SupportDeskConflictError("Follow-up observation expired");
+          mutation.ensure();
+        }
         if (
           (
             await records.transact(command.ticketId, [

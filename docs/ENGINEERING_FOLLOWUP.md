@@ -3,8 +3,8 @@
 SD-05's source merged in [PR #41](https://github.com/pegma-dev/support-desk/pull/41)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current synchronized release is `0.2.6`; see its
-[publication receipt](RELEASING.md#verified-026-publication-2026-11-11).
+The current synchronized release is `0.2.7`; see its
+[publication receipt](RELEASING.md#verified-027-publication-2026-11-11).
 This handbook describes its contracts and host responsibilities, not deployment
 or host acceptance. SD-04 merged in
 [PR #40](https://github.com/pegma-dev/support-desk/pull/40). Scope comes from the
@@ -73,6 +73,90 @@ The base application remains independent of a model, GitHub client, and KB.
 `rejectEngineeringFollowupBundle` records an exact private staff rejection with
 a reason under current review and queue authority. It needs no provider,
 export service, or model configuration.
+
+<a id="candidate-028-followup-host-guards"></a>
+
+## Candidate 0.2.8 follow-up host guards
+
+The unpublished candidate reuses `EngineeringMutationOptions` for optional
+`signal` and trusted read-only `verifyBeforeCommit` control on these calls:
+
+| Application method                  | Options position                                |
+| ----------------------------------- | ----------------------------------------------- |
+| `observeEngineeringFollowup`        | Third argument                                  |
+| `retryEngineeringFollowupWork`      | Third argument                                  |
+| `abandonEngineeringFollowupWork`    | Third argument                                  |
+| `rejectEngineeringFollowupBundle`   | Third argument                                  |
+| `prepareEngineeringFollowupBundle`  | Fourth argument, after the existing proof guard |
+| `reassessEngineeringFollowupBundle` | Fourth argument, after the reassessment planner |
+
+The optional AI `prepareStaffReassessment` options forward the signal and late
+host guard to bundle preparation. The AI coordinator composes the caller
+assertion with its original staff, invocation and checked-proof deadline fences,
+including after the host wait. These options do not replace SDK release,
+privacy or whole-bundle proof. For every new transaction attempt, the late host
+callback follows awaited proof and planning; its optional synchronous
+`() => true` assertion and the original signal are checked at transaction
+handoff with current permissions. A conflict obtains a fresh guard result.
+
+At the application boundary, exact accepted receipts still require current
+authorization and return before new mutable proof, the late host guard and the
+new mutation-options cancellation check. The AI invocation retains its existing
+`run.signal` cancellation behavior, including receipt reads. Existing omitted
+options and void-returning guards remain supported. Delegating adapters must
+forward the new options argument and any returned synchronous assertion
+unchanged when adopting these controls. Read-only coalesced
+observations retain their existing zero-row semantics. Cancellation bounds
+new work and cannot undo an already committed change. Web posting retains its
+existing proof, host guard and delivery guarantees, with the optional read
+observation below. No role, permission, record layout, model call or automatic
+customer notification is added.
+
+### Candidate post observation
+
+For each new application post attempt, the proof guard may receive an optional
+`EngineeringFollowupPostObservation`. `readWork(access)` lazily enforces the
+original caller, follow-up read/queue and private-read requirements before
+returning that attempt's Work snapshot. `confirm(access)` rechecks opaque
+Source, accepted association, Work, Head and Ticket versions after proof awaits.
+The observation expires when that proof guard settles; versions remain inside
+the Application. It is not a cross-attempt cache or an atomic host snapshot.
+
+The AI coordinator uses this snapshot and final confirmation when supplied.
+Existing application late checks and CAS, current staff authority, release,
+target, check-policy and receipt proofs remain. Structural ports that omit the
+observation retain the standalone fallback. Delegating proof-guard adapters
+forward its optional argument and returned assertion unchanged. Hosts must
+measure their complete invocation; this read optimization establishes no
+universal Workers call or CPU qualification.
+
+### Candidate reassessment observation
+
+`reassessEngineeringFollowupBundle` lets the Application own an entire staff
+reassessment attempt. Its immutable `ReassessEngineeringFollowupBundleCommand`
+binds `ticketId`, `workId`, `commandId`, `correlationId`,
+`expectedWorkGeneration` and `recoveryIntentHash`.
+Exact accepted recovery comes before the planner or private proof work, under
+current review and queue authority. The Application freshly confirms Source
+after its initial release-proof await before exposing the planner view.
+
+The planner receives an `EngineeringFollowupReassessmentObservation`. Its
+`read(access)` provides that attempt's authorized
+`EngineeringFollowupReassessmentView`; `confirm(access)` checks opaque Source,
+accepted association, Work, Head and Ticket versions after fresh proof. The
+observation remains live through the planner and its returned guard, then
+expires when that guard settles before the late host callback. A conflict
+retry gets a new observation. It grants no new permission, retained authority,
+cross-attempt cache or cross-store atomicity.
+
+The planner returns an `EngineeringFollowupReassessmentPlan` with the checked
+candidate/bundle, check receipt and policy version, and its commit guard. The Application carries these through its
+existing private preparation, late checks and CAS. Release, target, check
+policy, check receipt, staff authority and host guard remain current. The AI
+`prepareStaffReassessment` signature is unchanged: it uses this optional
+application port when present; older structural ports retain the full legacy
+read/preparation path. A complete host invocation still needs measured
+qualification against its configured limits.
 
 ## Association authority and duplicate work
 
@@ -148,8 +232,10 @@ withdrawal, restricted evidence, revoked association authority, or delivery.
 The staff coordinator helpers use current proof, target, and check ports
 independently of generation configuration and provider availability.
 
-Before reading current proof or private work, `prepareStaffReassessment` uses
-`recoverEngineeringFollowupPreparation` to recover an accepted preparation.
+Before reading current proof or private work, `prepareStaffReassessment`
+recovers an accepted preparation through `reassessEngineeringFollowupBundle`
+when the optional application port is present, or through
+`recoverEngineeringFollowupPreparation` on the legacy structural-port path.
 This narrow read binds the current staff actor, exact work/command identity,
 and recovery-intent hash, returning only an opaque acknowledgement or `null`.
 It requires current review and queue authority and grants no new approval.

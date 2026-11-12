@@ -102,6 +102,7 @@ import type { EngineeringDependencies } from "./engineering-internal.js";
 import type {
   EngineeringFollowupApplication,
   EngineeringFollowupOptions,
+  EngineeringFollowupPostObservation,
 } from "./engineering-followup-types.js";
 import {
   assertEngineeringFollowupRecord,
@@ -131,6 +132,8 @@ import {
   engineeringFollowupNow,
   engineeringFollowupTrusted,
   engineeringFollowupVersionsCurrent,
+  engineeringFollowupPermission,
+  engineeringFollowupObservation,
 } from "./engineering-followup-source.js";
 import {
   assertResolutionLearningRecord,
@@ -5867,7 +5870,31 @@ export function createSupportDeskApplication(options: {
         requireNonempty(body, "body");
         enforceLimit(body, "body", limits.maxMessageCharacters);
         const bodyHash = await requestFingerprint({ body });
-        const assertProofCurrent = await guard();
+        const scope = engineeringFollowupObservation(
+          followupDependencies,
+          current,
+          actorId,
+          (reader) =>
+            engineeringFollowupPermission(
+              reader,
+              supportPermissions.engineeringFollowupRead,
+              actorId,
+              true,
+            ),
+        );
+        const observation: EngineeringFollowupPostObservation = {
+          readWork(reader) {
+            scope.check(reader);
+            return followupSnapshot(work);
+          },
+          confirm: scope.confirm,
+        };
+        let assertProofCurrent: void | (() => true);
+        try {
+          assertProofCurrent = await guard(observation);
+        } finally {
+          scope.close();
+        }
         authorize();
         const occurredAt = clampTicketTime(clock.now(), ticket.updatedAt);
         const updated = applyTicketEvent(ticket, {
