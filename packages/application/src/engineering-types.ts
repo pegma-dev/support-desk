@@ -516,6 +516,17 @@ export interface RecordEngineeringReconciliationCommand extends EngineeringKey {
     | { readonly outcome: "unknown"; readonly reason?: string };
 }
 export type EngineeringCommitGuard = () => void | Promise<void>;
+/** A single model CAS attempt; read consumes a fresh opaque-version confirmation. */
+export interface EngineeringModelObservation {
+  read(access: AccessContext): {
+    readonly source: EngineeringSourceRecord;
+    readonly work: EngineeringWorkRecord;
+  };
+  confirm(access: AccessContext): Promise<void>;
+}
+export type EngineeringModelCommitGuard = (
+  observation: EngineeringModelObservation,
+) => void | (() => true) | Promise<void | (() => true)>;
 /** One review attempt's existing observations; opaque versions never leave the app. */
 export interface EngineeringReviewObservation {
   readWork(access: AccessContext): EngineeringWorkRecord;
@@ -596,6 +607,17 @@ export interface EngineeringApplication {
     access: AccessContext,
     command: CompleteEngineeringModelCommand,
     guard: EngineeringCommitGuard,
+  ): Promise<EngineeringStepResult>;
+  /** Optional callback-scoped path; original implementations remain compatible. */
+  prepareEngineeringModelObserved?(
+    access: AccessContext,
+    command: PrepareEngineeringModelCommand,
+    guard: EngineeringModelCommitGuard,
+  ): Promise<EngineeringPreparedModel>;
+  completeEngineeringModelObserved?(
+    access: AccessContext,
+    command: CompleteEngineeringModelCommand,
+    guard: EngineeringModelCommitGuard,
   ): Promise<EngineeringStepResult>;
   finishEngineeringWork(
     access: AccessContext,

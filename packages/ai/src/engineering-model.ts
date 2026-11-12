@@ -4,6 +4,7 @@ import {
   type EngineeringClaim,
   type EngineeringPreparedModel,
   type EngineeringProcessing,
+  type EngineeringModelObservation,
   type FinishEngineeringWorkCommand,
   type PrepareEngineeringModelCommand,
 } from "@pegma/support-desk-application";
@@ -292,6 +293,7 @@ export async function processEngineeringModel(
     const verifyCurrent = async (
       phase: number,
       beforeCall = false,
+      observation?: EngineeringModelObservation,
     ): Promise<void> => {
       await engineeringProcessingAuthority(
         options.serviceAccess,
@@ -347,6 +349,7 @@ export async function processEngineeringModel(
         finalAuthority,
         runtime,
         phase,
+        observation,
       );
       if (
         facts.source.evidenceFingerprint !== source.evidenceFingerprint ||
@@ -390,10 +393,16 @@ export async function processEngineeringModel(
         prepared = checkedPreparation(
           await runtime.within(
             () =>
-              options.application.prepareEngineeringModel(
-                current.access,
-                command,
-              ),
+              options.application.prepareEngineeringModelObserved === undefined
+                ? options.application.prepareEngineeringModel(
+                    current.access,
+                    command,
+                  )
+                : options.application.prepareEngineeringModelObserved(
+                    current.access,
+                    command,
+                    () => {},
+                  ),
             providerDeadline,
           ),
         );
@@ -449,17 +458,30 @@ export async function processEngineeringModel(
         checkedPreparation(
           await runtime.within(
             () =>
-              options.application.prepareEngineeringModel(
-                current.access,
-                command,
-              ),
+              options.application.prepareEngineeringModelObserved === undefined
+                ? options.application.prepareEngineeringModel(
+                    current.access,
+                    command,
+                  )
+                : options.application.prepareEngineeringModelObserved(
+                    current.access,
+                    command,
+                    async (observation) => {
+                      await verifyCurrent(providerDeadline, true, observation);
+                      return (): true => {
+                        runtime.ensure(providerDeadline);
+                        return true;
+                      };
+                    },
+                  ),
             providerDeadline,
           ),
         ),
       ) !== canonical(prepared)
     )
       throw new AssistantBoundaryError("preparation_mismatch");
-    await verifyCurrent(providerDeadline, true);
+    if (options.application.prepareEngineeringModelObserved === undefined)
+      await verifyCurrent(providerDeadline, true);
     runtime.ensure(providerDeadline);
     observation = { state: "unknown" };
     accounting = "unknown";
@@ -496,9 +518,13 @@ export async function processEngineeringModel(
       processing,
       accounting: settledAccounting(),
     });
-    const guard = async (): Promise<void> => {
+    const guard = async (observation?: EngineeringModelObservation) => {
       try {
-        await verifyCurrent(deadline);
+        await verifyCurrent(deadline, false, observation);
+        return (): true => {
+          runtime.ensure(deadline);
+          return true;
+        };
       } catch (error) {
         throw new EngineeringModelGuardFailure(
           error instanceof AssistantBoundaryError
@@ -517,11 +543,19 @@ export async function processEngineeringModel(
         );
         const accepted = await runtime.within(
           () =>
-            options.application.completeEngineeringModel(
-              current.access,
-              complete,
-              guard,
-            ),
+            options.application.completeEngineeringModelObserved === undefined
+              ? options.application.completeEngineeringModel(
+                  current.access,
+                  complete,
+                  async () => {
+                    await guard();
+                  },
+                )
+              : options.application.completeEngineeringModelObserved(
+                  current.access,
+                  complete,
+                  guard,
+                ),
           deadline,
         );
         return {

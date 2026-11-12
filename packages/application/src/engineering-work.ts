@@ -27,6 +27,8 @@ import type {
   EngineeringExportChecksBinding,
   EngineeringExportRequest,
   EngineeringModelBinding,
+  EngineeringModelCommitGuard,
+  EngineeringModelObservation,
   EngineeringProcessing,
   EngineeringRoutingBinding,
   EngineeringRoutingDecision,
@@ -59,6 +61,7 @@ import type {
   EngineeringWorkVersion,
 } from "./engineering-internal.js";
 import { projectEngineeringRows } from "./engineering-internal.js";
+import { readEngineeringSourceVersion } from "./engineering-evidence.js";
 
 export async function engineeringModelManifestHash(
   manifest: EngineeringModelBinding["inputManifest"],
@@ -154,12 +157,31 @@ type WorkerMethods = Pick<
   | "claimEngineeringWork"
   | "prepareEngineeringModel"
   | "completeEngineeringModel"
+  | "prepareEngineeringModelObserved"
+  | "completeEngineeringModelObserved"
   | "finishEngineeringWork"
   | "selectEngineeringRepository"
   | "prepareEngineeringProposal"
   | "reviewEngineeringProposal"
   | "beginEngineeringDispatch"
 >;
+
+type ModelWorkerMethods = Omit<
+  WorkerMethods,
+  "prepareEngineeringModel" | "completeEngineeringModel"
+> & {
+  prepareEngineeringModel(
+    access: AccessContext,
+    input: Parameters<EngineeringApplication["prepareEngineeringModel"]>[1],
+    guard?: EngineeringModelCommitGuard,
+  ): ReturnType<EngineeringApplication["prepareEngineeringModel"]>;
+  completeEngineeringModel(
+    access: AccessContext,
+    input: Parameters<EngineeringApplication["completeEngineeringModel"]>[1],
+    guard: Parameters<EngineeringApplication["completeEngineeringModel"]>[2],
+    observationGuard?: EngineeringModelCommitGuard,
+  ): ReturnType<EngineeringApplication["completeEngineeringModel"]>;
+};
 
 function permission(
   access: AccessContext,
@@ -455,6 +477,156 @@ export function createEngineeringWorkerServices(
     if (stored?.value.kind !== "engineering_work")
       throw new SupportDeskNotFoundError();
     return { value: stored.value, version: stored.version };
+  }
+  async function observedModelLoad(
+    access: AccessContext,
+    command: EngineeringClaimFence,
+    actorId: string,
+    completion?: string,
+  ): Promise<
+    | { loaded: EngineeringLoaded; stored: EngineeringWorkVersion }
+    | { accepted: EngineeringStepResult }
+  > {
+    const ticket = await records.getVersioned({
+      partition: command.ticketId,
+      id: "ticket",
+    });
+    permission(access, false, actorId);
+    if (ticket?.value.kind !== "ticket") throw new SupportDeskNotFoundError();
+    const source = await readEngineeringSourceVersion(
+      records,
+      command.ticketId,
+    );
+    permission(access, false, actorId);
+    if (source === null) throw new SupportDeskNotFoundError();
+    // Terminal accepted recovery never projects private observations or invokes a guard.
+    const eligible =
+      source.value.state === "eligible" &&
+      source.value.security === "ordinary" &&
+      source.value.sourceGeneration === command.sourceGeneration;
+    if (
+      !eligible ||
+      !hasPermission(access, supportPermissions.engineeringRead) ||
+      !hasPermission(access, supportPermissions.queueRead)
+    ) {
+      if (completion !== undefined) {
+        const stored = await workAt(command);
+        permission(access, false, actorId);
+        if (stored.value.lastCompletion?.fingerprint === completion)
+          return { accepted: outcome(stored.value) };
+      }
+      modelReadPermission(access, actorId);
+      throw new SupportDeskConflictError(
+        "Engineering source, work or claim fence changed",
+      );
+    }
+    modelReadPermission(access, actorId);
+    // The complete bounded list retains error/capacity priority; Work is never used on its failure.
+    const [rowsResult, workResult] = await Promise.allSettled([
+      Promise.resolve().then(() => records.list(command.ticketId)),
+      Promise.resolve().then(() => workAt(command)),
+    ]);
+    permission(access, false, actorId);
+    modelReadPermission(access, actorId);
+    if (rowsResult.status === "rejected") throw rowsResult.reason;
+    const rows = rowsResult.value;
+    if (rows.length > deps.limits.maxRecordsPerTicket)
+      throw new SupportDeskLimitError(
+        "ticket_partition",
+        deps.limits.maxRecordsPerTicket,
+      );
+    if (workResult.status === "rejected") throw workResult.reason;
+    return {
+      loaded: {
+        ticket: { value: ticket.value, version: ticket.version },
+        source,
+        rows,
+      },
+      stored: workResult.value,
+    };
+  }
+  function modelReadPermission(reader: AccessContext, actorId: string): void {
+    permission(reader, false, actorId);
+    for (const name of [
+      supportPermissions.engineeringRead,
+      supportPermissions.queueRead,
+    ])
+      if (!hasPermission(reader, name))
+        throw new SupportDeskAuthorizationError(name);
+  }
+  function modelObservation(
+    loaded: EngineeringLoaded,
+    stored: EngineeringWorkVersion,
+    actorId: string,
+  ) {
+    let open = true;
+    let confirmed = false;
+    const check = (reader: AccessContext) => {
+      modelReadPermission(reader, actorId);
+      if (!open)
+        throw new SupportDeskConflictError(
+          "Engineering model observation expired",
+        );
+    };
+    const observation: EngineeringModelObservation = Object.freeze({
+      read(reader: AccessContext) {
+        check(reader);
+        if (!confirmed)
+          throw new SupportDeskConflictError(
+            "Engineering model observation requires confirmation",
+          );
+        confirmed = false;
+        return {
+          source: snapshot(loaded.source.value),
+          work: snapshot(stored.value),
+        };
+      },
+      async confirm(reader: AccessContext) {
+        check(reader);
+        confirmed = false;
+        const source = await records.getVersioned(
+          engineeringSourceKey(loaded.source.value.ticketId),
+        );
+        check(reader);
+        if (source?.version !== loaded.source.version)
+          throw new SupportDeskConflictError(
+            "Engineering model source changed",
+          );
+        const work = await records.getVersioned(
+          engineeringWorkKey(
+            stored.value.ticketId,
+            stored.value.sourceGeneration,
+          ),
+        );
+        check(reader);
+        if (work?.version !== stored.version)
+          throw new SupportDeskConflictError("Engineering model work changed");
+        confirmed = true;
+      },
+    });
+    return {
+      observation,
+      close() {
+        open = false;
+        confirmed = false;
+      },
+    };
+  }
+  async function modelGuard(
+    guard: EngineeringModelCommitGuard,
+    loaded: EngineeringLoaded,
+    stored: EngineeringWorkVersion,
+    actorId: string,
+  ) {
+    const scope = modelObservation(loaded, stored, actorId);
+    const boundary = engineeringMutationBoundary({
+      verifyBeforeCommit: () => guard(scope.observation),
+    });
+    try {
+      return await boundary!.verify();
+    } finally {
+      scope.close();
+    }
   }
   async function save(
     loaded: EngineeringLoaded,
@@ -840,7 +1012,7 @@ export function createEngineeringWorkerServices(
       );
     return deadline;
   }
-  return {
+  const services: ModelWorkerMethods = {
     async scanEngineeringCandidates(access, input) {
       const actorId = access.principalId;
       const authority = scanPermission(access, actorId);
@@ -1123,7 +1295,7 @@ export function createEngineeringWorkerServices(
       }
       throw new SupportDeskConflictError();
     },
-    async prepareEngineeringModel(access, input) {
+    async prepareEngineeringModel(access, input, guard) {
       permission(access);
       const actorId = access.principalId;
       const command = snapshot(
@@ -1143,8 +1315,18 @@ export function createEngineeringWorkerServices(
       const runNow = effectiveTime(deps);
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
         permission(access, false, actorId);
-        const loaded = await load(command.ticketId);
-        const stored = await workAt(command);
+        const observed =
+          guard === undefined
+            ? undefined
+            : await observedModelLoad(access, command, actorId);
+        if (observed !== undefined && "accepted" in observed)
+          throw new SupportDeskConflictError();
+        const loaded =
+          observed === undefined
+            ? await load(command.ticketId)
+            : observed.loaded;
+        const stored =
+          observed === undefined ? await workAt(command) : observed.stored;
         const work = stored.value;
         live(loaded, work, command, runNow());
         if (
@@ -1213,9 +1395,28 @@ export function createEngineeringWorkerServices(
             throw new SupportDeskConflictError(
               "Engineering model preparation belongs to another invocation",
             );
+          const assertProof =
+            guard === undefined
+              ? undefined
+              : await modelGuard(guard, loaded, stored, actorId);
           live(loaded, work, command, runNow());
           permission(access, false, actorId);
-          if (await save(loaded, stored, work)) {
+          if (
+            await save(
+              loaded,
+              stored,
+              work,
+              loaded.source.value,
+              [],
+              guard === undefined
+                ? undefined
+                : () => {
+                    permission(access, false, actorId);
+                    live(loaded, work, command, runNow());
+                    assertProof?.();
+                  },
+            )
+          ) {
             permission(access, false, actorId);
             return {
               stepId: existing.stepId,
@@ -1259,20 +1460,39 @@ export function createEngineeringWorkerServices(
           workGeneration: work.workGeneration + 1,
         };
         reserveReachable(next);
+        const assertProof =
+          guard === undefined
+            ? undefined
+            : await modelGuard(guard, loaded, stored, actorId);
         await freshPolicy(access, {
           policyGeneration: manifest.policyGeneration,
           policyHash: manifest.policyHash,
         });
         live(loaded, work, command, runNow());
         permission(access, false, actorId);
-        if (await save(loaded, stored, next)) {
+        if (
+          await save(
+            loaded,
+            stored,
+            next,
+            loaded.source.value,
+            [],
+            guard === undefined
+              ? undefined
+              : () => {
+                  permission(access, false, actorId);
+                  live(loaded, work, command, runNow());
+                  assertProof?.();
+                },
+          )
+        ) {
           permission(access, false, actorId);
           return { stepId, requestHash, maxCandidateBytes: 16_000 };
         }
       }
       throw new SupportDeskConflictError();
     },
-    async completeEngineeringModel(access, input, guard) {
+    async completeEngineeringModel(access, input, guard, observationGuard) {
       permission(access);
       const actorId = access.principalId;
       if (typeof guard !== "function")
@@ -1309,8 +1529,18 @@ export function createEngineeringWorkerServices(
       const runNow = effectiveTime(deps);
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
         permission(access, false, actorId);
-        const loaded = await load(command.ticketId);
-        const stored = await workAt(command);
+        const observed =
+          observationGuard === undefined
+            ? undefined
+            : await observedModelLoad(access, command, actorId, completion);
+        if (observed !== undefined && "accepted" in observed)
+          return observed.accepted;
+        const loaded =
+          observed === undefined
+            ? await load(command.ticketId)
+            : observed.loaded;
+        const stored =
+          observed === undefined ? await workAt(command) : observed.stored;
         const work = stored.value;
         if (work.lastCompletion?.fingerprint === completion) {
           permission(access, false, actorId);
@@ -1368,7 +1598,15 @@ export function createEngineeringWorkerServices(
           ),
         };
         checkEngineeringRecordCapacity(next);
-        await guard();
+        let assertProof: (() => void) | undefined;
+        if (observationGuard === undefined) await guard();
+        else
+          assertProof = await modelGuard(
+            observationGuard,
+            loaded,
+            stored,
+            actorId,
+          );
         await freshPolicy(access, {
           policyGeneration: model.binding.inputManifest.policyGeneration,
           policyHash: model.binding.inputManifest.policyHash,
@@ -1387,6 +1625,7 @@ export function createEngineeringWorkerServices(
           await save(loaded, stored, next, nextSource, [], () => {
             permission(access, false, actorId);
             live(loaded, work, command, runNow());
+            assertProof?.();
             if (timestamp(model.binding.deadline, "model.deadline") <= runNow())
               throw new SupportDeskConflictError(
                 "Engineering prepared model deadline expired",
@@ -2519,6 +2758,24 @@ export function createEngineeringWorkerServices(
         }
       }
       throw new SupportDeskConflictError();
+    },
+  };
+  return {
+    ...services,
+    prepareEngineeringModelObserved(access, command, guard) {
+      if (typeof guard !== "function")
+        throw new TypeError("Engineering model observation requires a guard");
+      return services.prepareEngineeringModel(access, command, guard);
+    },
+    completeEngineeringModelObserved(access, command, guard) {
+      if (typeof guard !== "function")
+        throw new TypeError("Engineering model observation requires a guard");
+      return services.completeEngineeringModel(
+        access,
+        command,
+        () => {},
+        guard,
+      );
     },
   };
 }

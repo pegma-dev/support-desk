@@ -21,6 +21,14 @@ import {
 } from "../test/engineering-fixtures.js";
 
 type Fixture = Awaited<ReturnType<typeof engineeringAiFixture>>;
+function legacyModelApplication(f: Fixture) {
+  const {
+    prepareEngineeringModelObserved: _prepare,
+    completeEngineeringModelObserved: _complete,
+    ...application
+  } = f.app;
+  return application;
+}
 
 async function run(f: Fixture) {
   return f.engineering.processWork(await f.nextCommand());
@@ -565,7 +573,10 @@ for (const [name, createStore] of engineeringStores) {
       );
       const engineering = createSupportDeskEngineering({
         ...f.baseOptions,
-        application: { ...f.app, prepareEngineeringModel: prepare },
+        application: {
+          ...legacyModelApplication(f),
+          prepareEngineeringModel: prepare,
+        },
         serviceAccess: { resolve },
       });
       const result = await engineering.processWork(await f.nextCommand());
@@ -992,7 +1003,10 @@ for (const [name, createStore] of engineeringStores) {
       );
       const engineering = createSupportDeskEngineering({
         ...f.baseOptions,
-        application: { ...f.app, prepareEngineeringModel: prepare },
+        application: {
+          ...legacyModelApplication(f),
+          prepareEngineeringModel: prepare,
+        },
       });
       expect(
         await engineering.processWork(await f.nextCommand()),
@@ -1036,7 +1050,10 @@ for (const [name, createStore] of engineeringStores) {
       );
       const engineering = createSupportDeskEngineering({
         ...f.baseOptions,
-        application: { ...f.app, completeEngineeringModel: complete },
+        application: {
+          ...legacyModelApplication(f),
+          completeEngineeringModel: complete,
+        },
       });
       expect(
         await engineering.processWork(await f.nextCommand()),
@@ -1061,7 +1078,10 @@ for (const [name, createStore] of engineeringStores) {
       );
       const uncertain = createSupportDeskEngineering({
         ...f.baseOptions,
-        application: { ...f.app, prepareEngineeringModel: prepare },
+        application: {
+          ...legacyModelApplication(f),
+          prepareEngineeringModel: prepare,
+        },
       });
       expect(await uncertain.processWork(await f.nextCommand())).toEqual({
         outcome: "pending",
