@@ -25,8 +25,9 @@ adds optional late host guards/cancellation and authorized reassessment/post
 observations for release follow-up. It retains `0.2.7` engineering read batching
 and actual provider-usage accounting, earlier guarded controls, attachments,
 staged human learning reviews and recovery APIs. Its optional AI package pins
-exact KB application/contracts `0.1.6`, also retained by the unpublished
-`0.2.9` candidate. Earlier artifacts and dated receipts remain immutable.
+exact KB application/contracts `0.1.6`. The unpublished `0.2.9` candidate now
+targets exact verified public KB `0.1.7` and requires fresh dependency graph
+qualification. Earlier artifacts and dated receipts remain immutable.
 
 Staged retrieval remains OFF by default. Preparation consumes one existing
 attempt; both application and verified-configuration caps must allow at least

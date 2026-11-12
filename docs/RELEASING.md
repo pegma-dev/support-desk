@@ -80,8 +80,16 @@ proof, authority, Source/Work opaque-version confirmation, exact ACK recovery
 and legacy structural-port fallbacks remain. See the
 [candidate notes](RELEASE_NOTES.md#029-engineering-worker-observations) and
 [worker contract](ENGINEERING_EXPORT.md#candidate-029-worker-observations).
-Exact KB application/contracts `0.1.6` remain unchanged. Keep hosts on verified
-published artifacts until this candidate is merged, published and qualified.
+The candidate pins exact verified public KB application/contracts `0.1.7`.
+All four KB packages passed strict native registry/source/provenance and public
+consumer verification on 2026-11-12 at 18:22:28 UTC, from signed source
+`27074b8bba76817ea6960606cf29d8fc239943b0`. The original prepared artifact and
+strict public receipt are retained on the
+[KB `0.1.7` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.7):
+[registry verification](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.7/registry-verification.json).
+The changed SDK dependency graph requires fresh qualification. Published Support Desk `0.2.8` and its exact KB
+`0.1.6` pins remain unchanged. Keep hosts on verified published artifacts
+until this candidate is merged, published and qualified.
 No candidate pack, copied source, local archive or override substitutes for a
 production dependency. The root remains private at `0.0.0`.
 

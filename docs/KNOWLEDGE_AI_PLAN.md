@@ -131,6 +131,9 @@ requested-client acceptance (zero recorded here), evaluations or pilots.
 
 **Current version facts and next gates.** The verified Support Desk `0.2.8`
 AI manifest pins Knowledge Base application and contracts to exact `0.1.6`.
+The unpublished `0.2.9` manifests now pin exact verified public KB `0.1.7`.
+Fresh SDK dependency qualification remains required; earlier candidate artifacts
+and results do not substitute for that changed public dependency graph.
 The earlier `0.2.1` AI manifest retains its exact `0.1.2` dependencies. The base
 application remains independent of KB and providers. [Current publication receipt](RELEASING.md#verified-028-publication-2026-11-12) · [Historical AI manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.1/packages/ai/package.json)
 

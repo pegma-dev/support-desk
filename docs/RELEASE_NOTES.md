@@ -5,8 +5,9 @@
 ## 0.2.9 candidate — per-attempt engineering worker observations
 
 All five local package versions and exact internal Support pins target
-unpublished `0.2.9`. Exact public KB application/contracts `0.1.6` and
-Authorization Core `0.4.0` remain unchanged. The AI manifest adds exact direct
+unpublished `0.2.9`. Exact KB application/contracts now pin verified public
+`0.1.7`, requiring fresh SDK graph qualification. Published `0.2.8` retains KB `0.1.6`; Authorization Core `0.4.0`
+remains unchanged. The AI manifest adds exact direct
 `zod@4.4.3` and `@pegma/storage-core@0.4.0` dependencies. The root stays private
 at `0.0.0`.
 
@@ -64,8 +65,9 @@ privacy/configuration evidence. See [the adapter contract](../packages/ai/README
 ## 0.2.8 — follow-up host guards and authorized reads, 2026-11-12
 
 All five synchronized `0.2.8` packages are published and strictly verified.
-The current `0.2.9` source candidate retains these controls and exact KB
-application/contracts `0.1.6`. See the
+Its published AI package retains exact KB application/contracts `0.1.6`.
+The unpublished `0.2.9` candidate retains these controls and pins verified public
+KB `0.1.7`, requiring fresh SDK graph qualification. See the
 [publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
 Optional `EngineeringMutationOptions` add caller cancellation and a trusted
 late `verifyBeforeCommit` guard to non-post follow-up mutations. Observation,
