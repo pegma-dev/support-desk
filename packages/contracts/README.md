@@ -1,12 +1,12 @@
 # @pegma/support-desk-contracts
 
-The local synchronized source version is `0.2.7`. See the
-[release notes](../../docs/RELEASE_NOTES.md#027-engineering-read-batching)
+The local synchronized source version is `0.2.8`. See the
+[release notes](../../docs/RELEASE_NOTES.md#028-followup-mutation-guards)
 and [engineering read phases](../../docs/ENGINEERING_EXPORT.md#entry-points-and-authority). This package adds no new runtime API.
 
-The current verified synchronized registry release is `0.2.6`; see the
-[publication receipt](../../docs/RELEASING.md#verified-026-publication-2026-11-11).
-The synchronized `0.2.6` release includes the
+The current verified synchronized registry release is `0.2.7`; see the
+[publication receipt](../../docs/RELEASING.md#verified-027-publication-2026-11-11).
+The synchronized `0.2.7` release includes the
 [application/AI additions](../../docs/RELEASE_NOTES.md). Host adoption retains
 its own composition and activation gates.
 
@@ -54,6 +54,6 @@ checks permissions/ownership and current visible-message proof, commits
 Audit/receipts/work, and keeps private handling generations and evidence out
 of customer DTOs. Core performs pure transitions and validates its handling
 inputs. These changes first shipped in verified synchronized `0.2.0` and remain
-in current `0.2.6`, with no model or KB dependency. See the current
-[publication receipt](../../docs/RELEASING.md#verified-026-publication-2026-11-11);
+in current `0.2.7`, with no model or KB dependency. See the current
+[publication receipt](../../docs/RELEASING.md#verified-027-publication-2026-11-11);
 host activation retains its own acceptance gates.

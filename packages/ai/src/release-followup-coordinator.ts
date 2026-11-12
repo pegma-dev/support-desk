@@ -1,6 +1,7 @@
 import { hasPermission, type AccessContext } from "@pegma/authorization-core";
 import {
   SupportDeskAuthorizationError,
+  SupportDeskConflictError,
   supportPermissions,
 } from "@pegma/support-desk-application";
 import type {
@@ -11,6 +12,8 @@ import type {
   EngineeringFollowupResult,
   EngineeringFollowupWebUpdateOptions,
   EngineeringFollowupWorkRecord,
+  EngineeringMutationOptions,
+  EngineeringFollowupPostObservation,
   FinishEngineeringFollowupModelCommand,
   PrepareEngineeringFollowupBundleCommand,
 } from "@pegma/support-desk-application";
@@ -330,10 +333,41 @@ export function createSupportDeskReleaseFollowup(
     async prepareStaffReassessment(
       access: AccessContext,
       input: PrepareReleaseFollowupStaffReassessmentCommand,
-      run: { readonly signal?: AbortSignal } = {},
+      run: EngineeringMutationOptions = {},
     ) {
       const runtime = createLearningRuntime(options, run);
+      const { signal, verifyBeforeCommit } = run;
       const ensureStaff = staffFence(access);
+      const mutationOptionsFor = (
+        deadline: () => number,
+        required = false,
+      ): EngineeringMutationOptions | undefined =>
+        !required && signal === undefined && verifyBeforeCommit === undefined
+          ? undefined
+          : {
+              signal: runtime.signal,
+              async verifyBeforeCommit() {
+                runtime.ensure(deadline());
+                ensureStaff();
+                const proof =
+                  verifyBeforeCommit === undefined
+                    ? undefined
+                    : await runtime.within(
+                        async () => verifyBeforeCommit(),
+                        deadline(),
+                      );
+                runtime.ensure(deadline());
+                ensureStaff();
+                return (): true => {
+                  runtime.ensure(deadline());
+                  ensureStaff();
+                  const current = proof === undefined ? true : proof();
+                  runtime.ensure(deadline());
+                  ensureStaff();
+                  return current;
+                };
+              },
+            };
       try {
         const command = snapshot(input);
         exactKeys(command, [
@@ -393,6 +427,107 @@ export function createSupportDeskReleaseFollowup(
             releaseFollowupFailure(failure, "bundle_acknowledgement_unknown"),
           );
         };
+        const reassess = options.application.reassessEngineeringFollowupBundle;
+        if (reassess !== undefined) {
+          let phaseDeadline = runtime.deadline;
+          let verificationDeadline = phaseDeadline;
+          const mutationOptions = mutationOptionsFor(
+            () => verificationDeadline,
+            true,
+          );
+          let failure: unknown;
+          for (let attempt = 0; attempt < attempts; attempt += 1) {
+            try {
+              runtime.ensure(phaseDeadline);
+              ensureStaff();
+              const result = await runtime.within(() =>
+                reassess.call(
+                  options.application,
+                  access,
+                  {
+                    ...key,
+                    commandId: command.commandId,
+                    correlationId: command.correlationId,
+                    expectedWorkGeneration: command.expectedWorkGeneration,
+                    recoveryIntentHash,
+                  },
+                  async (observation) => {
+                    ensureStaff();
+                    requireStaffRead(access, "prepare");
+                    const view = snapshot(observation.read(access));
+                    if (view.workGeneration !== command.expectedWorkGeneration)
+                      throw new AssistantBoundaryError("current_fence_changed");
+                    const work = prospectiveWork(view);
+                    const observeCurrent = async (): Promise<void> => {
+                      ensureStaff();
+                      await runtime.within(() => observation.confirm(access));
+                      ensureStaff();
+                      const current = snapshot(observation.read(access));
+                      if (
+                        current.workGeneration !== view.workGeneration ||
+                        current.prospectiveWorkBindingHash !==
+                          view.prospectiveWorkBindingHash ||
+                        canonical(current.proofContext) !==
+                          canonical(view.proofContext) ||
+                        canonical(current.proof.context) !==
+                          canonical(view.proof.context)
+                      )
+                        throw new AssistantBoundaryError("source_changed");
+                      runtime.ensure(
+                        Math.min(
+                          runtime.deadline,
+                          timestamp(current.proof.attestation.validUntil),
+                        ),
+                      );
+                    };
+                    const checked = await prepareCheckedReleaseFollowupBundle(
+                      options,
+                      work,
+                      command.content ??
+                        retainedReleaseFollowupContent(view.work),
+                      runtime,
+                      observeCurrent,
+                    );
+                    phaseDeadline = Math.min(phaseDeadline, checked.deadline);
+                    verificationDeadline = phaseDeadline;
+                    return {
+                      candidateHash: work.candidateHash!,
+                      exactBundle: checked.bundle,
+                      checksReceipt: checked.receipt,
+                      checkPolicyVersion: checked.checkPolicyVersion,
+                      guard: async () => {
+                        await checked.guard();
+                        verificationDeadline = Math.min(
+                          phaseDeadline,
+                          checked.verificationDeadline,
+                        );
+                      },
+                    };
+                  },
+                  mutationOptions,
+                ),
+              );
+              ensureStaff();
+              return result;
+            } catch (error) {
+              failure = error;
+              // Replanning is App-owned only after a genuine conditional conflict.
+              // Known proof/authority failures still get opaque ACK recovery below.
+              if (
+                error instanceof AssistantBoundaryError ||
+                error instanceof SupportDeskConflictError ||
+                error instanceof SupportDeskAuthorizationError ||
+                error instanceof TypeError
+              )
+                break;
+            }
+          }
+          const accepted = await recover();
+          if (accepted !== null) return accepted;
+          throw new AssistantBoundaryError(
+            releaseFollowupFailure(failure, "bundle_acknowledgement_unknown"),
+          );
+        }
         ensureStaff();
         const recovered = await recover();
         if (recovered !== null) return recovered;
@@ -456,6 +591,9 @@ export function createSupportDeskReleaseFollowup(
           checkPolicyVersion: checked.checkPolicyVersion,
           recoveryIntentHash,
         });
+        const mutationOptions = mutationOptionsFor(
+          () => checked.verificationDeadline,
+        );
         let failure: unknown;
         for (let attempt = 0; attempt < attempts; attempt += 1) {
           try {
@@ -466,6 +604,7 @@ export function createSupportDeskReleaseFollowup(
                   access,
                   prepare,
                   checked.guard,
+                  mutationOptions,
                 ),
               checked.deadline,
             );
@@ -473,6 +612,12 @@ export function createSupportDeskReleaseFollowup(
             return result;
           } catch (error) {
             failure = error;
+            // A host overrun is terminal; only non-deadline failures may renew proof.
+            if (
+              error instanceof AssistantBoundaryError &&
+              error.category === "deadline"
+            )
+              break;
           }
         }
         const accepted = await recover();
@@ -504,14 +649,21 @@ export function createSupportDeskReleaseFollowup(
             releaseFollowupFailure(error, "verification_unavailable"),
           );
         // Lazy preflight lets the app recognize an exact historical posting receipt first.
-        const guard = async () => {
+        const guard = async (
+          observation?: EngineeringFollowupPostObservation,
+        ) => {
           try {
             ensureStaff();
             requireStaffRead(access, "post");
             const work = snapshot(
-              await runtime.within(() =>
-                options.application.readEngineeringFollowupWork(access, key),
-              ),
+              observation === undefined
+                ? await runtime.within(() =>
+                    options.application.readEngineeringFollowupWork(
+                      access,
+                      key,
+                    ),
+                  )
+                : observation.readWork(access),
             );
             ensureStaff();
             if (
@@ -526,12 +678,18 @@ export function createSupportDeskReleaseFollowup(
               runtime,
               async () => {
                 ensureStaff();
-                const current = await releaseFollowupCurrent(
-                  options,
-                  work,
-                  access,
-                  runtime,
-                );
+                let current;
+                if (observation === undefined) {
+                  current = await releaseFollowupCurrent(
+                    options,
+                    work,
+                    access,
+                    runtime,
+                  );
+                } else {
+                  await runtime.within(() => observation.confirm(access));
+                  current = observation.readWork(access);
+                }
                 ensureStaff();
                 if (
                   current.workGeneration !== work.workGeneration ||

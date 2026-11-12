@@ -1,8 +1,8 @@
-# Upgrading to the synchronized 0.2.6 release
+# Upgrading to the synchronized 0.2.7 release
 
-`0.2.6` is the current verified published synchronized release. Hosts retain
+`0.2.7` is the current verified published synchronized release. Hosts retain
 their own deployment and acceptance gates. See the
-[publication receipt](RELEASING.md#verified-026-publication-2026-11-11).
+[publication receipt](RELEASING.md#verified-027-publication-2026-11-11).
 The original SD-06 `0.2.0` release has its separate
 [historical receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
 The original four Support Desk packages were published at `0.1.1`. Before
@@ -18,9 +18,40 @@ registry application dependency lacks the new source exports. The five local
 bootstrap tarballs prove an isolated source assembly, not a usable registry
 dependency tree.
 
-## Unpublished 0.2.7 source candidate
+## Unpublished 0.2.8 follow-up host guards
 
-The local five-package `0.2.7` tuple retains the guarded engineering controls
+The synchronized source candidate adds optional `EngineeringMutationOptions`
+to non-post follow-up observation, retry, abandon, rejection and bundle
+preparation. Existing calls may omit the options. Bundle preparation retains
+its existing proof guard before the new options argument. AI
+`prepareStaffReassessment` forwards optional `signal` and `verifyBeforeCommit`,
+composing the caller assertion with its existing staff/invocation and checked
+proof deadline fences. Exact accepted receipts retain current authorization and bypass new proof/late
+guard work; each new transaction attempt checks the late host guard after SDK
+proof/planning awaits and applies its synchronous assertion and original signal
+at handoff. The AI invocation retains its existing `run.signal` behavior,
+including receipt reads. Web posting retains its existing proof/host guard and
+delivery contract; the candidate adds an optional
+`EngineeringFollowupPostObservation` to its proof guard for authorized reads
+and final opaque-version confirmation. Forward the optional observation
+argument through adapters; older ports keep their standalone fallback. The
+application also exposes `reassessEngineeringFollowupBundle` with an
+`EngineeringFollowupReassessmentObservation` planner. Its command retains the
+immutable intent identity; its fourth argument accepts the mutation options.
+The existing AI staff helper uses this optional application port when present.
+Structural ports may omit it to retain the full legacy path. Do not replace
+receipt recovery or fresh proof with retained observation data. See the
+[follow-up contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
+
+Keep production on the verified `0.2.7` tuple until `0.2.8` is published and
+qualified. All five candidate versions/internal pins advance together; KB
+application/contracts remain exact `0.1.6`. No record migration is added.
+
+<a id="unpublished-027-source-candidate"></a>
+
+## Published 0.2.7 engineering reads
+
+The verified five-package `0.2.7` tuple retains the guarded engineering controls
 from published `0.2.6` and adds optional
 `EngineeringApplication.readEngineeringContext(access, fence)`, returning
 `{source, work?}`. Structural application ports may omit the method; the AI
@@ -37,13 +68,11 @@ grants. Policy access uses the existing resolver rule: `engineeringProcess` or
 permission to skip later proofs. See the
 [approval observation contract](ENGINEERING_EXPORT.md#candidate-027-approval-observation).
 
-Continue using the verified `0.2.6` tuple until `0.2.7`
-is published and its original artifacts are verified. Its current candidate
-uses exact KB application/contracts `0.1.6` from the
-[verified public KB release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6).
-Qualify that complete candidate graph; the published `0.2.6`/KB `0.1.5`
+The published `0.2.7` tuple uses exact KB application/contracts `0.1.6`
+from the [verified public KB release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6).
+Qualify the complete consumer graph for the host. The older `0.2.6`/KB `0.1.5`
 artifacts remain unchanged. See the
-[source release contract](RELEASING.md#source-version-027).
+[publication handoff](RELEASING.md#verified-027-publication-2026-11-11).
 
 <a id="unpublished-026-guarded-engineering-controls"></a>
 
@@ -262,7 +291,7 @@ boundaries before exposing the review surface.
 ## Rehearse the actual 0.1.1-to-0.2.0 upgrade
 
 The SD-06 rehearsal below is retained as historical migration evidence. For
-current `0.2.6` adoption, repeat the rehearsal against the exact selected `0.2.6`
+current `0.2.7` adoption, repeat the rehearsal against the exact selected `0.2.7`
 artifacts and record a new receipt; a `0.2.0` result does not qualify changed
 artifacts or a host's durable-store migration.
 

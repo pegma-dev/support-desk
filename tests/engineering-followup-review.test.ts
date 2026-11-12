@@ -879,12 +879,12 @@ for (const [name, createStore] of engineeringFollowupStores) {
         ...f.key,
         expectedWorkGeneration: held.workGeneration,
       };
-      const prepare = vi.fn<typeof f.app.prepareEngineeringFollowupBundle>(
-        async (...args) => {
-          await f.app.prepareEngineeringFollowupBundle(...args);
-          throw new Error("Synthetic lost committed reassessment ACK");
-        },
-      );
+      const prepare = vi.fn<
+        NonNullable<typeof f.app.reassessEngineeringFollowupBundle>
+      >(async (...args) => {
+        await f.app.reassessEngineeringFollowupBundle!(...args);
+        throw new Error("Synthetic lost committed reassessment ACK");
+      });
       let droppedRecoveryAcknowledgements = 0;
       const recover = vi.fn<typeof f.app.recoverEngineeringFollowupPreparation>(
         async (...args) => {
@@ -904,7 +904,7 @@ for (const [name, createStore] of engineeringFollowupStores) {
         ...f.baseOptions,
         application: {
           ...f.app,
-          prepareEngineeringFollowupBundle: prepare,
+          reassessEngineeringFollowupBundle: prepare,
           recoverEngineeringFollowupPreparation: recover,
         },
       });

@@ -6,10 +6,10 @@ Approved product decisions: 2026-11-06; scoped-agent-access decision added
 2026-11-07. The ten entries in the ledger below are merged source, including
 AUTH-01, KB-04's transport source exit, and both producers' release preparation.
 All five synchronized Support Desk packages are published and strictly
-verified at `0.2.6`. Optional AI pins Knowledge Base application and contracts
-to exact `0.1.5`. This host composition selects all four verified Knowledge
-Base `0.1.5` packages and Agent Access `0.1.1`. The dated ledger below records
-earlier checkpoints. [Support Desk publication receipt](RELEASING.md#verified-026-publication-2026-11-11) · [Knowledge Base release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.5)
+verified at `0.2.7`. Optional AI pins Knowledge Base application and contracts
+to exact `0.1.6`. This host composition selects all four verified Knowledge
+Base `0.1.6` packages and Agent Access `0.1.1`. The dated ledger below records
+earlier checkpoints. [Support Desk publication receipt](RELEASING.md#verified-027-publication-2026-11-11) · [Knowledge Base release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6)
 
 Published `0.2.3` includes the final engineering approval/rejection guards and
 proof-expiry fence. Published `0.2.4` adds admitted customer intake, final draft
@@ -129,10 +129,10 @@ read-batching SDK patch establishes no universal Workers Free query or CPU
 bound and no host KB/AI activation, live-provider/privacy acceptance, actual
 requested-client acceptance (zero recorded here), evaluations or pilots.
 
-**Current version facts and next gates.** The verified Support Desk `0.2.6`
-AI manifest pins Knowledge Base application and contracts to exact `0.1.5`.
+**Current version facts and next gates.** The verified Support Desk `0.2.7`
+AI manifest pins Knowledge Base application and contracts to exact `0.1.6`.
 The earlier `0.2.1` AI manifest retains its exact `0.1.2` dependencies. The base
-application remains independent of KB and providers. [Current publication receipt](RELEASING.md#verified-026-publication-2026-11-11) · [Historical AI manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.1/packages/ai/package.json)
+application remains independent of KB and providers. [Current publication receipt](RELEASING.md#verified-027-publication-2026-11-11) · [Historical AI manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.1/packages/ai/package.json)
 
 Qualified Storage Core adapter releases include
 [Cloudflare D1 `0.4.6`](https://github.com/pegma-dev/storage-core/releases/tag/v0.4.6)
@@ -151,7 +151,7 @@ authority/data controls, and replay contract. Public-entry memory/Azurite tests
 with the actual KB and a fake provider, Node 22/24 gates, and code/security
 review support this SDK release; they do not establish host activation.
 The earlier standalone authoring recipe selected all four exact KB `0.1.4`
-packages and Agent Access `0.1.1`. This host composition pins KB `0.1.5` and
+packages and Agent Access `0.1.1`. This host composition pins KB `0.1.6` and
 Agent Access `0.1.1`. Each host qualifies its actual installed graph and records
 its own adoption evidence. [Producer handoff](HOST_COMPOSITION.md#kb-authoring-producers)
 PG-01 source integration is tracked in

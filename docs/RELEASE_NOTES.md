@@ -1,15 +1,41 @@
 # Release notes
 
+<a id="028-followup-mutation-guards"></a>
+
+## 0.2.8 candidate — follow-up host guards and authorized reads
+
+All five local package versions and internal Support pins target unpublished
+`0.2.8`; exact public KB application/contracts `0.1.6` remain unchanged.
+Optional `EngineeringMutationOptions` add caller cancellation and a trusted
+late `verifyBeforeCommit` guard to non-post follow-up mutations. Observation,
+retry, abandon and rejection accept a third argument; bundle preparation
+accepts a fourth after its existing proof guard. The AI staff reassessment
+options forward the same signal and late guard.
+
+For each new transaction attempt, the callback follows SDK proof/planning
+awaits, and its optional synchronous assertion plus the original signal are
+checked at the transaction handoff. Current permissions and exact accepted
+receipt recovery remain required. Existing omitted-option callers retain
+their contracts. Web posting adds an optional per-attempt application-owned
+read observation while retaining its proof, authority and delivery guarantees;
+older ports keep the standalone read fallback. The optional application
+`reassessEngineeringFollowupBundle` entry point owns receipt recovery, an
+authorized reassessment snapshot and final opaque-version confirmation; the
+AI staff helper uses it when present and retains the full legacy fallback.
+No new permission, record layout,
+model call, automatic customer notice or host activation is added. See the
+[follow-up guard contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
+
 <a id="027-engineering-read-batching"></a>
 
-## 0.2.7 candidate — engineering read batching
+## 0.2.7 — engineering read batching, 2026-11-11
 
-All five local package versions and internal Support pins target source version
-`0.2.7`, which remains unpublished. The optional AI package and matching
-development graph pin exact KB application/contracts `0.1.6`, from the
-[verified public KB release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6)
-at signed source `b2946e149078e0ef460f970c2271c196ea9fc759`. The earlier
-published Support `0.2.6` tuple retains its exact KB `0.1.5` dependencies.
+All five synchronized `0.2.7` packages and exact internal Support pins are
+published and strictly verified from signed source
+[`9577ae2a5769e05fb16924e06f6e0e945b4ae2fc`](https://github.com/pegma-dev/support-desk/commit/9577ae2a5769e05fb16924e06f6e0e945b4ae2fc).
+See the [publication handoff](RELEASING.md#verified-027-publication-2026-11-11).
+The optional AI package pins exact public KB application/contracts `0.1.6`.
+The earlier published `0.2.6` tuple retains its exact KB `0.1.5` dependencies.
 
 The answer coordinator records valid, matching and representable actual
 provider usage before enforcing answer budgets. An over-budget response is

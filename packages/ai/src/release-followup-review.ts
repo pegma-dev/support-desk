@@ -304,6 +304,7 @@ export async function prepareCheckedReleaseFollowupBundle(
     timestamp(proof.attestation.validUntil),
     receiptExpiry,
   );
+  let verificationDeadline = deadline;
   const guard = async (): Promise<void> => {
     try {
       const freshProof = await releaseFollowupProof(
@@ -338,15 +339,15 @@ export async function prepareCheckedReleaseFollowupBundle(
         runtime,
         deadline,
       );
+      // Bound this final verification without changing the worker's phase budget.
+      verificationDeadline = Math.min(
+        deadline,
+        expiry,
+        timestamp(freshProof.attestation.validUntil),
+      );
       // The caller resolves its current authority before its direct storage-only fence.
       await observeCurrent();
-      runtime.ensure(
-        Math.min(
-          deadline,
-          expiry,
-          timestamp(freshProof.attestation.validUntil),
-        ),
-      );
+      runtime.ensure(verificationDeadline);
     } catch (error) {
       throw new ReleaseFollowupReviewGuardFailure(
         error instanceof AssistantBoundaryError
@@ -361,6 +362,10 @@ export async function prepareCheckedReleaseFollowupBundle(
     receipt,
     checkPolicyVersion: policy.version,
     deadline,
+    // Staff late host checks also retain the final verification's shorter expiry.
+    get verificationDeadline() {
+      return verificationDeadline;
+    },
     guard,
   };
 }

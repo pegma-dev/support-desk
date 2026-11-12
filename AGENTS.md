@@ -171,22 +171,20 @@ Calendars and presence stay host-owned. Task 12 remains pending on both hosts'
 durable-store production evidence. Source work does not publish a package.
 
 The five local manifests and exact internal Support pins target the unpublished
-`0.2.7` source candidate. It retains the guarded engineering controls published
-in `0.2.6` and adds an optional authorized engineering read context plus a
-compatible per-attempt approval-guard observation; see the
-[candidate notes](docs/RELEASE_NOTES.md#027-engineering-read-batching) and
-[host guard contract](docs/ENGINEERING_EXPORT.md#026-candidate-guarded-engineering-controls).
-The current source pins exact KB application/contracts `0.1.6`, from the
-[verified public KB release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6)
-at signed source `b2946e149078e0ef460f970c2271c196ea9fc759`.
-The root package remains private at `0.0.0`. Do not treat a candidate pack or
-source checkout as a verified registry release.
+`0.2.8` source candidate. It adds optional final host guards to non-post
+follow-up controls, forwards the guard for staff reassessment, and adds
+callback-scoped reassessment/post observations; see the
+[candidate notes](docs/RELEASE_NOTES.md#028-followup-mutation-guards) and
+[follow-up contract](docs/ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
+The current source retains exact verified public KB application/contracts
+`0.1.6`. The root remains private at `0.0.0`. A candidate pack or source
+checkout is not a verified registry release.
 
-All five packages have verified published `0.2.6` versions. The synchronized
+All five packages have verified published `0.2.7` versions. The synchronized
 `0.2.1` and `0.2.0` artifacts remain immutable history. The original four names also retain
 their published `0.1.0`/`0.1.1` artifacts; the AI name's `0.1.1` is a separate
 registration-only bootstrap. Follow the
-[publication receipt](docs/RELEASING.md#verified-026-publication-2026-11-11)
+[publication receipt](docs/RELEASING.md#verified-027-publication-2026-11-11)
 and release operations. Customer services return safe DTOs; staff
 services return the authoritative ticket for authorized staff only, and the
 staff queue scans a confirmed projection that is never authorization evidence.
@@ -236,13 +234,13 @@ messages with exact completion fences, and adds deterministic owned
 request-person, staff takeover, private success evidence, human queue
 selection, and bounded atomic handoff work. It adds no model, KB dependency,
 or package; its behavior first shipped in synchronized `0.2.0` and remains in
-current `0.2.6`. Do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
+current `0.2.7`. Do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
 activation gates after verified SDK publication.
 Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
 preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
 both producers' final release preparation are merged. The
 [standalone authoring recipe](docs/HOST_COMPOSITION.md#kb-authoring-producers)
-selects all four strictly verified KB `0.1.5` packages and verified Agent
+selects all four strictly verified KB `0.1.6` packages and verified Agent
 Access `0.1.1`. The trusted releases close the producer publication gates.
 Their manual `0.1.0` bootstrap receipts remain historical and have no OIDC
 provenance. SD-02
@@ -260,8 +258,8 @@ signed `v0.2.0` at `efc9d733b3d305d24cf4197444e1d76c99bdb777`; see
 `docs/RELEASING.md` for the dated receipt. Its public composition example lives in `examples/ai`;
 the migration and operations handbooks are `docs/UPGRADING.md` and
 `docs/AI_OPERATIONS.md`. The base application has no KB or provider dependency; actual KB
-`0.1.5` application/contracts dependencies belong only to the current
-optional AI `0.2.6` package. Older `0.2.0` and
+`0.1.6` application/contracts dependencies belong only to the current
+optional AI `0.2.7` package. Older `0.2.0` and
 `0.2.1` AI manifests retain their original `0.1.2` pins. See [assistant coordination](docs/ASSISTANT_COORDINATION.md)
 and its [layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint).
 PG-01/RG-01 consume exact verified published producers and still require actual

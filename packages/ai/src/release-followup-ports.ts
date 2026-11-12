@@ -9,6 +9,7 @@ import type {
   ApproveAndPostEngineeringFollowupWebUpdateCommand,
   ClaimEngineeringFollowupWorkCommand,
   EngineeringCommand,
+  EngineeringMutationOptions,
   EngineeringFollowupApplication,
   EngineeringFollowupBundle,
   EngineeringFollowupCandidate,
@@ -278,7 +279,7 @@ export interface SupportDeskReleaseFollowup {
   prepareStaffReassessment(
     access: AccessContext,
     command: PrepareReleaseFollowupStaffReassessmentCommand,
-    options?: { readonly signal?: AbortSignal },
+    options?: EngineeringMutationOptions,
   ): Promise<EngineeringFollowupResult>;
   /** New posting requires Read+Review+queueRead+replyAny; exact historical ACK replay retains base posting grants. */
   approveAndPostWebUpdate(

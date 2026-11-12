@@ -4,6 +4,7 @@ import type { TicketId, MessageId } from "@pegma/support-desk-contracts";
 import type {
   EngineeringCommand,
   EngineeringCommitGuard,
+  EngineeringMutationOptions,
   EngineeringProcessing,
   EngineeringSecurity,
 } from "./engineering-types.js";
@@ -344,6 +345,12 @@ export interface ApproveAndPostEngineeringFollowupWebUpdateCommand
   readonly bundleHash: string;
   readonly messageId: MessageId;
 }
+/** One posting attempt's authorized view; no opaque versions escape the app. */
+export interface EngineeringFollowupPostObservation {
+  readWork(access: AccessContext): EngineeringFollowupWorkRecord;
+  /** Source-first confirmation of the original Source, association, Work, Head and Ticket. */
+  confirm(access: AccessContext): Promise<void>;
+}
 /**
  * A trusted release check may supply a synchronous final proof assertion.
  * Returning void selects the application's stored proof and work deadlines.
@@ -353,8 +360,9 @@ export interface ApproveAndPostEngineeringFollowupWebUpdateCommand
  * adapter so its shorter proof, policy and invocation limits are checked again
  * after the final awaited staff-authority observation.
  */
-export type EngineeringFollowupWebUpdateProofGuard = () =>
-  void | (() => true) | Promise<void | (() => true)>;
+export type EngineeringFollowupWebUpdateProofGuard = (
+  observation?: EngineeringFollowupPostObservation,
+) => void | (() => true) | Promise<void | (() => true)>;
 
 export interface EngineeringFollowupWebUpdateOptions {
   readonly signal?: AbortSignal;
@@ -379,6 +387,23 @@ export interface EngineeringFollowupReassessmentView {
   readonly prospectiveWorkBindingHash: string;
   readonly workGeneration: number;
 }
+/** Original staff intent is enough to recover an accepted preparation before planning. */
+export interface ReassessEngineeringFollowupBundleCommand
+  extends EngineeringCommand, EngineeringFollowupKey {
+  readonly expectedWorkGeneration: number;
+  readonly recoveryIntentHash: string;
+}
+export interface EngineeringFollowupReassessmentObservation {
+  read(access: AccessContext): EngineeringFollowupReassessmentView;
+  confirm(access: AccessContext): Promise<void>;
+}
+export interface EngineeringFollowupReassessmentPlan {
+  readonly candidateHash: string;
+  readonly exactBundle: EngineeringFollowupBundle;
+  readonly checksReceipt: string;
+  readonly checkPolicyVersion: string;
+  readonly guard: EngineeringCommitGuard;
+}
 export interface SubmitEngineeringFollowupRetestResultCommand
   extends EngineeringCommand, EngineeringFollowupKey {
   readonly retestRequestId: string;
@@ -396,6 +421,7 @@ export interface EngineeringFollowupApplication {
   observeEngineeringFollowup(
     access: AccessContext,
     command: ObserveEngineeringFollowupCommand,
+    options?: EngineeringMutationOptions,
   ): Promise<EngineeringFollowupObservationResult>;
   readEngineeringFollowupWork(
     access: AccessContext,
@@ -411,6 +437,15 @@ export interface EngineeringFollowupApplication {
     access: AccessContext,
     key: EngineeringFollowupKey,
   ): Promise<EngineeringFollowupReassessmentView>;
+  /** Optional receipt-first orchestration; older structural ports keep their existing path. */
+  reassessEngineeringFollowupBundle?(
+    access: AccessContext,
+    command: ReassessEngineeringFollowupBundleCommand,
+    planner: (
+      observation: EngineeringFollowupReassessmentObservation,
+    ) => Promise<EngineeringFollowupReassessmentPlan>,
+    options?: EngineeringMutationOptions,
+  ): Promise<EngineeringFollowupResult>;
   claimEngineeringFollowupWork(
     access: AccessContext,
     command: ClaimEngineeringFollowupWorkCommand,
@@ -432,6 +467,7 @@ export interface EngineeringFollowupApplication {
     access: AccessContext,
     command: PrepareEngineeringFollowupBundleCommand,
     guard: EngineeringCommitGuard,
+    options?: EngineeringMutationOptions,
   ): Promise<EngineeringFollowupResult>;
   recoverEngineeringFollowupPreparation(
     access: AccessContext,
@@ -440,14 +476,17 @@ export interface EngineeringFollowupApplication {
   rejectEngineeringFollowupBundle(
     access: AccessContext,
     command: RejectEngineeringFollowupBundleCommand,
+    options?: EngineeringMutationOptions,
   ): Promise<EngineeringFollowupResult>;
   retryEngineeringFollowupWork(
     access: AccessContext,
     command: RetryEngineeringFollowupWorkCommand,
+    options?: EngineeringMutationOptions,
   ): Promise<EngineeringFollowupResult>;
   abandonEngineeringFollowupWork(
     access: AccessContext,
     command: AbandonEngineeringFollowupWorkCommand,
+    options?: EngineeringMutationOptions,
   ): Promise<EngineeringFollowupResult>;
   approveAndPostEngineeringFollowupWebUpdate(
     access: AccessContext,

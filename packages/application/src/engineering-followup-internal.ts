@@ -6,6 +6,7 @@ import type {
   EngineeringAction,
   EngineeringSourceVersion,
   EngineeringTicketVersion,
+  EngineeringWorkVersion,
 } from "./engineering-internal.js";
 import type { EngineeringSourceRecord } from "./engineering-records.js";
 import type { EngineeringCommand } from "./engineering-types.js";
@@ -16,6 +17,7 @@ import type {
 } from "./engineering-followup-records.js";
 import type {
   EngineeringFollowupKey,
+  EngineeringFollowupAssociation,
   EngineeringFollowupProofContext,
   VerifiedEngineeringFollowupContext,
 } from "./engineering-followup-types.js";
@@ -29,6 +31,13 @@ export interface EngineeringFollowupLoaded {
 export type EngineeringFollowupLoad = (
   ticketId: string,
 ) => Promise<EngineeringFollowupLoaded>;
+/** Private component-owned records used by one reassessment attempt, never caller data. */
+export interface EngineeringFollowupReassessmentSeed {
+  readonly loaded: EngineeringFollowupLoaded;
+  readonly work: EngineeringFollowupWorkVersion;
+  readonly association: EngineeringFollowupAssociation;
+  readonly engineeringWork: EngineeringWorkVersion;
+}
 export type EngineeringFollowupReassessmentPurpose = "bundle" | "model_retry";
 export interface EngineeringFollowupMutationPlan {
   readonly actions: readonly EngineeringAction[];

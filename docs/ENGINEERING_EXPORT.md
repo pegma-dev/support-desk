@@ -3,8 +3,8 @@
 SD-04's source merged in [PR #40](https://github.com/pegma-dev/support-desk/pull/40)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current synchronized release is `0.2.6`; see its
-[publication receipt](RELEASING.md#verified-026-publication-2026-11-11).
+The current synchronized release is `0.2.7`; see its
+[publication receipt](RELEASING.md#verified-027-publication-2026-11-11).
 This handbook describes released contracts, explicitly marked source-candidate
 changes, and host responsibilities, not host activation. There is no runnable host recipe here. Scope comes from the
 [approved plan](KNOWLEDGE_AI_PLAN.md#bug-evaluation-routing-and-github-export)
@@ -12,7 +12,7 @@ and the [collection checkpoint](COLLECTIONS.md#sd-04-engineering-layout-checkpoi
 
 ## Entry points and authority
 
-Source candidate `0.2.7` adds optional
+Published `0.2.7` adds optional
 `readEngineeringContext(access, EngineeringSourceFence)`, returning
 `EngineeringReadContext` with `source` and optional `work`. The combined read
 shares authorized Source/Ticket hydration. Source access, privacy and matching
@@ -27,7 +27,7 @@ the optional context, or uses its original sequential Source-validation/Work
 read fallback when the structural application port omits it. No observation
 crosses an external proof boundary, and accepted receipts still precede new
 proof reads. This adds no permission, cache, Store primitive or atomic-snapshot
-guarantee. The candidate AI package pins exact verified public KB
+guarantee. The released AI package pins exact verified public KB
 application/contracts `0.1.6`; see the
 [current source dependency contract](RELEASING.md#source-version-027).
 Hosts must measure the complete invocation, including their own authentication,
@@ -60,7 +60,7 @@ authorization and does not establish current policy or remote authority.
 ## 0.2.6: guarded engineering controls
 
 These controls are published and strictly verified in `0.2.6` and retained by
-the local unpublished `0.2.7` source candidate.
+the local unpublished `0.2.8` source candidate.
 The optional third `EngineeringMutationOptions` argument applies to
 `enrollEngineeringSource`, `submitEngineeringEvidence`,
 `selectEngineeringRepository`, `withdrawEngineeringSource`,
@@ -230,7 +230,9 @@ An exact accepted receipt is returned before the mutation guard or external
 proof, subject to current review and queue permissions. Hosts still check
 current authority when admitting the request and before returning its result.
 
-### Candidate 0.2.7 approval observation
+<a id="candidate-027-approval-observation"></a>
+
+### Published 0.2.7 approval observation
 
 For a new approval attempt, the Application may supply an optional
 `EngineeringReviewObservation` argument to `EngineeringReviewCommitGuard`.

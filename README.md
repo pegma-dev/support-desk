@@ -6,29 +6,26 @@
 A composable, open-source support queue for web and email.
 
 > [!IMPORTANT]
-> Support Desk is in early `0.x` development. All five synchronized `0.2.6`
+> Support Desk is in early `0.x` development. All five synchronized `0.2.7`
 > packages are published and strictly verified. Hosts consume exact published
 > versions and retain their own adoption and activation gates.
 
-The local synchronized source version is **`0.2.7`**. It groups
-independent engineering reads while retaining current authority, privacy,
-version checks and exact receipt recovery. See the [release notes](docs/RELEASE_NOTES.md#027-engineering-read-batching).
+The local synchronized source version is **`0.2.8`** and remains unpublished.
+It adds optional final host guards to non-post follow-up controls, forwards
+staff reassessment guards, and uses callback-scoped reassessment/post
+observations. See the [candidate notes](docs/RELEASE_NOTES.md#028-followup-mutation-guards)
+and [follow-up contract](docs/ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
 Use verified published artifacts for host adoption; source metadata is not a
-publication or host-qualification receipt. The unpublished candidate pins
-verified public KB application/contracts `0.1.6`; published `0.2.6` retains
-KB `0.1.5`.
+publication or host-qualification receipt.
 
-The current [verified `0.2.6` release](docs/RELEASING.md#verified-026-publication-2026-11-11)
-adds optional final host guards and caller cancellation to seven engineering
-controls. It retains attachments and opt-in staged human learning reviews from
-`0.2.5`, plus admitted
-customer intake, edited-draft learning review and final host checks from
-`0.2.4`. The [engineering review guards](docs/ENGINEERING_EXPORT.md#prepare-and-review-the-complete-disclosure)
-remain included.
-It retains the [opt-in staged retrieval](docs/ASSISTANT_COORDINATION.md#opt-in-durable-staged-retrieval)
-and [exact learning review recovery](docs/RESOLUTION_LEARNING.md#exact-review-intent-recovery-022)
-introduced in `0.2.2`. The optional AI package pins KB application/contracts to
-exact `0.1.5`. Earlier artifacts and dated receipts remain immutable.
+The current [verified `0.2.7` release](docs/RELEASING.md#verified-027-publication-2026-11-11)
+adds authorized engineering read batching, compatible approval observations and
+actual provider-usage accounting before answer-budget refusal. It retains the
+seven guarded engineering controls from `0.2.6`, attachments and staged human
+learning reviews from `0.2.5`, and earlier intake, learning and recovery APIs.
+Its optional AI package pins exact KB application/contracts `0.1.6`, also
+retained by the unpublished `0.2.8` candidate. Earlier artifacts and dated
+receipts remain immutable.
 
 Staged retrieval remains OFF by default. Preparation consumes one existing
 attempt; both application and verified-configuration caps must allow at least
@@ -39,7 +36,7 @@ one. Full configuration and authority snapshots must remain identical across
 phases; live guards still run. Publication establishes no universal query or
 CPU budget and does not qualify a host, provider or client.
 
-All five synchronized `0.2.6` packages are published and strictly verified. See
+All five synchronized `0.2.7` packages are published and strictly verified. See
 the [release notes](docs/RELEASE_NOTES.md). Host composition, deployment,
 provider/privacy and client acceptance remain separate gates.
 
@@ -53,7 +50,7 @@ tags, host-computed response targets and milestones, and revision collision hint
 (Buildout Task 13), with all new metadata limited to staff views. Durable host
 deployments, customer UI, staff UI, inbound provider adapters, and production
 hardening remain later buildout tasks. Task 12 stays pending on host durable-store
-evidence; the current verified package release is `0.2.6`.
+evidence; the current verified package release is `0.2.7`.
 
 Buildout Task 14 [attachment APIs](docs/ATTACHMENTS.md) are also implemented
 in published `0.2.5`: a host blob port, transactional message metadata,
@@ -88,7 +85,7 @@ and human queue separation. That source slice includes no model or KB integratio
 and shipped in `0.2.0`. Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial
 KB-05 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)),
 and both producers' final release preparation are merged. The standalone
-authoring recipe selects all four strictly verified KB `0.1.5` packages and
+authoring recipe selects all four strictly verified KB `0.1.6` packages and
 verified `@pegma/agent-access@0.1.1`. The producer releases close SD-02's
 KB-05 publication prerequisite. SD-02's optional
 `@pegma/support-desk-ai` coordinator and bounded ticket-partition turn jobs
@@ -101,11 +98,11 @@ See the [producer evidence and bootstrap handoff](docs/HOST_COMPOSITION.md#kb-au
 The [assistant coordination guide](docs/ASSISTANT_COORDINATION.md) and
 [layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
 describe the SDK contracts. The base application works without AI; only
-the optional coordinator depends on KB. Its current released `0.2.6` manifest
-pins exact KB application/contracts `0.1.5`; the older `0.2.1` manifest retains
+the optional coordinator depends on KB. Its current released `0.2.7` manifest
+pins exact KB application/contracts `0.1.6`; the older `0.2.1` manifest retains
 its original `0.1.2` dependencies. The standalone-authoring recipe and Agent
 Access selection in the producer handoff remain separate compositions. The
-[verified 0.2.6 publication receipt](docs/RELEASING.md#verified-026-publication-2026-11-11)
+[verified 0.2.7 publication receipt](docs/RELEASING.md#verified-027-publication-2026-11-11)
 records the exact release; host adoption retains its own acceptance gates.
 Use the [implementation ledger](docs/KNOWLEDGE_AI_PLAN.md#status-and-reading-order)
 for source/release evidence and the remaining activation gates.
@@ -195,9 +192,9 @@ The organization profile is at
 | `@pegma/support-desk-ai`          | Optional answers, resolution learning, engineering export and follow-up |
 
 All five packages are published under the `@pegma` scope at verified
-[`0.2.6`](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.6). The optional AI package's
+[`0.2.7`](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.7). The optional AI package's
 registration-only `bootstrap` remains `0.1.1`; earlier registry versions are
-immutable history. The [publication receipt](docs/RELEASING.md#verified-026-publication-2026-11-11)
+immutable history. The [publication receipt](docs/RELEASING.md#verified-027-publication-2026-11-11)
 records the original artifacts and strict verification. There is
 deliberately no storage package and no access package. Inbound mail processing
 is implemented (Buildout Task 11); host adapters, production hardening, and the

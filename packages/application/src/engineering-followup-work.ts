@@ -1,5 +1,9 @@
 import type { AccessContext } from "@pegma/authorization-core";
 import {
+  engineeringMutationBoundary,
+  type EngineeringMutationBoundary,
+} from "./engineering-mutation-guard.js";
+import {
   SupportDeskConflictError,
   SupportDeskNotFoundError,
   supportPermissions,
@@ -36,6 +40,7 @@ import {
 import {
   createEngineeringFollowupSourceServices,
   engineeringFollowupPermission as permission,
+  engineeringFollowupObservation,
   engineeringFollowupNow,
   engineeringFollowupTrusted,
   engineeringFollowupResult as result,
@@ -53,16 +58,21 @@ import type {
   EngineeringFollowupLoad,
   EngineeringFollowupLoaded,
   EngineeringFollowupWorkVersion,
+  EngineeringFollowupReassessmentSeed,
 } from "./engineering-followup-internal.js";
 import type {
   EngineeringFollowupApplication,
   EngineeringFollowupClaimFence,
   EngineeringFollowupBundle,
   EngineeringFollowupResult,
+  PrepareEngineeringFollowupBundleCommand,
+  EngineeringFollowupReassessmentObservation,
 } from "./engineering-followup-types.js";
+import { engineeringSourceKey } from "./engineering-records.js";
 import type { EngineeringAction } from "./engineering-internal.js";
 import type {
   EngineeringCommand,
+  EngineeringMutationOptions,
   EngineeringProcessing,
 } from "./engineering-types.js";
 
@@ -73,6 +83,7 @@ type Methods = Pick<
   | "completeEngineeringFollowupModel"
   | "finishEngineeringFollowupModel"
   | "prepareEngineeringFollowupBundle"
+  | "reassessEngineeringFollowupBundle"
   | "rejectEngineeringFollowupBundle"
   | "submitEngineeringFollowupRetestResult"
   | "recoverEngineeringFollowupPreparation"
@@ -182,11 +193,19 @@ export function createEngineeringFollowupWorkServices(
     next: EngineeringFollowupWorkRecord,
     extra: readonly EngineeringAction[] = [],
     nextHead = loaded.head?.value,
+    mutation?: EngineeringMutationBoundary,
+    beforeCommit?: () => void,
   ): Promise<boolean> {
     if (loaded.head === null || nextHead === undefined)
       throw new SupportDeskConflictError("Follow-up head disappeared");
     checkEngineeringFollowupRecordCapacity(next);
     checkEngineeringFollowupRecordCapacity(nextHead);
+    if (mutation !== undefined) {
+      const assertHostCurrent = await mutation.verify();
+      assertHostCurrent();
+      beforeCommit?.();
+      mutation.ensure();
+    }
     return (
       await records.transact(next.ticketId, [
         {
@@ -354,6 +373,283 @@ export function createEngineeringFollowupWorkServices(
     text(checked.verifierVersion, "verifierVersion");
     return { binding, deadline: timestamp(checked.validUntil, "validUntil") };
   }
+  class ReassessmentRetry extends Error {}
+  async function prepareBundle(
+    access: AccessContext,
+    input: PrepareEngineeringFollowupBundleCommand,
+    guard: Parameters<
+      EngineeringFollowupApplication["prepareEngineeringFollowupBundle"]
+    >[2],
+    control?: EngineeringMutationOptions,
+    initial?: {
+      readonly current: EngineeringFollowupReassessmentSeed;
+      readonly mutation: EngineeringMutationBoundary | undefined;
+      readonly authorize: () => void;
+    },
+  ): Promise<EngineeringFollowupResult> {
+    const actorId = access.principalId;
+    const command = snapshot(
+      fields(
+        input,
+        "prepare follow-up bundle",
+        [
+          "ticketId",
+          "workId",
+          "commandId",
+          "correlationId",
+          "mode",
+          "expectedWorkGeneration",
+          "candidateHash",
+          "exactBundle",
+          "checksReceipt",
+          "checkPolicyVersion",
+        ],
+        ["recoveryIntentHash"],
+      ),
+    ) as unknown as typeof input;
+    if (command.mode !== "prepare" && command.mode !== "staff_reassessment")
+      throw new TypeError("Invalid follow-up preparation mode");
+    const staff = command.mode === "staff_reassessment";
+    const authorize = () => {
+      initial?.authorize();
+      permission(
+        access,
+        staff
+          ? supportPermissions.engineeringFollowupReview
+          : supportPermissions.engineeringFollowupProcess,
+        actorId,
+        staff,
+      );
+    };
+    authorize();
+    const mutation = initial?.mutation ?? engineeringMutationBoundary(control);
+    for (const entry of [
+      command.ticketId,
+      command.workId,
+      command.commandId,
+      command.correlationId,
+      command.candidateHash,
+      command.checksReceipt,
+      command.checkPolicyVersion,
+    ])
+      text(entry, "bundle preparation identity");
+    integer(command.expectedWorkGeneration, "expectedWorkGeneration", 1);
+    validateEngineeringFollowupBundle(command.exactBundle);
+    if (
+      command.recoveryIntentHash !== undefined &&
+      (!staff || !/^[a-f0-9]{64}$/.test(command.recoveryIntentHash))
+    )
+      throw new TypeError("Invalid preparation recovery intent");
+    const hash = await fingerprint({ actorId, command });
+    const recoveryFingerprint =
+      command.recoveryIntentHash === undefined
+        ? undefined
+        : await fingerprint({
+            actorId,
+            intentHash: command.recoveryIntentHash,
+          });
+    const now = engineeringFollowupNow(deps);
+    for (
+      let attempt = 0;
+      attempt < (initial === undefined ? deps.maxConflictAttempts : 1);
+      attempt += 1
+    ) {
+      const previous = await replay(command, hash);
+      authorize();
+      if (previous !== null) {
+        if (!("status" in previous))
+          throw new SupportDeskConflictError("Wrong follow-up receipt kind");
+        return previous;
+      }
+      if (typeof guard !== "function")
+        throw new TypeError(
+          "Follow-up bundle preparation needs a current read-only guard",
+        );
+      mutation?.ensure();
+      const loaded = initial?.current.loaded ?? (await load(command.ticketId));
+      const stored = initial?.current.work ?? (await workAt(command));
+      const work = stored.value;
+      if (
+        work.workGeneration !== command.expectedWorkGeneration ||
+        work.candidateHash !== command.candidateHash ||
+        work.withdrawn ||
+        work.status === "delivered" ||
+        work.security !== "ordinary"
+      )
+        throw new SupportDeskConflictError(
+          "Follow-up bundle source, candidate or generation changed",
+        );
+      if (!staff && timestamp(work.deadline, "deadline") <= now())
+        throw new SupportDeskConflictError(
+          "Expired follow-up requires explicit staff reassessment",
+        );
+      if (work.bundleRevision >= options.maxBundleRevisions)
+        throw new SupportDeskConflictError(
+          "Follow-up bundle preparation bound reached",
+        );
+      const rearm = staff
+        ? await sourceServices.internal.reassessment(
+            command,
+            now,
+            "bundle",
+            initial?.current,
+            initial === undefined ? undefined : () => initial.authorize(),
+          )
+        : null;
+      const current = staff
+        ? null
+        : await engineeringFollowupCurrent(deps, loaded, stored, now);
+      if (
+        !staff &&
+        (work.stage !== "bundle" ||
+          work.candidate === undefined ||
+          work.completionRows !== 5 ||
+          work.messageSlots !== 1)
+      )
+        throw new SupportDeskConflictError(
+          "Follow-up bundle preparation needs its current model candidate",
+        );
+      if (
+        rearm !== null &&
+        (rearm.work.version !== stored.version ||
+          rearm.loaded.ticket.version !== loaded.ticket.version ||
+          rearm.loaded.source.version !== loaded.source.version ||
+          rearm.loaded.head?.version !== loaded.head?.version)
+      ) {
+        if (initial !== undefined) throw new ReassessmentRetry();
+        continue;
+      }
+      const base: EngineeringFollowupWorkRecord =
+        rearm === null
+          ? work
+          : {
+              ...work,
+              ...rearm.prospective,
+              workBindingHash: rearm.prospectiveWorkBindingHash,
+            };
+      const checked = await verifyBundle(
+        base,
+        command.exactBundle,
+        command.candidateHash,
+        command.checkPolicyVersion,
+        command.checksReceipt,
+        now,
+      );
+      const { candidate: _candidate, ...retained } = withoutLease(base);
+      const next: EngineeringFollowupWorkRecord = {
+        ...retained,
+        stage: "bundle",
+        status: "bundle_prepared",
+        completionRows: 3,
+        messageSlots: 1,
+        deadline: staff
+          ? new Date(now() + options.maxWorkMilliseconds).toISOString()
+          : work.deadline,
+        workGeneration: work.workGeneration + 1,
+        bundleRevision: work.bundleRevision + 1,
+        preparedBundle: {
+          bundle: command.exactBundle,
+          bundleHash: checked.binding.bundleHash,
+          candidateHash: command.candidateHash,
+          binding: checked.binding,
+          checksReceipt: command.checksReceipt,
+        },
+      };
+      reserveEngineeringFollowupReachable(next);
+      const cohort =
+        rearm === null
+          ? { actions: [], nextWorkRows: [] }
+          : await planEngineeringFollowupContextChange(records, {
+              rows: loaded.rows,
+              context: rearm.proof.context,
+              previousHead: loaded.head!.value,
+              nextHead: rearm.nextHead,
+              excludedWorkId: work.workId,
+            });
+      deps.admission(
+        loaded.ticket.value.ticket,
+        loaded.rows,
+        [next, ...cohort.nextWorkRows],
+        2,
+      );
+      await guard();
+      const proof = rearm?.proof ?? current!.proof;
+      const associationWork =
+        rearm?.engineeringWork ?? current!.engineeringWork;
+      if (
+        !(await engineeringFollowupVersionsCurrent(
+          deps,
+          loaded,
+          stored,
+          associationWork,
+        ))
+      ) {
+        if (initial !== undefined) throw new ReassessmentRetry();
+        continue;
+      }
+      authorize();
+      if (!staff && timestamp(work.deadline, "deadline") <= now())
+        throw new SupportDeskConflictError(
+          "Expired follow-up requires explicit staff reassessment",
+        );
+      if (
+        now() >=
+        Math.min(
+          checked.deadline,
+          timestamp(proof.attestation.validUntil, "validUntil"),
+          timestamp(next.deadline, "deadline"),
+        )
+      )
+        throw new SupportDeskConflictError("Follow-up bundle proof expired");
+      const outcome = result(next);
+      if (
+        await save(
+          loaded,
+          stored,
+          next,
+          [
+            ...cohort.actions,
+            deps.audit(
+              command,
+              loaded.ticket.value.ticket,
+              actorId,
+              clock.now(),
+              staff
+                ? supportTicketAuditActions.engineeringFollowupReassessed
+                : supportTicketAuditActions.engineeringFollowupBundlePrepared,
+            ),
+            receipt(command, hash, outcome, recoveryFingerprint),
+          ],
+          rearm?.nextHead ?? loaded.head!.value,
+          mutation,
+          () => {
+            authorize();
+            if (!staff && timestamp(work.deadline, "deadline") <= now())
+              throw new SupportDeskConflictError(
+                "Expired follow-up requires explicit staff reassessment",
+              );
+            if (
+              now() >=
+              Math.min(
+                checked.deadline,
+                timestamp(proof.attestation.validUntil, "validUntil"),
+                timestamp(next.deadline, "deadline"),
+              )
+            )
+              throw new SupportDeskConflictError(
+                "Follow-up bundle proof expired",
+              );
+          },
+        )
+      ) {
+        authorize();
+        return outcome;
+      }
+    }
+    if (initial !== undefined) throw new ReassessmentRetry();
+    throw new SupportDeskConflictError();
+  }
+
   const application: Methods = {
     async claimEngineeringFollowupWork(access, input) {
       const actorId = access.principalId;
@@ -1027,232 +1323,223 @@ export function createEngineeringFollowupWorkServices(
         );
       return snapshot(prior.result);
     },
-    async prepareEngineeringFollowupBundle(access, input, guard) {
+    async prepareEngineeringFollowupBundle(access, input, guard, control) {
+      return prepareBundle(access, input, guard, control);
+    },
+    async reassessEngineeringFollowupBundle(access, input, planner, control) {
       const actorId = access.principalId;
-      const command = snapshot(
-        fields(
-          input,
-          "prepare follow-up bundle",
-          [
-            "ticketId",
-            "workId",
-            "commandId",
-            "correlationId",
-            "mode",
-            "expectedWorkGeneration",
-            "candidateHash",
-            "exactBundle",
-            "checksReceipt",
-            "checkPolicyVersion",
-          ],
-          ["recoveryIntentHash"],
-        ),
-      ) as unknown as typeof input;
-      if (command.mode !== "prepare" && command.mode !== "staff_reassessment")
-        throw new TypeError("Invalid follow-up preparation mode");
-      const staff = command.mode === "staff_reassessment";
-      const authorize = () =>
+      const authorize = (reader: AccessContext = access) => {
         permission(
-          access,
-          staff
-            ? supportPermissions.engineeringFollowupReview
-            : supportPermissions.engineeringFollowupProcess,
+          reader,
+          supportPermissions.engineeringFollowupReview,
           actorId,
-          staff,
+          true,
         );
-      authorize();
+        permission(
+          reader,
+          supportPermissions.engineeringFollowupRead,
+          actorId,
+          true,
+        );
+      };
+      permission(
+        access,
+        supportPermissions.engineeringFollowupReview,
+        actorId,
+        true,
+      );
+      const command = snapshot(
+        fields(input, "reassess follow-up bundle", [
+          "ticketId",
+          "workId",
+          "commandId",
+          "correlationId",
+          "expectedWorkGeneration",
+          "recoveryIntentHash",
+        ]),
+      ) as unknown as typeof input;
       for (const entry of [
         command.ticketId,
         command.workId,
         command.commandId,
         command.correlationId,
-        command.candidateHash,
-        command.checksReceipt,
-        command.checkPolicyVersion,
       ])
-        text(entry, "bundle preparation identity");
+        text(entry, "reassessment identity");
       integer(command.expectedWorkGeneration, "expectedWorkGeneration", 1);
-      validateEngineeringFollowupBundle(command.exactBundle);
-      if (
-        command.recoveryIntentHash !== undefined &&
-        (!staff || !/^[a-f0-9]{64}$/.test(command.recoveryIntentHash))
-      )
-        throw new TypeError("Invalid preparation recovery intent");
-      const hash = await fingerprint({ actorId, command });
-      const recoveryFingerprint =
-        command.recoveryIntentHash === undefined
-          ? undefined
-          : await fingerprint({
-              actorId,
-              intentHash: command.recoveryIntentHash,
-            });
+      if (!/^[a-f0-9]{64}$/.test(command.recoveryIntentHash))
+        throw new TypeError("Invalid reassessment recovery intent");
+      const recovery = {
+        ticketId: command.ticketId,
+        workId: command.workId,
+        commandId: command.commandId,
+        recoveryIntentHash: command.recoveryIntentHash,
+      };
+      const recover = () =>
+        application.recoverEngineeringFollowupPreparation(access, recovery);
+      const mutation = engineeringMutationBoundary(control);
       const now = engineeringFollowupNow(deps);
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
-        const previous = await replay(command, hash);
+        const accepted = await recover();
+        if (accepted !== null) return accepted;
+        mutation?.ensure();
         authorize();
-        if (previous !== null) {
-          if (!("status" in previous))
-            throw new SupportDeskConflictError("Wrong follow-up receipt kind");
-          return previous;
-        }
-        if (typeof guard !== "function")
-          throw new TypeError(
-            "Follow-up bundle preparation needs a current read-only guard",
-          );
-        const loaded = await load(command.ticketId);
-        const stored = await workAt(command);
-        const work = stored.value;
-        if (
-          work.workGeneration !== command.expectedWorkGeneration ||
-          work.candidateHash !== command.candidateHash ||
-          work.withdrawn ||
-          work.status === "delivered" ||
-          work.security !== "ordinary"
-        )
-          throw new SupportDeskConflictError(
-            "Follow-up bundle source, candidate or generation changed",
-          );
-        if (!staff && timestamp(work.deadline, "deadline") <= now())
-          throw new SupportDeskConflictError(
-            "Expired follow-up requires explicit staff reassessment",
-          );
-        if (work.bundleRevision >= options.maxBundleRevisions)
-          throw new SupportDeskConflictError(
-            "Follow-up bundle preparation bound reached",
-          );
-        const rearm = staff
-          ? await sourceServices.internal.reassessment(command, now)
-          : null;
-        const current = staff
-          ? null
-          : await engineeringFollowupCurrent(deps, loaded, stored, now);
-        if (
-          !staff &&
-          (work.stage !== "bundle" ||
-            work.candidate === undefined ||
-            work.completionRows !== 5 ||
-            work.messageSlots !== 1)
-        )
-          throw new SupportDeskConflictError(
-            "Follow-up bundle preparation needs its current model candidate",
-          );
-        if (
-          rearm !== null &&
-          (rearm.work.version !== stored.version ||
-            rearm.loaded.ticket.version !== loaded.ticket.version ||
-            rearm.loaded.source.version !== loaded.source.version ||
-            rearm.loaded.head?.version !== loaded.head?.version)
-        )
-          continue;
-        const base: EngineeringFollowupWorkRecord =
-          rearm === null
-            ? work
-            : {
-                ...work,
-                ...rearm.prospective,
-                workBindingHash: rearm.prospectiveWorkBindingHash,
-              };
-        const checked = await verifyBundle(
-          base,
-          command.exactBundle,
-          command.candidateHash,
-          command.checkPolicyVersion,
-          command.checksReceipt,
-          now,
+        // Eligibility and private Source authority precede any protected hydration.
+        const source = await records.getVersioned(
+          engineeringSourceKey(command.ticketId),
         );
-        const { candidate: _candidate, ...retained } = withoutLease(base);
-        const next: EngineeringFollowupWorkRecord = {
-          ...retained,
-          stage: "bundle",
-          status: "bundle_prepared",
-          completionRows: 3,
-          messageSlots: 1,
-          deadline: staff
-            ? new Date(now() + options.maxWorkMilliseconds).toISOString()
-            : work.deadline,
-          workGeneration: work.workGeneration + 1,
-          bundleRevision: work.bundleRevision + 1,
-          preparedBundle: {
-            bundle: command.exactBundle,
-            bundleHash: checked.binding.bundleHash,
-            candidateHash: command.candidateHash,
-            binding: checked.binding,
-            checksReceipt: command.checksReceipt,
-          },
-        };
-        reserveEngineeringFollowupReachable(next);
-        const cohort =
-          rearm === null
-            ? { actions: [], nextWorkRows: [] }
-            : await planEngineeringFollowupContextChange(records, {
-                rows: loaded.rows,
-                context: rearm.proof.context,
-                previousHead: loaded.head!.value,
-                nextHead: rearm.nextHead,
-                excludedWorkId: work.workId,
-              });
-        deps.admission(
-          loaded.ticket.value.ticket,
-          loaded.rows,
-          [next, ...cohort.nextWorkRows],
-          2,
-        );
-        await guard();
-        const proof = rearm?.proof ?? current!.proof;
-        const associationWork =
-          rearm?.engineeringWork ?? current!.engineeringWork;
-        if (
-          !(await engineeringFollowupVersionsCurrent(
-            deps,
-            loaded,
-            stored,
-            associationWork,
-          ))
-        )
-          continue;
         authorize();
-        if (!staff && timestamp(work.deadline, "deadline") <= now())
-          throw new SupportDeskConflictError(
-            "Expired follow-up requires explicit staff reassessment",
+        if (source?.value.kind !== "engineering_source")
+          throw new SupportDeskNotFoundError();
+        if (source.value.security !== "ordinary")
+          permission(
+            access,
+            supportPermissions.engineeringRestrictedRead,
+            actorId,
+            true,
           );
         if (
-          now() >=
-          Math.min(
-            checked.deadline,
-            timestamp(proof.attestation.validUntil, "validUntil"),
-            timestamp(next.deadline, "deadline"),
-          )
+          source.value.security !== "ordinary" ||
+          source.value.state === "withdrawn"
         )
-          throw new SupportDeskConflictError("Follow-up bundle proof expired");
-        const outcome = result(next);
-        if (
-          await save(
-            loaded,
-            stored,
-            next,
-            [
-              ...cohort.actions,
-              deps.audit(
-                command,
-                loaded.ticket.value.ticket,
-                actorId,
-                clock.now(),
-                staff
-                  ? supportTicketAuditActions.engineeringFollowupReassessed
-                  : supportTicketAuditActions.engineeringFollowupBundlePrepared,
-              ),
-              receipt(command, hash, outcome, recoveryFingerprint),
-            ],
-            rearm?.nextHead ?? loaded.head!.value,
-          )
-        ) {
+          throw new SupportDeskConflictError("Follow-up Source is ineligible");
+        try {
+          const current = await sourceServices.internal.reassessment(
+            command,
+            now,
+            "bundle",
+            undefined,
+            (source) => {
+              authorize();
+              if (source !== undefined) {
+                if (source.security !== "ordinary")
+                  permission(
+                    access,
+                    supportPermissions.engineeringRestrictedRead,
+                    actorId,
+                    true,
+                  );
+                if (
+                  source.security !== "ordinary" ||
+                  source.state === "withdrawn"
+                )
+                  throw new SupportDeskConflictError(
+                    "Follow-up Source is ineligible",
+                  );
+              }
+            },
+            { value: source.value, version: source.version },
+          );
+          // The initial external release proof cannot make the original Source current.
+          const confirmedSource = await records.getVersioned(
+            engineeringSourceKey(command.ticketId),
+          );
           authorize();
-          return outcome;
+          if (confirmedSource?.value.kind !== "engineering_source")
+            throw new SupportDeskNotFoundError();
+          if (confirmedSource.value.security !== "ordinary")
+            permission(
+              access,
+              supportPermissions.engineeringRestrictedRead,
+              actorId,
+              true,
+            );
+          if (confirmedSource.version !== source.version)
+            throw new SupportDeskConflictError(
+              "Follow-up Source changed during release verification",
+            );
+          if (
+            current.work.value.workGeneration !== command.expectedWorkGeneration
+          )
+            throw new SupportDeskConflictError(
+              "Follow-up reassessment generation changed",
+            );
+          const scope = engineeringFollowupObservation(
+            deps,
+            current,
+            actorId,
+            authorize,
+          );
+          const observation: EngineeringFollowupReassessmentObservation =
+            Object.freeze({
+              read(reader: AccessContext) {
+                scope.check(reader);
+                if (
+                  now() >=
+                  timestamp(current.proof.attestation.validUntil, "validUntil")
+                )
+                  throw new SupportDeskConflictError(
+                    "Follow-up reassessment expired",
+                  );
+                return snapshot({
+                  work: current.work.value,
+                  proofContext: current.proofContext,
+                  proof: current.proof,
+                  prospectiveWorkBindingHash:
+                    current.prospectiveWorkBindingHash,
+                  workGeneration: current.work.value.workGeneration,
+                });
+              },
+              confirm: scope.confirm,
+            });
+          try {
+            if (typeof planner !== "function")
+              throw new TypeError(
+                "Follow-up reassessment needs a read-only planner",
+              );
+            const planned = await planner(observation);
+            authorize();
+            const checkedPlan = fields(planned, "follow-up reassessment plan", [
+              "candidateHash",
+              "exactBundle",
+              "checksReceipt",
+              "checkPolicyVersion",
+              "guard",
+            ]);
+            const guard = checkedPlan.guard;
+            if (typeof guard !== "function")
+              throw new TypeError(
+                "Follow-up reassessment guard must be callable",
+              );
+            const plan = snapshot({
+              candidateHash: checkedPlan.candidateHash,
+              exactBundle: checkedPlan.exactBundle,
+              checksReceipt: checkedPlan.checksReceipt,
+              checkPolicyVersion: checkedPlan.checkPolicyVersion,
+            });
+            // Functions never enter the immutable command or an accepted receipt.
+            return await prepareBundle(
+              access,
+              {
+                ...command,
+                mode: "staff_reassessment",
+                candidateHash: plan.candidateHash as string,
+                exactBundle:
+                  plan.exactBundle as unknown as EngineeringFollowupBundle,
+                checksReceipt: plan.checksReceipt as string,
+                checkPolicyVersion: plan.checkPolicyVersion as string,
+              },
+              async () => {
+                try {
+                  return await guard();
+                } finally {
+                  scope.close();
+                }
+              },
+              undefined,
+              { current, mutation, authorize },
+            );
+          } finally {
+            scope.close();
+          }
+        } catch (error) {
+          const accepted = await recover();
+          if (accepted !== null) return accepted;
+          if (!(error instanceof ReassessmentRetry)) throw error;
         }
       }
       throw new SupportDeskConflictError();
     },
-    async retryEngineeringFollowupWork(access, input) {
+    async retryEngineeringFollowupWork(access, input, control) {
       const actorId = access.principalId;
       const authorize = () =>
         permission(
@@ -1262,6 +1549,7 @@ export function createEngineeringFollowupWorkServices(
           true,
         );
       authorize();
+      const mutation = engineeringMutationBoundary(control);
       const now = engineeringFollowupNow(deps);
       const command = snapshot(
         fields(input, "retry follow-up work", [
@@ -1289,6 +1577,7 @@ export function createEngineeringFollowupWorkServices(
             throw new SupportDeskConflictError("Wrong follow-up receipt kind");
           return previous;
         }
+        mutation?.ensure();
         const current = await sourceServices.internal.reassessment(
           command,
           now,
@@ -1372,6 +1661,20 @@ export function createEngineeringFollowupWorkServices(
               receipt(command, hash, outcome),
             ],
             current.nextHead,
+            mutation,
+            () => {
+              authorize();
+              if (
+                now() >=
+                Math.min(
+                  timestamp(current.proof.attestation.validUntil, "validUntil"),
+                  timestamp(next.deadline, "deadline"),
+                )
+              )
+                throw new SupportDeskConflictError(
+                  "Follow-up recovery proof expired",
+                );
+            },
           )
         ) {
           authorize();
@@ -1380,7 +1683,7 @@ export function createEngineeringFollowupWorkServices(
       }
       throw new SupportDeskConflictError();
     },
-    async abandonEngineeringFollowupWork(access, input) {
+    async abandonEngineeringFollowupWork(access, input, control) {
       const actorId = access.principalId;
       const authorize = () =>
         permission(
@@ -1390,6 +1693,7 @@ export function createEngineeringFollowupWorkServices(
           true,
         );
       authorize();
+      const mutation = engineeringMutationBoundary(control);
       const command = snapshot(
         fields(input, "abandon follow-up work", [
           "ticketId",
@@ -1418,6 +1722,7 @@ export function createEngineeringFollowupWorkServices(
             throw new SupportDeskConflictError("Wrong follow-up receipt kind");
           return previous;
         }
+        mutation?.ensure();
         const loaded = await load(command.ticketId);
         const stored = await workAt(command);
         const work = stored.value;
@@ -1434,16 +1739,24 @@ export function createEngineeringFollowupWorkServices(
         const outcome = result(next);
         authorize();
         if (
-          await save(loaded, stored, next, [
-            deps.audit(
-              command,
-              loaded.ticket.value.ticket,
-              actorId,
-              clock.now(),
-              supportTicketAuditActions.engineeringFollowupAbandoned,
-            ),
-            receipt(command, hash, outcome),
-          ])
+          await save(
+            loaded,
+            stored,
+            next,
+            [
+              deps.audit(
+                command,
+                loaded.ticket.value.ticket,
+                actorId,
+                clock.now(),
+                supportTicketAuditActions.engineeringFollowupAbandoned,
+              ),
+              receipt(command, hash, outcome),
+            ],
+            loaded.head?.value,
+            mutation,
+            authorize,
+          )
         ) {
           authorize();
           return outcome;
@@ -1451,7 +1764,7 @@ export function createEngineeringFollowupWorkServices(
       }
       throw new SupportDeskConflictError();
     },
-    async rejectEngineeringFollowupBundle(access, input) {
+    async rejectEngineeringFollowupBundle(access, input, control) {
       const actorId = access.principalId;
       const authorize = () =>
         permission(
@@ -1461,6 +1774,7 @@ export function createEngineeringFollowupWorkServices(
           true,
         );
       authorize();
+      const mutation = engineeringMutationBoundary(control);
       const command = snapshot(
         fields(input, "reject follow-up bundle", [
           "ticketId",
@@ -1491,6 +1805,7 @@ export function createEngineeringFollowupWorkServices(
             throw new SupportDeskConflictError("Wrong follow-up receipt kind");
           return previous;
         }
+        mutation?.ensure();
         const loaded = await load(command.ticketId);
         const stored = await workAt(command);
         const work = stored.value;
@@ -1508,16 +1823,24 @@ export function createEngineeringFollowupWorkServices(
         const outcome = result(next);
         authorize();
         if (
-          await save(loaded, stored, next, [
-            deps.audit(
-              command,
-              loaded.ticket.value.ticket,
-              actorId,
-              clock.now(),
-              supportTicketAuditActions.engineeringFollowupRejected,
-            ),
-            receipt(command, hash, outcome),
-          ])
+          await save(
+            loaded,
+            stored,
+            next,
+            [
+              deps.audit(
+                command,
+                loaded.ticket.value.ticket,
+                actorId,
+                clock.now(),
+                supportTicketAuditActions.engineeringFollowupRejected,
+              ),
+              receipt(command, hash, outcome),
+            ],
+            loaded.head?.value,
+            mutation,
+            authorize,
+          )
         ) {
           authorize();
           return outcome;

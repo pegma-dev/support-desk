@@ -1,8 +1,8 @@
 # Optional AI operations
 
 This runbook describes the merged SD-01 through SD-05 contracts assembled by
-the current verified published synchronized `0.2.6` release; see its
-[publication receipt](RELEASING.md#verified-026-publication-2026-11-11).
+the current verified published synchronized `0.2.7` release; see its
+[publication receipt](RELEASING.md#verified-027-publication-2026-11-11).
 SDK publication does not establish production deployment, verified host data
 controls, or pilot acceptance. Use exact published artifacts and complete each
 host's own [upgrade rehearsal](UPGRADING.md).
@@ -13,20 +13,24 @@ The workflows are separate: [answers](ASSISTANT_COORDINATION.md),
 [release follow-up](ENGINEERING_FOLLOWUP.md). The base application remains
 usable with all optional AI capabilities disabled.
 
-Published `0.2.6` adds optional final host guards and caller cancellation to
-seven engineering application controls. The local synchronized `0.2.7` source
-candidate retains them and remains unpublished. Keep the verified `0.2.6` tuple
-for adoption until the next release is verified. SDK publication does not
-activate a provider or host. See the
-[guarded engineering contract](ENGINEERING_EXPORT.md#026-candidate-guarded-engineering-controls)
-and [current source contract](RELEASING.md#source-version-027).
-Candidate `0.2.7` also offers a callback-scoped
-[approval observation](ENGINEERING_EXPORT.md#candidate-027-approval-observation)
-under current service read/policy access, with unchanged late proof and host
-authority checks. The compatibility fallback remains available. This
-unpublished candidate pins the verified public KB application/contracts
-`0.1.6`; published `0.2.6` retains KB `0.1.5`. See the
-[current dependency contract](RELEASING.md#source-version-027).
+Published `0.2.6` introduced final host guards and cancellation on seven
+engineering controls. Published `0.2.7` adds compatible approval observations
+and authorized engineering reads, retaining fresh proof and host authority.
+Both the current `0.2.7` tuple and the unpublished `0.2.8` source candidate pin
+exact public KB application/contracts `0.1.6`.
+
+Candidate `0.2.8` adds optional late host guards/cancellation to non-post
+follow-up controls and forwards staff reassessment guards. Reassessment may
+use the optional application-owned planner observation to share authorized
+reads and confirm their opaque versions after fresh proof. Existing structural
+ports keep the full legacy path. Use the existing
+current-browser/permission/deadline fence; a guard is read-only and does not
+replace SDK proof. Web posting retains its authorization/delivery guarantees
+and can use a per-attempt application-owned read observation with fresh opaque
+confirmations; the compatibility fallback remains. Keep hosts on
+the verified `0.2.7` tuple until the next release is published and qualified.
+See the [candidate contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards)
+and [current source handoff](RELEASING.md#source-version-028).
 
 ## Controls and human fallback
 
