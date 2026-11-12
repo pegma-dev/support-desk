@@ -27,9 +27,9 @@ Existing `0.2.9`/KB `0.1.6` results do not qualify this dependency alignment.
 
 The current verified Support Desk `0.2.8` tuple retains exact KB `0.1.6`.
 All five candidate versions and internal Support pins remain `0.2.9`; the root
-remains private at `0.0.0`. This alignment changes no SDK runtime, API, record
-layout or host activation decision. Earlier release artifacts and receipts keep
-their original identities.
+remains private at `0.0.0`. This alignment changes no Support Desk runtime
+source, API surface, record layout or host activation decision. Earlier release
+artifacts and receipts keep their original identities.
 
 ## Unpublished 0.2.9 engineering worker observations
 

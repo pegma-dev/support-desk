@@ -172,9 +172,11 @@ added shared test reports and staff confirmation. Its signed source is
 passed on release run 42533473529, attempt 5. That release remains historical
 evidence.
 
-#### Published Support Desk 0.2.8 authoring recipe
+#### Standalone authoring with published Support Desk 0.2.8
 
-The current published Support Desk `0.2.8` graph uses these exact packages.
+For standalone authoring alongside published Support Desk `0.2.8`, compose these
+exact packages. The optional AI package directly requires KB application/contracts;
+MCP and Agent Access belong to the standalone authoring host.
 
 - `@pegma/knowledge-base-contracts@0.1.6`
 - `@pegma/knowledge-base-core@0.1.6`
