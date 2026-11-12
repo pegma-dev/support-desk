@@ -80,8 +80,30 @@ proof, authority, Source/Work opaque-version confirmation, exact ACK recovery
 and legacy structural-port fallbacks remain. See the
 [candidate notes](RELEASE_NOTES.md#029-engineering-worker-observations) and
 [worker contract](ENGINEERING_EXPORT.md#candidate-029-worker-observations).
-Exact KB application/contracts `0.1.6` remain unchanged. Keep hosts on verified
-published artifacts until this candidate is merged, published and qualified.
+The candidate pins exact verified public KB application/contracts `0.1.7`.
+All four KB packages passed strict native registry/source/provenance and public
+consumer verification on 2026-11-12 at 18:22:28 UTC, from signed source
+`27074b8bba76817ea6960606cf29d8fc239943b0`. The original prepared artifact and
+strict public receipt are retained on the
+[KB `0.1.7` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.7):
+[registry verification](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.7/registry-verification.json).
+The [hosted registry verifier](https://github.com/pegma-dev/knowledge-base/actions/runs/43271542639/job/131397420436)
+completed later at 18:25:59 UTC; the retained receipt was recorded at 18:29:17 UTC
+on the same date. Release `443299806` retains original preparation artifact
+`13969137667` and these public assets:
+
+| Asset                                                                                                                                                 | GitHub asset ID | Bytes  | SHA-256                                                            |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ------ | ------------------------------------------------------------------ |
+| [Original prepared ZIP](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.7/knowledge-base-v0.1.7-original-artifact-13969137667.zip) | `740607197`     | 199632 | `c683fb87be0351ce75d6a99921b5e4428c501f39e22cf6ce04aeba6ad962b75c` |
+| [Package manifest](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.7/manifest.json)                                                | `740607323`     | 15261  | `514cbf58b297dd73939dc37d833254edfc39de561cd40f525717947d06491116` |
+| [Registry verification receipt](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.7/registry-verification.json)                      | `740607384`     | 5250   | `594085afccb6ce7b81cec8716aa165cf390803a308f8725b60264ef5175312f3` |
+
+The API digests match these identities. An anonymous receipt download also
+matched the retained receipt bytes and digest.
+
+The changed SDK dependency graph requires fresh qualification. Published Support Desk `0.2.8` and its exact KB
+`0.1.6` pins remain unchanged. Keep hosts on verified published artifacts
+until this candidate is merged, published and qualified.
 No candidate pack, copied source, local archive or override substitutes for a
 production dependency. The root remains private at `0.0.0`.
 

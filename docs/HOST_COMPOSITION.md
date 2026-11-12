@@ -32,7 +32,8 @@ to approval guards, with lazy authorized reads and a legacy standalone-read
 fallback. It does not extend that observation to all seven controls. See the
 [approval contract](ENGINEERING_EXPORT.md#candidate-027-approval-observation).
 Its optional AI package pins exact verified public KB application/contracts
-`0.1.6`; the `0.2.9` candidate retains that dependency graph. The `0.2.8` source additions retained in `0.2.9` add late host controls to the separate non-post follow-up methods and
+`0.1.6`. The unpublished `0.2.9` candidate instead pins exact verified public KB
+application/contracts `0.1.7` and requires fresh graph qualification. The `0.2.8` source additions retained in `0.2.9` add late host controls to the separate non-post follow-up methods and
 optional callback-scoped reassessment/post read observations; see
 the [published 0.2.8 follow-up contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
 Qualify the complete published consumer graph for the host; the candidate
@@ -144,8 +145,10 @@ recorded synthetic KB protocol proof used four packed KB packages with registry
 `@pegma/agent-access@0.1.1`.
 
 The KB-05 publication prerequisite for SD-02 is closed. The optional AI package
-uses exact KB application/contracts `0.1.6` dependencies, while the base application has no
-KB or provider dependency. SD-02 source passed validation/review and merged in
+in the verified `0.2.8` tuple uses exact KB application/contracts `0.1.6`
+dependencies. The unpublished `0.2.9` candidate pins verified public `0.1.7`
+and requires its own fresh graph qualification. The base application has no KB
+or provider dependency. SD-02 source passed validation/review and merged in
 [PR #38](https://github.com/pegma-dev/support-desk/pull/38);
 that behavior first shipped in verified synchronized `0.2.0` and remains in
 current `0.2.8`, whose publication receipt is linked above. Host acceptance remains required. Do not substitute branches, copied source,
@@ -169,9 +172,11 @@ added shared test reports and staff confirmation. Its signed source is
 passed on release run 42533473529, attempt 5. That release remains historical
 evidence.
 
-#### Current standalone authoring recipe
+#### Standalone authoring with published Support Desk 0.2.8
 
-This host composition pins these exact published packages.
+For standalone authoring alongside published Support Desk `0.2.8`, compose these
+exact packages. The optional AI package directly requires KB application/contracts;
+MCP and Agent Access belong to the standalone authoring host.
 
 - `@pegma/knowledge-base-contracts@0.1.6`
 - `@pegma/knowledge-base-core@0.1.6`
@@ -183,6 +188,16 @@ All four Knowledge Base `0.1.6` packages passed strict registry verification
 against signed source `b2946e149078e0ef460f970c2271c196ea9fc759`. Each host
 qualifies its installed dependency graph, permissions and actual client flows.
 [Knowledge Base release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6) · [Registry verification receipt](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.6/registry-verification.json)
+
+The unpublished Support Desk `0.2.9` candidate instead selects exact verified
+public KB application/contracts `0.1.7`; standalone authoring aligns contracts,
+core, application and MCP at `0.1.7`, with Agent Access unchanged at `0.1.1`.
+All four KB packages passed strict public verification from signed source
+`27074b8bba76817ea6960606cf29d8fc239943b0`:
+[KB `0.1.7` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.7) · [Registry verification](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.7/registry-verification.json).
+[Retained asset identities and verification chronology](RELEASING.md#source-version-029)
+record the original preparation, public asset IDs and SHA-256 digests.
+This changes no published Support Desk `0.2.8` dependency or host activation.
 
 The earlier authoring recipe selected the four Knowledge Base `0.1.4` packages
 with Agent Access `0.1.1`.

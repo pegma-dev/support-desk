@@ -16,8 +16,10 @@ usable with all optional AI capabilities disabled.
 Published `0.2.6` introduced final host guards and cancellation on seven
 engineering controls. Published `0.2.7` adds compatible approval observations
 and authorized engineering reads, retaining fresh proof and host authority.
-Both the current `0.2.8` tuple and the unpublished `0.2.9` source candidate pin
-exact public KB application/contracts `0.1.6`.
+The current `0.2.8` tuple pins exact public KB application/contracts `0.1.6`.
+The unpublished `0.2.9` candidate now pins exact verified public KB `0.1.7`;
+its changed dependency graph requires fresh SDK qualification.
+The published `0.2.8` graph and earlier artifacts remain unchanged.
 
 The `0.2.8` source additions retained in `0.2.9` add optional late host guards/cancellation to non-post
 follow-up controls and forwards staff reassessment guards. Reassessment may
