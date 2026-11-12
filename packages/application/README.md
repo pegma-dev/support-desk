@@ -10,11 +10,11 @@ and a trusted Authorization Core access context.
 The host server supplies `correlationId` on commands; the application validates
 and propagates it and never generates it.
 
-The current verified published synchronized release is `0.2.5` and includes
+The current verified published synchronized release is `0.2.6` and includes
 changes beyond the immutable `0.1.0`/`0.1.1` artifacts. SD-01 first shipped
 handling/handoff foundations in `0.2.0` without model generation or a KB
 dependency. See the current
-[publication receipt](../../docs/RELEASING.md#verified-025-publication-2026-11-11).
+[publication receipt](../../docs/RELEASING.md#verified-026-publication-2026-11-11).
 Host adoption retains its own activation gates; source checkouts and
 overwritten registry versions are not release substitutes.
 
@@ -22,7 +22,7 @@ The published synchronized `0.2.1` patch groups independent Store reads for
 assistant answering while retaining current authority, ticket and turn fences.
 This package gains no KB or provider dependency. The historical
 [0.2.1 receipt](../../docs/RELEASING.md#verified-021-publication-2026-11-10)
-records that patch's exact artifacts; current `0.2.5` retains those guards. Grouped reads do not establish a universal host query or CPU
+records that patch's exact artifacts; current `0.2.6` retains those guards. Grouped reads do not establish a universal host query or CPU
 budget.
 
 Published `0.2.3` includes the final engineering review guards described in
