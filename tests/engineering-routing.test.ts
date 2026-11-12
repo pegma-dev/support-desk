@@ -28,6 +28,10 @@ import type {
 } from "../test/knowledge-ai/types.js";
 
 type Fixture = Awaited<ReturnType<typeof engineeringAiFixture>>;
+function legacyDispatchApplication(f: Fixture) {
+  const { beginEngineeringDispatchObserved: _observed, ...application } = f.app;
+  return application;
+}
 
 async function run(f: Fixture) {
   return f.engineering.processWork(await f.nextCommand());
@@ -604,7 +608,10 @@ for (const [name, createStore] of engineeringStores) {
       );
       const engineering = createSupportDeskEngineering({
         ...f.baseOptions,
-        application: { ...f.app, beginEngineeringDispatch: begin },
+        application: {
+          ...legacyDispatchApplication(f),
+          beginEngineeringDispatch: begin,
+        },
         serviceAccess: { resolve },
       });
       const result = await engineering.processWork(await f.nextCommand());
@@ -657,7 +664,10 @@ for (const [name, createStore] of engineeringStores) {
         );
         const engineering = createSupportDeskEngineering({
           ...f.baseOptions,
-          application: { ...f.app, beginEngineeringDispatch: begin },
+          application: {
+            ...legacyDispatchApplication(f),
+            beginEngineeringDispatch: begin,
+          },
           github: { ...f.baseOptions.github, getMetadata: metadata },
         });
         await engineering.processWork(await f.nextCommand());
@@ -691,7 +701,10 @@ for (const [name, createStore] of engineeringStores) {
         );
         const engineering = createSupportDeskEngineering({
           ...f.baseOptions,
-          application: { ...f.app, beginEngineeringDispatch: begin },
+          application: {
+            ...legacyDispatchApplication(f),
+            beginEngineeringDispatch: begin,
+          },
           github: {
             ...f.baseOptions.github,
             async getMetadata(...args) {
@@ -792,7 +805,10 @@ for (const [name, createStore] of engineeringStores) {
       );
       const engineering = createSupportDeskEngineering({
         ...f.baseOptions,
-        application: { ...f.app, beginEngineeringDispatch: begin },
+        application: {
+          ...legacyDispatchApplication(f),
+          beginEngineeringDispatch: begin,
+        },
         github: {
           ...f.baseOptions.github,
           async getMetadata(...args) {

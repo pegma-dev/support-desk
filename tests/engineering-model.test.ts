@@ -23,6 +23,7 @@ import {
 type Fixture = Awaited<ReturnType<typeof engineeringAiFixture>>;
 function legacyModelApplication(f: Fixture) {
   const {
+    prepareEngineeringModelPlanned: _planned,
     prepareEngineeringModelObserved: _prepare,
     completeEngineeringModelObserved: _complete,
     ...application

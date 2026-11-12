@@ -8,6 +8,7 @@ import {
   type EngineeringIssueAcknowledgement,
   type EngineeringPolicySnapshot,
   type EngineeringReviewObservation,
+  type EngineeringWorkerObservation,
   type EngineeringPreparedProposal,
   type EngineeringRepositoryDescriptor,
   type EngineeringRepositoryObservation,
@@ -50,6 +51,14 @@ import {
 } from "./engineering-request.js";
 import type { LearningRuntime } from "./learning-runtime.js";
 
+class EngineeringWorkerGuardFailure extends AssistantBoundaryError {
+  constructor(
+    category: string,
+    readonly phase: EngineeringWorkerObservation["phase"],
+  ) {
+    super(category);
+  }
+}
 const context = (
   runtime: LearningRuntime,
   deadline: number,
@@ -227,11 +236,13 @@ export async function engineeringProposalGuard(
   runtime: LearningRuntime,
   phase = runtime.deadline,
   expectedAuthority?: EngineeringServiceAuthority,
-  observation?: EngineeringReviewObservation,
+  observation?: EngineeringReviewObservation | EngineeringWorkerObservation,
   observeAuthority?: (authority: EngineeringServiceAuthority) => void,
+  confirmBeforeRead = false,
+  beforeFinalFacts?: () => Promise<void>,
 ): Promise<number> {
   let source;
-  let authority;
+  let authority: EngineeringServiceAuthority;
   let policy;
   if (observation === undefined) {
     authority = await engineeringProcessingAuthority(
@@ -257,9 +268,17 @@ export async function engineeringProposalGuard(
     );
     // These are this application's own reviewed records, protected by its
     // original CAS. Confirm their opaque versions again after all AI proof I/O.
-    const context = observation.read(authority.access);
-    source = validateEngineeringSource(context.source, sourceFence(work));
-    policy = context.policy;
+    if (confirmBeforeRead)
+      await runtime.within(() => observation.confirm(authority.access), phase);
+    if ("verifyApplication" in observation) {
+      const context = observation.read(authority.access);
+      source = validateEngineeringSource(context.source, sourceFence(work));
+      policy = await engineeringPolicy(options, authority, runtime, phase);
+    } else {
+      const context = observation.read(authority.access);
+      source = validateEngineeringSource(context.source, sourceFence(work));
+      policy = context.policy;
+    }
   }
   observeAuthority?.(authority);
   if (
@@ -388,6 +407,8 @@ export async function engineeringProposalGuard(
   if (canonical(metadata.repository) !== canonical(proposal.request.repository))
     throw new AssistantBoundaryError("repository_metadata_changed");
   deadline = Math.min(deadline, timestamp(metadata.authority.validUntil));
+  if (beforeFinalFacts !== undefined)
+    await runtime.within(beforeFinalFacts, deadline);
   const finalAuthority =
     observation === undefined
       ? await engineeringProcessingAuthority(
@@ -515,17 +536,47 @@ export async function dispatchEngineeringExport(
       undefined,
       phase,
     );
-    const guard = async (): Promise<void> => {
-      await engineeringProposalGuard(
-        options,
-        claim.work,
-        proposal,
-        runtime,
-        phase,
-        processingAuthority,
-      );
+    let applicationProof: (() => true) | undefined;
+    let verifiedDeadline = phase;
+    const guard = async (
+      observation?: EngineeringReviewObservation | EngineeringWorkerObservation,
+    ) => {
+      try {
+        verifiedDeadline = Math.min(
+          verifiedDeadline,
+          await engineeringProposalGuard(
+            options,
+            claim.work,
+            proposal,
+            runtime,
+            phase,
+            processingAuthority,
+            observation,
+            undefined,
+            observation !== undefined,
+            observation !== undefined && "verifyApplication" in observation
+              ? async () => {
+                  applicationProof = await observation.verifyApplication();
+                }
+              : undefined,
+          ),
+        );
+        return (): true => {
+          runtime.ensure(verifiedDeadline);
+          applicationProof?.();
+          return true;
+        };
+      } catch (error) {
+        if (observation !== undefined && "phase" in observation)
+          throw new EngineeringWorkerGuardFailure(
+            engineeringFailureCategory(error, "verification_unavailable"),
+            observation.phase,
+          );
+        throw error;
+      }
     };
-    await guard();
+    if (options.application.beginEngineeringDispatchObserved === undefined)
+      await guard();
     let beginFailure: string | undefined;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
@@ -537,11 +588,19 @@ export async function dispatchEngineeringExport(
         );
         const value = await runtime.within(
           () =>
-            options.application.beginEngineeringDispatch(
-              current.access,
-              begin,
-              guard,
-            ),
+            options.application.beginEngineeringDispatchObserved === undefined
+              ? options.application.beginEngineeringDispatch(
+                  current.access,
+                  begin,
+                  async () => {
+                    await guard();
+                  },
+                )
+              : options.application.beginEngineeringDispatchObserved(
+                  current.access,
+                  begin,
+                  guard,
+                ),
           phase,
         );
         if (value === null)
@@ -559,6 +618,11 @@ export async function dispatchEngineeringExport(
         started = true;
         break;
       } catch (error) {
+        if (
+          error instanceof EngineeringWorkerGuardFailure &&
+          error.phase === "before_dispatch"
+        )
+          throw error;
         const category = engineeringFailureCategory(
           error,
           "acknowledgement_unknown",
@@ -573,14 +637,17 @@ export async function dispatchEngineeringExport(
         stage: "dispatch",
         ...(beginFailure === undefined ? {} : { reason: beginFailure }),
       };
-    const guardedDeadline = await engineeringProposalGuard(
-      options,
-      claim.work,
-      proposal,
-      runtime,
-      phase,
-      processingAuthority,
-    );
+    const guardedDeadline =
+      options.application.beginEngineeringDispatchObserved === undefined
+        ? await engineeringProposalGuard(
+            options,
+            claim.work,
+            proposal,
+            runtime,
+            phase,
+            processingAuthority,
+          )
+        : verifiedDeadline;
     runtime.ensure(guardedDeadline);
     const request = permit.request;
     if (request.operation === "create_issue") {
@@ -1145,43 +1212,79 @@ export async function prepareEngineeringExport(
       checksReceipt,
       request,
     });
-    const guard = async (): Promise<void> => {
-      await engineeringProposalGuard(
-        options,
-        claim.work,
-        proposed,
-        runtime,
-        deadline,
-        authority,
-      );
-      const route = await engineeringConfiguration(
-        options.configuration,
-        runtime,
-        () => timestamp(options.clock.now()),
-        config.version,
-        deadline,
-      );
-      if (canonical(route) !== canonical(config))
-        throw new AssistantBoundaryError("configuration_changed");
-      const currentCheckPolicy = await engineeringCheckPolicy(
-        options,
-        runtime,
-        checkPolicy.version,
-        deadline,
-      );
-      if (canonical(currentCheckPolicy) !== canonical(checkPolicy))
-        throw new AssistantBoundaryError("check_policy_changed");
-      // Reverify exact receipt expiry after the last awaited route/policy reads.
-      await engineeringProposalGuard(
-        options,
-        claim.work,
-        proposed,
-        runtime,
-        deadline,
-        authority,
-      );
+    let applicationProof: (() => true) | undefined;
+    let verifiedDeadline = deadline;
+    const guard = async (
+      observation?: EngineeringReviewObservation | EngineeringWorkerObservation,
+    ) => {
+      try {
+        verifiedDeadline = Math.min(
+          verifiedDeadline,
+          await engineeringProposalGuard(
+            options,
+            claim.work,
+            proposed,
+            runtime,
+            deadline,
+            authority,
+            observation,
+            undefined,
+            observation !== undefined,
+          ),
+        );
+        const route = await engineeringConfiguration(
+          options.configuration,
+          runtime,
+          () => timestamp(options.clock.now()),
+          config.version,
+          deadline,
+        );
+        if (canonical(route) !== canonical(config))
+          throw new AssistantBoundaryError("configuration_changed");
+        const currentCheckPolicy = await engineeringCheckPolicy(
+          options,
+          runtime,
+          checkPolicy.version,
+          deadline,
+        );
+        if (canonical(currentCheckPolicy) !== canonical(checkPolicy))
+          throw new AssistantBoundaryError("check_policy_changed");
+        // Reverify exact receipt expiry after the last awaited route/policy reads.
+        verifiedDeadline = Math.min(
+          verifiedDeadline,
+          await engineeringProposalGuard(
+            options,
+            claim.work,
+            proposed,
+            runtime,
+            deadline,
+            authority,
+            observation,
+            undefined,
+            observation !== undefined,
+            observation !== undefined && "verifyApplication" in observation
+              ? async () => {
+                  applicationProof = await observation.verifyApplication();
+                }
+              : undefined,
+          ),
+        );
+        return (): true => {
+          runtime.ensure(verifiedDeadline);
+          applicationProof?.();
+          return true;
+        };
+      } catch (error) {
+        if (observation !== undefined && "phase" in observation)
+          throw new EngineeringWorkerGuardFailure(
+            engineeringFailureCategory(error, "verification_unavailable"),
+            observation.phase,
+          );
+        throw error;
+      }
     };
-    await guard();
+    if (options.application.prepareEngineeringProposalObserved === undefined)
+      await guard();
     const command: PrepareEngineeringProposalCommand = snapshot({
       ...claim.fence,
       candidateHash: claim.work.candidateHash!,
@@ -1204,15 +1307,24 @@ export async function prepareEngineeringExport(
         );
         const result = await runtime.within(
           () =>
-            options.application.prepareEngineeringProposal(
-              current.access,
-              command,
-              guard,
-            ),
+            options.application.prepareEngineeringProposalObserved === undefined
+              ? options.application.prepareEngineeringProposal(
+                  current.access,
+                  command,
+                  async () => {
+                    await guard();
+                  },
+                )
+              : options.application.prepareEngineeringProposalObserved(
+                  current.access,
+                  command,
+                  guard,
+                ),
           deadline,
         );
         return { outcome: "prepared", result };
-      } catch {
+      } catch (error) {
+        if (error instanceof EngineeringWorkerGuardFailure) throw error;
         /* Repeat exact checked proposal; never rebuild after lost acknowledgement. */
       }
     }

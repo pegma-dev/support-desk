@@ -35,6 +35,8 @@ import type {
   EngineeringStepResult,
   EngineeringPolicySnapshot,
   EngineeringReviewObservation,
+  EngineeringWorkerCommitGuard,
+  EngineeringWorkerObservation,
 } from "./engineering-types.js";
 import {
   safeEngineeringSnapshot as snapshot,
@@ -158,22 +160,48 @@ type WorkerMethods = Pick<
   | "prepareEngineeringModel"
   | "completeEngineeringModel"
   | "prepareEngineeringModelObserved"
+  | "prepareEngineeringModelPlanned"
   | "completeEngineeringModelObserved"
   | "finishEngineeringWork"
   | "selectEngineeringRepository"
   | "prepareEngineeringProposal"
+  | "prepareEngineeringProposalObserved"
   | "reviewEngineeringProposal"
   | "beginEngineeringDispatch"
+  | "beginEngineeringDispatchObserved"
 >;
 
-type ModelWorkerMethods = Omit<
+type WorkerServices = Omit<
   WorkerMethods,
-  "prepareEngineeringModel" | "completeEngineeringModel"
+  | "prepareEngineeringModel"
+  | "completeEngineeringModel"
+  | "prepareEngineeringProposal"
+  | "beginEngineeringDispatch"
 > & {
+  prepareEngineeringProposal(
+    access: AccessContext,
+    command: Parameters<
+      EngineeringApplication["prepareEngineeringProposal"]
+    >[1],
+    guard: Parameters<EngineeringApplication["prepareEngineeringProposal"]>[2],
+    observationGuard?: EngineeringWorkerCommitGuard,
+  ): ReturnType<EngineeringApplication["prepareEngineeringProposal"]>;
+  beginEngineeringDispatch(
+    access: AccessContext,
+    command: Parameters<EngineeringApplication["beginEngineeringDispatch"]>[1],
+    guard: Parameters<EngineeringApplication["beginEngineeringDispatch"]>[2],
+    observationGuard?: EngineeringWorkerCommitGuard,
+  ): ReturnType<EngineeringApplication["beginEngineeringDispatch"]>;
   prepareEngineeringModel(
     access: AccessContext,
     input: Parameters<EngineeringApplication["prepareEngineeringModel"]>[1],
     guard?: EngineeringModelCommitGuard,
+    seed?: {
+      readonly loaded: EngineeringLoaded;
+      readonly stored: EngineeringWorkVersion;
+      readonly policy: EngineeringPolicySnapshot;
+      readonly now: () => number;
+    },
   ): ReturnType<EngineeringApplication["prepareEngineeringModel"]>;
   completeEngineeringModel(
     access: AccessContext,
@@ -545,6 +573,50 @@ export function createEngineeringWorkerServices(
       stored: workResult.value,
     };
   }
+  async function observedDispatchLoad(
+    access: AccessContext,
+    command: EngineeringClaimFence,
+    actorId: string,
+  ) {
+    const source = await readEngineeringSourceVersion(
+      records,
+      command.ticketId,
+    );
+    modelReadPermission(access, actorId);
+    if (source === null) throw new SupportDeskNotFoundError();
+    if (
+      source.value.state !== "eligible" ||
+      source.value.security !== "ordinary" ||
+      source.value.sourceGeneration !== command.sourceGeneration
+    )
+      throw new SupportDeskConflictError("Engineering dispatch source changed");
+    const [ticketResult, rowsResult, workResult] = await Promise.allSettled([
+      Promise.resolve().then(() =>
+        records.getVersioned({ partition: command.ticketId, id: "ticket" }),
+      ),
+      Promise.resolve().then(() => records.list(command.ticketId)),
+      Promise.resolve().then(() => workAt(command)),
+    ]);
+    modelReadPermission(access, actorId);
+    if (ticketResult.status === "rejected") throw ticketResult.reason;
+    const ticket = ticketResult.value;
+    if (ticket?.value.kind !== "ticket") throw new SupportDeskNotFoundError();
+    if (rowsResult.status === "rejected") throw rowsResult.reason;
+    if (rowsResult.value.length > deps.limits.maxRecordsPerTicket)
+      throw new SupportDeskLimitError(
+        "ticket_partition",
+        deps.limits.maxRecordsPerTicket,
+      );
+    if (workResult.status === "rejected") throw workResult.reason;
+    return {
+      loaded: {
+        ticket: { value: ticket.value, version: ticket.version },
+        source,
+        rows: rowsResult.value,
+      },
+      stored: workResult.value,
+    };
+  }
   function modelReadPermission(reader: AccessContext, actorId: string): void {
     permission(reader, false, actorId);
     for (const name of [
@@ -558,9 +630,11 @@ export function createEngineeringWorkerServices(
     loaded: EngineeringLoaded,
     stored: EngineeringWorkVersion,
     actorId: string,
+    confirmTicket = false,
   ) {
     let open = true;
     let confirmed = false;
+    let confirmations = 0;
     const check = (reader: AccessContext) => {
       modelReadPermission(reader, actorId);
       if (!open)
@@ -592,20 +666,50 @@ export function createEngineeringWorkerServices(
           throw new SupportDeskConflictError(
             "Engineering model source changed",
           );
-        const work = await records.getVersioned(
-          engineeringWorkKey(
-            stored.value.ticketId,
-            stored.value.sourceGeneration,
-          ),
+        const workKey = engineeringWorkKey(
+          stored.value.ticketId,
+          stored.value.sourceGeneration,
         );
-        check(reader);
-        if (work?.version !== stored.version)
-          throw new SupportDeskConflictError("Engineering model work changed");
+        if (confirmTicket) {
+          const [ticketResult, workResult] = await Promise.allSettled([
+            Promise.resolve().then(() =>
+              records.get({ partition: stored.value.ticketId, id: "ticket" }),
+            ),
+            Promise.resolve().then(() => records.getVersioned(workKey)),
+          ]);
+          check(reader);
+          if (ticketResult.status === "rejected") throw ticketResult.reason;
+          if (ticketResult.value?.kind !== "ticket")
+            throw new SupportDeskNotFoundError();
+          if (workResult.status === "rejected") throw workResult.reason;
+          if (workResult.value?.version !== stored.version)
+            throw new SupportDeskConflictError(
+              "Engineering model work changed",
+            );
+          const finalSource = await records.getVersioned(
+            engineeringSourceKey(loaded.source.value.ticketId),
+          );
+          check(reader);
+          if (finalSource?.version !== loaded.source.version)
+            throw new SupportDeskConflictError(
+              "Engineering model source changed",
+            );
+        } else {
+          const work = await records.getVersioned(workKey);
+          check(reader);
+          if (work?.version !== stored.version)
+            throw new SupportDeskConflictError(
+              "Engineering model work changed",
+            );
+        }
         confirmed = true;
+        confirmations += 1;
       },
     });
     return {
       observation,
+      assertOpen: check,
+      confirmationCount: () => confirmations,
       close() {
         open = false;
         confirmed = false;
@@ -624,6 +728,53 @@ export function createEngineeringWorkerServices(
     });
     try {
       return await boundary!.verify();
+    } finally {
+      scope.close();
+    }
+  }
+  async function workerGuard(
+    guard: EngineeringWorkerCommitGuard,
+    access: AccessContext,
+    loaded: EngineeringLoaded,
+    stored: EngineeringWorkVersion,
+    verifyApplication: () => Promise<() => true>,
+    actorId: string,
+    phase: EngineeringWorkerObservation["phase"],
+  ) {
+    const scope = modelObservation(
+      loaded,
+      stored,
+      actorId,
+      phase === "after_dispatch",
+    );
+    let verified = false;
+    let afterApplication = scope.confirmationCount();
+    let applicationAssertion: (() => true) | undefined;
+    const observation: EngineeringWorkerObservation = Object.freeze({
+      phase,
+      read: scope.observation.read,
+      confirm: scope.observation.confirm,
+      async verifyApplication() {
+        scope.assertOpen(access);
+        applicationAssertion = await verifyApplication();
+        scope.assertOpen(access);
+        verified = true;
+        afterApplication = scope.confirmationCount();
+        return applicationAssertion;
+      },
+    });
+    const boundary = engineeringMutationBoundary({
+      verifyBeforeCommit: () => guard(observation),
+    });
+    try {
+      const assertion = await boundary!.verify();
+      if (!verified) await observation.verifyApplication();
+      if (scope.confirmationCount() <= afterApplication)
+        await observation.confirm(access);
+      return () => {
+        applicationAssertion?.();
+        assertion();
+      };
     } finally {
       scope.close();
     }
@@ -692,6 +843,20 @@ export function createEngineeringWorkerServices(
         "Engineering source, work or claim fence changed",
       );
   }
+  function modelPreparationCurrent(
+    loaded: EngineeringLoaded,
+    work: EngineeringWorkRecord,
+    command: EngineeringClaimFence,
+    now: number,
+  ): void {
+    live(loaded, work, command, now);
+    if (
+      work.stage !== "model" ||
+      work.dispatch !== undefined ||
+      work.candidate !== undefined
+    )
+      throw new SupportDeskConflictError("Engineering model stage changed");
+  }
   function restrictedSource(
     loaded: EngineeringLoaded,
     work: EngineeringWorkRecord,
@@ -724,6 +889,15 @@ export function createEngineeringWorkerServices(
     },
   ): Promise<EngineeringPolicySnapshot> {
     const policy = snapshot(await deps.policy.resolve(access));
+    return checkedPolicy(policy, expected);
+  }
+  function checkedPolicy(
+    policy: EngineeringPolicySnapshot,
+    expected?: {
+      readonly policyGeneration: number;
+      readonly policyHash: string;
+    },
+  ): EngineeringPolicySnapshot {
     if (
       !policy.policy.enabled ||
       (expected !== undefined &&
@@ -1012,7 +1186,7 @@ export function createEngineeringWorkerServices(
       );
     return deadline;
   }
-  const services: ModelWorkerMethods = {
+  const services: WorkerServices = {
     async scanEngineeringCandidates(access, input) {
       const actorId = access.principalId;
       const authority = scanPermission(access, actorId);
@@ -1295,7 +1469,7 @@ export function createEngineeringWorkerServices(
       }
       throw new SupportDeskConflictError();
     },
-    async prepareEngineeringModel(access, input, guard) {
+    async prepareEngineeringModel(access, input, guard, seed) {
       permission(access);
       const actorId = access.principalId;
       const command = snapshot(
@@ -1312,13 +1486,15 @@ export function createEngineeringWorkerServices(
       validateEngineeringModelBinding(command.binding);
       if (!options.enabled)
         throw new SupportDeskConflictError("Engineering processing disabled");
-      const runNow = effectiveTime(deps);
+      const runNow = seed?.now ?? effectiveTime(deps);
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
         permission(access, false, actorId);
         const observed =
-          guard === undefined
-            ? undefined
-            : await observedModelLoad(access, command, actorId);
+          attempt === 0 && seed !== undefined
+            ? seed
+            : guard === undefined
+              ? undefined
+              : await observedModelLoad(access, command, actorId);
         if (observed !== undefined && "accepted" in observed)
           throw new SupportDeskConflictError();
         const loaded =
@@ -1328,19 +1504,17 @@ export function createEngineeringWorkerServices(
         const stored =
           observed === undefined ? await workAt(command) : observed.stored;
         const work = stored.value;
-        live(loaded, work, command, runNow());
-        if (
-          work.stage !== "model" ||
-          work.dispatch !== undefined ||
-          work.candidate !== undefined
-        )
-          throw new SupportDeskConflictError("Engineering model stage changed");
+        modelPreparationCurrent(loaded, work, command, runNow());
         const binding = command.binding;
         const manifest = binding.inputManifest;
-        const policy = await freshPolicy(access, {
+        const expectedPolicy = {
           policyGeneration: manifest.policyGeneration,
           policyHash: manifest.policyHash,
-        });
+        };
+        const policy =
+          attempt === 0 && seed !== undefined
+            ? checkedPolicy(seed.policy, expectedPolicy)
+            : await freshPolicy(access, expectedPolicy);
         if (
           (await engineeringModelManifestHash(manifest)) !==
             binding.inputManifestHash ||
@@ -1529,6 +1703,12 @@ export function createEngineeringWorkerServices(
       const runNow = effectiveTime(deps);
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
         permission(access, false, actorId);
+        if (observationGuard !== undefined) {
+          const accepted = await workAt(command);
+          permission(access, false, actorId);
+          if (accepted.value.lastCompletion?.fingerprint === completion)
+            return outcome(accepted.value);
+        }
         const observed =
           observationGuard === undefined
             ? undefined
@@ -2022,7 +2202,7 @@ export function createEngineeringWorkerServices(
       }
       throw new SupportDeskConflictError();
     },
-    async prepareEngineeringProposal(access, input, guard) {
+    async prepareEngineeringProposal(access, input, guard, observationGuard) {
       permission(access);
       const actorId = access.principalId;
       if (typeof guard !== "function")
@@ -2237,13 +2417,10 @@ export function createEngineeringWorkerServices(
               requestHash: checksBinding.requestHash,
               preparedClaimGeneration: command.claimGeneration,
             };
-        const deadline = await verifyProposal(
-          access,
-          loaded,
-          work,
-          proposal,
-          runNow,
-        );
+        let deadline =
+          observationGuard === undefined
+            ? await verifyProposal(access, loaded, work, proposal, runNow)
+            : Number.POSITIVE_INFINITY;
         const {
           approval: _approval,
           candidate: _candidate,
@@ -2279,9 +2456,38 @@ export function createEngineeringWorkerServices(
         };
         reserveReachable(acknowledged);
         deps.admission(loaded.ticket.value.ticket, loaded.rows, 2);
-        await guard();
-        await currentRepository(proposal.request);
-        await freshPolicy(access, proposal);
+        let assertProof: (() => void) | undefined;
+        if (observationGuard === undefined) {
+          await guard();
+          await currentRepository(proposal.request);
+          await freshPolicy(access, proposal);
+        } else {
+          assertProof = await workerGuard(
+            observationGuard,
+            access,
+            loaded,
+            stored,
+            async () => {
+              deadline = Math.min(
+                deadline,
+                await verifyProposal(access, loaded, work, proposal, runNow),
+              );
+              await currentRepository(proposal.request);
+              await freshPolicy(access, proposal);
+              return (): true => {
+                permission(access, false, actorId);
+                live(loaded, work, command, runNow());
+                if (runNow() >= deadline)
+                  throw new SupportDeskConflictError(
+                    "Engineering exact proposal checks expired",
+                  );
+                return true;
+              };
+            },
+            actorId,
+            "proposal",
+          );
+        }
         permission(access, false, actorId);
         live(loaded, work, command, runNow());
         if (runNow() >= deadline)
@@ -2299,7 +2505,24 @@ export function createEngineeringWorkerServices(
           receipt(causal, hash, result),
         ];
         if (
-          await save(loaded, stored, acknowledged, loaded.source.value, actions)
+          await save(
+            loaded,
+            stored,
+            acknowledged,
+            loaded.source.value,
+            actions,
+            observationGuard === undefined
+              ? undefined
+              : () => {
+                  permission(access, false, actorId);
+                  live(loaded, work, command, runNow());
+                  if (runNow() >= deadline)
+                    throw new SupportDeskConflictError(
+                      "Engineering exact proposal checks expired",
+                    );
+                  assertProof?.();
+                },
+          )
         ) {
           permission(access, false, actorId);
           return result;
@@ -2543,7 +2766,7 @@ export function createEngineeringWorkerServices(
       }
       throw new SupportDeskConflictError();
     },
-    async beginEngineeringDispatch(access, input, guard) {
+    async beginEngineeringDispatch(access, input, guard, observationGuard) {
       permission(access);
       const actorId = access.principalId;
       if (typeof guard !== "function")
@@ -2580,8 +2803,18 @@ export function createEngineeringWorkerServices(
       const runNow = effectiveTime(deps);
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
         permission(access, false, actorId);
-        const loaded = await load(command.ticketId);
-        const stored = await workAt(command);
+        const observed =
+          observationGuard === undefined
+            ? undefined
+            : await observedModelLoad(access, command, actorId);
+        if (observed !== undefined && "accepted" in observed)
+          throw new SupportDeskConflictError();
+        const loaded =
+          observed === undefined
+            ? await load(command.ticketId)
+            : observed.loaded;
+        const stored =
+          observed === undefined ? await workAt(command) : observed.stored;
         const work = stored.value;
         live(loaded, work, command, runNow());
         const proposal = work.proposal;
@@ -2619,16 +2852,42 @@ export function createEngineeringWorkerServices(
           permission(access, false, actorId);
           return null;
         }
-        const deadline = await verifyProposal(
-          access,
-          loaded,
-          work,
-          proposal,
-          runNow,
-        );
-        await guard();
-        await currentRepository(proposal.request);
-        await freshPolicy(access, proposal);
+        let deadline =
+          observationGuard === undefined
+            ? await verifyProposal(access, loaded, work, proposal, runNow)
+            : Number.POSITIVE_INFINITY;
+        let assertProof: (() => void) | undefined;
+        if (observationGuard === undefined) {
+          await guard();
+          await currentRepository(proposal.request);
+          await freshPolicy(access, proposal);
+        } else {
+          assertProof = await workerGuard(
+            observationGuard,
+            access,
+            loaded,
+            stored,
+            async () => {
+              deadline = Math.min(
+                deadline,
+                await verifyProposal(access, loaded, work, proposal, runNow),
+              );
+              await currentRepository(proposal.request);
+              await freshPolicy(access, proposal);
+              return (): true => {
+                permission(access, false, actorId);
+                live(loaded, work, command, runNow());
+                if (runNow() >= deadline)
+                  throw new SupportDeskConflictError(
+                    "Engineering dispatch verification expired",
+                  );
+                return true;
+              };
+            },
+            actorId,
+            "before_dispatch",
+          );
+        }
         permission(access, false, actorId);
         live(loaded, work, command, runNow());
         if (runNow() >= deadline)
@@ -2726,8 +2985,77 @@ export function createEngineeringWorkerServices(
                   ),
                   receipt(causal, hash, outcome(next)),
                 ],
+            observationGuard === undefined
+              ? undefined
+              : () => {
+                  permission(access, false, actorId);
+                  live(loaded, work, command, runNow());
+                  if (runNow() >= deadline)
+                    throw new SupportDeskConflictError(
+                      "Engineering dispatch verification expired",
+                    );
+                  assertProof?.();
+                },
           )
         ) {
+          if (observationGuard !== undefined) {
+            // The start transaction changed opaque versions: obtain a new scope from real storage.
+            const latest = await observedDispatchLoad(access, command, actorId);
+            live(latest.loaded, latest.stored.value, command, runNow());
+            if (
+              latest.stored.value.dispatch?.dispatchId !== command.dispatchId ||
+              latest.stored.value.status !== "dispatch_started"
+            )
+              throw new SupportDeskConflictError(
+                "Engineering dispatch changed before physical call authorization",
+              );
+            const assertPostProof = await workerGuard(
+              observationGuard,
+              access,
+              latest.loaded,
+              latest.stored,
+              async () => {
+                deadline = Math.min(
+                  deadline,
+                  await verifyProposal(
+                    access,
+                    latest.loaded,
+                    latest.stored.value,
+                    proposal,
+                    runNow,
+                  ),
+                );
+                await currentRepository(proposal.request);
+                await freshPolicy(access, proposal);
+                return (): true => {
+                  permission(access, false, actorId);
+                  live(latest.loaded, latest.stored.value, command, runNow());
+                  if (runNow() >= deadline)
+                    throw new SupportDeskConflictError(
+                      "Engineering dispatch verification expired",
+                    );
+                  return true;
+                };
+              },
+              actorId,
+              "after_dispatch",
+            );
+            permission(access, false, actorId);
+            live(latest.loaded, latest.stored.value, command, runNow());
+            if (runNow() >= deadline)
+              throw new SupportDeskConflictError(
+                "Engineering dispatch verification expired",
+              );
+            assertPostProof();
+            return {
+              ticketId: work.ticketId,
+              sourceGeneration: work.sourceGeneration,
+              dispatchId: dispatch.dispatchId,
+              exportMarker: dispatch.exportMarker,
+              requestHash: proposal.requestHash,
+              request: snapshot(proposal.request),
+            };
+          }
           await guard();
           await currentRepository(proposal.request);
           await freshPolicy(access, proposal);
@@ -2762,6 +3090,106 @@ export function createEngineeringWorkerServices(
   };
   return {
     ...services,
+    // Public legacy wrappers cannot receive the private preloaded-attempt parameter.
+    prepareEngineeringModel(access, command) {
+      return services.prepareEngineeringModel(access, command);
+    },
+    completeEngineeringModel(access, command, guard) {
+      return services.completeEngineeringModel(access, command, guard);
+    },
+    prepareEngineeringProposal(access, command, guard) {
+      return services.prepareEngineeringProposal(access, command, guard);
+    },
+    beginEngineeringDispatch(access, command, guard) {
+      return services.beginEngineeringDispatch(access, command, guard);
+    },
+    prepareEngineeringProposalObserved(access, command, guard) {
+      if (typeof guard !== "function")
+        throw new TypeError(
+          "Engineering proposal observation requires a guard",
+        );
+      return services.prepareEngineeringProposal(
+        access,
+        command,
+        () => {},
+        guard,
+      );
+    },
+    beginEngineeringDispatchObserved(access, command, guard) {
+      if (typeof guard !== "function")
+        throw new TypeError(
+          "Engineering dispatch observation requires a guard",
+        );
+      return services.beginEngineeringDispatch(
+        access,
+        command,
+        () => {},
+        guard,
+      );
+    },
+    async prepareEngineeringModelPlanned(access, input, planner) {
+      permission(access);
+      const actorId = access.principalId;
+      if (typeof planner !== "function")
+        throw new TypeError("Engineering model planning requires a callback");
+      const command = snapshot(
+        fields(input, "engineering model planning fence", [
+          "ticketId",
+          "sourceGeneration",
+          "workerId",
+          "claimId",
+          "claimGeneration",
+        ]),
+      ) as unknown as typeof input;
+      fence(command);
+      if (!options.enabled)
+        throw new SupportDeskConflictError("Engineering processing disabled");
+      const runNow = effectiveTime(deps);
+      const current = await observedModelLoad(access, command, actorId);
+      if ("accepted" in current) throw new SupportDeskConflictError();
+      modelPreparationCurrent(
+        current.loaded,
+        current.stored.value,
+        command,
+        runNow(),
+      );
+      const policy = await freshPolicy(access);
+      let open = true;
+      let binding: EngineeringModelBinding;
+      try {
+        binding = snapshot(
+          await planner(
+            Object.freeze({
+              read(reader: AccessContext) {
+                modelReadPermission(reader, actorId);
+                if (!open)
+                  throw new SupportDeskConflictError(
+                    "Engineering model planning expired",
+                  );
+                return {
+                  source: snapshot(current.loaded.source.value),
+                  claim: claimView(
+                    current.loaded,
+                    current.stored.value,
+                    policy,
+                    false,
+                  ),
+                };
+              },
+            }),
+          ),
+        );
+      } finally {
+        open = false;
+      }
+      permission(access, false, actorId);
+      return services.prepareEngineeringModel(
+        access,
+        { ...command, binding },
+        () => {},
+        { ...current, policy, now: runNow },
+      );
+    },
     prepareEngineeringModelObserved(access, command, guard) {
       if (typeof guard !== "function")
         throw new TypeError("Engineering model observation requires a guard");

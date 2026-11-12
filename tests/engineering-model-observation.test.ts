@@ -109,6 +109,7 @@ for (const [name, createStore] of engineeringStores) {
         const observed = observe(createStore());
         const f = await engineeringAiFixture(observed.store);
         const {
+          prepareEngineeringModelPlanned: _planned,
           prepareEngineeringModelObserved: _prepare,
           completeEngineeringModelObserved: _complete,
           ...original
@@ -138,7 +139,7 @@ for (const [name, createStore] of engineeringStores) {
           candidate: (await f.work()).candidate,
         });
       }
-      expect(results[0]).toMatchObject({ source: 8, work: 6, ticket: 5 });
+      expect(results[0]).toMatchObject({ source: 6, work: 7, ticket: 4 });
       expect(results[1]).toMatchObject({ source: 10, work: 8, ticket: 7 });
       expect(results[0]!.authority).toBe(results[1]!.authority);
       expect(results[0]!.candidate).toEqual(results[1]!.candidate);
@@ -414,12 +415,14 @@ for (const [name, createStore] of engineeringStores) {
       async (phase) => {
         const f = await engineeringAiFixture(createStore());
         const ports = observedPorts(f);
+        const { prepareEngineeringModelPlanned: _planned, ...application } =
+          f.app;
         const preparations: PrepareEngineeringModelCommand[] = [];
         const completions: CompleteEngineeringModelCommand[] = [];
         const engine = createSupportDeskEngineering({
           ...f.baseOptions,
           application: {
-            ...f.app,
+            ...application,
             async prepareEngineeringModelObserved(...args) {
               preparations.push(structuredClone(args[1]));
               const result = await ports.prepare(...args);

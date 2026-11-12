@@ -524,6 +524,21 @@ export interface EngineeringModelObservation {
   };
   confirm(access: AccessContext): Promise<void>;
 }
+/** Initial unpaid model planning within one application-owned CAS attempt. */
+export interface EngineeringModelPlanningObservation {
+  read(access: AccessContext): {
+    readonly source: EngineeringSourceRecord;
+    readonly claim: EngineeringClaim;
+  };
+}
+/** Read-only proof and current facts for one worker mutation phase. */
+export interface EngineeringWorkerObservation extends EngineeringModelObservation {
+  readonly phase: "proposal" | "before_dispatch" | "after_dispatch";
+  verifyApplication(): Promise<() => true>;
+}
+export type EngineeringWorkerCommitGuard = (
+  observation: EngineeringWorkerObservation,
+) => void | (() => true) | Promise<void | (() => true)>;
 export type EngineeringModelCommitGuard = (
   observation: EngineeringModelObservation,
 ) => void | (() => true) | Promise<void | (() => true)>;
@@ -609,6 +624,13 @@ export interface EngineeringApplication {
     guard: EngineeringCommitGuard,
   ): Promise<EngineeringStepResult>;
   /** Optional callback-scoped path; original implementations remain compatible. */
+  prepareEngineeringModelPlanned?(
+    access: AccessContext,
+    command: EngineeringClaimFence,
+    planner: (
+      observation: EngineeringModelPlanningObservation,
+    ) => Promise<EngineeringModelBinding>,
+  ): Promise<EngineeringPreparedModel>;
   prepareEngineeringModelObserved?(
     access: AccessContext,
     command: PrepareEngineeringModelCommand,
@@ -633,6 +655,11 @@ export interface EngineeringApplication {
     command: PrepareEngineeringProposalCommand,
     guard: EngineeringCommitGuard,
   ): Promise<EngineeringStepResult>;
+  prepareEngineeringProposalObserved?(
+    access: AccessContext,
+    command: PrepareEngineeringProposalCommand,
+    guard: EngineeringWorkerCommitGuard,
+  ): Promise<EngineeringStepResult>;
   reviewEngineeringProposal(
     access: AccessContext,
     command: ReviewEngineeringProposalCommand,
@@ -642,6 +669,11 @@ export interface EngineeringApplication {
     access: AccessContext,
     command: BeginEngineeringDispatchCommand,
     guard: EngineeringCommitGuard,
+  ): Promise<EngineeringDispatchPermit | null>;
+  beginEngineeringDispatchObserved?(
+    access: AccessContext,
+    command: BeginEngineeringDispatchCommand,
+    guard: EngineeringWorkerCommitGuard,
   ): Promise<EngineeringDispatchPermit | null>;
   recordEngineeringDispatchResult(
     access: AccessContext,
