@@ -1,8 +1,8 @@
 # Optional AI operations
 
 This runbook describes the merged SD-01 through SD-05 contracts assembled by
-the current verified published synchronized `0.2.7` release; see its
-[publication receipt](RELEASING.md#verified-027-publication-2026-11-11).
+the current verified published synchronized `0.2.8` release; see its
+[publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
 SDK publication does not establish production deployment, verified host data
 controls, or pilot acceptance. Use exact published artifacts and complete each
 host's own [upgrade rehearsal](UPGRADING.md).
@@ -16,10 +16,10 @@ usable with all optional AI capabilities disabled.
 Published `0.2.6` introduced final host guards and cancellation on seven
 engineering controls. Published `0.2.7` adds compatible approval observations
 and authorized engineering reads, retaining fresh proof and host authority.
-Both the current `0.2.7` tuple and the unpublished `0.2.8` source candidate pin
+Both the current `0.2.8` tuple and the unpublished `0.2.9` source candidate pin
 exact public KB application/contracts `0.1.6`.
 
-Candidate `0.2.8` adds optional late host guards/cancellation to non-post
+The `0.2.8` source additions retained in `0.2.9` add optional late host guards/cancellation to non-post
 follow-up controls and forwards staff reassessment guards. Reassessment may
 use the optional application-owned planner observation to share authorized
 reads and confirm their opaque versions after fresh proof. Existing structural
@@ -28,9 +28,9 @@ current-browser/permission/deadline fence; a guard is read-only and does not
 replace SDK proof. Web posting retains its authorization/delivery guarantees
 and can use a per-attempt application-owned read observation with fresh opaque
 confirmations; the compatibility fallback remains. Keep hosts on
-the verified `0.2.7` tuple until the next release is published and qualified.
-See the [candidate contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards)
-and [current source handoff](RELEASING.md#source-version-028).
+the verified `0.2.8` tuple until the next release is published and qualified.
+See the [published 0.2.8 contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards)
+and [current source handoff](RELEASING.md#source-version-029).
 
 ## Controls and human fallback
 

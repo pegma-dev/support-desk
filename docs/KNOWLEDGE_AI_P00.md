@@ -3,10 +3,10 @@
 ## Current publication status
 
 All five synchronized Support Desk packages are published and strictly
-verified at `0.2.7`. Optional AI pins Knowledge Base application and contracts
+verified at `0.2.8`. Optional AI pins Knowledge Base application and contracts
 to exact `0.1.6`. This host composition selects all four verified Knowledge
 Base `0.1.6` packages and Agent Access `0.1.1`. Version statements in the dated
-sections below describe their recorded checkpoints. [Support Desk publication receipt](RELEASING.md#verified-027-publication-2026-11-11) · [Knowledge Base release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6)
+sections below describe their recorded checkpoints. [Support Desk publication receipt](RELEASING.md#verified-028-publication-2026-11-12) · [Knowledge Base release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6)
 
 The engineering review guard correction shipped in `0.2.3`. Published `0.2.5`
 adds attachments and opt-in staged human learning reviews. Host adoption,
@@ -446,7 +446,7 @@ AUTH-01 lifecycle source, synthetic SDK proof, KB-04 transport source exit,
 and both producers' release preparation are merged. The earlier Support Desk
 AI `0.2.1` package retains its exact KB `0.1.2` runtime dependencies and dated
 verification record. The publication status above identifies the selected
-`0.2.7` graph.
+`0.2.8` graph.
 [Historical `0.2.1` receipt](RELEASING.md#verified-021-publication-2026-11-10) · [Current publication status](#current-publication-status)
 PG-01/RG-01 consume their reviewed exact verified registry sets. Retained KB-04 real two-host
 acceptance under P00-CREDENTIAL/P00-MCP and

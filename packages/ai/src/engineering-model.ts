@@ -1,9 +1,12 @@
 import {
   engineeringModelManifestHash,
+  hasDirectEngineeringHandoff,
   type CompleteEngineeringModelCommand,
   type EngineeringClaim,
   type EngineeringPreparedModel,
   type EngineeringProcessing,
+  type EngineeringModelObservation,
+  type EngineeringModelPlanningObservation,
   type FinishEngineeringWorkCommand,
   type PrepareEngineeringModelCommand,
 } from "@pegma/support-desk-application";
@@ -35,6 +38,7 @@ import {
   engineeringPolicy,
   engineeringProcessingAuthority,
   engineeringSource,
+  validateEngineeringSource,
 } from "./engineering-request.js";
 import {
   engineeringCandidate,
@@ -170,113 +174,199 @@ export async function processEngineeringModel(
       };
       return await finish("recovered_preparation", "retry");
     }
-    const authority = await engineeringProcessingAuthority(
-      options.serviceAccess,
-      runtime,
-    );
-    const source = await engineeringSource(
-      options,
-      claim.sourceFence,
-      runtime,
+    async function initialize(
+      observation?: EngineeringModelPlanningObservation,
+    ) {
+      const authority = await engineeringProcessingAuthority(
+        options.serviceAccess,
+        runtime,
+      );
+      const plannedAuthority =
+        observation === undefined
+          ? undefined
+          : await engineeringProcessingAuthority(
+              options.serviceAccess,
+              runtime,
+              authority,
+            );
+      const planned =
+        plannedAuthority === undefined
+          ? undefined
+          : observation!.read(plannedAuthority.access);
+      const source =
+        planned === undefined
+          ? await engineeringSource(
+              options,
+              claim.sourceFence,
+              runtime,
+              authority,
+            )
+          : validateEngineeringSource(planned.source, claim.sourceFence);
+      const evidence = claim.work.evidence;
+      const product = claim.work.product;
+      if (
+        evidence === undefined ||
+        product === undefined ||
+        canonical(evidence) !== canonical(source.evidence) ||
+        canonical(product) !== canonical(source.product)
+      )
+        throw new AssistantBoundaryError("source_changed");
+      const policy =
+        planned === undefined
+          ? await engineeringPolicy(options, authority, runtime)
+          : snapshot(planned.claim.policy);
+      if (canonical(policy) !== canonical(claim.policy))
+        throw new AssistantBoundaryError("repository_policy_changed");
+      const config = await engineeringConfiguration(
+        options.configuration,
+        runtime,
+        () => timestamp(options.clock.now()),
+      );
+      if (claim.work.modelAttempts.length >= config.budgets.maxAttempts)
+        throw new AssistantBoundaryError("budget_exceeded");
+      const checkPolicy = await engineeringCheckPolicy(options, runtime);
+      const calibration = await engineeringCalibration(
+        options,
+        {
+          modelVersion: config.modelVersion,
+          promptVersion: config.promptVersion,
+          parserVersion: config.parserVersion,
+          policyHash: policy.policyHash,
+        },
+        runtime,
+      );
+      const request = engineeringModelRequest(
+        claim,
+        evidence,
+        product,
+        source.evidenceFingerprint!,
+        config,
+        options.tokenCounter,
+      );
+      const deadline = Math.min(
+        runtime.deadline,
+        timestamp(claim.leaseUntil),
+        timestamp(claim.work.deadline),
+        timestamp(config.dataControls.validUntil),
+        timestamp(checkPolicy.validUntil),
+        timestamp(calibration.validUntil),
+      );
+      const providerDeadline = Math.min(
+        deadline - reserve,
+        timestamp(options.clock.now()) + config.budgets.maxDurationMilliseconds,
+      );
+      runtime.ensure(providerDeadline);
+      const usageReservationId =
+        "usage:" +
+        (
+          await fingerprint({
+            purpose: "support_bug_assessment",
+            operationId,
+            invocationId,
+          })
+        ).slice(0, 48);
+      const inputManifestHash = await engineeringModelManifestHash(
+        request.manifest,
+      );
+      const inputFingerprint = await fingerprint({
+        purpose: "support_bug_assessment",
+        invocationId,
+        operationId,
+        fence: claim.fence,
+        sourceFence: claim.sourceFence,
+        input: request.input,
+        manifest: request.manifest,
+        configuration: config,
+        authority,
+        policy,
+        checkPolicy,
+        calibration,
+        deadline,
+        providerDeadline,
+        usageReservationId,
+      });
+      const command: PrepareEngineeringModelCommand = snapshot({
+        ...claim.fence,
+        binding: {
+          inputManifest: request.manifest,
+          inputManifestHash,
+          inputFingerprint,
+          configVersion: config.version,
+          promptVersion: config.promptVersion,
+          modelVersion: config.modelVersion,
+          parserVersion: config.parserVersion,
+          checkPolicyVersion: checkPolicy.version,
+          budgetsHash: await fingerprint(config.budgets),
+          usageReservationId,
+          deadline: new Date(deadline).toISOString(),
+        },
+      });
+      const requestHash = await fingerprint(command.binding);
+      return {
+        authority,
+        source,
+        evidence,
+        product,
+        policy,
+        config,
+        checkPolicy,
+        calibration,
+        request,
+        deadline,
+        providerDeadline,
+        usageReservationId,
+        inputManifestHash,
+        inputFingerprint,
+        command,
+        requestHash,
+      };
+    }
+    let initialized: Awaited<ReturnType<typeof initialize>> | undefined;
+    let initialPreparation: EngineeringPreparedModel | undefined;
+    const planned = options.application.prepareEngineeringModelPlanned;
+    if (planned === undefined) initialized = await initialize();
+    else {
+      const current = await engineeringAuthority(
+        options.serviceAccess,
+        runtime,
+      );
+      try {
+        initialPreparation = await runtime.within(() =>
+          planned.call(
+            options.application,
+            current.access,
+            claim.fence,
+            async (observation) => {
+              initialized = await initialize(observation);
+              return initialized.command.binding;
+            },
+          ),
+        );
+      } catch (error) {
+        if (initialized === undefined) throw error;
+        // Once planned, every retry retains the same immutable command and reservation identity.
+      }
+    }
+    if (initialized === undefined)
+      throw new AssistantBoundaryError("preparation_mismatch");
+    const {
       authority,
-    );
-    const evidence = claim.work.evidence;
-    const product = claim.work.product;
-    if (
-      evidence === undefined ||
-      product === undefined ||
-      canonical(evidence) !== canonical(source.evidence) ||
-      canonical(product) !== canonical(source.product)
-    )
-      throw new AssistantBoundaryError("source_changed");
-    const policy = await engineeringPolicy(options, authority, runtime);
-    if (canonical(policy) !== canonical(claim.policy))
-      throw new AssistantBoundaryError("repository_policy_changed");
-    const config = await engineeringConfiguration(
-      options.configuration,
-      runtime,
-      () => timestamp(options.clock.now()),
-    );
-    if (claim.work.modelAttempts.length >= config.budgets.maxAttempts)
-      throw new AssistantBoundaryError("budget_exceeded");
-    const checkPolicy = await engineeringCheckPolicy(options, runtime);
-    const calibration = await engineeringCalibration(
-      options,
-      {
-        modelVersion: config.modelVersion,
-        promptVersion: config.promptVersion,
-        parserVersion: config.parserVersion,
-        policyHash: policy.policyHash,
-      },
-      runtime,
-    );
-    const request = engineeringModelRequest(
-      claim,
+      source,
       evidence,
       product,
-      source.evidenceFingerprint!,
-      config,
-      options.tokenCounter,
-    );
-    const deadline = Math.min(
-      runtime.deadline,
-      timestamp(claim.leaseUntil),
-      timestamp(claim.work.deadline),
-      timestamp(config.dataControls.validUntil),
-      timestamp(checkPolicy.validUntil),
-      timestamp(calibration.validUntil),
-    );
-    const providerDeadline = Math.min(
-      deadline - reserve,
-      timestamp(options.clock.now()) + config.budgets.maxDurationMilliseconds,
-    );
-    runtime.ensure(providerDeadline);
-    const usageReservationId =
-      "usage:" +
-      (
-        await fingerprint({
-          purpose: "support_bug_assessment",
-          operationId,
-          invocationId,
-        })
-      ).slice(0, 48);
-    const inputManifestHash = await engineeringModelManifestHash(
-      request.manifest,
-    );
-    const inputFingerprint = await fingerprint({
-      purpose: "support_bug_assessment",
-      invocationId,
-      operationId,
-      fence: claim.fence,
-      sourceFence: claim.sourceFence,
-      input: request.input,
-      manifest: request.manifest,
-      configuration: config,
-      authority,
       policy,
+      config,
       checkPolicy,
       calibration,
+      request,
       deadline,
       providerDeadline,
       usageReservationId,
-    });
-    const command: PrepareEngineeringModelCommand = snapshot({
-      ...claim.fence,
-      binding: {
-        inputManifest: request.manifest,
-        inputManifestHash,
-        inputFingerprint,
-        configVersion: config.version,
-        promptVersion: config.promptVersion,
-        modelVersion: config.modelVersion,
-        parserVersion: config.parserVersion,
-        checkPolicyVersion: checkPolicy.version,
-        budgetsHash: await fingerprint(config.budgets),
-        usageReservationId,
-        deadline: new Date(deadline).toISOString(),
-      },
-    });
-    const requestHash = await fingerprint(command.binding);
+      inputManifestHash,
+      inputFingerprint,
+      command,
+      requestHash,
+    } = initialized;
     const checkedPreparation = (
       value: EngineeringPreparedModel,
     ): EngineeringPreparedModel => {
@@ -292,6 +382,7 @@ export async function processEngineeringModel(
     const verifyCurrent = async (
       phase: number,
       beforeCall = false,
+      observation?: EngineeringModelObservation,
     ): Promise<void> => {
       await engineeringProcessingAuthority(
         options.serviceAccess,
@@ -347,6 +438,7 @@ export async function processEngineeringModel(
         finalAuthority,
         runtime,
         phase,
+        observation,
       );
       if (
         facts.source.evidenceFingerprint !== source.evidenceFingerprint ||
@@ -382,6 +474,11 @@ export async function processEngineeringModel(
     };
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
+        if (attempt === 0 && planned !== undefined) {
+          if (initialPreparation === undefined) continue;
+          prepared = checkedPreparation(initialPreparation);
+          break;
+        }
         const current = await engineeringAuthority(
           options.serviceAccess,
           runtime,
@@ -390,10 +487,16 @@ export async function processEngineeringModel(
         prepared = checkedPreparation(
           await runtime.within(
             () =>
-              options.application.prepareEngineeringModel(
-                current.access,
-                command,
-              ),
+              options.application.prepareEngineeringModelObserved === undefined
+                ? options.application.prepareEngineeringModel(
+                    current.access,
+                    command,
+                  )
+                : options.application.prepareEngineeringModelObserved(
+                    current.access,
+                    command,
+                    () => {},
+                  ),
             providerDeadline,
           ),
         );
@@ -444,22 +547,43 @@ export async function processEngineeringModel(
       runtime,
       providerDeadline,
     );
+    const observedPrepare = options.application.prepareEngineeringModelObserved;
     if (
       canonical(
         checkedPreparation(
           await runtime.within(
             () =>
-              options.application.prepareEngineeringModel(
-                current.access,
-                command,
-              ),
+              observedPrepare === undefined
+                ? options.application.prepareEngineeringModel(
+                    current.access,
+                    command,
+                  )
+                : observedPrepare.call(
+                    options.application,
+                    current.access,
+                    command,
+                    async (observation) => {
+                      await verifyCurrent(providerDeadline, true, observation);
+                      return (): true => {
+                        runtime.ensure(providerDeadline);
+                        return true;
+                      };
+                    },
+                  ),
             providerDeadline,
           ),
         ),
       ) !== canonical(prepared)
     )
       throw new AssistantBoundaryError("preparation_mismatch");
-    await verifyCurrent(providerDeadline, true);
+    if (
+      !hasDirectEngineeringHandoff(
+        options.application,
+        "model",
+        observedPrepare,
+      )
+    )
+      await verifyCurrent(providerDeadline, true);
     runtime.ensure(providerDeadline);
     observation = { state: "unknown" };
     accounting = "unknown";
@@ -496,9 +620,13 @@ export async function processEngineeringModel(
       processing,
       accounting: settledAccounting(),
     });
-    const guard = async (): Promise<void> => {
+    const guard = async (observation?: EngineeringModelObservation) => {
       try {
-        await verifyCurrent(deadline);
+        await verifyCurrent(deadline, false, observation);
+        return (): true => {
+          runtime.ensure(deadline);
+          return true;
+        };
       } catch (error) {
         throw new EngineeringModelGuardFailure(
           error instanceof AssistantBoundaryError
@@ -517,16 +645,28 @@ export async function processEngineeringModel(
         );
         const accepted = await runtime.within(
           () =>
-            options.application.completeEngineeringModel(
-              current.access,
-              complete,
-              guard,
-            ),
+            options.application.completeEngineeringModelObserved === undefined
+              ? options.application.completeEngineeringModel(
+                  current.access,
+                  complete,
+                  async () => {
+                    await guard();
+                  },
+                )
+              : options.application.completeEngineeringModelObserved(
+                  current.access,
+                  complete,
+                  guard,
+                ),
           deadline,
         );
         return {
           outcome:
-            accepted.status === "restricted" ? "restricted" : "candidate",
+            accepted.status === "candidate"
+              ? "candidate"
+              : accepted.status === "restricted"
+                ? "restricted"
+                : "held",
           result: accepted,
         };
       } catch (error) {
@@ -536,7 +676,13 @@ export async function processEngineeringModel(
             error.category === "security_restricted" ? "restricted" : "held",
           );
         uncertain = true;
+        if (
+          options.application.completeEngineeringModelObserved !== undefined &&
+          attempt + 1 < attempts
+        )
+          continue;
         let revoked = false;
+        let withdrawn = false;
         try {
           const access = await engineeringAuthority(
             options.serviceAccess,
@@ -551,6 +697,7 @@ export async function processEngineeringModel(
               ),
             deadline,
           );
+          withdrawn = source.state === "withdrawn";
           revoked =
             source.state !== "eligible" ||
             source.security !== "ordinary" ||
@@ -559,6 +706,11 @@ export async function processEngineeringModel(
         } catch {
           /* Unavailability does not prove revocation. */
         }
+        if (
+          withdrawn &&
+          options.application.completeEngineeringModelObserved !== undefined
+        )
+          return { outcome: "pending", stage: "complete" };
         if (revoked) {
           const held = await finish("source_changed");
           return held.outcome === "pending"

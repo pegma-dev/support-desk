@@ -25,7 +25,7 @@ import type {
   EngineeringProductContext,
   EngineeringSourceFence,
   EngineeringSourceRecord,
-  EngineeringReviewObservation,
+  EngineeringModelObservation,
 } from "@pegma/support-desk-application";
 import type {
   EngineeringConfigurationPort,
@@ -205,7 +205,7 @@ export async function engineeringCurrentFacts(
   authority: EngineeringServiceAuthority,
   runtime: LearningRuntime,
   deadline = runtime.deadline,
-  observation?: EngineeringReviewObservation,
+  observation?: EngineeringModelObservation,
 ) {
   const current = await engineeringProcessingAuthority(
     options.serviceAccess,

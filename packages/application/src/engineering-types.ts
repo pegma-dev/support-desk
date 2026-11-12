@@ -516,6 +516,32 @@ export interface RecordEngineeringReconciliationCommand extends EngineeringKey {
     | { readonly outcome: "unknown"; readonly reason?: string };
 }
 export type EngineeringCommitGuard = () => void | Promise<void>;
+/** One bounded model attempt; read consumes a fresh opaque-version confirmation. */
+export interface EngineeringModelObservation {
+  read(access: AccessContext): {
+    readonly source: EngineeringSourceRecord;
+    readonly work: EngineeringWorkRecord;
+  };
+  confirm(access: AccessContext): Promise<void>;
+}
+/** Initial unpaid model planning within one application-owned CAS attempt. */
+export interface EngineeringModelPlanningObservation {
+  read(access: AccessContext): {
+    readonly source: EngineeringSourceRecord;
+    readonly claim: EngineeringClaim;
+  };
+}
+/** Read-only proof and current facts for one worker mutation phase. */
+export interface EngineeringWorkerObservation extends EngineeringModelObservation {
+  readonly phase: "proposal" | "before_dispatch" | "after_dispatch";
+  verifyApplication(): Promise<() => true>;
+}
+export type EngineeringWorkerCommitGuard = (
+  observation: EngineeringWorkerObservation,
+) => void | (() => true) | Promise<void | (() => true)>;
+export type EngineeringModelCommitGuard = (
+  observation: EngineeringModelObservation,
+) => void | (() => true) | Promise<void | (() => true)>;
 /** One review attempt's existing observations; opaque versions never leave the app. */
 export interface EngineeringReviewObservation {
   readWork(access: AccessContext): EngineeringWorkRecord;
@@ -597,6 +623,24 @@ export interface EngineeringApplication {
     command: CompleteEngineeringModelCommand,
     guard: EngineeringCommitGuard,
   ): Promise<EngineeringStepResult>;
+  /** Optional callback-scoped path; original implementations remain compatible. */
+  prepareEngineeringModelPlanned?(
+    access: AccessContext,
+    command: EngineeringClaimFence,
+    planner: (
+      observation: EngineeringModelPlanningObservation,
+    ) => Promise<EngineeringModelBinding>,
+  ): Promise<EngineeringPreparedModel>;
+  prepareEngineeringModelObserved?(
+    access: AccessContext,
+    command: PrepareEngineeringModelCommand,
+    guard: EngineeringModelCommitGuard,
+  ): Promise<EngineeringPreparedModel>;
+  completeEngineeringModelObserved?(
+    access: AccessContext,
+    command: CompleteEngineeringModelCommand,
+    guard: EngineeringModelCommitGuard,
+  ): Promise<EngineeringStepResult>;
   finishEngineeringWork(
     access: AccessContext,
     command: FinishEngineeringWorkCommand,
@@ -611,6 +655,11 @@ export interface EngineeringApplication {
     command: PrepareEngineeringProposalCommand,
     guard: EngineeringCommitGuard,
   ): Promise<EngineeringStepResult>;
+  prepareEngineeringProposalObserved?(
+    access: AccessContext,
+    command: PrepareEngineeringProposalCommand,
+    guard: EngineeringWorkerCommitGuard,
+  ): Promise<EngineeringStepResult>;
   reviewEngineeringProposal(
     access: AccessContext,
     command: ReviewEngineeringProposalCommand,
@@ -620,6 +669,11 @@ export interface EngineeringApplication {
     access: AccessContext,
     command: BeginEngineeringDispatchCommand,
     guard: EngineeringCommitGuard,
+  ): Promise<EngineeringDispatchPermit | null>;
+  beginEngineeringDispatchObserved?(
+    access: AccessContext,
+    command: BeginEngineeringDispatchCommand,
+    guard: EngineeringWorkerCommitGuard,
   ): Promise<EngineeringDispatchPermit | null>;
   recordEngineeringDispatchResult(
     access: AccessContext,

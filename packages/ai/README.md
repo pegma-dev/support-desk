@@ -1,25 +1,20 @@
 # @pegma/support-desk-ai
 
-The local synchronized source candidate is `0.2.8` and remains unpublished.
-It forwards optional `signal` and late `verifyBeforeCommit` control from staff
-follow-up reassessment to bundle preparation. The Application retains its
-proof, permission and receipt-first checks. Web posting may use the new
-application-owned per-attempt observation while retaining its original proof,
-authority and delivery guarantees. Staff reassessment uses the optional
-application `reassessEngineeringFollowupBundle` port for receipt-first recovery
-and authorized read confirmation; older structural ports keep the full legacy
-fallback. The AI factory gains no new method. See the
-[candidate notes](../../docs/RELEASE_NOTES.md#028-followup-mutation-guards) and
-[follow-up contract](../../docs/ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
-Its internal Support application pin is exact `0.2.8`; external KB application/
-contracts remain exact verified public `0.1.6`. Candidate qualification is not
-registry publication or host activation.
+The local synchronized source candidate is unpublished `0.2.9`. Engineering
+coordination selects optional application-owned model-planning/completion,
+proposal and dispatch observations while preserving fresh proof, authority,
+exact ACK recovery and the full fallback for older structural ports. No AI
+factory method is added. See the [candidate notes](../../docs/RELEASE_NOTES.md#029-engineering-worker-observations)
+and [worker contract](../../docs/ENGINEERING_EXPORT.md#candidate-029-worker-observations).
+Its internal Support application pin is exact `0.2.9`; external KB application/
+contracts remain exact verified public `0.1.6`. Candidate source does not
+qualify registry publication, a host's query/CPU budget or activation.
 
 Optional, provider-neutral Support Desk answer, learning, engineering, and
 release follow-up coordination.
-The current verified published synchronized release is `0.2.7`;
-see the [publication receipt](../../docs/RELEASING.md#verified-027-publication-2026-11-11).
-Its exact internal Support application pin is `0.2.7`; external KB application
+The current verified published synchronized release is `0.2.8`;
+see the [publication receipt](../../docs/RELEASING.md#verified-028-publication-2026-11-12).
+Its exact internal Support application pin is `0.2.8`; external KB application
 and contracts pins are exact `0.1.6`. Host activation and whole-invocation/CPU
 acceptance retain separate gates. The published `0.2.1`/KB `0.1.2` artifacts
 and their original receipts remain immutable.

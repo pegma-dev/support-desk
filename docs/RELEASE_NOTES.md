@@ -1,11 +1,42 @@
 # Release notes
 
+<a id="029-engineering-worker-observations"></a>
+
+## 0.2.9 candidate — per-attempt engineering worker observations
+
+All five local package versions and exact internal Support pins target
+unpublished `0.2.9`. Exact public KB application/contracts `0.1.6`, Authorization
+Core and storage dependencies remain unchanged; the root stays private at
+`0.0.0`.
+
+Optional application model-planning, model preparation/completion, proposal
+and dispatch methods share the existing mutation kernels. Their observations
+are authorized and callback-scoped. Fresh proof, service authority, Source/Work
+opaque-version confirmation and final deadline/transaction fences still run.
+The AI coordinator selects these optional methods when supplied; older
+structural ports retain the complete standalone fallback. No host may retain
+an observation as authority for a later attempt.
+
+Exact model completion retries recover the accepted command fingerprint under
+current processing authority before obsolete Source/proof work. Permanent
+withdrawal can avoid futile finish retries without converting pending work or
+unknown usage to success. Existing known-usage accounting, approval, one-shot
+issue creation and reconciliation contracts remain. There is no new record
+layout, permission, model opportunity, queue or automatic activation.
+
+See the [worker observation contract](ENGINEERING_EXPORT.md#candidate-029-worker-observations)
+and [upgrade guidance](UPGRADING.md#unpublished-029-engineering-worker-observations).
+These source changes do not establish a complete host query/CPU budget,
+provider qualification or registry publication.
+
 <a id="028-followup-mutation-guards"></a>
 
-## 0.2.8 candidate — follow-up host guards and authorized reads
+## 0.2.8 — follow-up host guards and authorized reads, 2026-11-12
 
-All five local package versions and internal Support pins target unpublished
-`0.2.8`; exact public KB application/contracts `0.1.6` remain unchanged.
+All five synchronized `0.2.8` packages are published and strictly verified.
+The current `0.2.9` source candidate retains these controls and exact KB
+application/contracts `0.1.6`. See the
+[publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
 Optional `EngineeringMutationOptions` add caller cancellation and a trusted
 late `verifyBeforeCommit` guard to non-post follow-up mutations. Observation,
 retry, abandon and rejection accept a third argument; bundle preparation
