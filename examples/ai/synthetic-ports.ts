@@ -694,3 +694,29 @@ export type SyntheticOptionalOpenRouterFactories = Pick<
   | "createSupportIndependentCheckModel"
   | "createSupportIndependentChecks"
 >;
+
+/** SD05 optional subpath declarations also compile in the clean packed consumer. */
+export type SyntheticReleaseFollowupModelHostIsRequired =
+  AssertOptionalProviderContract<
+    Parameters<
+      OptionalOpenRouterSurface["createSupportReleaseFollowupModel"]
+    >["length"] extends 2
+      ? true
+      : false
+  >;
+export type SyntheticReleaseFollowupChecksHostIsRequired =
+  AssertOptionalProviderContract<
+    Parameters<
+      OptionalOpenRouterSurface["createSupportReleaseFollowupChecks"]
+    >["length"] extends 2
+      ? true
+      : false
+  >;
+export type SyntheticReleaseFollowupProviderPorts = ReturnType<
+  OptionalOpenRouterSurface["createSupportReleaseFollowupModel"]
+>;
+export type SyntheticReleaseFollowupReviewResolver = Parameters<
+  ReturnType<
+    OptionalOpenRouterSurface["createSupportReleaseFollowupChecks"]
+  >["forReassessment"]
+>[1];

@@ -1,3 +1,5 @@
+import type { ReleaseFollowupChecksPort } from "../release-followup-ports.js";
+import { releaseFollowupContent } from "../release-followup-output.js";
 import type { Clock } from "@pegma/spine";
 import { z } from "zod";
 import {
@@ -9,6 +11,11 @@ import {
   createSupportOpenRouterModel,
   SupportOpenRouterModelError,
   strictJson,
+  object,
+  scalar as checkedScalar,
+  text,
+  canonical,
+  fail,
   type SupportOpenRouterContext,
   usableCredential,
   array,
@@ -107,6 +114,14 @@ const route = z
     usageScopeRef: scalar,
     configuration,
     approval,
+    releaseFollowup: evidence
+      .extend({
+        purpose: z.literal("support_release_followup"),
+        wireVersion: z.literal("openrouter-support-release-followup-check-v1"),
+        evidenceRef: scalar,
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 const qualification = evidence
@@ -140,7 +155,7 @@ export interface IndependentCheckModelOptions {
   readonly readApiKey?: (credentialRef: string) => string | undefined;
   readonly fetch?: (url: string, init: RequestInit) => Promise<Response>;
 }
-export interface IndependentCheckInput {
+export interface EngineeringLearningIndependentCheckInput {
   readonly trustedInstructions: string;
   readonly kind: "engineering" | "learning";
   /** Facts are assembled from fresh, authorized SDK reads, never the candidate. */
@@ -150,6 +165,152 @@ export interface IndependentCheckInput {
   readonly outbound: unknown;
   readonly comparison?: unknown;
 }
+/** Complete authorized SD05 handoff; never an engineering or learning proof. */
+export interface ReleaseFollowupIndependentCheckInput {
+  readonly trustedInstructions: string;
+  readonly kind: "release_followup";
+  readonly purpose: "support_release_followup";
+  readonly facts: {
+    readonly messages: readonly string[];
+    readonly publicReleaseFacts: readonly {
+      readonly ref: string;
+      readonly text: string;
+    }[];
+  };
+  readonly candidate: Parameters<
+    ReleaseFollowupChecksPort["check"]
+  >[0]["candidate"];
+  readonly outbound: Parameters<
+    ReleaseFollowupChecksPort["check"]
+  >[0]["exactBundle"];
+  readonly binding: Parameters<
+    ReleaseFollowupChecksPort["check"]
+  >[0]["binding"];
+  readonly targetBaseline: Parameters<
+    ReleaseFollowupChecksPort["check"]
+  >[0]["targetBaseline"];
+  readonly validationRequirements: Parameters<
+    ReleaseFollowupChecksPort["check"]
+  >[0]["validationRequirements"];
+}
+export type IndependentCheckInput =
+  | EngineeringLearningIndependentCheckInput
+  | ReleaseFollowupIndependentCheckInput;
+
+function followupInput(input: ReleaseFollowupIndependentCheckInput) {
+  object(input, [
+    "trustedInstructions",
+    "kind",
+    "purpose",
+    "facts",
+    "candidate",
+    "outbound",
+    "binding",
+    "targetBaseline",
+    "validationRequirements",
+  ]);
+  if (input.purpose !== "support_release_followup") fail("invalid_input");
+  const facts = object(input.facts, ["messages", "publicReleaseFacts"]);
+  array(facts.publicReleaseFacts, 8, 1).forEach((value) => {
+    const fact = object(value, ["ref", "text"]);
+    checkedScalar(fact.ref);
+    text(fact.text, 1000);
+  });
+  releaseFollowupContent(input.candidate);
+  const bundle = object(input.outbound, [
+    "customerDraft",
+    "kbProposal",
+    "retestRequests",
+  ]);
+  text(object(bundle.customerDraft, ["body"]).body, 4000);
+  if (bundle.kbProposal !== null) {
+    const kb = object(bundle.kbProposal, [
+      "target",
+      "summary",
+      "changes",
+      "advisoryValidationRequirements",
+    ]);
+    const target = object(
+      kb.target,
+      [
+        "kind",
+        "articleId",
+        "collectionId",
+        "articleRevision",
+        "contentHash",
+        "validationRequirementsHash",
+        "validationRequirementIds",
+      ],
+      ["kind"],
+    );
+    if (target.kind === "none") object(target, ["kind"]);
+    else if (target.kind === "article") {
+      object(target, [
+        "kind",
+        "articleId",
+        "collectionId",
+        "articleRevision",
+        "contentHash",
+        "validationRequirementsHash",
+        "validationRequirementIds",
+      ]);
+      checkedScalar(target.articleId);
+      checkedScalar(target.collectionId);
+      integer(target.articleRevision, Number.MAX_SAFE_INTEGER, 1);
+      checkedScalar(target.contentHash);
+      checkedScalar(target.validationRequirementsHash);
+      array(target.validationRequirementIds, 32).forEach((v) =>
+        checkedScalar(v),
+      );
+    } else fail("invalid_input");
+  }
+  releaseFollowupContent({
+    customerDraft: bundle.customerDraft,
+    kbProposal:
+      bundle.kbProposal === null
+        ? null
+        : {
+            summary: input.outbound.kbProposal!.summary,
+            changes: input.outbound.kbProposal!.changes,
+            advisoryValidationRequirements:
+              input.outbound.kbProposal!.advisoryValidationRequirements,
+          },
+    retestRequests: input.outbound.retestRequests.map((r) => ({
+      steps: r.steps,
+      expectedBehavior: r.expectedBehavior,
+    })),
+  });
+  array(bundle.retestRequests, 4).forEach((value) => {
+    const request = object(value, [
+      "requestId",
+      "steps",
+      "expectedBehavior",
+      "productBinding",
+      "validationRequirementIds",
+    ]);
+    checkedScalar(request.requestId);
+    checkedScalar(request.productBinding);
+    text(request.expectedBehavior, 2000);
+    array(request.steps, 16, 1).forEach((value) => text(value, 1000));
+    array(request.validationRequirementIds, 32).forEach((v) =>
+      checkedScalar(v),
+    );
+  });
+  object(input.binding, [
+    "workBindingHash",
+    "candidateHash",
+    "bundleHash",
+    "checkPolicyVersion",
+    "followupRevocationEpoch",
+    "issueHeadHash",
+    "deploymentHeadHash",
+  ]);
+  // DTO fields originate from the explicitly authorized KB SDK reads. The complete
+  // objects remain part of the encoded, budgeted checker input without elision.
+  canonical(input.targetBaseline);
+  canonical(input.validationRequirements);
+}
+
 export interface IndependentCheckContext extends SupportOpenRouterContext {
   readonly purpose: typeof INDEPENDENT_CHECK_PURPOSE;
   readonly operationId: string;
@@ -434,9 +595,22 @@ export function createSupportIndependentCheckModel(
         },
         validate(input, context, config) {
           requireMessageBudget(input, config, context);
+          if (input.kind === "release_followup") {
+            followupInput(input);
+            const r = read(config.version);
+            if (
+              !r?.releaseFollowup ||
+              !live(r.releaseFollowup, Date.parse(options.clock.now())) ||
+              Date.parse(r.approval.validUntil) >
+                Date.parse(r.releaseFollowup.validUntil)
+            )
+              fail("route_unavailable");
+          }
           if (
             input.trustedInstructions !== config.trustedInstructions ||
-            !["engineering", "learning"].includes(input.kind) ||
+            !["engineering", "learning", "release_followup"].includes(
+              input.kind,
+            ) ||
             context.purpose !== config.purpose
           )
             throw new TypeError("Invalid independent check input");
@@ -538,6 +712,16 @@ export function createSupportIndependentCheckModel(
         const route = source.currentRoute(configured.version);
         if (!route) throw new SupportOpenRouterModelError("route_unavailable");
         requireMessageBudget(input, configured, context);
+        if (input.kind === "release_followup") {
+          followupInput(input);
+          if (
+            !route.releaseFollowup ||
+            !live(route.releaseFollowup, Date.parse(options.clock.now())) ||
+            Date.parse(route.approval.validUntil) >
+              Date.parse(route.releaseFollowup.validUntil)
+          )
+            fail("route_unavailable");
+        }
         const credential = options.readApiKey?.(route.credentialRef);
         if (!usableCredential(credential))
           throw new SupportOpenRouterModelError("credential_unavailable");

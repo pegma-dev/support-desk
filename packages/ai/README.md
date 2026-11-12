@@ -366,3 +366,47 @@ activity. Source-reading verifiers observe current domain state. The read-free
 SDK verifiers authenticate the exact receipt inside the SDK's existing current
 Source/Work/target/authority and conditional-commit boundary. Neither verifier
 establishes customer activation, publication approval or a whole-host budget.
+
+### Release follow-up provider ports
+
+The unpublished candidate adds `createSupportReleaseFollowupModel(options,
+logicalHost)` and `createSupportReleaseFollowupUsage({store, clock, policy})`.
+The model factory returns the SD05 configuration, evaluations, generator and
+qualified token counter. Its closed route binds `support_release_followup`,
+`openrouter-support-release-followup-v1`, the current model/prompt/parser
+evaluation, ZDR/privacy evidence, exact endpoint allowlist and tokenizer.
+Missing or expired evidence leaves these ports unavailable. The original
+options callbacks stay current; only the first `ReleaseFollowupModelInput`
+argument is provider-visible. Generator funding uses a separate finite ledger.
+
+`createSupportReleaseFollowupChecks(options, logicalHost)` checks the complete
+customer draft, KB handoff and advisory retests against actual current
+Support/KB/release observations. Its checker uses the existing independent
+transport and shared independent-check funding pool. The approved checker
+route must additionally contain `releaseFollowup` qualification with purpose
+`support_release_followup`, wire `openrouter-support-release-followup-check-v1`,
+`evidenceRef`, `verifiedAt` and `validUntil`; this object is included in the
+route policy hash. Existing engineering and learning approvals stay unchanged.
+
+Use `forWork({ticketId, workId})` for background preparation.
+`forReassessment(key, reviewAuthority)` requires a per-operation resolver for
+the original authenticated staff actor's current Review, Read and queue
+permissions. It reads the actual public reassessment/prospective binding.
+Background service permissions stay unchanged. Both ports' scope-bound
+verifiers, and the global `sdkVerifier`, authenticate the exact `sf1` receipt
+inside the SDK's existing current Work/release/target/authority and final CAS
+fences. `currentVerifierFor(key, reviewAuthority?)` additionally reobserves the
+current Source. The receipt MAC domain is
+`${logicalHost}.support-release-followup-checks.v1`; engineering/learning
+receipts cannot become follow-up receipts.
+
+Checker ownership stores at most 32 body-free attempts, further bounded by the
+shared pool and a 60,000-byte head. Ambiguous provider or storage outcomes keep
+ownership and conservative accounting; exact replay recovers a stored receipt
+without another paid opportunity. The existing ledger retains unknown usage
+through its immutable funding window. Finite pools have no automatic top-up,
+expiry reclamation or paid retry. These checks issue no retest receipt. Actual
+retest execution remains the application's existing trusted evidence contract;
+KB publication and customer delivery retain their staff approval boundaries.
+Host resource budgets, provider qualification and activation remain pending
+until measured on the composed hosts.
