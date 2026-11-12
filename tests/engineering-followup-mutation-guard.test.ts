@@ -424,6 +424,173 @@ for (const [name, createStore] of engineeringFollowupStores) {
       expect(await f.rows()).toEqual(committed);
     });
 
+    for (const path of ["application-owned", "legacy"] as const) {
+      for (const expiry of ["receipt", "release"] as const) {
+        const withShorterFinalProof = (
+          f: Awaited<ReturnType<typeof engineeringFollowupAiFixture>>,
+        ) => {
+          let releaseChecks = 0;
+          let receiptChecks = 0;
+          const observed = { shortened: false };
+          const { reassessEngineeringFollowupBundle: _optional, ...legacy } =
+            f.app;
+          const followup = createSupportDeskReleaseFollowup({
+            ...f.baseOptions,
+            application: path === "application-owned" ? f.app : legacy,
+            releaseEvidence: {
+              ...f.baseOptions.releaseEvidence,
+              async confirm(...args) {
+                const proof = await f.baseOptions.releaseEvidence.confirm(
+                  ...args,
+                );
+                releaseChecks += 1;
+                if (proof === null || expiry !== "release" || releaseChecks < 2)
+                  return proof;
+                observed.shortened = true;
+                return {
+                  ...proof,
+                  attestation: {
+                    ...proof.attestation,
+                    validUntil: new Date(
+                      Date.parse(f.clock.now()) + 1_000,
+                    ).toISOString(),
+                  },
+                };
+              },
+            },
+            checks: {
+              ...f.baseOptions.checks,
+              async verify(...args) {
+                const receipt = await f.baseOptions.checks.verify(...args);
+                receiptChecks += 1;
+                if (
+                  receipt === null ||
+                  expiry !== "receipt" ||
+                  receiptChecks < 2
+                )
+                  return receipt;
+                observed.shortened = true;
+                return {
+                  ...receipt,
+                  validUntil: new Date(
+                    Date.parse(f.clock.now()) + 1_000,
+                  ).toISOString(),
+                };
+              },
+            },
+          });
+          return { followup, observed };
+        };
+
+        it.each(["host wait", "returned assertion"] as const)(
+          `expires the fresher final ${expiry} across the ${path} %s`,
+          async (boundary) => {
+            const f = await engineeringFollowupAiFixture(createStore());
+            const prepared = await f.prepareBundle();
+            const before = await f.rows();
+            const transactions = f.observed.transactions.length;
+            const { followup, observed } = withShorterFinalProof(f);
+            const host = vi.fn(async () => {
+              if (boundary === "host wait") f.advance(1_500);
+              return (): true => {
+                if (boundary === "returned assertion") f.advance(1_500);
+                return true;
+              };
+            });
+            await expect(
+              followup.prepareStaffReassessment(
+                staff,
+                {
+                  ...f.command(`fresh-${expiry}-${path}-${boundary}`),
+                  ...f.key,
+                  expectedWorkGeneration: prepared.workGeneration,
+                },
+                { verifyBeforeCommit: host },
+              ),
+            ).rejects.toMatchObject({ category: "deadline" });
+            expect(observed.shortened).toBe(true);
+            expect(host).toHaveBeenCalledOnce();
+            expect(await f.rows()).toEqual(before);
+            expect(f.observed.transactions).toHaveLength(transactions);
+          },
+        );
+
+        it(`permits the ${path} reassessment before its fresher final ${expiry} expires`, async () => {
+          const f = await engineeringFollowupAiFixture(createStore());
+          const prepared = await f.prepareBundle();
+          const { followup, observed } = withShorterFinalProof(f);
+          const result = await followup.prepareStaffReassessment(
+            staff,
+            {
+              ...f.command(`current-${expiry}-${path}`),
+              ...f.key,
+              expectedWorkGeneration: prepared.workGeneration,
+            },
+            {
+              verifyBeforeCommit: async () => {
+                f.advance(500);
+              },
+            },
+          );
+          expect(observed.shortened).toBe(true);
+          expect(result).toMatchObject({
+            status: "bundle_prepared",
+            workGeneration: prepared.workGeneration + 1,
+          });
+        });
+      }
+    }
+
+    it("preserves paid-worker receipt recovery after a shorter final proof expires", async () => {
+      const f = await engineeringFollowupAiFixture(createStore());
+      expect(await f.followup.processWork(f.nextCommand())).toMatchObject({
+        outcome: "candidate",
+      });
+      let verifies = 0;
+      let lost = false;
+      let committed: Awaited<ReturnType<typeof f.rows>> | undefined;
+      const prepare = vi.fn<typeof f.app.prepareEngineeringFollowupBundle>(
+        async (...args) => {
+          const result = await f.app.prepareEngineeringFollowupBundle(...args);
+          if (!lost) {
+            lost = true;
+            committed = await f.rows();
+            f.advance(1_500);
+            throw new Error(
+              "Committed worker bundle ACK lost after final proof expiry",
+            );
+          }
+          return result;
+        },
+      );
+      const followup = createSupportDeskReleaseFollowup({
+        ...f.baseOptions,
+        application: { ...f.app, prepareEngineeringFollowupBundle: prepare },
+        checks: {
+          ...f.baseOptions.checks,
+          async verify(...args) {
+            const receipt = await f.baseOptions.checks.verify(...args);
+            verifies += 1;
+            return receipt === null || verifies < 2
+              ? receipt
+              : {
+                  ...receipt,
+                  validUntil: new Date(
+                    Date.parse(f.clock.now()) + 1_000,
+                  ).toISOString(),
+                };
+          },
+        },
+      });
+      expect(await followup.processWork(f.nextCommand())).toMatchObject({
+        outcome: "prepared",
+      });
+      expect(lost).toBe(true);
+      expect(prepare).toHaveBeenCalledTimes(2);
+      expect(f.generate).toHaveBeenCalledOnce();
+      expect(await f.rows()).toEqual(committed);
+    });
+
     it("keeps the shorter AI policy deadline across the new late host authority await", async () => {
       const f = await engineeringFollowupAiFixture(createStore());
       const prepared = await f.prepareBundle();

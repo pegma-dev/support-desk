@@ -490,7 +490,13 @@ export function createSupportDeskReleaseFollowup(
                       exactBundle: checked.bundle,
                       checksReceipt: checked.receipt,
                       checkPolicyVersion: checked.checkPolicyVersion,
-                      guard: checked.guard,
+                      guard: async () => {
+                        await checked.guard();
+                        deadline = Math.min(
+                          deadline,
+                          checked.verificationDeadline,
+                        );
+                      },
                     };
                   },
                   mutationOptions,
@@ -580,7 +586,9 @@ export function createSupportDeskReleaseFollowup(
           checkPolicyVersion: checked.checkPolicyVersion,
           recoveryIntentHash,
         });
-        const mutationOptions = mutationOptionsFor(() => checked.deadline);
+        const mutationOptions = mutationOptionsFor(
+          () => checked.verificationDeadline,
+        );
         let failure: unknown;
         for (let attempt = 0; attempt < attempts; attempt += 1) {
           try {

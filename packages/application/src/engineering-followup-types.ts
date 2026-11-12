@@ -345,6 +345,12 @@ export interface ApproveAndPostEngineeringFollowupWebUpdateCommand
   readonly bundleHash: string;
   readonly messageId: MessageId;
 }
+/** One posting attempt's authorized view; no opaque versions escape the app. */
+export interface EngineeringFollowupPostObservation {
+  readWork(access: AccessContext): EngineeringFollowupWorkRecord;
+  /** Source-first confirmation of the original Source, association, Work, Head and Ticket. */
+  confirm(access: AccessContext): Promise<void>;
+}
 /**
  * A trusted release check may supply a synchronous final proof assertion.
  * Returning void selects the application's stored proof and work deadlines.
@@ -354,12 +360,6 @@ export interface ApproveAndPostEngineeringFollowupWebUpdateCommand
  * adapter so its shorter proof, policy and invocation limits are checked again
  * after the final awaited staff-authority observation.
  */
-/** One posting attempt's authorized view; no opaque versions escape the app. */
-export interface EngineeringFollowupPostObservation {
-  readWork(access: AccessContext): EngineeringFollowupWorkRecord;
-  /** Source-first confirmation of the original Source, association, Work, Head and Ticket. */
-  confirm(access: AccessContext): Promise<void>;
-}
 export type EngineeringFollowupWebUpdateProofGuard = (
   observation?: EngineeringFollowupPostObservation,
 ) => void | (() => true) | Promise<void | (() => true)>;
