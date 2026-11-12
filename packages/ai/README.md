@@ -341,7 +341,7 @@ The unpublished source candidate exposes provider adapters through
 The optional entry contains the bounded transport, purpose-isolated durable
 usage ledger and engineering/learning independent-check adapters ported from
 the tested Pegma reference host. The AI manifest declares exact direct
-`zod@4.4.3` and `@pegma/storage-core@0.4.0` dependencies.
+`zod@4.6.7` and `@pegma/storage-core@0.4.0` dependencies.
 
 `createSupportIndependentCheckModel(options, logicalHost)` and
 `createSupportIndependentChecks(options, logicalHost)` require the original
