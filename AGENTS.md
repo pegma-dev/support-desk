@@ -170,21 +170,21 @@ collision hints. Customer DTOs and automatic customer mail omit these fields.
 Calendars and presence stay host-owned. Task 12 remains pending on both hosts'
 durable-store production evidence. Source work does not publish a package.
 
-The five local manifests and exact internal Support pins target the unpublished
-`0.2.8` source candidate. It adds optional final host guards to non-post
-follow-up controls, forwards the guard for staff reassessment, and adds
-callback-scoped reassessment/post observations; see the
-[candidate notes](docs/RELEASE_NOTES.md#028-followup-mutation-guards) and
-[follow-up contract](docs/ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
-The current source retains exact verified public KB application/contracts
-`0.1.6`. The root remains private at `0.0.0`. A candidate pack or source
-checkout is not a verified registry release.
+The five local manifests and exact internal Support pins target unpublished
+`0.2.9`. It adds optional per-attempt model-planning/completion, proposal and
+dispatch observations while retaining fresh proof, authority, opaque-version
+confirmation and exact ACK recovery. Legacy structural ports keep their full
+fallback. See the [candidate notes](docs/RELEASE_NOTES.md#029-engineering-worker-observations)
+and [worker contract](docs/ENGINEERING_EXPORT.md#candidate-029-worker-observations).
+Exact verified public KB application/contracts `0.1.6` remain unchanged. The
+root stays private at `0.0.0`; source or candidate packs do not qualify registry
+publication or a host's complete query/CPU budget.
 
-All five packages have verified published `0.2.7` versions. The synchronized
+All five packages have verified published `0.2.8` versions. The synchronized
 `0.2.1` and `0.2.0` artifacts remain immutable history. The original four names also retain
 their published `0.1.0`/`0.1.1` artifacts; the AI name's `0.1.1` is a separate
 registration-only bootstrap. Follow the
-[publication receipt](docs/RELEASING.md#verified-027-publication-2026-11-11)
+[publication receipt](docs/RELEASING.md#verified-028-publication-2026-11-12)
 and release operations. Customer services return safe DTOs; staff
 services return the authoritative ticket for authorized staff only, and the
 staff queue scans a confirmed projection that is never authorization evidence.
@@ -234,7 +234,7 @@ messages with exact completion fences, and adds deterministic owned
 request-person, staff takeover, private success evidence, human queue
 selection, and bounded atomic handoff work. It adds no model, KB dependency,
 or package; its behavior first shipped in synchronized `0.2.0` and remains in
-current `0.2.7`. Do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
+current `0.2.8`. Do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
 activation gates after verified SDK publication.
 Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
 preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
@@ -259,7 +259,7 @@ signed `v0.2.0` at `efc9d733b3d305d24cf4197444e1d76c99bdb777`; see
 the migration and operations handbooks are `docs/UPGRADING.md` and
 `docs/AI_OPERATIONS.md`. The base application has no KB or provider dependency; actual KB
 `0.1.6` application/contracts dependencies belong only to the current
-optional AI `0.2.7` package. Older `0.2.0` and
+optional AI `0.2.8` package. Older `0.2.0` and
 `0.2.1` AI manifests retain their original `0.1.2` pins. See [assistant coordination](docs/ASSISTANT_COORDINATION.md)
 and its [layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint).
 PG-01/RG-01 consume exact verified published producers and still require actual

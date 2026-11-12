@@ -1,8 +1,8 @@
-# Upgrading to the synchronized 0.2.7 release
+# Upgrading to the synchronized 0.2.8 release
 
-`0.2.7` is the current verified published synchronized release. Hosts retain
+`0.2.8` is the current verified published synchronized release. Hosts retain
 their own deployment and acceptance gates. See the
-[publication receipt](RELEASING.md#verified-027-publication-2026-11-11).
+[publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
 The original SD-06 `0.2.0` release has its separate
 [historical receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
 The original four Support Desk packages were published at `0.1.1`. Before
@@ -18,9 +18,28 @@ registry application dependency lacks the new source exports. The five local
 bootstrap tarballs prove an isolated source assembly, not a usable registry
 dependency tree.
 
-## Unpublished 0.2.8 follow-up host guards
+## Unpublished 0.2.9 engineering worker observations
 
-The synchronized source candidate adds optional `EngineeringMutationOptions`
+All five candidate versions and internal Support pins advance together. The
+optional application methods are `prepareEngineeringModelPlanned`,
+`prepareEngineeringModelObserved`, `completeEngineeringModelObserved`,
+`prepareEngineeringProposalObserved` and `beginEngineeringDispatchObserved`.
+Forward those capabilities through structural adapters to use the shared
+kernels; omitting them retains the existing standalone path. No existing
+required method or coordinator entry point changes.
+
+Observations belong to one application-owned attempt. Do not cache their data
+as authority. Current proof and service access, fresh Source/Work confirmation,
+final expiry checks and conditional writes remain required. Exact completion
+ACK recovery still requires the original command and current processing
+permission. Unknown outcomes retain the original identity and conservative
+usage handling. There is no record migration or new paid opportunity. See the
+[worker observation contract](ENGINEERING_EXPORT.md#candidate-029-worker-observations).
+Host invocation/CPU and release qualification remain separate from source tests.
+
+## Published 0.2.8 follow-up host guards
+
+The `0.2.8` source additions, retained by `0.2.9`, add optional `EngineeringMutationOptions`
 to non-post follow-up observation, retry, abandon, rejection and bundle
 preparation. Existing calls may omit the options. Bundle preparation retains
 its existing proof guard before the new options argument. AI
@@ -43,8 +62,7 @@ Structural ports may omit it to retain the full legacy path. Do not replace
 receipt recovery or fresh proof with retained observation data. See the
 [follow-up contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
 
-Keep production on the verified `0.2.7` tuple until `0.2.8` is published and
-qualified. All five candidate versions/internal pins advance together; KB
+Use the verified `0.2.8` tuple; `0.2.9` remains an unpublished candidate. All five candidate versions/internal pins advance together; KB
 application/contracts remain exact `0.1.6`. No record migration is added.
 
 <a id="unpublished-027-source-candidate"></a>
@@ -291,7 +309,7 @@ boundaries before exposing the review surface.
 ## Rehearse the actual 0.1.1-to-0.2.0 upgrade
 
 The SD-06 rehearsal below is retained as historical migration evidence. For
-current `0.2.7` adoption, repeat the rehearsal against the exact selected `0.2.7`
+current `0.2.8` adoption, repeat the rehearsal against the exact selected `0.2.8`
 artifacts and record a new receipt; a `0.2.0` result does not qualify changed
 artifacts or a host's durable-store migration.
 

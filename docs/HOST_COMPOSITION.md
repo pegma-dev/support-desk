@@ -12,7 +12,7 @@ See also the runnable example at
 
 ## Published 0.2.6 guarded engineering controls
 
-The current verified registry tuple is `0.2.7`. The local synchronized `0.2.8`
+The current verified registry tuple is `0.2.8`. The local synchronized `0.2.9`
 source candidate remains unpublished and retains these guarded controls.
 Candidate metadata or a local pack does not qualify host adoption. Published
 `0.2.6` adds an optional third
@@ -32,12 +32,11 @@ to approval guards, with lazy authorized reads and a legacy standalone-read
 fallback. It does not extend that observation to all seven controls. See the
 [approval contract](ENGINEERING_EXPORT.md#candidate-027-approval-observation).
 Its optional AI package pins exact verified public KB application/contracts
-`0.1.6`; the `0.2.8` candidate retains that dependency graph. Candidate `0.2.8`
-adds late host controls to the separate non-post follow-up methods and
+`0.1.6`; the `0.2.9` candidate retains that dependency graph. The `0.2.8` source additions retained in `0.2.9` add late host controls to the separate non-post follow-up methods and
 optional callback-scoped reassessment/post read observations; see
 the [follow-up contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
 Qualify the complete published consumer graph for the host; the candidate
-remains unpublished. See the [source handoff](RELEASING.md#source-version-028).
+remains unpublished. See the [source handoff](RELEASING.md#source-version-029).
 
 Options use a plain object with the two named, enumerable own data fields.
 Unknown keys, accessors and inherited options fail validation. The optional
@@ -77,9 +76,9 @@ request budget and qualifies its deployment separately.
 
 ## Public packages
 
-This guide describes the verified published synchronized `0.2.7` release.
-Use exact `0.2.7` for the five Support Desk packages, including optional AI; see
-the [publication receipt](RELEASING.md#verified-027-publication-2026-11-11).
+This guide describes the verified published synchronized `0.2.8` release.
+Use exact `0.2.8` for the five Support Desk packages, including optional AI; see
+the [publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
 It retains the attachments and opt-in staged human learning reviews published
 in `0.2.5`. Host composition and activation retain their own acceptance gates.
 SD-01 through SD-05 first shipped in the
@@ -149,7 +148,7 @@ uses exact KB application/contracts `0.1.6` dependencies, while the base applica
 KB or provider dependency. SD-02 source passed validation/review and merged in
 [PR #38](https://github.com/pegma-dev/support-desk/pull/38);
 that behavior first shipped in verified synchronized `0.2.0` and remains in
-current `0.2.7`, whose publication receipt is linked above. Host acceptance remains required. Do not substitute branches, copied source,
+current `0.2.8`, whose publication receipt is linked above. Host acceptance remains required. Do not substitute branches, copied source,
 local paths, or unpublished tarballs for production dependencies.
 
 SD-03's atomic-provenance prerequisite is the verified trusted
@@ -204,7 +203,7 @@ own dependency pins. The AI package's immutable
 pins `@pegma/knowledge-base-application@0.1.2` and
 `@pegma/knowledge-base-contracts@0.1.2`. Adding a newer standalone SDK does not
 replace those dependencies or establish mixed-version host acceptance. The
-current verified AI `0.2.7` manifest explicitly pins KB application/contracts
+current verified AI `0.2.8` manifest explicitly pins KB application/contracts
 `0.1.6`; hosts must adopt and qualify that coherent graph separately.
 
 #### Qualified storage adapters
@@ -463,7 +462,7 @@ Keep model activation disabled until the host gates pass. This composition
 uses the verified KB `0.1.6` set and Agent Access `0.1.1` listed above.
 SD-02's producer publication prerequisite is complete. Its optional coordinator source is
 merged after validation/review, as are SD-03 through SD-05. They first shipped
-in verified synchronized `0.2.0` and remain in current `0.2.7`, whose publication
+in verified synchronized `0.2.0` and remain in current `0.2.8`, whose publication
 receipt is linked above. The current AI consumer pins exact KB application/
 contracts `0.1.6`; the earlier `0.2.1`/KB `0.1.2` manifests remain immutable. Actual two-host
 login/client, privacy, operations, Task 12,

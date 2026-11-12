@@ -3,8 +3,8 @@
 SD-05's source merged in [PR #41](https://github.com/pegma-dev/support-desk/pull/41)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current synchronized release is `0.2.7`; see its
-[publication receipt](RELEASING.md#verified-027-publication-2026-11-11).
+The current synchronized release is `0.2.8`; see its
+[publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
 This handbook describes its contracts and host responsibilities, not deployment
 or host acceptance. SD-04 merged in
 [PR #40](https://github.com/pegma-dev/support-desk/pull/40). Scope comes from the
@@ -76,9 +76,9 @@ export service, or model configuration.
 
 <a id="candidate-028-followup-host-guards"></a>
 
-## Candidate 0.2.8 follow-up host guards
+## Published 0.2.8 follow-up host guards
 
-The unpublished candidate reuses `EngineeringMutationOptions` for optional
+These `0.2.8` source additions, retained in `0.2.9`, reuse `EngineeringMutationOptions` for optional
 `signal` and trusted read-only `verifyBeforeCommit` control on these calls:
 
 | Application method                  | Options position                                |

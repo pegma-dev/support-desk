@@ -1,9 +1,50 @@
 # Release operations
 
+<a id="verified-028-publication-2026-11-12"></a>
+
+## Verified 0.2.8 publication: 2026-11-12
+
+The current verified synchronized release is **0.2.8** for all five public
+packages. The [signed `v0.2.8` release](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.8)
+binds source [`e87381d547506ff5ebe8f5d92703a467647c2dce`](https://github.com/pegma-dev/support-desk/commit/e87381d547506ff5ebe8f5d92703a467647c2dce)
+and tag object `995634e2347f9fe037e643051d8170d3021d44e9`.
+[Run 43164556932, attempt 1](https://github.com/pegma-dev/support-desk/actions/runs/43164556932/attempts/1)
+completed all seven jobs and 94 steps, including 3,355 tests across 72 files
+with zero skips on each Node22/24 lane. It published all five packages and
+skipped none. Independent native npm `11.18.0` signature and Sigstore/source
+verification passed before clean public entry-point imports. All five npm
+`latest` tags resolve to `0.2.8`; AI's registration-only `bootstrap: 0.1.1`
+remains separate.
+
+Original prepared artifact `13920290093` is retained byte-for-byte. Its ZIP
+SHA-256 is `ac9c4ff14088a672d0bdb396299bc62176267bf536e72f770d0ce6a67db30a72`; the manifest SHA-256 is
+`06a5fc29b11e97b84b14cb39c6a6820b889f8477cd1ac4c44bf5b202e044a754`.
+The six permanent public release assets were checked through authenticated
+API and anonymous downloads before promotion to GitHub Latest:
+
+| Public asset                                                                                                                                        | Asset ID    | SHA-256                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------ |
+| [package-manifest.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.8/package-manifest.json)                                   | `738364165` | `06a5fc29b11e97b84b14cb39c6a6820b889f8477cd1ac4c44bf5b202e044a754` |
+| [prepared-artifact.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.8/prepared-artifact.json)                                 | `738364163` | `bd959c1f7bb7b9f9dd6acc12bfbc5c21b7cd3dc8e4a12ead7b06b66af7fe126e` |
+| [qualified-release-notes.md](https://github.com/pegma-dev/support-desk/releases/download/v0.2.8/qualified-release-notes.md)                         | `738364157` | `a2e85587feed8a450ca59abf574c65e3202c89e60541cb53518622093f59ada6` |
+| [registry-verification.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.8/registry-verification.json)                         | `738364162` | `e17c7e062c9f1ba75b4b94866011c14d990e3552520fbe9935fa789481887091` |
+| [support-desk-release-43164556932-1.zip](https://github.com/pegma-dev/support-desk/releases/download/v0.2.8/support-desk-release-43164556932-1.zip) | `738364167` | `ac9c4ff14088a672d0bdb396299bc62176267bf536e72f770d0ce6a67db30a72` |
+| [verification-job.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.8/verification-job.json)                                   | `738364190` | `7fe8a718a6ad68d06a115b41d25ac84f387f4b1d0663b820bbb039ac34b4a5f7` |
+
+The release adds optional final host guards/cancellation to non-post follow-up
+controls and callback-scoped reassessment/post observations, retaining current
+proof, authority and exact ACK recovery. Exact KB application/contracts
+`0.1.6` remain unchanged. This qualifies SDK publication; host deployment,
+privacy, provider, client and complete invocation/CPU acceptance remain separate.
+Earlier releases, receipts and original archives remain unchanged. The local
+`0.2.9` engineering-worker candidate below is not published.
+
+## Historical 0.2.7 publication: 2026-11-11
+
 <a id="verified-027-publication-2026-11-11"></a>
 <a id="source-version-027"></a>
 
-The current verified synchronized release is **0.2.7** for all five public
+The verified synchronized release is **0.2.7** for all five public
 packages, in dependency order:
 
 1. `@pegma/support-desk-contracts`
@@ -30,18 +71,19 @@ SDK publication does not establish host deployment, privacy, client or pilot
 acceptance. Earlier `0.2.6` and older releases retain their immutable artifacts
 and original dependency pins.
 
-## Source version 0.2.8
+## Source version 0.2.9
 
-All five local manifests and internal Support pins target unpublished `0.2.8`.
-It adds optional late host guards and caller cancellation to non-post follow-up
-controls, with AI staff reassessment forwarding and optional authorized
-reassessment/post observations; see the
-[candidate notes](RELEASE_NOTES.md#028-followup-mutation-guards) and
-[follow-up contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
+All five local manifests and exact internal Support pins target unpublished
+`0.2.9`. Optional per-attempt engineering model planning/completion, proposal
+and dispatch observations share the existing guarded mutation kernels. Fresh
+proof, authority, Source/Work opaque-version confirmation, exact ACK recovery
+and legacy structural-port fallbacks remain. See the
+[candidate notes](RELEASE_NOTES.md#029-engineering-worker-observations) and
+[worker contract](ENGINEERING_EXPORT.md#candidate-029-worker-observations).
 Exact KB application/contracts `0.1.6` remain unchanged. Keep hosts on verified
 published artifacts until this candidate is merged, published and qualified.
 No candidate pack, copied source, local archive or override substitutes for a
-production dependency. The root package remains private at `0.0.0`.
+production dependency. The root remains private at `0.0.0`.
 
 Staged retrieval stays OFF by default. Preparation consumes an existing attempt;
 both application and verified-configuration caps must allow at least two,
@@ -579,8 +621,8 @@ SD-06, and a clean memory consumer does not certify a host's durable migration.
 After the reviewed release PR is merged and every current-head gate is green,
 the authorized maintainer creates the protected signed annotated stable tag at
 the exact `origin/main` commit, pushes it, and creates its verified GitHub
-release. The current verified release identity is `v0.2.7`; the earlier
-`v0.2.6`,
+release. The current verified release identity is `v0.2.8`; the earlier
+`v0.2.7`, `v0.2.6`,
 `v0.2.5`, `v0.2.4`, `v0.2.3`, `v0.2.2`, `v0.2.1` and SD-06 `v0.2.0` identities remain
 historical.
 Do not create a GitHub release for `v0.1.1-ai-bootstrap`.

@@ -3,8 +3,8 @@
 SD-04's source merged in [PR #40](https://github.com/pegma-dev/support-desk/pull/40)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current synchronized release is `0.2.7`; see its
-[publication receipt](RELEASING.md#verified-027-publication-2026-11-11).
+The current synchronized release is `0.2.8`; see its
+[publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
 This handbook describes released contracts, explicitly marked source-candidate
 changes, and host responsibilities, not host activation. There is no runnable host recipe here. Scope comes from the
 [approved plan](KNOWLEDGE_AI_PLAN.md#bug-evaluation-routing-and-github-export)
@@ -29,7 +29,7 @@ crosses an external proof boundary, and accepted receipts still precede new
 proof reads. This adds no permission, cache, Store primitive or atomic-snapshot
 guarantee. The released AI package pins exact verified public KB
 application/contracts `0.1.6`; see the
-[current source dependency contract](RELEASING.md#source-version-027).
+[current source dependency contract](RELEASING.md#source-version-029).
 Hosts must measure the complete invocation, including their own authentication,
 proofs, limiter and closing checks; grouped reads do not establish a universal
 Workers query or CPU budget.
@@ -55,12 +55,54 @@ A guard must not call a model, create an issue, or perform another external
 mutation inside a storage retry. A historical receipt remains subject to current
 authorization and does not establish current policy or remote authority.
 
+<a id="candidate-029-worker-observations"></a>
+
+## Candidate 0.2.9 worker observations
+
+The unpublished source candidate adds optional application methods without
+changing existing required methods or the AI coordinator's four entry points:
+
+| Application method                   | Callback contract                                                                                                                                                |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prepareEngineeringModelPlanned`     | `EngineeringModelPlanningObservation` reads the current Source and Claim; the planner returns one immutable `EngineeringModelBinding` for exact CAS/ACK retries. |
+| `prepareEngineeringModelObserved`    | `EngineeringModelObservation` confirms and reads current Source/Work for the same prepared attempt.                                                              |
+| `completeEngineeringModelObserved`   | The same observation and current guard protect a new completion; exact accepted command-fingerprint recovery precedes obsolete Source/proof work.                |
+| `prepareEngineeringProposalObserved` | `EngineeringWorkerObservation` has phase `proposal` and shares authorized proof/read work for that CAS attempt.                                                  |
+| `beginEngineeringDispatchObserved`   | Distinct `before_dispatch` and fresh real-storage `after_dispatch` scopes protect the start and the later physical issue call.                                   |
+
+Observation reads retain current method/privacy permissions.
+`EngineeringModelObservation.read` and `EngineeringWorkerObservation.read`
+consume a fresh opaque-version confirmation; they are not a stored
+snapshot or reusable authority. The scope expires after its callback. Worker
+`verifyApplication()` runs the existing application proof after the AI's remote
+metadata await and returns a synchronous final assertion. Fresh service access,
+current Ticket existence, Source/Work confirmations, policy and minimum-expiry
+checks follow the applicable proof awaits before CAS or physical dispatch.
+Every conflict attempt receives its own scope; the post-start scope does not
+reuse the pre-start one. Callbacks remain read-only and cannot create an issue
+or invoke a model inside a retry.
+
+Current processing authority remains mandatory for exact accepted model
+completion replay. Changed command fingerprints cannot recover another result.
+Only an actually authorized permanent Source withdrawal avoids futile finish
+attempts; pending outcomes and known/unknown usage accounting keep their
+existing meanings. Approval, repository calibration/checks, one physical create
+attempt and read-only unknown-ACK reconciliation remain required.
+
+The AI coordinator uses these optional capabilities when present and retains
+the full standalone compatibility path for older structural application ports.
+There is no new durable layout, Store primitive, permission, queue, model
+opportunity or activation flag. Hosts still measure their complete physical
+invocation, including real authentication/proofs and delivery, against their
+own query and CPU limits. Source tests and grouped reads do not qualify a Free
+plan or a deployed host.
+
 <a id="026-candidate-guarded-engineering-controls"></a>
 
 ## 0.2.6: guarded engineering controls
 
 These controls are published and strictly verified in `0.2.6` and retained by
-the local unpublished `0.2.8` source candidate.
+the local unpublished `0.2.9` source candidate.
 The optional third `EngineeringMutationOptions` argument applies to
 `enrollEngineeringSource`, `submitEngineeringEvidence`,
 `selectEngineeringRepository`, `withdrawEngineeringSource`,
