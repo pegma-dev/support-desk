@@ -291,7 +291,7 @@ for (const [name, createStore] of engineeringFollowupStores) {
       },
     );
 
-    it("rechecks current read permission immediately after the Source confirmation await", async () => {
+    it("rechecks current read permission after the independent closing version wave", async () => {
       const f = await engineeringFollowupAiFixture(createStore());
       const prepared = await f.prepareBundle();
       const actor = { ...staff, permissions: [...staff.permissions] };
@@ -331,7 +331,15 @@ for (const [name, createStore] of engineeringFollowupStores) {
       );
       barrier.release();
       await expect(settled).resolves.toBeInstanceOf(Error);
-      expect(confirmed).toEqual(["engineering-source"]);
+      expect([...confirmed].sort()).toEqual(
+        [
+          "engineering-source",
+          `engineering-work:${prepared.association.engineeringSourceGeneration}`,
+          prepared.id,
+          "engineering-followup-head",
+          "ticket",
+        ].sort(),
+      );
       f.readObserver.afterRead(undefined);
       expect(await f.rows()).toEqual(before);
     });
