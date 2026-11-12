@@ -21,6 +21,11 @@ qualification remains pending.
 Authorized customer ticket services and provider-neutral durable outbox
 records for Support Desk. The host supplies an `@pegma/storage-core` `Store`
 and a trusted Authorization Core access context.
+The unpublished Task 15 source addition accepts optional `cannedResponses`
+configuration and exposes `listCannedResponses` and pure `renderCannedResponse`.
+Existing explicit staff reply/note commands accept `cannedResponse` selections
+with exact preview validation and transactional content-free Audit provenance.
+See [bounds, permissions and replay](../../docs/HOST_COMPOSITION.md#staff-canned-responses-task-15-source-candidate).
 The host server supplies `correlationId` on commands; the application validates
 and propagates it and never generates it.
 

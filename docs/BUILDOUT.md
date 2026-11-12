@@ -11,8 +11,14 @@ help desk." Give it exactly one task below.
 
 ## Current source status
 
-Buildout Tasks 1–6, the Task 11 package slice, and Task 13 are implemented in
-source. The enhancement has also merged P-00, KB-01 through KB-04, AUTH-01,
+Buildout Tasks 1–6, the Task 11 package slice, Task 13, and Task 14 are on main.
+Task 14 attachments merged in [PR #32](https://github.com/pegma-dev/support-desk/pull/32)
+(`84dfcb2`) and shipped in `0.2.5`; Task 13 merged in
+[PR #29](https://github.com/pegma-dev/support-desk/pull/29) (`8bb7b98`).
+Task 15's bounded staff canned-response slice is implemented in this source
+candidate, without publication. Task 16 is the next package slice. Host Tasks
+7–10, Task 11's provider adapters, and Task 12 retain their host evidence gates.
+The enhancement has also merged P-00, KB-01 through KB-04, AUTH-01,
 SD-01, partial KB-05 source preparation
 ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and both producers'
 final release preparation; exact linked evidence is in the
@@ -716,4 +722,26 @@ The initial buildout is complete only when:
 
 ## Task 14 — attachments: implemented in source
 
-The additive attachment slice is published in `0.2.5`. Host adoption retains its storage, scanner, retention and deployment acceptance gates. See [ATTACHMENTS.md](./ATTACHMENTS.md) for the host blob port, bounds, transactional metadata, scan callback, download gates, deletion and worker contracts. Inbound attachments remain explicitly dropped. Task 12 still awaits host production evidence; Task 15 (canned responses and macros) is the next package slice.
+The additive attachment slice is published in `0.2.5`. Host adoption retains its storage, scanner, retention and deployment acceptance gates. See [ATTACHMENTS.md](./ATTACHMENTS.md) for the host blob port, bounds, transactional metadata, scan callback, download gates, deletion and worker contracts. Inbound attachments remain explicitly dropped. Task 12 still awaits host production evidence.
+
+## Task 15 — staff canned responses and one-message macros: source candidate
+
+The host supplies at most 64 immutable, versioned plain-text response definitions.
+Staff list only definitions permitted for their reply/note target, preview literal
+allowlisted substitutions, and submit the expanded body and exact selection in
+an explicit `replyAsStaff` or `addNote` command. The application rejects an
+unavailable version, wrong target, unknown/missing values, or changed preview.
+Existing permissions, capacity limits, revision fences and exact receipts apply.
+The original reply/note Audit action records only template ID/version in the
+same ticket transaction. Notes create no mail or customer-visible metadata.
+
+Memory and Azurite public-entry tests cover authorization, validation, replay,
+concurrency, atomic failure recovery and the internal-note boundary. The runnable
+composition demonstrates separate preview and staff send. See
+[host composition](HOST_COMPOSITION.md#staff-canned-responses-task-15-source-candidate).
+This source addition changes no package versions or collection layouts.
+
+Open questions for later tasks: durable administrator authoring/activation and
+multi-action macros need a reviewed version-retention/approval model. This slice
+uses deployment-owned definitions and exactly one reply or note per command.
+Task 16 customer self-service polish is the next independent package slice.

@@ -13,6 +13,11 @@ its own composition and activation gates.
 Provider-neutral ticket, requester, message, and event contracts shared by
 Support Desk packages and host applications.
 
+The Task 15 source addition defines `CannedResponseDefinition` and
+`CannedResponseSelection` for deployment-owned staff reply/note templates.
+These are configuration/command contracts, not new stored ticket fields or
+customer DTOs. See the [composition contract](../../docs/HOST_COMPOSITION.md#staff-canned-responses-task-15-source-candidate).
+
 `InboundSenderAuthentication` carries a host-evaluated result bound to one
 normalized inbound address. DMARC passes require aligned DKIM or aligned SPF;
 `host_identity` represents an equivalent host-authenticated identity. The

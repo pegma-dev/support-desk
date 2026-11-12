@@ -29,3 +29,11 @@ the generic renderer.
 Task 13 staff tags, response targets, and milestones are not customer template
 variables. Keep host-supplied customer notification maps free of this metadata;
 the generic renderer receives only the explicitly supplied variable allowlist.
+
+Task 15's source-candidate staff canned responses are separate plain-text
+reply/note definitions, validated and expanded by core and application. See
+[host composition](../../docs/HOST_COMPOSITION.md#staff-canned-responses-task-15-source-candidate).
+Keep their catalog, internal-note text and template provenance out of customer
+notification maps. A public reply's approved body can be supplied as a normal
+allowlisted notification variable; `renderTemplate` escapes it in HTML context.
+Do not splice that text into template HTML or evaluate it as template source.

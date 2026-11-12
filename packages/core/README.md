@@ -2,7 +2,13 @@
 
 The local synchronized source version is `0.2.9`. See the
 [release notes](../../docs/RELEASE_NOTES.md#029-engineering-worker-observations)
-and [engineering read phases](../../docs/ENGINEERING_EXPORT.md#entry-points-and-authority). This package adds no new runtime API.
+and [engineering read phases](../../docs/ENGINEERING_EXPORT.md#entry-points-and-authority).
+Task 15's unpublished source addition exposes pure `defineCannedResponse`,
+`defineCannedResponseCatalog`, `snapshotCannedResponseSelection` and
+`renderCannedResponse` helpers. They validate bounded plain-text definitions
+and literal value substitution; application services enforce staff permissions,
+catalog selection and atomic Audit. See
+[host composition](../../docs/HOST_COMPOSITION.md#staff-canned-responses-task-15-source-candidate).
 
 The current verified synchronized registry release is `0.2.8`; see the
 [publication receipt](../../docs/RELEASING.md#verified-028-publication-2026-11-12).

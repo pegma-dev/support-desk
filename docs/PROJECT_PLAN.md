@@ -3,7 +3,7 @@
 ## Status
 
 **Stage:** Buildout Tasks 1–6 are complete; the first `0.1.0` set was published
-on 2026-07-29 with signed tag `v0.1.0`. Later Task 11 package work, Task 13,
+on 2026-07-29 with signed tag `v0.1.0`. Later Task 11 package work, Tasks 13–14,
 and SD-01 through SD-06 are merged source. The standalone KB has merged KB-01/02/03 and
 independent partial KB-05 preparation, KB-04's transport source exit, and
 KB-05 release preparation. AUTH-01 Agent Access source and its separate release
@@ -432,12 +432,13 @@ that enhancement's build acceptance closes this production-evidence gate.
 
 **Goal:** Add features only after the message path is stable.
 
-Candidate work:
+Current package work and remaining candidates:
 
-- attachment upload and inbound extraction;
-- isolated object storage and authorized downloads;
-- type and size policies plus malware scanning;
-- response templates or macros;
+- [x] web attachment metadata and host blob port (Task 14, PR #32, `84dfcb2`);
+- [x] clean-only authorized downloads and digest-bound scan states (Task 14);
+- inbound attachment extraction remains deferred; host MIME adapters drop it;
+- [x] bounded staff canned responses and one-message macros (Task 15 source
+      candidate; unpublished, deployment-owned catalog and explicit staff send);
 - [x] staff-managed tags from a bounded host allowlist (Task 13);
 - category changes beyond the launch allowlists;
 - [x] revision-based collision hints for staff (Task 13);
@@ -650,7 +651,7 @@ These should be resolved through the two reference implementations:
 ## Near-term backlog
 
 The original [`BUILDOUT.md`](BUILDOUT.md) sequence is below. Tasks 1–6 and the
-Task 11 package slice are source-complete; do not restart completed cards.
+Task 11 package slice, and Tasks 13–14 are on main; do not restart completed cards.
 Use the [current enhancement ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order)
 for merged work and next credential/publication gates.
 
@@ -670,9 +671,10 @@ for merged work and next credential/publication gates.
 
 After the launch definition, the post-MVP queue in
 [`BUILDOUT.md`](BUILDOUT.md#post-mvp-queue) sequences the remaining
-full-featured support-desk work. Task 13 lifecycle extras are already merged
-source; remaining work includes attachments through a
-host blob port, staff-only audited canned responses and macros, customer
+full-featured support-desk work. Task 13 lifecycle extras (PR #29) and Task 14
+attachments (PR #32) are merged and shipped. Task 15's staff-only audited canned
+responses and one-message macros are implemented in the current source
+candidate without publication. Remaining package work starts with customer
 self-service contract polish, rate-limit and abuse composition notes, and
 the approved standalone KB and evaluated customer-visible AI support work in
 [`KNOWLEDGE_AI_PLAN.md`](KNOWLEDGE_AI_PLAN.md), which supersedes the earlier

@@ -387,6 +387,104 @@ Tags, due timestamps, and milestones never enter customer DTOs or automatic
 customer mail projections. Hosts must keep these fields out of customer
 notification variables and template bodies as well.
 
+## Staff canned responses (Task 15 source candidate)
+
+This API is an unpublished source addition to the existing candidate, with no
+version change. Adopt only after a verified public release and host acceptance.
+The host supplies `cannedResponses` when constructing the application:
+
+```ts
+const application = createSupportDeskApplication({
+  store,
+  clock,
+  cannedResponses: [
+    {
+      id: "review",
+      version: 1,
+      title: "Review acknowledgement",
+      target: "reply", // or "note"; target is immutable within a version
+      variables: ["topic"],
+      body: "We will review {{topic}}.",
+    },
+  ],
+});
+```
+
+`listCannedResponses(access)` requires `support.queue.read` and returns frozen
+definitions filtered by current `support.ticket.reply.any` / `support.ticket.note`
+permissions. An empty catalog is the default. Catalog access is staff-only;
+never expose it through a customer or assistant endpoint. The host controls
+catalog changes through its deployment review. This API provides no settings
+editor, persistence, or automatic send.
+
+Use `renderCannedResponse` from the application or core public entry for preview:
+
+```ts
+const [definition] = await application.listCannedResponses(staffAccess);
+if (!definition || definition.target !== "reply")
+  throw new Error("No response");
+const values = { topic: "your question" };
+const body = renderCannedResponse(definition, values);
+// Show body as plain text. Only after the staff member explicitly chooses Send:
+await application.replyAsStaff(staffAccess, {
+  commandId,
+  correlationId,
+  ticketId,
+  messageId,
+  expectedRevision,
+  body,
+  cannedResponse: { id: definition.id, version: definition.version, values },
+  // optional host-owned notification routing remains the normal reply contract
+});
+```
+
+Import `renderCannedResponse` alongside `createSupportDeskApplication`.
+For notes use `addNote`, with a `target: "note"` definition. Each macro expands
+exactly one message and has no lifecycle, assignment, permission, or account
+actions. Browser code cannot turn a note template into a reply. The final body
+must exactly match the selected version's expansion. An edited preview can be
+sent as an ordinary staff message by omitting `cannedResponse`; it then carries
+no template provenance. Authenticate and resolve current staff permissions at
+both preview and send, keep CSRF and durable request limits at the host boundary,
+and use `expectedRevision` to detect a ticket changed since preview.
+
+The catalog accepts at most 64 physical versions, with no duplicate `(id, version)`.
+IDs and variable names match `^[a-z][a-z0-9_]{0,31}$`; versions are positive safe
+integers. Titles are at most 120 characters, templates and expanded messages at
+most 16,000 UTF-16 code units, with at most 16 unique variables and 2,000 code
+units per supplied value. Application `maxMessageCharacters` may impose a lower
+bound. Values must match the declared variables exactly. Empty/whitespace-only
+text, controls (except tab, CR and LF in message text), unknown fields,
+accessors, inherited fields, sparse arrays and hidden properties are refused.
+Tokens are only `{{name}}`; substitution is literal, single-pass, and never reads
+ticket fields or evaluates code. Definitions and command values are copied
+before awaits. Render as plain text, HTML-escape at HTML boundaries, and never
+interpret substituted content as Markdown or executable markup.
+
+An unavailable version, invalid expansion or wrong target is a `TypeError` before
+new ticket writes. Existing revision/capacity errors and HTTP mapping apply.
+The command fingerprint binds the body, exact version, canonical value map,
+revision hint, attachments and notification. Exact accepted replay is checked
+before catalog lookup, so withdrawing a definition refuses new uses without
+breaking uncertain-outcome recovery. Replay still requires current queue and
+target permissions. Retain the exact original command after a timeout; changing
+or removing the selection under the same command ID conflicts. Keep each
+published catalog version immutable and increment its template version when
+changing text, variables, title or target (this is separate from package versions).
+
+Existing `support.ticket.staff_replied` / `support.ticket.note_added` Audit events
+add only `cannedResponseId` and `cannedResponseVersion` details. They commit with
+the message, revision, receipt and optional reply outbox in one ticket partition.
+Bodies and variable values stay out of Audit. Provenance is not added to message
+DTOs or notification variables. Notes remain absent from customer reads, customer
+update times and mail. Notification templates still use their separate renderer
+and host-supplied safe variables. See the runnable `runCannedResponseExampleFlow`
+in `examples/composition` and public-entry memory/Azurite tests.
+
+Durable administrator authoring/activation, personal catalogs and multi-action
+macros remain open questions for separate reviewed tasks. No new collection or
+record migration is needed for this deployment-configured slice.
+
 ## Optional handling and deterministic controls (SD-01)
 
 `assistantHandlingEnabled` defaults to false. Only new trusted web creation with

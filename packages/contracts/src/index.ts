@@ -14,6 +14,23 @@ export type { IsoTimestamp, PrincipalId };
 export type TicketId = string;
 export type MessageId = string;
 
+/** Host-managed, immutable version of a one-message staff macro. Plain text only. */
+export interface CannedResponseDefinition {
+  readonly id: string;
+  readonly version: number;
+  readonly title: string;
+  readonly target: "reply" | "note";
+  readonly variables: readonly string[];
+  readonly body: string;
+}
+
+/** Explicit selection accompanying the staff-approved, fully expanded body. */
+export interface CannedResponseSelection {
+  readonly id: string;
+  readonly version: number;
+  readonly values: Readonly<Record<string, string>>;
+}
+
 export type TicketChannel = "web" | "email" | "api";
 export type TicketPriority = "low" | "normal" | "high" | "urgent";
 export type TicketStatus =

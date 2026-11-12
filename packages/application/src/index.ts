@@ -39,6 +39,8 @@ import {
   type UpdateDecision,
 } from "@pegma/storage-core";
 import type {
+  CannedResponseDefinition,
+  CannedResponseSelection,
   MessageAttachment,
   InboundSenderAuthentication,
   MessageFormat,
@@ -54,6 +56,9 @@ import type {
   TicketHandlingState,
 } from "@pegma/support-desk-contracts";
 import {
+  defineCannedResponseCatalog,
+  renderCannedResponse,
+  snapshotCannedResponseSelection,
   applyTicketEvent,
   createTicket,
   effectiveTicketHandling,
@@ -168,6 +173,11 @@ export type * from "./assistant-turn-types.js";
 export type { AssistantTurnRecord } from "./assistant-turn-records.js";
 
 export type { InboundSenderAuthentication };
+export { renderCannedResponse };
+export type {
+  CannedResponseDefinition,
+  CannedResponseSelection,
+} from "@pegma/support-desk-contracts";
 
 /** Reserve Audit/receipt slots so attachment cleanup can still finish at capacity. */
 function partitionSizeWithAttachmentReserve(
@@ -1681,6 +1691,8 @@ export interface StaffReplyCommand extends StaffRevisionHint {
   readonly ticketId: TicketId;
   readonly messageId: MessageId;
   readonly body: string;
+  /** Optional host-catalog selection; body must equal its staff-approved expansion. */
+  readonly cannedResponse?: CannedResponseSelection;
   readonly notification?: NotificationInput;
   readonly attachments?: readonly AttachmentInput[];
 }
@@ -1691,6 +1703,7 @@ export interface AddNoteCommand extends StaffRevisionHint {
   readonly ticketId: TicketId;
   readonly messageId: MessageId;
   readonly body: string;
+  readonly cannedResponse?: CannedResponseSelection;
   readonly attachments?: readonly AttachmentInput[];
 }
 
@@ -1892,6 +1905,10 @@ export interface SupportDeskApplication
   ): Promise<StaffQueueResult>;
   /** In-process projection health for host metrics/dashboards. */
   queueProjectionHealth(): QueueProjectionHealth;
+  /** Bounded frozen catalog, filtered to the caller's reply/note permissions. */
+  listCannedResponses(
+    access: AccessContext,
+  ): Promise<readonly CannedResponseDefinition[]>;
   replyAsStaff(
     access: AccessContext,
     command: StaffReplyCommand,
@@ -3343,6 +3360,7 @@ function snapshotStaffReplyCommand(
       ? undefined
       : snapshotNotification(raw.notification);
   return Object.freeze({
+    ...snapshotCommandCannedResponse(source),
     attachments: snapshotAttachmentInputs(
       ownDataProperty(source, "attachments", "attachments", true),
     ),
@@ -3381,6 +3399,7 @@ function snapshotAddNoteCommand(input: AddNoteCommand): AddNoteCommand {
     body: ownDataProperty(source, "body", "add note command.body"),
   };
   return Object.freeze({
+    ...snapshotCommandCannedResponse(source),
     attachments: snapshotAttachmentInputs(
       ownDataProperty(source, "attachments", "attachments", true),
     ),
@@ -3394,6 +3413,32 @@ function snapshotAddNoteCommand(input: AddNoteCommand): AddNoteCommand {
     messageId: boundaryString(raw.messageId, "add note command.messageId"),
     body: boundaryString(raw.body, "add note command.body"),
   });
+}
+
+function snapshotCommandCannedResponse(source: object): {
+  readonly cannedResponse?: CannedResponseSelection;
+} {
+  const raw = ownDataProperty(
+    source,
+    "cannedResponse",
+    "cannedResponse",
+    true,
+    true,
+  );
+  return raw === undefined
+    ? {}
+    : { cannedResponse: snapshotCannedResponseSelection(raw) };
+}
+
+function cannedResponseAuditDetails(
+  selection: CannedResponseSelection | undefined,
+): Readonly<Record<string, string>> {
+  return selection === undefined
+    ? {}
+    : {
+        cannedResponseId: selection.id,
+        cannedResponseVersion: String(selection.version),
+      };
 }
 
 function snapshotAssignTicketCommand(
@@ -4435,6 +4480,8 @@ export function createSupportDeskApplication(options: {
   readonly allowedCategories?: readonly string[];
   /** At most 32 normalized, deduplicated staff labels; absent disables adding tags. */
   readonly allowedTags?: readonly string[];
+  /** Optional deployment-owned catalog of at most 64 immutable response versions. */
+  readonly cannedResponses?: readonly CannedResponseDefinition[];
   /** Default 8, hard maximum 32. Empty tags always clear the ticket. */
   readonly maxTagsPerTicket?: number;
   readonly responseTargetPolicy?: ResponseTargetPolicy;
@@ -4546,6 +4593,27 @@ export function createSupportDeskApplication(options: {
     ),
   );
   const rawTags = ownDataProperty(source, "allowedTags", "allowedTags", true);
+  const cannedResponses = defineCannedResponseCatalog(
+    ownDataProperty(source, "cannedResponses", "cannedResponses", true, true),
+  );
+  function validateCannedResponse(
+    command: StaffReplyCommand | AddNoteCommand,
+    target: "reply" | "note",
+  ): void {
+    const selection = command.cannedResponse;
+    if (selection === undefined) return;
+    const definition = cannedResponses.find(
+      (item) => item.id === selection.id && item.version === selection.version,
+    );
+    if (
+      definition === undefined ||
+      definition.target !== target ||
+      renderCannedResponse(definition, selection.values) !== command.body
+    )
+      throw new TypeError(
+        "Canned response is unavailable or does not match the approved body and target",
+      );
+  }
   const allowedTags = new Set(
     rawTags === undefined ? [] : snapshotTags(rawTags),
   );
@@ -7902,6 +7970,21 @@ export function createSupportDeskApplication(options: {
       return projectionHealth;
     },
 
+    async listCannedResponses(access) {
+      requirePermission(access, supportPermissions.queueRead);
+      requireIdentifier(access.principalId, "principalId");
+      return Object.freeze(
+        cannedResponses.filter((item) =>
+          hasPermission(
+            access,
+            item.target === "reply"
+              ? supportPermissions.replyAny
+              : supportPermissions.note,
+          ),
+        ),
+      );
+    },
+
     async replyAsStaff(access, input) {
       requireStaffMutationAccess(access, supportPermissions.replyAny);
       requireIdentifier(access.principalId, "principalId");
@@ -7919,6 +8002,7 @@ export function createSupportDeskApplication(options: {
       const fingerprint = await requestFingerprint({
         ...snapshotRevisionHint(command),
         type: "staff_reply",
+        ...snapshotCommandCannedResponse(command),
         ticketId: command.ticketId,
         messageId: command.messageId,
         body: command.body,
@@ -7949,6 +8033,7 @@ export function createSupportDeskApplication(options: {
           throw new SupportDeskConflictError(
             "Command ID reused with different input",
           );
+        validateCannedResponse(command, "reply");
         const versioned = await records.getVersioned(
           ticketKey(command.ticketId),
         );
@@ -8066,6 +8151,7 @@ export function createSupportDeskApplication(options: {
               actorId: access.principalId,
               occurredAt: now,
               action: supportTicketAuditActions.staffReplied,
+              details: cannedResponseAuditDetails(command.cannedResponse),
             }),
             {
               action: "insert",
@@ -8131,6 +8217,7 @@ export function createSupportDeskApplication(options: {
       const fingerprint = await requestFingerprint({
         ...snapshotRevisionHint(command),
         type: "add_note",
+        ...snapshotCommandCannedResponse(command),
         ticketId: command.ticketId,
         messageId: command.messageId,
         body: command.body,
@@ -8156,6 +8243,7 @@ export function createSupportDeskApplication(options: {
           throw new SupportDeskConflictError(
             "Command ID reused with different input",
           );
+        validateCannedResponse(command, "note");
         const versioned = await records.getVersioned(
           ticketKey(command.ticketId),
         );
@@ -8263,6 +8351,7 @@ export function createSupportDeskApplication(options: {
               actorId: access.principalId,
               occurredAt: now,
               action: supportTicketAuditActions.noteAdded,
+              details: cannedResponseAuditDetails(command.cannedResponse),
             }),
             {
               action: "insert",

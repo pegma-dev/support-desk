@@ -14,6 +14,7 @@ import {
   runInboundExampleFlow,
   runLifecycleExampleFlow,
   runAttachmentExampleFlow,
+  runCannedResponseExampleFlow,
 } from "./composition.ts";
 
 const composition = createExampleComposition();
@@ -21,10 +22,12 @@ const result = await runCompleteExampleFlow(composition);
 const inbound = await runInboundExampleFlow(composition);
 const lifecycle = await runLifecycleExampleFlow(composition);
 const attachments = await runAttachmentExampleFlow();
+const canned = await runCannedResponseExampleFlow(composition);
 
 process.stdout.write(
   [
     "Support Desk example composition completed.",
+    `cannedResponseUses=${String(canned.auditedUses)}`,
     `attachmentsDeleted=${String(attachments.deleted)}`,
     `ticketId=${result.ticketId}`,
     `subject=${result.customerViewSubject}`,
