@@ -106,7 +106,7 @@ export const releaseVerificationPackages = [
       "@pegma/spine": "0.1.2",
       "@pegma/support-desk-application": releaseVerificationVersion,
       "@pegma/storage-core": "0.4.0",
-      zod: "4.4.3",
+      zod: "4.6.7",
     },
   },
 ] as const;

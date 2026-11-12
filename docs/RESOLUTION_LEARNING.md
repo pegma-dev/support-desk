@@ -287,6 +287,64 @@ model validation requirements do not replace KB's actual guide requirements.
 Check-receipt and source-publication policy expiry also count elapsed time from
 the start of the invocation, including time spent awaiting verification ports.
 
+### Candidate scoped comparison evidence
+
+The unpublished `0.2.9` OpenRouter controller requires genuine comparison
+evidence before signing a new-create check. Selection carries the actual
+bounded published matches, explicit draft versions and configured scope into
+the exact request. These are hints, not a completeness assertion. A caller's
+empty array, an unused new article ID, or ordinary lossy search cannot establish
+that no matching guidance exists.
+
+The controller loads KB's optional `publishedSearchObservations` capability
+only during deferred background precomputation. This capability is being
+prepared for KB `0.1.8`; the declared `0.1.7` graph does not supply it and holds
+new-create checks. Inline calls never enumerate the corpus. Missing, partial,
+unavailable, changed or over-limit comparisons hold before provider admission.
+The complete search scope is the authorized collection, exact applicability
+and trusted lexical query over approved titles, summaries and tags. It is not
+body or synonym search and makes no global duplicate or atomic absence claim.
+
+Before and after model work, the controller checks the real comparison
+resources and current authority. It consumes the same-instance KB observation
+once after the model and current Source/target checks. The signed `ic2` receipt's
+new `c` flag binds the observed scope, timestamp, digest and retained resource
+versions and collection policy generation/hash without increasing the
+200-character receipt limit. Full proof stays
+in the existing bounded check-attempt record. Only authored comparison content
+reaches the provider; article IDs, provenance, source references, actors and
+opaque observation handles do not.
+
+A later receipt verification reads only the retained resources and current
+authority; it does not enumerate the corpus in the write path. Existing
+resource edits, retirement, collection policy changes or access withdrawal
+invalidate that snapshot, including when the observed result set was empty.
+The background `observe`, `confirm`, keyed `readScope` and keyed `readArticle`
+use existing article-read plus draft-read staff authoring authority and require
+an enabled collection channel. They retain actual publication approval,
+evidence, source and policy checks; customer portal/bot audiences do not grant
+or restrict this separate staff authoring access. Ordinary portal/bot retrieval
+keeps its audience checks. The controller never substitutes portal-only reads
+or a caller-supplied empty list for the real authoring capability. These ports
+expose no collection administration metadata or additional permissions.
+AI delivery and App preparation can pass the optional
+fourth verification context's `comparisonScope.collectionId` to schedule fresh
+proof-head and scope reads together. The signed scope must match before the
+result is used. This hint is not evidence or a cache; the third abort signal and
+legacy two-argument callers retain their contracts and the full cold fallback.
+New scope members added after observation are evaluated in the next background
+comparison. Source, request, policy, target and final write guards still apply,
+and staff must approve the actual resulting draft before publication.
+
+Legacy update and engineering receipts retain their contracts. An old learning
+`l` receipt without comparison evidence cannot authorize a new create. Exact
+historical completion may use an accepted ACK independently read from the
+Support Work row; the optional recovery input is not caller authority and the
+App's ordinary two-argument verifier cannot grant this exception. If KB accepted
+but Support never retained its ACK, KB `0.1.7` has no read-only draft-write receipt
+lookup: the attempt stays unknown/held without a speculative create replay.
+This candidate adds no Native query/CPU or host activation qualification.
+
 Successful independent checks permit private draft transfer without routine
 human pre-transfer approval. Staff approval applies to the **actual KB draft**
 before KB review/publication. `reviewResolutionLearningProposal` binds the

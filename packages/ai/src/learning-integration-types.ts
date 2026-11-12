@@ -30,6 +30,11 @@ import type {
   LearningServiceAccessPort,
   VerifiedLearningCheckPolicy,
 } from "./learning-ports.js";
+export type {
+  LearningComparisonSelection,
+  LearningPublishedSearchObservations,
+  LearningPublishedSearchScopeState,
+} from "./learning-comparison.js";
 
 /** Use the released direct authoring contract, without a copied draft schema. */
 export type LearningArticleDraft = CreateDraftInput["draft"];

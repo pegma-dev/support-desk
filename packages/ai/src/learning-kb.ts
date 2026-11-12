@@ -1,4 +1,9 @@
 import { learningReadWave } from "./learning-read-wave.js";
+import {
+  learningComparisonSelection,
+  learningComparisonSelectionSchema,
+  type LearningComparisonSelection,
+} from "./learning-comparison.js";
 import type { AccessContext } from "@pegma/authorization-core";
 import {
   KnowledgeBaseNotFoundError,
@@ -277,6 +282,7 @@ interface DeliveryPayload {
   readonly configurationHash: string;
   readonly policyBinding: string;
   readonly requirements: ValidationRequirementsDto;
+  readonly comparisonSelection?: LearningComparisonSelection;
   readonly base: null | {
     readonly generation: number;
     readonly articleRevision: number;
@@ -306,6 +312,7 @@ function payloadSnapshot(
     "policyBinding",
     "requirements",
     "base",
+    "comparisonSelection",
   ]);
   const scope = scopeSnapshot(value.scope as LearningTargetScope, maxExplicit);
   const draft = draftSnapshot(
@@ -319,6 +326,13 @@ function payloadSnapshot(
     ...value,
     draft,
     scope,
+    ...(value.comparisonSelection === undefined
+      ? {}
+      : {
+          comparisonSelection: learningComparisonSelectionSchema.parse(
+            value.comparisonSelection,
+          ),
+        }),
   }) as unknown as DeliveryPayload;
   if (canonical(result) !== raw)
     throw new AssistantBoundaryError("request_invalid");
@@ -752,12 +766,23 @@ export async function processLearningKBClaim(
           externalDeadline,
         ),
       );
+      const comparisonSelection =
+        selection.operation === "create"
+          ? await learningComparisonSelection(
+              scope,
+              product,
+              maxPublished,
+              publishedMatches,
+              explicitDrafts,
+            )
+          : undefined;
       payload = snapshot({
         draft,
         scope,
         configurationHash: await fingerprint(config),
         policyBinding: policy.binding,
         requirements,
+        ...(comparisonSelection === undefined ? {} : { comparisonSelection }),
         base: base === undefined ? null : baseBinding(base),
       });
       targetDecisionHash = await fingerprint({
@@ -767,6 +792,7 @@ export async function processLearningKBClaim(
         scope,
         base: payload.base,
         requirements,
+        ...(comparisonSelection === undefined ? {} : { comparisonSelection }),
       });
       const references =
         base === undefined ? [own] : [...base.provenance.snapshot.references];
@@ -814,6 +840,9 @@ export async function processLearningKBClaim(
               workingSolution,
               targetComparison: {
                 operation: selection.operation,
+                ...(payload.comparisonSelection === undefined
+                  ? {}
+                  : { selection: payload.comparisonSelection }),
                 ...(base === undefined
                   ? {}
                   : {
@@ -838,7 +867,13 @@ export async function processLearningKBClaim(
     const verifyReceipt = async (phase: number): Promise<number> => {
       const verified = snapshot(
         await runtime.within(
-          () => options.checks.verify(receipt, binding, runtime.signal),
+          () =>
+            options.checks.verify(receipt, binding, runtime.signal, {
+              comparisonScope: { collectionId: exactRequest.collectionId },
+              ...(claim.work.acknowledgement === undefined
+                ? {}
+                : { acceptedAcknowledgement: claim.work.acknowledgement }),
+            }),
           phase,
         ),
       );

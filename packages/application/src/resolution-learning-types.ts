@@ -136,7 +136,18 @@ export interface ResolutionLearningChecksPort {
   verify(
     receipt: string,
     binding: ResolutionLearningChecksBinding,
+    signal?: AbortSignal,
+    context?: ResolutionLearningChecksVerificationContext,
   ): Promise<VerifiedResolutionLearningChecks | null>;
+}
+/** Fresh keyed-read hints only; the verifier authenticates the matching signed
+ * scope before using them. Neither hints nor ACK claims confer authority. */
+export interface ResolutionLearningChecksVerificationContext {
+  readonly comparisonScope?: { readonly collectionId: string };
+  /** Historical no-write completion must independently read this exact App ACK. */
+  readonly acceptedAcknowledgement?: NonNullable<
+    ResolutionLearningWorkRecord["acknowledgement"]
+  >;
 }
 export interface ResolutionLearningOptions {
   /** Opt-in durable human-review commands. Inline review remains the default. */
