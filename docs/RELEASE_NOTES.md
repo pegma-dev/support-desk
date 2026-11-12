@@ -5,9 +5,10 @@
 ## 0.2.9 candidate — per-attempt engineering worker observations
 
 All five local package versions and exact internal Support pins target
-unpublished `0.2.9`. Exact public KB application/contracts `0.1.6`, Authorization
-Core and storage dependencies remain unchanged; the root stays private at
-`0.0.0`.
+unpublished `0.2.9`. Exact public KB application/contracts `0.1.6` and
+Authorization Core `0.4.0` remain unchanged. The AI manifest adds exact direct
+`zod@4.4.3` and `@pegma/storage-core@0.4.0` dependencies. The root stays private
+at `0.0.0`.
 
 Optional application model-planning, model preparation/completion, proposal
 and dispatch methods share the existing mutation kernels. Their observations
@@ -28,6 +29,35 @@ See the [worker observation contract](ENGINEERING_EXPORT.md#candidate-029-worker
 and [upgrade guidance](UPGRADING.md#unpublished-029-engineering-worker-observations).
 These source changes do not establish a complete host query/CPU budget,
 provider qualification or registry publication.
+
+### Staged resolution learning
+
+The optional `deliveryMode: 'staged'` separates candidate, prepare, KB write and
+completion invocations. The exact SDK-owned `stagedResolutionLearningDelivery`
+capability is required before claim. Durable preparation and acknowledgement
+release the claim and add optional `checkpoint: 'prepared' | 'acknowledged'`
+to the existing `pending`/`delivery` result. Hosts resume in later physical
+invocations. Inline delivery remains the default. Both paths retain final
+policy/receipt/configuration checks after KB readback and current authority,
+opaque-version and conditional-write fences. See [the delivery contract](RESOLUTION_LEARNING.md#opt-in-staged-draft-delivery-029-candidate).
+The SDK makes no `model.generate` call in checkpoint invocations. Custom check ports
+retain their own billing policy. Complete Native Workers Free 50/100
+qualification remains pending.
+
+Staged `reconcileSource` advances one unconfirmed destination per invocation
+and yields after one exact retirement attempt, including unknown ACKs. Later
+readback records verified reconciliation through the existing result union.
+Fresh retirement authority and Source-view confirmation remain required.
+Inline reconciliation retains its bounded retry behavior.
+
+### Optional OpenRouter entry
+
+The candidate adds `@pegma/support-desk-ai/openrouter` while keeping the AI root
+provider-neutral. Both independent-check constructors require an explicit
+second logical host string and current host callbacks. Pegma's existing `ic2`
+encoding and `pegma.dev.support-independent-checks.v2` MAC domain are preserved.
+RetireGolden uses its own host binding and separate stores, keys, funding and
+privacy/configuration evidence. See [the adapter contract](../packages/ai/README.md#optional-openrouter-adapter-source-candidate).
 
 <a id="028-followup-mutation-guards"></a>
 

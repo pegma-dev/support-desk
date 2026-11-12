@@ -48,6 +48,48 @@ after returning; forwarding an observation does not certify an adapter's later
 awaits or confer permissions. Completion ACK recovery
 preserves a current held or superseded result instead of reporting a candidate.
 
+## Unpublished 0.2.9 staged learning delivery
+
+Omitting `deliveryMode` preserves inline delivery. To select
+`deliveryMode: 'staged'`, forward the exact SDK-owned
+`application.stagedResolutionLearningDelivery` capability with its original own
+`prepare`, `write` and `complete` methods. Missing or changed capabilities hold
+before claim. Older structural ports can retain inline delivery.
+
+Handle optional `checkpoint: 'prepared' | 'acknowledged'` on the existing
+`pending`/`delivery` result and end that physical invocation. Resume the same
+Work in a later physical call with its original deadline and request identity.
+Preserve identical KB command/correlation IDs, payload, ordered references and
+original expected generation when recovering an uncertain ACK. The marker
+attests durable App progress and claim release. The SDK makes no `model.generate`
+call in that checkpoint invocation. Custom
+`checks.check` ports retain their billing policy. The reference host's source
+composition uses deferred checks and receipt-only verification in these phases.
+Both inline and staged completion perform final policy/receipt/configuration
+checks after late KB reads. Current Source, role, target and opaque-version
+fences still apply. See [the staged contract](RESOLUTION_LEARNING.md#opt-in-staged-draft-delivery-029-candidate).
+The candidate is unpublished and complete Native Workers Free 50/100
+qualification remains pending.
+
+The same staged option bounds `reconcileSource` to one unconfirmed destination
+per invocation. A retirement attempt yields to later physical readback and
+verified reconciliation, including after an unknown ACK. Keep scheduling the
+existing reconciliation result under fresh retirement authority while durable
+destinations remain pending. Inline reconciliation retains its bounded retries.
+
+## Unpublished 0.2.9 optional OpenRouter entry
+
+Import provider adapters explicitly from `@pegma/support-desk-ai/openrouter`.
+The AI root remains provider-neutral. Its manifest declares exact direct
+`zod@4.4.3` and `@pegma/storage-core@0.4.0` dependencies.
+`createSupportIndependentCheckModel` and `createSupportIndependentChecks` each
+require the original options object and a second logical host string matching
+current route evidence. Keep authority, application, route/privacy and
+receipt-key callbacks current. Pegma retains its existing route hashes, `ic2`
+encoding and `pegma.dev.support-independent-checks.v2` MAC domain. RetireGolden
+binds its own logical host and retains separate stores, keys, funding pools and
+privacy/configuration evidence. See [the adapter contract](../packages/ai/README.md#optional-openrouter-adapter-source-candidate).
+
 ## Published 0.2.8 follow-up host guards
 
 The `0.2.8` source additions, retained by `0.2.9`, add optional `EngineeringMutationOptions`

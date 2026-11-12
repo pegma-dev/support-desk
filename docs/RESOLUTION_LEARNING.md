@@ -25,6 +25,10 @@ durable layout and producer prerequisites in the
 [SD-03 collection checkpoint](COLLECTIONS.md#sd-03-resolution-learning-layout-and-api-checkpoint).
 The base application has no KB or model-provider dependency.
 
+Unpublished `0.2.9` adds [opt-in staged draft delivery](#opt-in-staged-draft-delivery-029-candidate).
+Its complete Native host qualification under 50 D1 calls and 100 SQL parameters
+remains pending.
+
 ## Enrollment and working facts
 
 Learning is a separate opt-in from assistant answering.
@@ -314,6 +318,60 @@ authority. The exact-target and recovery contracts are exercised in
 [released-KB integration suite](../tests/resolution-learning-kb.test.ts).
 
 <a id="exact-review-intent-recovery-unpublished-022-candidate"></a>
+
+## Opt-in staged draft delivery (0.2.9 candidate)
+
+Set `deliveryMode: 'staged'` on `createSupportDeskLearning` to separate delivery
+work across physical invocations. Forward the exact SDK-owned
+`application.stagedResolutionLearningDelivery` object and its original own
+`prepare`, `write` and `complete` methods. If that capability is absent, copied,
+wrapped or changed, `processWork` returns `held` with
+`staged_delivery_unavailable` before a claim.
+Omitting `deliveryMode` retains inline delivery for existing structural ports.
+
+| Physical phase | Durable progress                                                                                                         | Coordinator result                                       |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| Candidate      | Existing model attempt and usage rules retain a private candidate.                                                       | `candidate`                                              |
+| Prepare        | Saves the immutable KB request and releases the claim atomically.                                                        | `pending` / `delivery` with `checkpoint: 'prepared'`     |
+| Write          | Rechecks current proof, performs the exact KB create/update and saves its historical acknowledgement with claim release. | `pending` / `delivery` with `checkpoint: 'acknowledged'` |
+| Complete       | Reads the current KB target/provenance, applies closing checks and conditionally completes Support Work.                 | `delivered` or `held`                                    |
+
+The optional `checkpoint` field extends the existing pending-delivery result.
+It attests durable App progress and claim release. The SDK makes no
+`model.generate` call in that checkpoint invocation. A custom `checks.check`
+port may perform paid external work
+under the caller's billing policy. The reference host's source composition
+defers independent checks to a separate invocation and uses receipt verification
+in delivery checkpoint phases. The marker establishes no universal cost budget.
+
+End the current physical invocation after each checkpoint and resume the same
+Work in a genuine later invocation with a fresh claim. The host owns bounded
+scheduling and opaque cursor/resume hints. Preserve the original Work deadline,
+request identity and generation-attempt limits. Unknown pending delivery omits
+the checkpoint field. An uncertain KB response can follow an accepted write.
+Recovery reuses the identical KB command/correlation IDs, original expected
+generation, payload and ordered source references so the existing KB receipt
+can recover that acceptance.
+
+Both staged and inline delivery recheck current Support/KB authority, Source
+contributors, target scope, validation requirements, configuration and independent
+policy/receipt. After late KB target readback, closing policy, receipt and
+configuration checks run again. The application retains opaque
+Ticket/Source/Work confirmation, claim/lease and deadline fences at its
+conditional write boundary. Callback observations expire with their owning
+application call. The [staged delivery suite](../tests/resolution-learning-delivery-stages.test.ts)
+exercises these phases and inline closing checks. Publication and complete
+Native Workers Free 50/100 qualification remain pending for this candidate.
+
+In staged mode, `reconcileSource` processes one unconfirmed durable destination
+per invocation and skips confirmed entries. After one exact KB retirement
+attempt, including an unknown ACK, it yields through the existing
+reconciliation result. A later physical invocation freshly observes KB and
+records verified retirement or unaffected publication for that destination.
+Final fresh retirement authority and Source-view reads remain required. This
+path retains separate retirement authority with generation OFF. Inline
+reconciliation keeps its existing bounded retries. The reconciliation result
+union is unchanged.
 
 ## Exact review intent recovery (0.2.2)
 

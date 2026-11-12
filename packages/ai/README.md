@@ -3,12 +3,28 @@
 The local synchronized source candidate is unpublished `0.2.9`. Engineering
 coordination selects optional application-owned model-planning/completion,
 proposal and dispatch observations while preserving fresh proof, authority,
-exact ACK recovery and the full fallback for older structural ports. No AI
-factory method is added. See the [candidate notes](../../docs/RELEASE_NOTES.md#029-engineering-worker-observations)
+exact ACK recovery and the full fallback for older structural ports. Engineering
+coordinator methods are unchanged. See the [candidate notes](../../docs/RELEASE_NOTES.md#029-engineering-worker-observations)
 and [worker contract](../../docs/ENGINEERING_EXPORT.md#candidate-029-worker-observations).
 Its internal Support application pin is exact `0.2.9`; external KB application/
 contracts remain exact verified public `0.1.6`. Candidate source does not
 qualify registry publication, a host's query/CPU budget or activation.
+
+The candidate also accepts `deliveryMode: 'staged'` in
+`createSupportDeskLearning`. Candidate generation, request preparation, KB
+write and completion run in separate physical invocations. Delivery checkpoints
+retain the existing `pending`/`delivery` result with optional
+`checkpoint: 'prepared' | 'acknowledged'`. Each checkpoint acknowledges durable
+App progress and claim release. The SDK makes no `model.generate` call in that
+checkpoint invocation.
+A custom `checks.check` port can perform paid external work under the host's
+billing policy. See [staged draft delivery](../../docs/RESOLUTION_LEARNING.md#opt-in-staged-draft-delivery-029-candidate).
+Current Native Workers Free qualification under 50 D1 calls and 100 SQL
+parameters remains pending.
+
+Staged `reconcileSource` also advances one unconfirmed durable destination per
+invocation. An exact retirement attempt yields to a later physical readback
+under fresh retirement authority. Its existing result union is unchanged.
 
 Optional, provider-neutral Support Desk answer, learning, engineering, and
 release follow-up coordination.
@@ -322,19 +338,28 @@ The unpublished source candidate exposes provider adapters through
 `@pegma/support-desk-ai/openrouter`. The AI root entry remains provider-neutral.
 The optional entry contains the bounded transport, purpose-isolated durable
 usage ledger and engineering/learning independent-check adapters ported from
-the tested Pegma reference host.
+the tested Pegma reference host. The AI manifest declares exact direct
+`zod@4.4.3` and `@pegma/storage-core@0.4.0` dependencies.
 
-Both independent-check constructors require the original options object and a
-second, immutable logical host argument. `pegma.dev` retains its existing route
-hashes, `ic2` receipt encoding and MAC domain. A different host has a separate
-route and MAC binding, including when its signing key bytes match. The
+`createSupportIndependentCheckModel(options, logicalHost)` and
+`createSupportIndependentChecks(options, logicalHost)` require the original
+options object and an explicit second logical host string from trusted
+composition. Its exact lowercase
+host value must match current route evidence. `pegma.dev` retains its existing
+route hashes, `ic2` receipt encoding and
+`pegma.dev.support-independent-checks.v2` MAC domain. RetireGolden binds its own
+logical host into its route hashes and MAC domain. Both hosts retain separate
+stores, keys, funding pools, current privacy/configuration evidence and
+activation decisions. The
 [focused fixtures](../../test/openrouter-fixtures.ts) exercise this API through
 actual SDK Source/Work reads; the [packed consumer](../../examples/ai/synthetic-ports.ts)
 checks its public declarations.
 
 Hosts supply current authority, purpose-specific route/privacy evidence,
 qualified token counting, credentials, receipt keys, bounded durable funding
-and retention. Importing the entry performs no network, Store, key or route
+and retention. Keep `authority.resolve`, `readRoute`, `readReceiptKey` and
+`application` callbacks current over the host's actual domain instances.
+Importing the entry performs no network, Store, key or route
 activity. Source-reading verifiers observe current domain state. The read-free
 SDK verifiers authenticate the exact receipt inside the SDK's existing current
 Source/Work/target/authority and conditional-commit boundary. Neither verifier
