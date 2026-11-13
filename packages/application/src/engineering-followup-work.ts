@@ -1490,8 +1490,10 @@ export function createEngineeringFollowupWorkServices(
         throw new TypeError("Historical restriction cannot change accounting");
       const hash = await fingerprint({ actorId, command });
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
-        const loaded = await load(command.ticketId);
-        const stored = await workAt(command);
+        const { loaded, stored } = await engineeringFollowupLoadMutation(
+          deps,
+          command,
+        );
         const work = stored.value;
         if (work.lastFinish?.fingerprint === hash) {
           authorize();

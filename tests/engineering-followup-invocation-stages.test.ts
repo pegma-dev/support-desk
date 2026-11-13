@@ -125,6 +125,132 @@ for (const [name, createStore] of engineeringFollowupStores) {
       expect((await f.work()).claim).toBeUndefined();
     });
 
+    it("starts all four finish points for deferred checks and replays the accepted retry exactly", async () => {
+      const observed = openingStore(createStore());
+      const f = await engineeringFollowupAiFixture(observed.store);
+      await f.prepareCandidate();
+      const access = f.state.authority.access;
+      const claim = await f.app.claimEngineeringFollowupWork(access, {
+        ...f.nextCommand(),
+        claimId: "finish-deferred-checks",
+      });
+      expect(claim).not.toBeNull();
+      const command = {
+        ...claim!.fence,
+        stepId: claim!.work.stepId!,
+        requestHash: claim!.work.requestHash!,
+        disposition: "retry" as const,
+        reason: "checks_deferred",
+      };
+      observed.arm(f.key);
+      const pending = f.app.finishEngineeringFollowupModel(access, command);
+      try {
+        await waitForFollowupHook(observed.barrier, pending);
+        expect(observed.started).toHaveLength(4);
+      } finally {
+        observed.disarm();
+        observed.barrier.release();
+        await pending;
+      }
+      const result = await pending;
+      const finished = await f.work();
+      expect(finished).toMatchObject({
+        status: "retry",
+        heldReason: "checks_deferred",
+        workGeneration: claim!.workGeneration + 1,
+        candidateHash: claim!.work.candidateHash,
+        candidate: claim!.work.candidate,
+        modelAttempts: claim!.work.modelAttempts,
+      });
+      expect(finished.claim).toBeUndefined();
+      expect(finished.leaseUntil).toBeUndefined();
+      expect(
+        await f.app.finishEngineeringFollowupModel(access, command),
+      ).toEqual(result);
+      expect(await f.work()).toEqual(finished);
+      expect(f.generate).not.toHaveBeenCalled();
+    });
+
+    it("does not overwrite Source withdrawal after the finish opening wave", async () => {
+      const observed = openingStore(createStore());
+      const f = await engineeringFollowupAiFixture(observed.store);
+      await f.prepareCandidate();
+      const access = f.state.authority.access;
+      const claim = await f.app.claimEngineeringFollowupWork(access, {
+        ...f.nextCommand(),
+        claimId: "finish-withdrawn-checks",
+      });
+      expect(claim).not.toBeNull();
+      observed.arm(f.key);
+      const pending = f.app.finishEngineeringFollowupModel(access, {
+        ...claim!.fence,
+        stepId: claim!.work.stepId!,
+        requestHash: claim!.work.requestHash!,
+        disposition: "retry",
+        reason: "checks_deferred",
+      });
+      const rejected = expect(pending).rejects.toThrow();
+      let withdrawn: Awaited<ReturnType<typeof f.work>> | undefined;
+      try {
+        await waitForFollowupHook(observed.barrier, pending);
+        expect(observed.started).toHaveLength(4);
+        await observed.complete.reached;
+        observed.disarm();
+        await f.app.withdrawEngineeringSource(engineeringFollowupStaff, {
+          ...f.command("withdraw-during-finish-opening-wave"),
+          reason: "privacy_withdrawal",
+        });
+        withdrawn = await f.work();
+      } finally {
+        observed.disarm();
+        observed.barrier.release();
+        await rejected;
+      }
+      expect(withdrawn).toMatchObject({ withdrawn: true, status: "held" });
+      expect(await f.work()).toEqual(withdrawn);
+      expect(f.generate).not.toHaveBeenCalled();
+    });
+
+    it.each(["role", "lease"] as const)(
+      "retains the current %s fence after the finish opening wave",
+      async (change) => {
+        const observed = openingStore(createStore());
+        const f = await engineeringFollowupAiFixture(observed.store);
+        await f.prepareCandidate();
+        const access = {
+          ...f.state.authority.access,
+          permissions: [...f.state.authority.access.permissions],
+        };
+        const claim = await f.app.claimEngineeringFollowupWork(access, {
+          ...f.nextCommand(),
+          claimId: "finish-current-" + change,
+        });
+        expect(claim).not.toBeNull();
+        const before = await f.work();
+        observed.arm(f.key);
+        const pending = f.app.finishEngineeringFollowupModel(access, {
+          ...claim!.fence,
+          stepId: claim!.work.stepId!,
+          requestHash: claim!.work.requestHash!,
+          disposition: "retry",
+          reason: "checks_deferred",
+        });
+        const rejected = expect(pending).rejects.toThrow();
+        try {
+          await waitForFollowupHook(observed.barrier, pending);
+          expect(observed.started).toHaveLength(4);
+          if (change === "role") access.permissions = [];
+          else f.advance(31_000);
+        } finally {
+          observed.disarm();
+          observed.barrier.release();
+          await rejected;
+        }
+        expect(await f.work()).toEqual(before);
+        expect(f.generate).not.toHaveBeenCalled();
+      },
+    );
+
     it("uses one actual App proof per mutation", async () => {
       const f = await engineeringFollowupAiFixture(createStore());
       const followup = createSupportDeskReleaseFollowup({
