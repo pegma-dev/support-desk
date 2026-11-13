@@ -4,9 +4,10 @@ This records the completed one-time npm name registration for `@pegma/support-de
 not a supported host installation or the synchronized release. The immutable
 registry application `0.1.1` lacks exports required by this newer AI source.
 Importing five local source tarballs proves only that isolated assembly.
-Hosts use the separately verified published five-package `0.2.8` release.
-Its optional AI package pins Knowledge Base application and contracts to
-exact `0.1.6`. The engineering review guard correction shipped in `0.2.3`;
+At the 2026-11-12 checkpoint, the supported host selection was the separately
+verified published five-package `0.2.8` release. Its optional AI package pinned
+Knowledge Base application and contracts to exact `0.1.6`. For current versions,
+see the [release status](RELEASING.md). The engineering review guard correction shipped in `0.2.3`;
 published `0.2.5` adds attachments and opt-in staged human learning reviews. Host adoption
 and activation have separate gates.
 [Publication receipt](RELEASING.md#verified-028-publication-2026-11-12) · [Engineering review guide](ENGINEERING_EXPORT.md)
