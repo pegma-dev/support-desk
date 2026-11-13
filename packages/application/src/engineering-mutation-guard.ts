@@ -7,16 +7,11 @@ export function engineeringMutationBoundary(
   options?: EngineeringMutationOptions,
 ) {
   if (options === undefined) return undefined;
-  fields(
-    options,
-    "Engineering mutation options",
-    [],
-    ["signal", "verifyBeforeCommit"],
-  );
+  fields(options, "Mutation options", [], ["signal", "verifyBeforeCommit"]);
   const signal = options.signal;
   const guard = options.verifyBeforeCommit;
   if (guard !== undefined && typeof guard !== "function")
-    throw new TypeError("Engineering mutation guard must be callable");
+    throw new TypeError("Mutation guard must be callable");
   if (
     signal !== undefined &&
     (signal === null ||
@@ -25,9 +20,8 @@ export function engineeringMutationBoundary(
       typeof signal.addEventListener !== "function" ||
       typeof signal.removeEventListener !== "function")
   )
-    throw new TypeError("Engineering mutation requires an AbortSignal");
-  const aborted = () =>
-    new DOMException("Engineering mutation aborted", "AbortError");
+    throw new TypeError("Mutation requires an AbortSignal");
+  const aborted = () => new DOMException("Mutation aborted", "AbortError");
   const ensure = (): void => {
     if (signal?.aborted) throw aborted();
   };
@@ -63,16 +57,12 @@ export function engineeringMutationBoundary(
         ensure();
         if (proof !== undefined) {
           if (typeof proof !== "function")
-            throw new SupportDeskConflictError(
-              "Engineering mutation proof is not current",
-            );
+            throw new SupportDeskConflictError("Mutation proof is not current");
           const current: unknown = proof();
           if (current !== true) {
             // Observe a malformed async return while refusing it synchronously.
             void Promise.resolve(current).catch(() => {});
-            throw new SupportDeskConflictError(
-              "Engineering mutation proof is not current",
-            );
+            throw new SupportDeskConflictError("Mutation proof is not current");
           }
         }
         ensure();

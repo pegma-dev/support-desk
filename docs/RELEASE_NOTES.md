@@ -66,7 +66,9 @@ and permanent assets. The Sessions `0.3.0` prerequisite is also public. Final
 site integration, complete host query/CPU acceptance, provider/privacy and
 requested-client qualification, and pilots remain pending.
 
-### Staff canned responses (Task 15 source addition)
+<a id="staff-canned-responses-task-15-source-addition"></a>
+
+### Staff canned responses (Task 15, published 0.2.9)
 
 The optional deployment-owned `cannedResponses` catalog supplies bounded,
 immutable plain-text versions for staff preview and explicit reply/note commands.

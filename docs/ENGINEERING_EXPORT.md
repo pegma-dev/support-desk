@@ -3,10 +3,12 @@
 SD-04's source merged in [PR #40](https://github.com/pegma-dev/support-desk/pull/40)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current synchronized release is `0.2.8`; see its
-[publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
-This handbook describes released contracts, explicitly marked source-candidate
-changes, and host responsibilities, not host activation. There is no runnable host recipe here. Scope comes from the
+The current verified synchronized release is `0.2.9`; see its
+[publication receipt](RELEASING.md#verified-029-publication-2026-11-13).
+Local source prepares unpublished `0.2.10`; see the
+[source handoff](RELEASING.md#source-version-0210). This handbook describes
+released engineering contracts and host responsibilities, not host activation.
+There is no runnable host recipe here. Scope comes from the
 [approved plan](KNOWLEDGE_AI_PLAN.md#bug-evaluation-routing-and-github-export)
 and the [collection checkpoint](COLLECTIONS.md#sd-04-engineering-layout-checkpoint).
 
@@ -27,9 +29,9 @@ the optional context, or uses its original sequential Source-validation/Work
 read fallback when the structural application port omits it. No observation
 crosses an external proof boundary, and accepted receipts still precede new
 proof reads. This adds no permission, cache, Store primitive or atomic-snapshot
-guarantee. The released AI package pins exact verified public KB
-application/contracts `0.1.6`; see the
-[current source dependency contract](RELEASING.md#source-version-029).
+guarantee. The published `0.2.7` AI package retains exact KB
+application/contracts `0.1.6`; current public `0.2.9` pins exact verified `0.1.8`.
+See the [publication receipt](RELEASING.md#verified-029-publication-2026-11-13).
 Hosts must measure the complete invocation, including their own authentication,
 proofs, limiter and closing checks; grouped reads do not establish a universal
 Workers query or CPU budget.
@@ -57,9 +59,9 @@ authorization and does not establish current policy or remote authority.
 
 <a id="candidate-029-worker-observations"></a>
 
-## Candidate 0.2.9 worker observations
+## Published 0.2.9 worker observations
 
-The unpublished source candidate adds optional application methods without
+Published `0.2.9` adds optional application methods without
 changing existing required methods or the AI coordinator's four entry points:
 
 | Application method                   | Callback contract                                                                                                                                                |
@@ -101,8 +103,8 @@ plan or a deployed host.
 
 ## 0.2.6: guarded engineering controls
 
-These controls are published and strictly verified in `0.2.6` and retained by
-the local unpublished `0.2.9` source candidate.
+These controls are published and strictly verified in `0.2.6`, retained by
+published `0.2.9` and the local unpublished `0.2.10` source candidate.
 The optional third `EngineeringMutationOptions` argument applies to
 `enrollEngineeringSource`, `submitEngineeringEvidence`,
 `selectEngineeringRepository`, `withdrawEngineeringSource`,

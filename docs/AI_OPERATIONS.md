@@ -1,8 +1,8 @@
 # Optional AI operations
 
 This runbook describes the merged SD-01 through SD-05 contracts assembled by
-the current verified published synchronized `0.2.8` release; see its
-[publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
+the current verified published synchronized `0.2.9` release; see its
+[publication receipt](RELEASING.md#verified-029-publication-2026-11-13).
 SDK publication does not establish production deployment, verified host data
 controls, or pilot acceptance. Use exact published artifacts and complete each
 host's own [upgrade rehearsal](UPGRADING.md).
@@ -16,10 +16,13 @@ usable with all optional AI capabilities disabled.
 Published `0.2.6` introduced final host guards and cancellation on seven
 engineering controls. Published `0.2.7` adds compatible approval observations
 and authorized engineering reads, retaining fresh proof and host authority.
-The current `0.2.8` tuple pins exact public KB application/contracts `0.1.6`.
-The unpublished `0.2.9` candidate now pins exact verified public KB `0.1.8`;
-its changed dependency graph requires fresh SDK qualification.
-The published `0.2.8` graph and earlier artifacts remain unchanged.
+The current `0.2.9` tuple pins exact public KB application/contracts `0.1.8`
+and passed strict registry and clean-consumer qualification. Local source
+prepares unpublished `0.2.10` with the same external KB pins; its guards need
+their own combined-source qualification and publication before adoption.
+See the [source handoff](RELEASING.md#source-version-0210). The historical
+[`0.2.8` receipt](RELEASING.md#verified-028-publication-2026-11-12) and its KB
+`0.1.6` graph remain unchanged.
 
 The `0.2.8` source additions retained in `0.2.9` add optional late host guards/cancellation to non-post
 follow-up controls and forwards staff reassessment guards. Reassessment may
@@ -29,10 +32,10 @@ ports keep the full legacy path. Use the existing
 current-browser/permission/deadline fence; a guard is read-only and does not
 replace SDK proof. Web posting retains its authorization/delivery guarantees
 and can use a per-attempt application-owned read observation with fresh opaque
-confirmations; the compatibility fallback remains. Keep hosts on
-the verified `0.2.8` tuple until the next release is published and qualified.
+confirmations; the compatibility fallback remains. Use the verified `0.2.9`
+tuple and qualify the host's actual composition separately.
 See the [published 0.2.8 contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards)
-and [current source handoff](RELEASING.md#source-version-029).
+and [current source handoff](RELEASING.md#source-version-0210).
 
 ## Controls and human fallback
 
@@ -95,7 +98,7 @@ retest Audit/receipt rows use ordinary capacity. Use explicit staff retry for
 eligible draftless held/expired work, reassessment for retained drafts, or local
 abandonment to release reservations. None clears parent privacy withdrawal.
 
-The unpublished `0.2.9` follow-up `invocationMode: 'staged'` separates durable
+Published `0.2.9` follow-up `invocationMode: 'staged'` separates durable
 not-called planning, one conditional generator attempt and fresh completion.
 Use deferred Work checks for their separate prepare, provider and receipt
 invocations. A received verdict carries no check receipt. Original attempt

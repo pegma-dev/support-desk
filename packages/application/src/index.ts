@@ -6455,7 +6455,7 @@ export function createSupportDeskApplication(options: {
               rows,
               partitionSizeWithAttachmentReserve(rows),
             )
-          : { actions: [], additionalRows: 0 };
+          : { actions: [], additionalRows: 0, atCommit: undefined };
       const newRows =
         (operation === "take_over" ? 2 : 3) +
         learningMutation.additionalRows +
@@ -6637,9 +6637,19 @@ export function createSupportDeskApplication(options: {
         if (!owns(ticket, customerSuccess.actorId))
           throw new SupportDeskNotFoundError();
         assertCurrent?.();
-        customerSuccess.authorize();
-        customerSuccess.mutation?.ensure();
       }
+      const currentLearningActions = learningConfirmation.atCommit?.();
+      if (
+        currentLearningActions !== undefined &&
+        currentLearningActions !== learningConfirmation.actions
+      )
+        actions.splice(
+          learningMutation.actions.length,
+          learningConfirmation.actions.length,
+          ...currentLearningActions,
+        );
+      customerSuccess?.authorize();
+      customerSuccess?.mutation?.ensure();
       if ((await records.transact(ticket.id, actions)).committed) {
         await safeProjectQueue(ticket.id);
         return updated;

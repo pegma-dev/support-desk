@@ -338,7 +338,9 @@ model validation requirements do not replace KB's actual guide requirements.
 Check-receipt and source-publication policy expiry also count elapsed time from
 the start of the invocation, including time spent awaiting verification ports.
 
-### Candidate scoped comparison evidence
+<a id="candidate-scoped-comparison-evidence"></a>
+
+### Published 0.2.9 scoped comparison evidence
 
 The published `0.2.9` OpenRouter controller requires genuine comparison
 evidence before signing a new-create check. Selection carries the actual
@@ -401,7 +403,7 @@ Support Work row; the optional recovery input is not caller authority and the
 App's ordinary two-argument verifier cannot grant this exception. If KB accepted
 but Support never retained its ACK, KB `0.1.8` has no read-only draft-write receipt
 lookup: the attempt stays unknown/held without a speculative create replay.
-This candidate adds no Native query/CPU or host activation qualification.
+SDK publication adds no Native query/CPU or host activation qualification.
 
 Successful independent checks permit private draft transfer without routine
 human pre-transfer approval. Staff approval applies to the **actual KB draft**
@@ -434,8 +436,9 @@ authority. The exact-target and recovery contracts are exercised in
 [released-KB integration suite](../tests/resolution-learning-kb.test.ts).
 
 <a id="exact-review-intent-recovery-unpublished-022-candidate"></a>
+<a id="opt-in-staged-draft-delivery-029-candidate"></a>
 
-## Opt-in staged draft delivery (0.2.9 candidate)
+## Opt-in staged draft delivery (published 0.2.9)
 
 Set `deliveryMode: 'staged'` on `createSupportDeskLearning` to separate delivery
 work across physical invocations. Forward the exact SDK-owned
@@ -476,8 +479,8 @@ configuration checks run again. The application retains opaque
 Ticket/Source/Work confirmation, claim/lease and deadline fences at its
 conditional write boundary. Callback observations expire with their owning
 application call. The [staged delivery suite](../tests/resolution-learning-delivery-stages.test.ts)
-exercises these phases and inline closing checks. Publication and complete
-Native Workers Free 50/100 qualification remain pending for this candidate.
+exercises these phases and inline closing checks. SDK publication is verified;
+complete host Native Workers Free 50/100 qualification remains pending.
 
 In staged mode, `reconcileSource` processes one unconfirmed durable destination
 per invocation and skips confirmed entries. After one exact KB retirement

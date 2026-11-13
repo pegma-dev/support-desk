@@ -57,44 +57,141 @@ function successTransaction(trace: {
 
 for (const [backend, createStore] of learningStores) {
   describe(`customer success current mutation guard (${backend})`, () => {
-    it.each(["revoked session", "expired entitlement"] as const)(
-      "refuses %s observed after the real product await without committing confirmation, Source or Work",
-      async () => {
-        const gate = handlingBarrier();
-        let f!: Fixture;
-        f = resolutionLearningFixture(createStore(), {
-          resolutionLearning: {
-            productContext: {
-              async resolve(context) {
-                await gate.wait();
-                return f.trust.productFor(context);
-              },
-            },
+    it.each([
+      ["guard", 60_000, true],
+      ["guard", 60_001, false],
+      ["assertion", 60_001, false],
+    ] as const)(
+      "proof freshness preserves human confirmation after %s advances %ims, with eligible learning=%s",
+      async (when, elapsed, eligible) => {
+        const f = resolutionLearningFixture(createStore());
+        const input = await packet(f);
+        const result = await f.app.confirmCustomerSuccess(customer, input, {
+          async verifyBeforeCommit() {
+            if (when === "guard") f.advance(elapsed);
+            return (): true => {
+              if (when === "assertion") f.advance(elapsed);
+              return true;
+            };
           },
         });
-        const input = await packet(f);
-        const before = await f.rows();
-        let current = true;
-        const guard = vi.fn(async () => {
-          if (!current)
-            throw new Error("Current browser authority unavailable");
-          return (): true => true;
-        });
-        const pending = caught(
-          f.app.confirmCustomerSuccess(customer, input, {
-            verifyBeforeCommit: guard,
-          }),
-        );
-        await reached(gate, pending);
-        expect(guard).not.toHaveBeenCalled();
-        current = false;
-        gate.release();
-        const result = await pending;
-        expect(await f.rows()).toEqual(before);
-        expect(result).toHaveProperty("error");
-        expect(guard).toHaveBeenCalledOnce();
+        expect(result.ticket.status).toBe("resolved");
+        const source = await f.source();
+        expect(source.state).toBe(eligible ? "eligible" : "held");
+        if (!eligible)
+          expect(source.heldReason).toBe("product_context_unverified");
+        const rows = await f.rows();
+        expect(
+          rows.filter((row) => row.kind === "customer_success"),
+        ).toHaveLength(1);
+        expect(
+          rows.filter((row) => row.kind === "resolution_learning_work"),
+        ).toHaveLength(eligible ? 1 : 0);
       },
     );
+
+    it("proof freshness selects a new product plan after a genuine Ticket CAS conflict", async () => {
+      const f = resolutionLearningFixture(createStore());
+      const input = await packet(f);
+      let guards = 0;
+      let conflicted = false;
+      f.observed.intercept(async (trace, commit) => {
+        if (!conflicted && successTransaction(trace)) {
+          const source = trace.actions.find(
+            (action) =>
+              action.action !== "delete" &&
+              (action.value as SupportRecord)?.kind ===
+                "resolution_learning_source",
+          );
+          expect(
+            source && source.action !== "delete" && source.value,
+          ).toMatchObject({ state: "held" });
+          expect(
+            trace.actions.some(
+              (action) =>
+                action.action !== "delete" &&
+                (action.value as SupportRecord)?.kind ===
+                  "resolution_learning_work",
+            ),
+          ).toBe(false);
+          conflicted = true;
+          await f.app.addNote(staff, {
+            ...f.command("freshness-conflict"),
+            messageId: "freshness-note",
+            body: "A real concurrent note changes the Ticket version.",
+          });
+        }
+        return commit();
+      });
+      await f.app.confirmCustomerSuccess(customer, input, {
+        async verifyBeforeCommit() {
+          if (++guards === 1) f.advance(60_001);
+          return (): true => true;
+        },
+      });
+      f.observed.intercept(undefined);
+      expect(conflicted).toBe(true);
+      expect(guards).toBe(2);
+      expect(f.trust.productCalls).toHaveLength(2);
+      expect((await f.source()).state).toBe("eligible");
+      expect(
+        (await f.rows()).filter(
+          (row) => row.kind === "resolution_learning_work",
+        ),
+      ).toHaveLength(1);
+    });
+
+    it("observes cancellation triggered by the final literal-true assertion before any transaction", async () => {
+      const f = resolutionLearningFixture(createStore());
+      const input = await packet(f);
+      const before = await f.rows();
+      const controller = new AbortController();
+      await expect(
+        f.app.confirmCustomerSuccess(customer, input, {
+          signal: controller.signal,
+          verifyBeforeCommit: async () => (): true => {
+            controller.abort();
+            return true;
+          },
+        }),
+      ).rejects.toMatchObject({ name: "AbortError" });
+      expect(await f.rows()).toEqual(before);
+    });
+
+    it("refuses current host authority denied after the real product await without committing confirmation, Source or Work", async () => {
+      const gate = handlingBarrier();
+      let f!: Fixture;
+      f = resolutionLearningFixture(createStore(), {
+        resolutionLearning: {
+          productContext: {
+            async resolve(context) {
+              await gate.wait();
+              return f.trust.productFor(context);
+            },
+          },
+        },
+      });
+      const input = await packet(f);
+      const before = await f.rows();
+      let current = true;
+      const guard = vi.fn(async () => {
+        if (!current) throw new Error("Current browser authority unavailable");
+        return (): true => true;
+      });
+      const pending = caught(
+        f.app.confirmCustomerSuccess(customer, input, {
+          verifyBeforeCommit: guard,
+        }),
+      );
+      await reached(gate, pending);
+      expect(guard).not.toHaveBeenCalled();
+      current = false;
+      gate.release();
+      const result = await pending;
+      expect(await f.rows()).toEqual(before);
+      expect(result).toHaveProperty("error");
+      expect(guard).toHaveBeenCalledOnce();
+    });
 
     it("rechecks an original permission changed during product verification even for legacy calls", async () => {
       const access = { ...customer, permissions: [...customer.permissions] };
@@ -398,6 +495,7 @@ for (const [backend, createStore] of learningStores) {
       ).rejects.toThrow("Lost accepted");
       f.observed.intercept(undefined);
       const acceptedRows = await f.rows();
+      f.advance(60_001);
       const guard = vi.fn(async () => {
         throw new Error("Obsolete host mutation proof must not run");
       });

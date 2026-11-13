@@ -19,6 +19,7 @@ type Fixture = ReturnType<typeof resolutionLearningFixture>;
 async function packet(
   f: Fixture,
   kind: "successful_test" | "staff_verified_fix" = "successful_test",
+  testLifetimeMilliseconds = 60_000,
 ): Promise<SubmitResolutionEvidenceCommand> {
   const terminal = await f.terminal();
   const trust = {
@@ -29,10 +30,18 @@ async function packet(
     actorId: staff.principalId,
     acceptedAt: f.clock.now(),
   };
-  f.trust.issueTest("verified-run", {
-    ...trust,
-    product: f.trust.productFor(trust),
-  });
+  f.trust.issueTest(
+    "verified-run",
+    {
+      ...trust,
+      product: f.trust.productFor(trust),
+    },
+    {
+      validUntil: new Date(
+        Date.parse(f.clock.now()) + testLifetimeMilliseconds,
+      ).toISOString(),
+    },
+  );
   return {
     ...f.command("guarded-evidence"),
     expectedRevision: terminal.ticket.revision,
@@ -83,44 +92,192 @@ function evidenceTransaction(trace: {
 
 for (const [backend, createStore] of learningStores) {
   describe(`resolution evidence current mutation guard (${backend})`, () => {
-    it.each(["revoked session", "expired entitlement"] as const)(
-      "refuses %s after the real test-receipt await without changing Source, Work, Audit or receipt",
-      async () => {
-        const gate = handlingBarrier();
-        let f!: Fixture;
-        f = resolutionLearningFixture(createStore(), {
-          resolutionLearning: {
-            testReceipts: {
-              async verify(...args) {
-                await gate.wait();
-                return f.learningOptions.testReceipts!.verify(...args);
-              },
-            },
+    it.each([
+      ["product", "guard", 60_001, false],
+      ["product", "assertion", 60_001, false],
+      ["test", "guard", 60_001, false],
+      ["test", "assertion", 60_001, false],
+      ["both", "guard", 60_000, true],
+      ["both", "assertion", 60_000, true],
+    ] as const)(
+      "proof freshness selects %s after %s advances %ims, with eligible learning=%s",
+      async (proof, when, elapsed, eligible) => {
+        const f = resolutionLearningFixture(createStore());
+        f.trust.setProduct({
+          validUntil: new Date(
+            Date.parse(f.clock.now()) + (proof === "test" ? 120_000 : 60_000),
+          ).toISOString(),
+        });
+        const input = await packet(
+          f,
+          "successful_test",
+          proof === "product" ? 120_000 : 60_000,
+        );
+        const result = await f.app.submitResolutionEvidence(staff, input, {
+          async verifyBeforeCommit() {
+            if (when === "guard") f.advance(elapsed);
+            return (): true => {
+              if (when === "assertion") f.advance(elapsed);
+              return true;
+            };
           },
         });
-        const input = await packet(f);
-        const before = await f.rows();
-        let current = true;
-        const guard = vi.fn(async () => {
-          if (!current) throw new Error("Current browser authority lost");
-          return (): true => true;
-        });
-        const pending = caught(
-          f.app.submitResolutionEvidence(staff, input, {
-            verifyBeforeCommit: guard,
-          }),
-        );
-        await reached(gate, pending);
-        expect(guard).not.toHaveBeenCalled();
-        current = false;
-        gate.release();
-        const result = await pending;
-        expect(await f.rows()).toEqual(before);
-        expect(result).toHaveProperty("error");
-        expect(guard).toHaveBeenCalledOnce();
-        expect(f.trust.testCalls).toHaveLength(1);
+        expect(result.state).toBe(eligible ? "eligible" : "held");
+        if (!eligible)
+          expect((await f.source()).heldReason).toBe(
+            proof === "product"
+              ? "product_context_unverified"
+              : "test_receipt_unverified",
+          );
+        expect(
+          (await f.rows()).filter(
+            (row) => row.kind === "resolution_learning_work",
+          ),
+        ).toHaveLength(eligible ? 1 : 0);
       },
     );
+
+    it("proof freshness holds a staff-verified fix when its product expires during the guard", async () => {
+      const f = resolutionLearningFixture(createStore());
+      const input = await packet(f, "staff_verified_fix");
+      expect(
+        await f.app.submitResolutionEvidence(staff, input, {
+          async verifyBeforeCommit() {
+            f.advance(60_001);
+            return (): true => true;
+          },
+        }),
+      ).toMatchObject({ state: "held" });
+      expect((await f.source()).heldReason).toBe("product_context_unverified");
+      expect(
+        (await f.rows()).filter(
+          (row) => row.kind === "resolution_learning_work",
+        ),
+      ).toHaveLength(0);
+    });
+
+    it("proof freshness rebuilds product and test plans after a genuine Source CAS conflict", async () => {
+      let f!: Fixture;
+      let verifications = 0;
+      f = resolutionLearningFixture(createStore(), {
+        resolutionLearning: {
+          testReceipts: {
+            async verify(receipt, context, signal) {
+              if (++verifications > 1) f.trust.issueTest(receipt, context);
+              return f.learningOptions.testReceipts!.verify(
+                receipt,
+                context,
+                signal,
+              );
+            },
+          },
+        },
+      });
+      const input = await packet(f);
+      let guards = 0,
+        conflicted = false;
+      f.observed.intercept(async (trace, commit) => {
+        if (!conflicted && evidenceTransaction(trace)) {
+          const source = trace.actions.find(
+            (action) =>
+              action.action !== "delete" &&
+              (action.value as SupportRecord)?.kind ===
+                "resolution_learning_source",
+          );
+          expect(
+            source && source.action !== "delete" && source.value,
+          ).toMatchObject({ state: "held" });
+          expect(
+            trace.actions.some(
+              (action) =>
+                action.action !== "delete" &&
+                (action.value as SupportRecord)?.kind ===
+                  "resolution_learning_work",
+            ),
+          ).toBe(false);
+          const records = f.backing.collection(supportRecords);
+          const row = await records.getVersioned({
+            partition: input.ticketId,
+            id: "learning-source",
+          });
+          if (row?.value.kind !== "resolution_learning_source")
+            throw new Error("Real Source missing");
+          conflicted = await records.putIfUnchanged(row.value, row.version);
+        }
+        return commit();
+      });
+      expect(
+        await f.app.submitResolutionEvidence(staff, input, {
+          async verifyBeforeCommit() {
+            if (++guards === 1) f.advance(60_001);
+            return (): true => true;
+          },
+        }),
+      ).toMatchObject({ state: "eligible" });
+      f.observed.intercept(undefined);
+      expect(conflicted).toBe(true);
+      expect(guards).toBe(2);
+      expect(f.trust.productCalls).toHaveLength(2);
+      expect(verifications).toBe(2);
+      expect(
+        (await f.rows()).filter(
+          (row) => row.kind === "resolution_learning_work",
+        ),
+      ).toHaveLength(1);
+    });
+
+    it("observes cancellation triggered by the final literal-true assertion before any transaction", async () => {
+      const f = resolutionLearningFixture(createStore());
+      const input = await packet(f);
+      const before = await f.rows();
+      const controller = new AbortController();
+      await expect(
+        f.app.submitResolutionEvidence(staff, input, {
+          signal: controller.signal,
+          verifyBeforeCommit: async () => (): true => {
+            controller.abort();
+            return true;
+          },
+        }),
+      ).rejects.toMatchObject({ name: "AbortError" });
+      expect(await f.rows()).toEqual(before);
+    });
+
+    it("refuses current host authority denied after the real test-receipt await without changing Source, Work, Audit or receipt", async () => {
+      const gate = handlingBarrier();
+      let f!: Fixture;
+      f = resolutionLearningFixture(createStore(), {
+        resolutionLearning: {
+          testReceipts: {
+            async verify(...args) {
+              await gate.wait();
+              return f.learningOptions.testReceipts!.verify(...args);
+            },
+          },
+        },
+      });
+      const input = await packet(f);
+      const before = await f.rows();
+      let current = true;
+      const guard = vi.fn(async () => {
+        if (!current) throw new Error("Current browser authority lost");
+        return (): true => true;
+      });
+      const pending = caught(
+        f.app.submitResolutionEvidence(staff, input, {
+          verifyBeforeCommit: guard,
+        }),
+      );
+      await reached(gate, pending);
+      expect(guard).not.toHaveBeenCalled();
+      current = false;
+      gate.release();
+      const result = await pending;
+      expect(await f.rows()).toEqual(before);
+      expect(result).toHaveProperty("error");
+      expect(guard).toHaveBeenCalledOnce();
+      expect(f.trust.testCalls).toHaveLength(1);
+    });
 
     it("fences staff verification after the real product await too", async () => {
       const gate = handlingBarrier();
@@ -443,6 +600,7 @@ for (const [backend, createStore] of learningStores) {
       ).rejects.toThrow("Lost accepted");
       f.observed.intercept(undefined);
       const accepted = await f.rows();
+      f.advance(60_001);
       const guard = vi.fn(async () => {
         throw new Error("Obsolete guard must not run");
       });

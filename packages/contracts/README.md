@@ -1,19 +1,20 @@
 # @pegma/support-desk-contracts
 
-The local synchronized source version is `0.2.9`. See the
-[release notes](../../docs/RELEASE_NOTES.md#029-engineering-worker-observations)
+The local synchronized source version is unpublished `0.2.10`. See the
+[source handoff](../../docs/RELEASING.md#source-version-0210),
+[release notes](../../docs/RELEASE_NOTES.md#0210-final-success-evidence-guards)
 and [engineering read phases](../../docs/ENGINEERING_EXPORT.md#entry-points-and-authority). This package adds no new runtime API.
 
-The current verified synchronized registry release is `0.2.8`; see the
-[publication receipt](../../docs/RELEASING.md#verified-028-publication-2026-11-12).
-The synchronized `0.2.8` release includes the
+The current verified synchronized registry release is `0.2.9`; see the
+[publication receipt](../../docs/RELEASING.md#verified-029-publication-2026-11-13).
+The synchronized `0.2.9` release includes the
 [application/AI additions](../../docs/RELEASE_NOTES.md). Host adoption retains
 its own composition and activation gates.
 
 Provider-neutral ticket, requester, message, and event contracts shared by
 Support Desk packages and host applications.
 
-The Task 15 source addition defines `CannedResponseDefinition` and
+Task 15, published in `0.2.9`, defines `CannedResponseDefinition` and
 `CannedResponseSelection` for deployment-owned staff reply/note templates.
 These are configuration/command contracts, not new stored ticket fields or
 customer DTOs. See the [composition contract](../../docs/HOST_COMPOSITION.md#staff-canned-responses-task-15-source-candidate).
@@ -59,6 +60,6 @@ checks permissions/ownership and current visible-message proof, commits
 Audit/receipts/work, and keeps private handling generations and evidence out
 of customer DTOs. Core performs pure transitions and validates its handling
 inputs. These changes first shipped in verified synchronized `0.2.0` and remain
-in current `0.2.8`, with no model or KB dependency. See the current
-[publication receipt](../../docs/RELEASING.md#verified-028-publication-2026-11-12);
+in current public `0.2.9`, with no model or KB dependency. See the current
+[publication receipt](../../docs/RELEASING.md#verified-029-publication-2026-11-13);
 host activation retains its own acceptance gates.

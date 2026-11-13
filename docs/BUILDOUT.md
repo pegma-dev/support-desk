@@ -650,9 +650,9 @@ P-00, KB-01 through KB-04, AUTH-01, SD-01, partial KB-05 source preparation
 ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and both producers'
 final release preparation are already merged. The
 [standalone authoring recipe](HOST_COMPOSITION.md#kb-authoring-producers)
-selects the four strictly verified KB `0.1.6` packages and verified Agent
-Access `0.1.1`. Support Desk's current synchronized `0.2.8` release is published and strictly
-verified; see the [publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
+selects the four strictly verified KB `0.1.8` packages and verified Agent
+Access `0.1.1`. Support Desk's current synchronized `0.2.9` release is published and strictly
+verified; see the [publication receipt](RELEASING.md#verified-029-publication-2026-11-13).
 Follow its [coordination checkpoint](ASSISTANT_COORDINATION.md).
 PG-01/RG-01 consume both exact verified published producers and retain actual two-host
 existing-login/Admin consent and requested-client acceptance before activation
@@ -724,7 +724,9 @@ The initial buildout is complete only when:
 
 The additive attachment slice is published in `0.2.5`. Host adoption retains its storage, scanner, retention and deployment acceptance gates. See [ATTACHMENTS.md](./ATTACHMENTS.md) for the host blob port, bounds, transactional metadata, scan callback, download gates, deletion and worker contracts. Inbound attachments remain explicitly dropped. Task 12 still awaits host production evidence.
 
-## Task 15 — staff canned responses and one-message macros: source candidate
+<a id="task-15--staff-canned-responses-and-one-message-macros-source-candidate"></a>
+
+## Task 15 — staff canned responses and one-message macros: published 0.2.9
 
 The host supplies at most 64 immutable, versioned plain-text response definitions.
 Staff list only definitions permitted for their reply/note target, preview literal
@@ -739,7 +741,8 @@ Memory and Azurite public-entry tests cover authorization, validation, replay,
 concurrency, atomic failure recovery and the internal-note boundary. The runnable
 composition demonstrates separate preview and staff send. See
 [host composition](HOST_COMPOSITION.md#staff-canned-responses-task-15-source-candidate).
-This source addition changes no package versions or collection layouts.
+This API is included in published `0.2.9` and adds no package or collection layout.
+Host adoption retains its own acceptance gates.
 
 Open questions for later tasks: durable administrator authoring/activation and
 multi-action macros need a reviewed version-retention/approval model. This slice

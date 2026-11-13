@@ -35,7 +35,16 @@ Forward the optional third argument on `confirmCustomerSuccess` and
 `signal?: AbortSignal` and a read-only `verifyBeforeCommit` callback that may
 return a synchronous literal-true assertion. See the
 [exact declarations and commit/recovery contract](RESOLUTION_LEARNING.md#final-human-success-and-evidence-guards-0210).
-Return types and existing two-argument calls remain unchanged.
+Existing two-argument signatures and return types remain supported.
+
+Current-authority checks also govern acknowledgements. `confirmCustomerSuccess` rechecks current
+authority before and after its post-commit customer-view read, including for
+two-argument callers. If access changes during that read, the SDK can refuse
+the view and surface an error after the confirmation transaction was accepted.
+That error does not roll back the accepted transaction or prove the command
+failed. Retain the exact original command and retry receipt recovery only with
+restored/current access and the required customer ownership; do not issue a
+replacement command to explain the missing acknowledgement.
 
 Supply the original browser/entitlement guard for new host mutations, after
 body admission. The SDK awaits it after asynchronous proof/planning, freshly

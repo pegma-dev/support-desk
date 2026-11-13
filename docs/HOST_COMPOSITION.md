@@ -12,7 +12,7 @@ See also the runnable example at
 
 ## Published 0.2.6 guarded engineering controls
 
-The current verified registry tuple is `0.2.8`. The local synchronized `0.2.9`
+The current verified registry tuple is `0.2.9`. The local synchronized `0.2.10`
 source candidate remains unpublished and retains these guarded controls.
 Candidate metadata or a local pack does not qualify host adoption. Published
 `0.2.6` adds an optional third
@@ -32,12 +32,15 @@ to approval guards, with lazy authorized reads and a legacy standalone-read
 fallback. It does not extend that observation to all seven controls. See the
 [approval contract](ENGINEERING_EXPORT.md#candidate-027-approval-observation).
 Its optional AI package pins exact verified public KB application/contracts
-`0.1.6`. The unpublished `0.2.9` candidate instead pins exact verified public KB
-application/contracts `0.1.8` and requires fresh graph qualification. The `0.2.8` source additions retained in `0.2.9` add late host controls to the separate non-post follow-up methods and
+`0.1.6`. Published `0.2.9` instead pins exact verified public KB
+application/contracts `0.1.8`; that graph passed strict registry and clean-consumer
+qualification. Source preparation for `0.2.10` retains those external pins and
+requires its own release qualification. The `0.2.8` controls retained in `0.2.9`
+add late host controls to the separate non-post follow-up methods and
 optional callback-scoped reassessment/post read observations; see
 the [published 0.2.8 follow-up contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
 Qualify the complete published consumer graph for the host; the candidate
-remains unpublished. See the [source handoff](RELEASING.md#source-version-029).
+remains unpublished. See the [source handoff](RELEASING.md#source-version-0210).
 
 Options use a plain object with the two named, enumerable own data fields.
 Unknown keys, accessors and inherited options fail validation. The optional
@@ -77,9 +80,11 @@ request budget and qualifies its deployment separately.
 
 ## Public packages
 
-This guide describes the verified published synchronized `0.2.8` release.
-Use exact `0.2.8` for the five Support Desk packages, including optional AI; see
-the [publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
+This guide describes the verified published synchronized `0.2.9` release.
+Use exact `0.2.9` for the five Support Desk packages, including optional AI; see
+the [publication receipt](RELEASING.md#verified-029-publication-2026-11-13).
+The historical [`0.2.8` receipt](RELEASING.md#verified-028-publication-2026-11-12)
+retains its original dependency graph and artifacts.
 It retains the attachments and opt-in staged human learning reviews published
 in `0.2.5`. Host composition and activation retain their own acceptance gates.
 SD-01 through SD-05 first shipped in the
@@ -145,13 +150,13 @@ recorded synthetic KB protocol proof used four packed KB packages with registry
 `@pegma/agent-access@0.1.1`.
 
 The KB-05 publication prerequisite for SD-02 is closed. The optional AI package
-in the verified `0.2.8` tuple uses exact KB application/contracts `0.1.6`
-dependencies. The unpublished `0.2.9` candidate pins verified public `0.1.8`
-and requires its own fresh graph qualification. The base application has no KB
+in the verified `0.2.9` tuple uses exact KB application/contracts `0.1.8`
+dependencies. The unpublished `0.2.10` candidate retains those external pins
+and requires its own release qualification. The base application has no KB
 or provider dependency. SD-02 source passed validation/review and merged in
 [PR #38](https://github.com/pegma-dev/support-desk/pull/38);
 that behavior first shipped in verified synchronized `0.2.0` and remains in
-current `0.2.8`, whose publication receipt is linked above. Host acceptance remains required. Do not substitute branches, copied source,
+current public `0.2.9`, whose publication receipt is linked above. Host acceptance remains required. Do not substitute branches, copied source,
 local paths, or unpublished tarballs for production dependencies.
 
 SD-03's atomic-provenance prerequisite is the verified trusted
@@ -172,9 +177,11 @@ added shared test reports and staff confirmation. Its signed source is
 passed on release run 42533473529, attempt 5. That release remains historical
 evidence.
 
-#### Standalone authoring with published Support Desk 0.2.8
+<a id="standalone-authoring-with-published-support-desk-028"></a>
 
-For standalone authoring alongside published Support Desk `0.2.8`, compose these
+#### Historical standalone authoring with Support Desk 0.2.8
+
+The historical standalone authoring recipe alongside Support Desk `0.2.8` used these
 exact packages. The optional AI package directly requires KB application/contracts;
 MCP and Agent Access belong to the standalone authoring host.
 
@@ -189,7 +196,9 @@ against signed source `b2946e149078e0ef460f970c2271c196ea9fc759`. Each host
 qualifies its installed dependency graph, permissions and actual client flows.
 [Knowledge Base release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6) · [Registry verification receipt](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.6/registry-verification.json)
 
-The unpublished Support Desk `0.2.9` candidate instead selects exact verified
+#### Standalone authoring with published Support Desk 0.2.9
+
+Published Support Desk `0.2.9` selects exact verified
 public KB application/contracts `0.1.8`; standalone authoring aligns contracts,
 core, application and MCP at `0.1.8`, with Agent Access unchanged at `0.1.1`.
 All four KB packages passed strict public verification from signed source
@@ -218,8 +227,8 @@ own dependency pins. The AI package's immutable
 pins `@pegma/knowledge-base-application@0.1.2` and
 `@pegma/knowledge-base-contracts@0.1.2`. Adding a newer standalone SDK does not
 replace those dependencies or establish mixed-version host acceptance. The
-current verified AI `0.2.8` manifest explicitly pins KB application/contracts
-`0.1.6`; hosts must adopt and qualify that coherent graph separately.
+current verified AI `0.2.9` manifest explicitly pins KB application/contracts
+`0.1.8`; hosts must adopt and qualify that coherent graph separately.
 
 #### Qualified storage adapters
 
@@ -387,10 +396,12 @@ Tags, due timestamps, and milestones never enter customer DTOs or automatic
 customer mail projections. Hosts must keep these fields out of customer
 notification variables and template bodies as well.
 
-## Staff canned responses (Task 15 source candidate)
+<a id="staff-canned-responses-task-15-source-candidate"></a>
 
-This API is an unpublished source addition to the existing candidate, with no
-version change. Adopt only after a verified public release and host acceptance.
+## Staff canned responses (Task 15, published 0.2.9)
+
+This API is included in verified public `0.2.9`. Host adoption still requires
+the host's own acceptance; no additional package or collection is introduced.
 The host supplies `cannedResponses` when constructing the application:
 
 ```ts
@@ -579,12 +590,12 @@ refused; missing or inactive hints can still leave a temporary repair gap.
 
 SD-01 includes no AI provider, knowledge retrieval, learning, or publication.
 Keep model activation disabled until the host gates pass. This composition
-uses the verified KB `0.1.6` set and Agent Access `0.1.1` listed above.
+uses the verified KB `0.1.8` set and Agent Access `0.1.1` listed above.
 SD-02's producer publication prerequisite is complete. Its optional coordinator source is
 merged after validation/review, as are SD-03 through SD-05. They first shipped
-in verified synchronized `0.2.0` and remain in current `0.2.8`, whose publication
+in verified synchronized `0.2.0` and remain in current public `0.2.9`, whose publication
 receipt is linked above. The current AI consumer pins exact KB application/
-contracts `0.1.6`; the earlier `0.2.1`/KB `0.1.2` manifests remain immutable. Actual two-host
+contracts `0.1.8`; the earlier `0.2.1`/KB `0.1.2` manifests remain immutable. Actual two-host
 login/client, privacy, operations, Task 12,
 full-workflow, and pilot evidence remain separate gates.
 

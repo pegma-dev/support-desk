@@ -1,18 +1,26 @@
 # @pegma/support-desk-ai
 
-The local synchronized source candidate is unpublished `0.2.9`. Engineering
-coordination selects optional application-owned model-planning/completion,
+The local synchronized source candidate is unpublished `0.2.10`. Its internal
+Support application pin is exact `0.2.10`; external KB application/contracts
+retain exact verified public `0.1.8`. See the
+[source handoff](../../docs/RELEASING.md#source-version-0210) and
+[guard upgrade guidance](../../docs/UPGRADING.md#0210-final-success-and-evidence-guards).
+Candidate source requires its own release qualification and publication before
+production adoption.
+
+Published `0.2.9` engineering coordination selects optional application-owned model-planning/completion,
 proposal and dispatch observations while preserving fresh proof, authority,
 exact ACK recovery and the full fallback for older structural ports. Engineering
-coordinator methods are unchanged. See the [candidate notes](../../docs/RELEASE_NOTES.md#029-engineering-worker-observations)
+coordinator methods are unchanged. See the [release notes](../../docs/RELEASE_NOTES.md#029-engineering-worker-observations)
 and [worker contract](../../docs/ENGINEERING_EXPORT.md#candidate-029-worker-observations).
-Its internal Support application pin is exact `0.2.9`; external KB application/
-contracts now pin exact verified public `0.1.8`; see its
+The published `0.2.9` AI package pins its internal Support application at `0.2.9`
+and exact public KB application/contracts `0.1.8`; see KB's
 [strict registry verification](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.8/registry-verification.json).
-The changed SDK candidate graph requires fresh qualification. Published Support Desk `0.2.8` retains KB `0.1.6`. Candidate source does not
-qualify registry publication, a host's query/CPU budget or activation.
+That published graph passed strict registry and clean-consumer qualification.
+Historical Support Desk `0.2.8` retains KB `0.1.6`. SDK qualification does not
+establish a host's query/CPU budget or activation.
 
-The candidate also accepts `deliveryMode: 'staged'` in
+Published `0.2.9` also accepts `deliveryMode: 'staged'` in
 `createSupportDeskLearning`. Candidate generation, request preparation, KB
 write and completion run in separate physical invocations. Delivery checkpoints
 retain the existing `pending`/`delivery` result with optional
@@ -28,7 +36,7 @@ Staged `reconcileSource` also advances one unconfirmed durable destination per
 invocation. An exact retirement attempt yields to a later physical readback
 under fresh retirement authority. Its existing result union is unchanged.
 
-The unpublished candidate also adds `invocationMode: 'staged'` to release
+Published `0.2.9` also adds `invocationMode: 'staged'` to release
 follow-up coordination. Durable model planning, one provider attempt and fresh
 completion use separate physical invocations. Work checks can separately opt
 into deferred preparation, paid precompute and fresh receipt completion. See
@@ -36,10 +44,12 @@ the [follow-up invocation contract](../../docs/ENGINEERING_FOLLOWUP.md#candidate
 
 Optional, provider-neutral Support Desk answer, learning, engineering, and
 release follow-up coordination.
-The current verified published synchronized release is `0.2.8`;
-see the [publication receipt](../../docs/RELEASING.md#verified-028-publication-2026-11-12).
-Its exact internal Support application pin is `0.2.8`; external KB application
-and contracts pins are exact `0.1.6`. Host activation and whole-invocation/CPU
+The current verified published synchronized release is `0.2.9`;
+see the [publication receipt](../../docs/RELEASING.md#verified-029-publication-2026-11-13).
+Its exact internal Support application pin is `0.2.9`; external KB application
+and contracts pins are exact `0.1.8`. The earlier
+[`0.2.8` receipt](../../docs/RELEASING.md#verified-028-publication-2026-11-12)
+retains its original KB `0.1.6` graph. Host activation and whole-invocation/CPU
 acceptance retain separate gates. The published `0.2.1`/KB `0.1.2` artifacts
 and their original receipts remain immutable.
 
@@ -340,9 +350,11 @@ evaluations, complete-workflow acceptance, and supervised pilots remain their
 separate activation gates. Provider SDKs, credentials, model selection, HTTP,
 customer UI, schedulers, and operational content logging remain host work.
 
-## Optional OpenRouter adapter source candidate
+<a id="optional-openrouter-adapter-source-candidate"></a>
 
-The unpublished source candidate exposes provider adapters through
+## Optional OpenRouter adapter (published 0.2.9)
+
+Published `0.2.9` exposes provider adapters through
 `@pegma/support-desk-ai/openrouter`. The AI root entry remains provider-neutral.
 The optional entry contains the bounded transport, purpose-isolated durable
 usage ledger and engineering/learning independent-check adapters ported from
@@ -389,7 +401,7 @@ plans.
 
 ### Release follow-up provider ports
 
-The unpublished candidate adds `createSupportReleaseFollowupModel(options,
+Published `0.2.9` adds `createSupportReleaseFollowupModel(options,
 logicalHost)` and `createSupportReleaseFollowupUsage({store, clock, policy})`.
 The model factory returns the SD05 configuration, evaluations, generator and
 qualified token counter. Its closed route binds `support_release_followup`,
