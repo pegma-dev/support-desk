@@ -46,6 +46,7 @@ import {
   engineeringFollowupResult as result,
   engineeringFollowupWithoutLease as withoutLease,
   engineeringFollowupCurrent,
+  engineeringFollowupLoadMutation,
   engineeringFollowupVersionsCurrent,
   holdEngineeringFollowupWork,
   engineeringFollowupAssociation,
@@ -70,6 +71,7 @@ import type {
   EngineeringFollowupModelCommitGuard,
   PrepareEngineeringFollowupModelCommand,
   EngineeringFollowupPreparedModel,
+  VerifiedEngineeringFollowupContext,
 } from "./engineering-followup-types.js";
 import { engineeringSourceKey } from "./engineering-records.js";
 import type { EngineeringAction } from "./engineering-internal.js";
@@ -659,27 +661,36 @@ export function createEngineeringFollowupWorkServices(
   async function modelGuard(
     access: AccessContext,
     work: EngineeringFollowupWorkRecord,
+    proof: VerifiedEngineeringFollowupContext,
     guard: EngineeringFollowupModelCommitGuard | undefined,
   ): Promise<void> {
     if (typeof guard !== "function")
       throw new TypeError("Follow-up invocation needs a current guard");
     const actorId = access.principalId;
     let active = true;
+    const check = (current: AccessContext): void => {
+      if (!active)
+        throw new SupportDeskConflictError("Follow-up observation expired");
+      permission(current, supportPermissions.engineeringFollowupRead, actorId);
+      permission(current, supportPermissions.queueRead, actorId);
+    };
+    function freeze(value: unknown): void {
+      if (value === null || typeof value !== "object") return;
+      for (const item of Object.values(value)) freeze(item);
+      Object.freeze(value);
+    }
     try {
       await guard(
         Object.freeze({
           readWork(current: AccessContext) {
-            if (!active)
-              throw new SupportDeskConflictError(
-                "Follow-up observation expired",
-              );
-            permission(
-              current,
-              supportPermissions.engineeringFollowupRead,
-              actorId,
-            );
-            permission(current, supportPermissions.queueRead, actorId);
+            check(current);
             return snapshot(work);
+          },
+          readProof(current: AccessContext) {
+            check(current);
+            const detached = snapshot(proof);
+            freeze(detached);
+            return detached;
           },
         }),
       );
@@ -719,8 +730,10 @@ export function createEngineeringFollowupWorkServices(
     if (!options.enabled)
       throw new SupportDeskConflictError("Follow-up model processing disabled");
     for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
-      const loaded = await load(command.ticketId);
-      const stored = await workAt(command);
+      const { loaded, stored } = await engineeringFollowupLoadMutation(
+        deps,
+        command,
+      );
       const work = stored.value;
       live(work, command, now());
       const current = await engineeringFollowupCurrent(
@@ -781,7 +794,7 @@ export function createEngineeringFollowupWorkServices(
           throw new SupportDeskConflictError(
             "Follow-up preparation belongs to another physical invocation",
           );
-        if (staged) await modelGuard(access, work, guard);
+        if (staged) await modelGuard(access, work, current.proof, guard);
         if (
           !(await engineeringFollowupVersionsCurrent(
             deps,
@@ -845,7 +858,7 @@ export function createEngineeringFollowupWorkServices(
         ],
       };
       reserveEngineeringFollowupReachable(next);
-      if (staged) await modelGuard(access, work, guard);
+      if (staged) await modelGuard(access, work, current.proof, guard);
       if (
         !(await engineeringFollowupVersionsCurrent(
           deps,
@@ -908,8 +921,10 @@ export function createEngineeringFollowupWorkServices(
       if (!options.enabled) return null;
       const now = engineeringFollowupNow(deps);
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
-        const loaded = await load(command.ticketId);
-        const stored = await workAt(command);
+        const { loaded, stored } = await engineeringFollowupLoadMutation(
+          deps,
+          command,
+        );
         const work = stored.value;
         if (
           [
@@ -1047,8 +1062,10 @@ export function createEngineeringFollowupWorkServices(
         );
       const now = engineeringFollowupNow(deps);
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
-        const loaded = await load(command.ticketId);
-        const stored = await workAt(command);
+        const { loaded, stored } = await engineeringFollowupLoadMutation(
+          deps,
+          command,
+        );
         const work = stored.value;
         live(work, command, now());
         const current = await engineeringFollowupCurrent(
@@ -1098,7 +1115,7 @@ export function createEngineeringFollowupWorkServices(
           ),
         };
         checkEngineeringFollowupRecordCapacity(next);
-        await modelGuard(access, work, guard);
+        await modelGuard(access, work, current.proof, guard);
         if (
           !(await engineeringFollowupVersionsCurrent(
             deps,
@@ -1167,8 +1184,10 @@ export function createEngineeringFollowupWorkServices(
       const hash = await fingerprint({ actorId, command });
       const now = engineeringFollowupNow(deps);
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
-        const loaded = await load(command.ticketId);
-        const stored = await workAt(command);
+        const { loaded, stored } = await engineeringFollowupLoadMutation(
+          deps,
+          command,
+        );
         const work = stored.value;
         if (work.lastModelRecord?.fingerprint === hash) {
           authorize();
@@ -1233,7 +1252,7 @@ export function createEngineeringFollowupWorkServices(
           lastModelRecord: { fingerprint: hash, result: result(next) },
         };
         checkEngineeringFollowupRecordCapacity(accepted);
-        await modelGuard(access, work, guard);
+        await modelGuard(access, work, current.proof, guard);
         if (
           !(await engineeringFollowupVersionsCurrent(
             deps,
@@ -1299,8 +1318,10 @@ export function createEngineeringFollowupWorkServices(
       const hash = await fingerprint({ actorId, command });
       const now = engineeringFollowupNow(deps);
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
-        const loaded = await load(command.ticketId);
-        const stored = await workAt(command);
+        const { loaded, stored } = await engineeringFollowupLoadMutation(
+          deps,
+          command,
+        );
         const work = stored.value;
         if (work.lastCompletion?.fingerprint === hash) {
           authorize();
@@ -1373,7 +1394,7 @@ export function createEngineeringFollowupWorkServices(
         };
         checkEngineeringFollowupRecordCapacity(accepted);
         if (model.binding.staged === undefined) await guard();
-        else await modelGuard(access, work, guard);
+        else await modelGuard(access, work, current.proof, guard);
         if (
           !(await engineeringFollowupVersionsCurrent(
             deps,
@@ -2211,8 +2232,10 @@ export function createEngineeringFollowupWorkServices(
           return previous;
         }
         mutation?.ensure();
-        const loaded = await load(command.ticketId);
-        const stored = await workAt(command);
+        const { loaded, stored } = await engineeringFollowupLoadMutation(
+          deps,
+          command,
+        );
         const work = stored.value;
         if (
           work.withdrawn ||

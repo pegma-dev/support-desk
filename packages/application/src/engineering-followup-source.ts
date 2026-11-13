@@ -156,6 +156,64 @@ export function engineeringFollowupObservation(
     },
   };
 }
+/** Authorized mutations may open independent keys together; reader authorization stays ordered. */
+export async function engineeringFollowupLoadMutation(
+  deps: EngineeringFollowupDependencies,
+  key: { readonly ticketId: string; readonly workId: string },
+): Promise<{
+  readonly loaded: EngineeringFollowupLoaded;
+  readonly stored: EngineeringFollowupWorkVersion;
+}> {
+  text(key.ticketId, "ticketId");
+  text(key.workId, "workId");
+  const points = await Promise.allSettled([
+    deps.records.getVersioned({ partition: key.ticketId, id: "ticket" }),
+    deps.records.getVersioned(engineeringSourceKey(key.ticketId)),
+    deps.records.getVersioned(engineeringFollowupHeadKey(key.ticketId)),
+    deps.records.getVersioned(
+      engineeringFollowupWorkKey(key.ticketId, key.workId),
+    ),
+  ]);
+  // Preserve the sequential loader's error precedence, including the bounded list before Work.
+  for (const point of points.slice(0, 3))
+    if (point.status === "rejected") throw point.reason;
+  const [ticket, source, head] = points
+    .slice(0, 3)
+    .map((point) => (point.status === "fulfilled" ? point.value : null));
+  if (
+    ticket?.value.kind !== "ticket" ||
+    source?.value.kind !== "engineering_source"
+  )
+    throw new SupportDeskNotFoundError();
+  if (head !== null && head?.value.kind !== "engineering_followup_head")
+    throw new SupportDeskConflictError("Follow-up head key collision");
+  const rows = await deps.records.list(key.ticketId);
+  if (rows.length > deps.limits.maxRecordsPerTicket)
+    throw new SupportDeskLimitError(
+      "ticket_partition",
+      deps.limits.maxRecordsPerTicket,
+    );
+  const work = points[3]!;
+  if (work.status === "rejected") throw work.reason;
+  if (work.value?.value.kind !== "engineering_followup_work")
+    throw new SupportDeskNotFoundError();
+  return {
+    loaded: {
+      ticket: { value: ticket.value, version: ticket.version },
+      source: { value: source.value, version: source.version },
+      head:
+        head === null
+          ? null
+          : {
+              value: head!.value as EngineeringFollowupHeadRecord,
+              version: head!.version,
+            },
+      rows,
+    },
+    stored: { value: work.value.value, version: work.value.version },
+  };
+}
+
 export function engineeringFollowupNow(
   deps: EngineeringFollowupDependencies,
 ): () => number {

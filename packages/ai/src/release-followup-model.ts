@@ -215,12 +215,15 @@ export async function processReleaseFollowupModel(
       runtime,
     );
     const policy = await releaseFollowupCheckPolicy(options, runtime);
-    releaseFollowupProofSnapshot(
+    const claimedProof = releaseFollowupProofSnapshot(
       claim.proof,
       claim.work,
       timestamp(options.clock.now()),
     );
-    const proof = await releaseFollowupProof(options, claim.work, runtime);
+    // A claim supplies planning input only; each staged mutation closes with its fresh App proof.
+    const proof = staged
+      ? claimedProof
+      : await releaseFollowupProof(options, claim.work, runtime);
     const request = await releaseFollowupModelRequest(
       options,
       claim,
@@ -334,17 +337,25 @@ export async function processReleaseFollowupModel(
       beforeCall = false,
       observation?: EngineeringFollowupModelObservation,
     ): Promise<void> => {
-      const freshProof = await releaseFollowupProof(
-        options,
-        claim.work,
-        runtime,
-        phase,
-      );
-      if (
-        (await engineeringFollowupPublicFactsHash(freshProof.publicFacts)) !==
-        request.manifest.publicFactsHash
-      )
-        throw new AssistantBoundaryError("release_proof_changed");
+      const observed = typeof observation?.readProof === "function";
+      const validateProof = async (raw: typeof proof) => {
+        const value = releaseFollowupProofSnapshot(
+          raw,
+          claim.work,
+          timestamp(options.clock.now()),
+        );
+        if (
+          (await engineeringFollowupPublicFactsHash(value.publicFacts)) !==
+          request.manifest.publicFactsHash
+        )
+          throw new AssistantBoundaryError("release_proof_changed");
+        return value;
+      };
+      let freshProof = observed
+        ? undefined
+        : await validateProof(
+            await releaseFollowupProof(options, claim.work, runtime, phase),
+          );
       if (
         canonical(
           await releaseFollowupCheckPolicy(
@@ -379,6 +390,10 @@ export async function processReleaseFollowupModel(
         authority,
         phase,
       );
+      if (observed)
+        freshProof = await validateProof(
+          observation!.readProof!(currentAuthority.access),
+        );
       // No remote/config/proof/authority awaits below this final authoritative application bracket.
       const current =
         observation === undefined
@@ -423,7 +438,7 @@ export async function processReleaseFollowupModel(
       )
         throw new AssistantBoundaryError("preparation_mismatch");
       runtime.ensure(
-        Math.min(phase, timestamp(freshProof.attestation.validUntil)),
+        Math.min(phase, timestamp(freshProof!.attestation.validUntil)),
       );
     };
     if (retainedAttempt !== undefined) {

@@ -1,5 +1,9 @@
+import type { CollectionDefinition, Store } from "@pegma/storage-core";
 import { createSupportDeskReleaseFollowup } from "@pegma/support-desk-ai";
-import { supportPermissions } from "@pegma/support-desk-application";
+import {
+  supportPermissions,
+  type EngineeringFollowupModelObservation,
+} from "@pegma/support-desk-application";
 import { describe, expect, it, vi } from "vitest";
 import {
   engineeringFollowupAiFixture,
@@ -17,8 +21,271 @@ const stagedOptions = (f: Fixture) => ({
   checks: { ...f.baseOptions.checks, prepare: f.check },
 });
 
+/** Pause actual opening reads without replacing any Store result or version. */
+function openingStore(backing: Store) {
+  let target: { ticketId: string; workId: string } | undefined;
+  const started: string[] = [];
+  const barrier = engineeringFollowupBarrier();
+  const complete = engineeringFollowupBarrier();
+  let completed = 0;
+  const store: Store = {
+    collection<T>(definition: CollectionDefinition<T>) {
+      const actual = backing.collection(definition);
+      return new Proxy(actual, {
+        get(object, property) {
+          if (property === "getVersioned")
+            return async (key: { partition: string; id: string }) => {
+              const watched =
+                target !== undefined &&
+                key.partition === target.ticketId &&
+                [
+                  "ticket",
+                  "engineering-source",
+                  "engineering-followup-head",
+                  `engineering-followup:${target.workId}`,
+                ].includes(key.id);
+              if (watched) started.push(key.id);
+              const value = await object.getVersioned(key);
+              if (watched) {
+                completed += 1;
+                if (completed === 4) void complete.wait();
+                await barrier.wait();
+              }
+              return value;
+            };
+          const value: unknown = Reflect.get(object, property, object);
+          return typeof value === "function" ? value.bind(object) : value;
+        },
+      });
+    },
+  };
+  return {
+    store,
+    started,
+    barrier,
+    complete,
+    arm(key: { ticketId: string; workId: string }) {
+      target = key;
+    },
+    disarm() {
+      target = undefined;
+    },
+  };
+}
+
 for (const [name, createStore] of engineeringFollowupStores) {
   describe(`staged release follow-up invocations (${name})`, () => {
+    it("starts all four authorized mutation points before awaiting an opening result", async () => {
+      const observed = openingStore(createStore());
+      const f = await engineeringFollowupAiFixture(observed.store);
+      const followup = createSupportDeskReleaseFollowup({
+        ...stagedOptions(f),
+        invocationMode: "staged",
+      });
+      observed.arm(f.key);
+      const pending = followup.processWork(f.nextCommand());
+      try {
+        await waitForFollowupHook(observed.barrier, pending);
+        expect(observed.started).toHaveLength(4);
+      } finally {
+        observed.disarm();
+        observed.barrier.release();
+        await pending;
+      }
+      expect(await pending).toMatchObject({ checkpoint: "model_planned" });
+      expect(f.generate).not.toHaveBeenCalled();
+    });
+
+    it("does not claim or call a provider after Source changes behind the opening wave", async () => {
+      const observed = openingStore(createStore());
+      const f = await engineeringFollowupAiFixture(observed.store);
+      const followup = createSupportDeskReleaseFollowup({
+        ...stagedOptions(f),
+        invocationMode: "staged",
+      });
+      observed.arm(f.key);
+      const pending = followup.processWork(f.nextCommand());
+      try {
+        await waitForFollowupHook(observed.barrier, pending);
+        expect(observed.started).toHaveLength(4);
+        await observed.complete.reached;
+        observed.disarm();
+        await f.app.withdrawEngineeringSource(engineeringFollowupStaff, {
+          ...f.command("withdraw-during-opening-wave"),
+          reason: "privacy_withdrawal",
+        });
+      } finally {
+        observed.disarm();
+        observed.barrier.release();
+        await pending;
+      }
+      expect(await pending).not.toMatchObject({ checkpoint: "model_planned" });
+      expect(f.generate).not.toHaveBeenCalled();
+      expect(f.reserve).not.toHaveBeenCalled();
+      expect((await f.work()).claim).toBeUndefined();
+    });
+
+    it("uses one actual App proof per mutation", async () => {
+      const f = await engineeringFollowupAiFixture(createStore());
+      const followup = createSupportDeskReleaseFollowup({
+        ...stagedOptions(f),
+        invocationMode: "staged",
+      });
+      f.confirm.mockClear();
+      expect(await followup.processWork(f.nextCommand())).toMatchObject({
+        checkpoint: "model_planned",
+      });
+      expect(f.confirm).toHaveBeenCalledTimes(2);
+      f.confirm.mockClear();
+      expect(await followup.processWork(f.nextCommand())).toMatchObject({
+        checkpoint: "model_recorded",
+      });
+      expect(f.confirm).toHaveBeenCalledTimes(3);
+      expect(f.generate).toHaveBeenCalledOnce();
+    });
+
+    it("keeps proof views immutable, caller-bound and expired when their guard settles", async () => {
+      const f = await engineeringFollowupAiFixture(createStore());
+      const plan = f.app.planEngineeringFollowupModel!;
+      let captured: EngineeringFollowupModelObservation | undefined;
+      const followup = createSupportDeskReleaseFollowup({
+        ...stagedOptions(f),
+        invocationMode: "staged",
+        application: {
+          ...f.app,
+          planEngineeringFollowupModel(access, command, guard) {
+            return plan(access, command, async (observation) => {
+              captured = observation;
+              const proof = observation!.readProof!(f.state.authority.access);
+              expect(Object.isFrozen(proof)).toBe(true);
+              expect(Object.isFrozen(proof.publicFacts[0])).toBe(true);
+              expect(() =>
+                observation!.readProof!({
+                  ...f.state.authority.access,
+                  principalId: "another-service",
+                }),
+              ).toThrow();
+              expect(() =>
+                observation!.readProof!({
+                  ...f.state.authority.access,
+                  permissions: [],
+                }),
+              ).toThrow();
+              await guard(observation);
+            });
+          },
+        },
+      });
+      expect(await followup.processWork(f.nextCommand())).toMatchObject({
+        checkpoint: "model_planned",
+      });
+      expect(() => captured!.readProof!(f.state.authority.access)).toThrow(
+        "expired",
+      );
+    });
+
+    it("retains full proof reads for an older structural guard observation", async () => {
+      const f = await engineeringFollowupAiFixture(createStore());
+      const begin = f.app.beginEngineeringFollowupModel!;
+      const followup = createSupportDeskReleaseFollowup({
+        ...stagedOptions(f),
+        invocationMode: "staged",
+        application: {
+          ...f.app,
+          beginEngineeringFollowupModel(access, command, guard) {
+            return begin(access, command, (observation) =>
+              guard(
+                observation === undefined
+                  ? undefined
+                  : {
+                      readWork: (reader) => observation.readWork(reader),
+                    },
+              ),
+            );
+          },
+        },
+      });
+      await followup.processWork(f.nextCommand());
+      f.confirm.mockClear();
+      expect(await followup.processWork(f.nextCommand())).toMatchObject({
+        checkpoint: "model_recorded",
+      });
+      expect(f.confirm).toHaveBeenCalledTimes(4);
+      expect(f.generate).toHaveBeenCalledOnce();
+    });
+
+    it("rejects public facts changed after the claim proof and before the current App guard", async () => {
+      const f = await engineeringFollowupAiFixture(createStore());
+      let change = false;
+      const followup = createSupportDeskReleaseFollowup({
+        ...stagedOptions(f),
+        invocationMode: "staged",
+        configuration: {
+          async resolve(...args) {
+            const value = await f.resolveConfiguration(...args);
+            if (change && args[0] === undefined) {
+              change = false;
+              f.releaseState.publicFacts = [
+                {
+                  reference: "changed-release",
+                  text: "Different current release facts.",
+                },
+              ];
+            }
+            return value;
+          },
+        },
+      });
+      await followup.processWork(f.nextCommand());
+      change = true;
+      expect(await followup.processWork(f.nextCommand())).not.toMatchObject({
+        checkpoint: "model_recorded",
+      });
+      expect(f.generate).not.toHaveBeenCalled();
+      expect((await f.work()).pendingModelCompletion).toBeUndefined();
+    });
+
+    it.each(["role", "route", "expiry"] as const)(
+      "retains fresh %s checks after the App opening proof",
+      async (change) => {
+        const f = await engineeringFollowupAiFixture(createStore());
+        let armed = false;
+        const followup = createSupportDeskReleaseFollowup({
+          ...stagedOptions(f),
+          invocationMode: "staged",
+          checks: {
+            ...stagedOptions(f).checks,
+            async resolvePolicy(...args) {
+              const value = await f.resolveCheckPolicy(...args);
+              if (armed && args[0] !== undefined) {
+                armed = false;
+                if (change === "role")
+                  f.state.authority = {
+                    ...f.state.authority,
+                    access: { ...f.state.authority.access, permissions: [] },
+                  };
+                else if (change === "route")
+                  f.state.configuration = {
+                    ...f.state.configuration,
+                    dataControls: {
+                      ...f.state.configuration.dataControls,
+                      endpointRef: "changed-endpoint",
+                    },
+                  };
+                else f.advance(61_000);
+              }
+              return value;
+            },
+          },
+        });
+        await followup.processWork(f.nextCommand());
+        armed = true;
+        await followup.processWork(f.nextCommand());
+        expect(f.generate).not.toHaveBeenCalled();
+        expect((await f.work()).pendingModelCompletion).toBeUndefined();
+      },
+    );
+
     it("commits a released not-called plan before any usage reservation or model call", async () => {
       const f = await engineeringFollowupAiFixture(createStore());
       const followup = createSupportDeskReleaseFollowup({

@@ -154,6 +154,14 @@ posting authority. Completion requires fresh guards and the exact retained
 candidate. A lost planning or result-recording ACK resumes the same durable
 state. Existing ambiguous `model_prepared` rows retain their unknown meaning.
 
+Each staged mutation supplies a callback-only `EngineeringFollowupModelObservation`.
+Its optional `readProof(access)` returns an immutable snapshot of that mutation's
+fresh App proof under the same caller and read permissions. It expires with the
+guard. The coordinator compares its exact Work and public facts, then retains
+fresh policy, evaluation, configuration, authority and final opaque-version
+checks. The claim proof supplies planning input only. Older structural
+observations retain the full proof-read fallback.
+
 All three model invocations share one configured model-attempt identity. A
 configured application and model ceiling of one remains supported. Staging
 preserves lease limits, lifetime attempt counts, usage reservations and the

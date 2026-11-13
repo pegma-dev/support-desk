@@ -317,6 +317,8 @@ export interface BeginEngineeringFollowupModelCommand extends EngineeringFollowu
 /** This view expires when its application-owned guard settles. */
 export interface EngineeringFollowupModelObservation {
   readWork(access: AccessContext): EngineeringFollowupWorkRecord;
+  /** Exact current App proof for this guard, unavailable outside its lifetime. */
+  readProof?(access: AccessContext): VerifiedEngineeringFollowupContext;
 }
 export type EngineeringFollowupModelCommitGuard = (
   observation?: EngineeringFollowupModelObservation,
