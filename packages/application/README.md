@@ -1,8 +1,11 @@
 # @pegma/support-desk-application
 
-Source preparation, 2026-11-13, selects synchronized `0.2.10`. Verify publication
-through the [release operations](../../docs/RELEASING.md#source-version-0210)
-before host adoption. The patch adds optional final browser/authority guards
+Source preparation selects unpublished synchronized `0.2.11` for the optional
+AI checker policy/wire v2 correction; this application adds no new API in that
+candidate. See [candidate operations](../../docs/RELEASING.md#source-version-0211)
+and [notes](../../docs/RELEASE_NOTES.md#0211-trusted-independent-check-policy).
+
+Published and strictly verified `0.2.10` adds optional final browser/authority guards
 and cancellation to customer success confirmation and resolution evidence.
 `ConfirmCustomerSuccessOptions` and `SubmitResolutionEvidenceOptions` are
 optional third arguments with `signal` and `verifyBeforeCommit`; existing

@@ -1,8 +1,8 @@
 # @pegma/support-desk-core
 
-The local synchronized source version is unpublished `0.2.10`. See the
-[source handoff](../../docs/RELEASING.md#source-version-0210),
-[release notes](../../docs/RELEASE_NOTES.md#0210-final-success-evidence-guards)
+The local synchronized source version is unpublished `0.2.11`. See the
+[source handoff](../../docs/RELEASING.md#source-version-0211),
+[release notes](../../docs/RELEASE_NOTES.md#0211-trusted-independent-check-policy)
 and [engineering read phases](../../docs/ENGINEERING_EXPORT.md#entry-points-and-authority).
 Task 15, published in `0.2.9`, exposes pure `defineCannedResponse`,
 `defineCannedResponseCatalog`, `snapshotCannedResponseSelection` and
@@ -11,9 +11,9 @@ and literal value substitution; application services enforce staff permissions,
 catalog selection and atomic Audit. See
 [host composition](../../docs/HOST_COMPOSITION.md#staff-canned-responses-task-15-source-candidate).
 
-The current verified synchronized registry release is `0.2.9`; see the
-[publication receipt](../../docs/RELEASING.md#verified-029-publication-2026-11-13).
-The synchronized `0.2.9` release includes the
+The current verified synchronized registry release is `0.2.10`; see the
+[publication receipt](../../docs/RELEASING.md#verified-0210-publication-2026-11-13).
+The synchronized `0.2.10` release retains the
 [application/AI additions](../../docs/RELEASE_NOTES.md). Host adoption retains
 its own composition and activation gates.
 
@@ -69,7 +69,7 @@ application's explicit assistant creation sets that reserve marker.
 closed work first; ownership and visible-message evidence are application
 checks. Pure functions grant no permission, perform no model/KB work, and
 commit no Audit, receipt, or handoff row. These SD-01 changes first shipped in
-verified synchronized `0.2.0` and remain in current public `0.2.9`; see its
-[publication receipt](../../docs/RELEASING.md#verified-029-publication-2026-11-13).
+verified synchronized `0.2.0` and remain in current public `0.2.10`; see its
+[publication receipt](../../docs/RELEASING.md#verified-0210-publication-2026-11-13).
 Existing registry `0.1.1` artifacts remain immutable; host activation retains
 its own acceptance gates.

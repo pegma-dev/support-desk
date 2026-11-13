@@ -1,10 +1,12 @@
 # Upgrading synchronized Support Desk packages
 
-Source preparation, 2026-11-13, selects synchronized `0.2.10`. Verify publication
-through [release operations](RELEASING.md#source-version-0210) before adopting
-its packages. The verified `0.2.9`
-[publication receipt](RELEASING.md#verified-029-publication-2026-11-13) remains
-the dated prior checkpoint; host deployment and acceptance gates are separate.
+Source preparation, 2026-11-13, selects unpublished synchronized `0.2.11`.
+Follow the [source handoff](RELEASING.md#source-version-0211) and qualify the
+[new checker wire](../packages/ai/README.md#optional-openrouter-adapter-source-candidate)
+and its route-policy hash before adoption. Publication is still required.
+The current verified synchronized release is `0.2.10`; see its
+[publication receipt](RELEASING.md#verified-0210-publication-2026-11-13).
+Host deployment and acceptance gates are separate.
 The original SD-06 `0.2.0` release has its separate
 [historical receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
 The original four Support Desk packages were published at `0.1.1`. Before
@@ -237,9 +239,10 @@ receipt recovery or fresh proof with retained observation data. See the
 [follow-up contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
 
 The dated verified `0.2.9`/KB `0.1.8` tuple supersedes the historical
-`0.2.8`/KB `0.1.6` checkpoint for producer adoption. Source preparation for
-`0.2.10` retains the same external graph; it requires its own combined-source
-release gates and publication receipt. No record migration is added.
+`0.2.8`/KB `0.1.6` checkpoint for producer adoption. Verified `0.2.10` and
+unpublished `0.2.11` retain the same external graph; the latter requires its
+own combined-source release gates and publication receipt. No record migration
+is added.
 
 <a id="unpublished-027-source-candidate"></a>
 

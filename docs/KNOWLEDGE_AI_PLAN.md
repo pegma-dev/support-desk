@@ -5,20 +5,21 @@
 Approved product decisions: 2026-11-06; scoped-agent-access decision added
 2026-11-07. The ten entries in the ledger below are merged source, including
 AUTH-01, KB-04's transport source exit, and both producers' release preparation.
-Source preparation on 2026-11-13 now selects synchronized Support Desk
-`0.2.10`, adding optional final host guards/cancellation to customer success
-and resolution evidence while retaining exact KB `0.1.8` and other external
-pins. The [patch notes](RELEASE_NOTES.md#0210-final-success-evidence-guards) and
-[release operations](RELEASING.md#source-version-0210) distinguish prepared
-source from verified publication; host activation gates remain open.
+Source preparation on 2026-11-13 now selects unpublished synchronized Support
+Desk `0.2.11`, binding the current trusted independent-check policy into each
+attempt's SYSTEM message with wire v2. Exact KB `0.1.8` and other external pins
+are retained. The [patch notes](RELEASE_NOTES.md#0211-trusted-independent-check-policy)
+and [source handoff](RELEASING.md#source-version-0211) distinguish this structural
+correction from publication and factual model quality; host activation gates
+remain open.
 All five synchronized Support Desk packages are published and strictly
-verified at `0.2.9`. Optional AI pins Knowledge Base application and contracts
+verified at `0.2.10`, including the final customer-success/evidence guards. Optional AI pins Knowledge Base application and contracts
 to exact public `0.1.8`; fresh dependency, native cryptographic/source and clean
-public-consumer verification passed. The public producer tuple is SDK `0.2.9` /
+public-consumer verification passed. The public producer tuple is SDK `0.2.10` /
 KB `0.1.8`; Agent Access `0.1.1` remains a separate authoring composition.
 Sessions `0.3.0` is also public. Final site integration and host activation gates
 remain open. The dated ledger below records earlier checkpoints.
-[Support Desk publication receipt](RELEASING.md#verified-029-publication-2026-11-13) · [Knowledge Base release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.8)
+[Support Desk publication receipt](RELEASING.md#verified-0210-publication-2026-11-13) · [Knowledge Base release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.8)
 
 Published `0.2.3` includes the final engineering approval/rejection guards and
 proof-expiry fence. Published `0.2.4` adds admitted customer intake, final draft
@@ -146,7 +147,7 @@ passed all seven jobs and 94 steps; all five packages passed strict original-byt
 dependency, native signature/Sigstore/source and clean-public-consumer checks.
 Historical `0.2.8` retains its exact KB `0.1.6` pins.
 The earlier `0.2.1` AI manifest retains its exact `0.1.2` dependencies. The base
-application remains independent of KB and providers. [Current publication receipt](RELEASING.md#verified-029-publication-2026-11-13) · [Historical AI manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.1/packages/ai/package.json)
+application remains independent of KB and providers. [0.2.9 publication receipt](RELEASING.md#verified-029-publication-2026-11-13) · [Historical AI manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.1/packages/ai/package.json)
 
 Qualified Storage Core adapter releases include
 [Cloudflare D1 `0.4.6`](https://github.com/pegma-dev/storage-core/releases/tag/v0.4.6)

@@ -24,7 +24,7 @@ import {
 } from "./support-openrouter-model.js";
 
 export const INDEPENDENT_CHECK_PURPOSE = "support_independent_check";
-export const INDEPENDENT_CHECK_WIRE = "openrouter-support-independent-check-v1";
+export const INDEPENDENT_CHECK_WIRE = "openrouter-support-independent-check-v2";
 export const INDEPENDENT_CHECK_ENDPOINT =
   "https://openrouter.ai/api/v1/chat/completions";
 
@@ -418,6 +418,13 @@ const SYSTEM =
   "Public reproduction requires supplied synthetic/public evidence, not a claim that private tests are public. " +
   "For learning, compare the actual target content for applicability, lost guidance and duplication. " +
   "Mark absent or conflicting support uncertain. Return only the supplied verdict schema. A pass is not publication authority.";
+function systemInstructions(trustedInstructions: string): string {
+  return (
+    SYSTEM +
+    "\n\nServer-configured independent review policy:\n" +
+    trustedInstructions
+  );
+}
 const statusSchema = {
   type: "string",
   enum: ["passed", "failed", "uncertain"],
@@ -571,9 +578,57 @@ export function createSupportIndependentCheckModel(
       },
     },
   };
+  function fitsBudget(
+    input: IndependentCheckInput,
+    configured: IndependentCheckConfiguration,
+    context?: IndependentCheckContext,
+  ): boolean {
+    try {
+      if (
+        !read(configured.version) ||
+        input.trustedInstructions !== configured.trustedInstructions
+      )
+        return false;
+      requireMessageBudget(input, configured, context);
+      const payload = JSON.stringify(input);
+      const system = systemInstructions(configured.trustedInstructions);
+      const maximumBytes = Math.min(
+        configured.budgets.maxInputBytes,
+        context?.budgets.maxInputBytes ?? configured.budgets.maxInputBytes,
+      );
+      const maximumTokens = Math.min(
+        configured.budgets.maxInputTokens,
+        context?.budgets.maxInputTokens ?? configured.budgets.maxInputTokens,
+      );
+      const maximumContext = Math.min(
+        configured.budgets.maxContextTokens,
+        context?.budgets.maxContextTokens ??
+          configured.budgets.maxContextTokens,
+      );
+      // Count both actual message contents. The unchanged framing allowance is
+      // retained for the schema/envelope; no SYSTEM policy is hidden inside it.
+      const tokens =
+        source.tokenCounter.count(payload) +
+        source.tokenCounter.count(system) +
+        configured.framingTokens;
+      return (
+        new TextEncoder().encode(payload).length +
+          new TextEncoder().encode(system).length <=
+          maximumBytes &&
+        tokens <= maximumTokens &&
+        tokens +
+          (context?.budgets.maxOutputTokens ??
+            configured.budgets.maxOutputTokens) <=
+          maximumContext
+      );
+    } catch {
+      return false;
+    }
+  }
   const transport = (
     credential: string,
     current: () => boolean,
+    trustedInstructions: string,
     onPhysicalCall?: () => void,
     allowRenewal = false,
   ) =>
@@ -606,7 +661,7 @@ export function createSupportIndependentCheckModel(
       {
         purpose: INDEPENDENT_CHECK_PURPOSE,
         endpoint: INDEPENDENT_CHECK_ENDPOINT,
-        system: SYSTEM,
+        system: systemInstructions(trustedInstructions),
         schemaName: "support_independent_check_v1",
         schema: OUTPUT_SCHEMA,
         allowApprovalRenewal: allowApprovalRenewal && allowRenewal,
@@ -618,6 +673,11 @@ export function createSupportIndependentCheckModel(
         },
         validate(input, context, config) {
           requireMessageBudget(input, config, context);
+          if (
+            config.trustedInstructions !== trustedInstructions ||
+            !fitsBudget(input, config, context)
+          )
+            fail("invalid_input");
           if (input.kind === "release_followup") {
             followupInput(input);
             const r = read(config.version);
@@ -646,23 +706,7 @@ export function createSupportIndependentCheckModel(
       input: IndependentCheckInput,
       configured: IndependentCheckConfiguration,
     ): boolean {
-      try {
-        if (
-          !read(configured.version) ||
-          input.trustedInstructions !== configured.trustedInstructions
-        )
-          return false;
-        requireMessageBudget(input, configured);
-        const payload = JSON.stringify(input);
-        return (
-          new TextEncoder().encode(payload).length <=
-            configured.budgets.maxInputBytes &&
-          source.tokenCounter.count(payload) + configured.framingTokens <=
-            configured.budgets.maxInputTokens
-        );
-      } catch {
-        return false;
-      }
+      return fitsBudget(input, configured);
     },
     async resolve(expected?: string, signal?: AbortSignal) {
       if (signal?.aborted) return null;
@@ -735,6 +779,7 @@ export function createSupportIndependentCheckModel(
         const route = source.currentRoute(configured.version);
         if (!route) throw new SupportOpenRouterModelError("route_unavailable");
         requireMessageBudget(input, configured, context);
+        if (!fitsBudget(input, configured, context)) fail("invalid_input");
         if (input.kind === "release_followup") {
           followupInput(input);
           if (
@@ -759,6 +804,7 @@ export function createSupportIndependentCheckModel(
         return await transport(
           credential,
           current,
+          route.configuration.trustedInstructions,
           context.onPhysicalCall,
           input.kind === "release_followup",
         ).generate(

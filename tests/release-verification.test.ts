@@ -1230,7 +1230,7 @@ describe("source-bound original release artifact", () => {
   });
 
   it("reads real gzip/tar artifacts and accepts the independently pinned exact five-package candidate", async () => {
-    expect(releaseVerificationVersion).toBe("0.2.10");
+    expect(releaseVerificationVersion).toBe("0.2.11");
     const f = fixture();
     expect(
       f.manifest.packages.map(({ name, version }) => ({ name, version })),
