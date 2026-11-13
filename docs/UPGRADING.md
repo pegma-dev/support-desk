@@ -29,6 +29,22 @@ The optional AI package and repository development pins retain exact public KB
 application/contracts `0.1.8`; `zod@4.6.7` and other external selections are
 unchanged. The root remains private at `0.0.0`.
 
+The unchanged `@pegma/authorization-core@0.4.0` dependency already exports
+`serializeAccessContext`. Its [original public tarball](https://registry.npmjs.org/@pegma/authorization-core/-/authorization-core-0.4.0.tgz)
+contains the named JavaScript export at `dist/index.js:121` and its declaration
+at `dist/index.d.ts:22`. The original archive SHA-256 is
+`1e449abf4815b99984f1991cb03be3a337edd1b092e523723b3eff8ed07625aa`;
+its [lockfile](../pnpm-lock.yaml) integrity is
+`sha512-GkagQwyDfKokB2Nm9EAo6cvKB8c90VN6Or6IdaWeMwCeuseOxDZ8ccxKqccW9YorByE6rHhr2nbxjsNWorZTHQ==`.
+Installed public JavaScript/declaration bytes matched that archive, and direct
+named ESM imports resolved to a function on Node 22.18.0 and 24.18.0.
+The [candidate CI run](https://github.com/pegma-dev/support-desk/actions/runs/43383002448)
+at [`f7bae286`](https://github.com/pegma-dev/support-desk/commit/f7bae28648cb760c6ee69430cdf3cf92b7b612da)
+passed 4,171 tests in each Node 22/24 lane and the normal packed-consumer checks
+([Node 22 artifact](https://github.com/pegma-dev/support-desk/actions/runs/43383002448/artifacts/14016684868),
+[Node 24 artifact](https://github.com/pegma-dev/support-desk/actions/runs/43383002448/artifacts/14017652633)).
+These calls use an existing public export; the dependency pin stays `0.4.0`.
+
 Forward the optional third argument on `confirmCustomerSuccess` and
 `submitResolutionEvidence` through host adapters. Its exported type is
 `ConfirmCustomerSuccessOptions` or `SubmitResolutionEvidenceOptions`, with
