@@ -108,6 +108,81 @@ async function reach(
     expect(await f.process()).toMatchObject({ checkpoint: "acknowledged" });
 }
 
+for (const [backend, createStore] of learningKbStores) {
+  describe(`staged existing learning updates (${backend})`, () => {
+    it.each(["normal", "prepared", "acknowledged"] as const)(
+      "resumes the exact update without create-only comparison metadata after %s ACK",
+      async (stage) => {
+        const backing = createStore();
+        const fault =
+          stage === "normal" ? undefined : committedAckLoss(stage, backing);
+        const f = await fixture(fault?.store ?? backing);
+        const original = await f.createGuide(
+          "staged-existing-update",
+          "Retain the existing verified export instructions while adding the new fix.",
+        );
+        f.updateTarget(original.articleId);
+        expect((await f.process()).outcome).toBe("candidate");
+        const preparation = await f.process();
+        expect(preparation).toMatchObject({
+          outcome: "pending",
+          stage: "delivery",
+        });
+        if (stage !== "prepared")
+          expect(preparation).toHaveProperty("checkpoint", "prepared");
+        const prepared = await f.work();
+        expect(prepared.exactRequest?.operation).toBe("update");
+        expect(prepared.exactRequest?.articleId).toBe(original.articleId);
+        expect(
+          Object.hasOwn(
+            JSON.parse(prepared.exactRequest!.draftPayload),
+            "comparisonSelection",
+          ),
+        ).toBe(false);
+        expect(
+          f.ports.knowledgeCalls.filter(
+            (call) => call.operation === "updateDraft",
+          ),
+        ).toHaveLength(0);
+        const written = await f.process();
+        expect(written).toMatchObject({
+          outcome: "pending",
+          stage: "delivery",
+        });
+        if (stage !== "acknowledged")
+          expect(written).toHaveProperty("checkpoint", "acknowledged");
+        const acknowledged = await f.work();
+        expect(acknowledged.acknowledgement?.id).toBe(original.articleId);
+        expect(acknowledged.exactRequest).toEqual(prepared.exactRequest);
+        if (fault !== undefined) expect(fault.lost()).toBe(true);
+        expect((await f.process()).outcome).toBe("delivered");
+        const completed = await f.work();
+        expect(completed.exactRequest).toEqual(prepared.exactRequest);
+        expect(completed.acknowledgement).toEqual(acknowledged.acknowledgement);
+        expect(completed.target?.articleId).toBe(original.articleId);
+        expect(
+          f.ports.knowledgeCalls.filter(
+            (call) => call.operation === "updateDraft",
+          ),
+        ).toHaveLength(1);
+        expect(
+          f.ports.knowledgeCalls.filter(
+            (call) => call.operation === "createDraft",
+          ),
+        ).toHaveLength(0);
+        expect(f.ports.generate).toHaveBeenCalledOnce();
+        const target = await f.kb.getDraft(f.access.draftService, {
+          articleId: original.articleId,
+        });
+        expect(target.revision.number).toBe(original.revision.number + 1);
+        expect(target.revision.content.text).toContain(
+          original.revision.content.text,
+        );
+      },
+    );
+  });
+}
+
 describe("opt-in physical learning delivery stages (Memory)", () => {
   it("prepares, writes and confirms in distinct claims without publication or a second paid model", async () => {
     const f = await fixture();

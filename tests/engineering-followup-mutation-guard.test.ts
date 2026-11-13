@@ -29,6 +29,7 @@ const operations = [
   "abandon",
   "reject",
   "prepare",
+  "retest",
 ] as const;
 type Operation = (typeof operations)[number];
 type Fixture = Awaited<ReturnType<typeof engineeringFollowupFixture>>;
@@ -77,6 +78,24 @@ async function mutation(
     return {
       invoke: (options?: EngineeringMutationOptions) =>
         f.app.prepareEngineeringFollowupBundle(actor, command!, proof, options),
+    };
+  }
+  if (operation === "retest") {
+    await f.prepareBundle();
+    const binding = await f.retestBinding();
+    const command = {
+      ...f.command("guarded-followup-retest"),
+      ...f.key,
+      retestRequestId: binding.requestId,
+      receiptReference: f.trust.issueRetest(
+        "guarded-followup-retest-proof",
+        binding,
+      ),
+    };
+    return {
+      command,
+      invoke: (options?: EngineeringMutationOptions) =>
+        f.app.submitEngineeringFollowupRetestResult(actor, command, options),
     };
   }
   if (operation === "retry") {
@@ -186,7 +205,7 @@ for (const [name, createStore] of engineeringFollowupStores) {
       },
     );
 
-    it.each(["observe", "retry", "prepare"] as const)(
+    it.each(["observe", "retry", "prepare", "retest"] as const)(
       "keeps %s trusted proof expiry after the final host await",
       async (operation) => {
         const f = await engineeringFollowupFixture(createStore());
@@ -204,6 +223,79 @@ for (const [name, createStore] of engineeringFollowupStores) {
         expect(f.observed.transactions).toHaveLength(transactions);
       },
     );
+
+    it("checks the original browser after the actual retest verifier await and before any new write", async () => {
+      const f = await engineeringFollowupFixture(createStore());
+      const command = await mutation(f, "retest");
+      const before = await f.rows();
+      const transactions = f.observed.transactions.length;
+      const barrier = engineeringFollowupBarrier();
+      const verify = f.retestVerify.getMockImplementation();
+      if (verify === undefined)
+        throw new Error("Actual retest verifier missing");
+      f.retestVerify.mockImplementationOnce(async (...args) => {
+        const proof = await verify(...args);
+        await barrier.wait();
+        return proof;
+      });
+      let browserCurrent = true;
+      const denied = new SupportDeskAuthorizationError(
+        supportPermissions.engineeringFollowupEvidenceSubmit,
+      );
+      const guard = vi.fn(async () => {
+        if (!browserCurrent) throw denied;
+      });
+      const settled = command.invoke({ verifyBeforeCommit: guard }).then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      );
+      await waitForFollowupHook(barrier, settled);
+      browserCurrent = false;
+      barrier.release();
+      expect(await settled).toEqual({ error: denied });
+      expect(guard).toHaveBeenCalledOnce();
+      expect(await f.rows()).toEqual(before);
+      expect(f.observed.transactions).toHaveLength(transactions);
+    });
+
+    it("recovers an exact retest ACK after all release, retest and check ports are removed", async () => {
+      const f = await engineeringFollowupFixture(createStore());
+      const mutationInput = await mutation(f, "retest");
+      if (!("command" in mutationInput))
+        throw new Error("Expected the exact retest command");
+      const lost = new Error("Actual retest committed, caller ACK lost");
+      f.observed.intercept(async (_trace, commit) => {
+        const outcome = await commit();
+        if (outcome.committed) throw lost;
+        return outcome;
+      });
+      await expect(mutationInput.invoke()).rejects.toBe(lost);
+      f.observed.intercept(undefined);
+      const committed = await f.rows();
+      const transactions = f.observed.transactions.length;
+      const app = f.freshApplication({
+        engineeringFollowup: { enabled: false },
+      });
+      const controller = new AbortController();
+      controller.abort();
+      const guard = vi.fn(async () => {
+        throw new Error("Original browser no longer exists");
+      });
+      await expect(
+        app.submitEngineeringFollowupRetestResult(
+          staff,
+          mutationInput.command,
+          { signal: controller.signal, verifyBeforeCommit: guard },
+        ),
+      ).resolves.toEqual({
+        ...f.key,
+        outcome: "recorded",
+        result: "passed",
+      });
+      expect(guard).not.toHaveBeenCalled();
+      expect(await f.rows()).toEqual(committed);
+      expect(f.observed.transactions).toHaveLength(transactions);
+    });
 
     it.each(operations)(
       "cancels %s after receipt lookup and before new private proof",
@@ -365,7 +457,7 @@ for (const [name, createStore] of engineeringFollowupStores) {
       },
     );
 
-    it.each(["observe", "prepare"] as const)(
+    it.each(["observe", "prepare", "retest"] as const)(
       "settles cancellation while %s host verification remains deferred",
       async (operation) => {
         const f = await engineeringFollowupFixture(createStore());

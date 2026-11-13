@@ -6,9 +6,9 @@
 
 All five local package versions and exact internal Support pins target
 unpublished `0.2.9`. Exact KB application/contracts now pin verified public
-`0.1.7`, requiring fresh SDK graph qualification. Published `0.2.8` retains KB `0.1.6`; Authorization Core `0.4.0`
+`0.1.8`, requiring fresh SDK graph qualification. Published `0.2.8` retains KB `0.1.6`; Authorization Core `0.4.0`
 remains unchanged. The AI manifest adds exact direct
-`zod@4.4.3` and `@pegma/storage-core@0.4.0` dependencies. The root stays private
+`zod@4.6.7` and `@pegma/storage-core@0.4.0` dependencies. The root stays private
 at `0.0.0`.
 
 Optional application model-planning, model preparation/completion, proposal
@@ -23,8 +23,9 @@ Exact model completion retries recover the accepted command fingerprint under
 current processing authority before obsolete Source/proof work. Permanent
 withdrawal can avoid futile finish retries without converting pending work or
 unknown usage to success. Existing known-usage accounting, approval, one-shot
-issue creation and reconciliation contracts remain. There is no new record
-layout, permission, model opportunity, queue or automatic activation.
+issue creation and reconciliation contracts remain. These engineering
+observation paths add no permission, model opportunity, queue or automatic
+activation.
 
 See the [worker observation contract](ENGINEERING_EXPORT.md#candidate-029-worker-observations)
 and [upgrade guidance](UPGRADING.md#unpublished-029-engineering-worker-observations).
@@ -74,6 +75,46 @@ encoding and `pegma.dev.support-independent-checks.v2` MAC domain are preserved.
 RetireGolden uses its own host binding and separate stores, keys, funding and
 privacy/configuration evidence. See [the adapter contract](../packages/ai/README.md#optional-openrouter-adapter-source-candidate).
 
+### Release follow-up adapter and current comparison
+
+The optional entry adds SD05 configuration/evaluation/model ports and durable
+usage through `createSupportReleaseFollowupModel` and
+`createSupportReleaseFollowupUsage`. `createSupportReleaseFollowupChecks`
+checks the entire private handoff with a distinct `sf1` receipt and explicit
+current SD05 route qualification. Staff reassessment supplies the original
+actor's current Review/Read/queue resolver. The application also accepts
+optional `EngineeringMutationOptions` on `submitEngineeringFollowupRetestResult`.
+Actual retest evidence and staff posting remain the existing trusted boundaries.
+
+Opt-in `invocationMode: 'staged'` separates a released, durable `not_called`
+model plan, one conditional provider attempt with retained output, and fresh
+candidate completion. Existing ambiguous preparation and unknown paid outcomes
+stay held without automatic provider retry. Physical phases share the original
+attempt limit and semantic deadline. The default remains monolithic.
+
+The checks controller's `deferred: true` stages `forWork` preparation, one paid
+precompute and later fresh receipt completion. A received verdict grants no
+`sf1` receipt until that completion succeeds. `forReassessment` retains current
+staff authority and its inline contract. Hosts prewrite body-free continuations
+before possible paid phases. A later `not_claimed` invocation calls neither
+generator nor checks and can drain a scheduling hint.
+
+Store/Clock-only `createSupportReleaseFollowupCheckCleanup` keeps ticket and
+expiry erasure available when paid configuration is absent. Erasure retains
+intent tombstones and cannot authorize another paid call. Optional retest
+`observe` uses a fresh single-use confirmation closure per application attempt.
+Preliminary metadata cannot authorize a mutation before confirmation, final
+browser authority and synchronous CAS assertions. Exact accepted ACK recovery
+precedes observation, and omitted observation retains legacy verification. See
+the [physical invocation contract](ENGINEERING_FOLLOWUP.md#candidate-029-followup-invocations).
+
+KB `0.1.8` supplies the optional authoring `publishedSearchObservations`
+capability for bounded background new-create comparison. The candidate retains
+complete/partial/unavailable handling, current resource/authority confirmation
+and exact historical ACK recovery. See the [comparison contract](RESOLUTION_LEARNING.md#candidate-scoped-comparison-evidence)
+and [SD05 adapter contract](../packages/ai/README.md#release-follow-up-provider-ports).
+Combined SDK and host qualification remain pending.
+
 <a id="028-followup-mutation-guards"></a>
 
 ## 0.2.8 — follow-up host guards and authorized reads, 2026-11-12
@@ -81,7 +122,7 @@ privacy/configuration evidence. See [the adapter contract](../packages/ai/README
 All five synchronized `0.2.8` packages are published and strictly verified.
 Its published AI package retains exact KB application/contracts `0.1.6`.
 The unpublished `0.2.9` candidate retains these controls and pins verified public
-KB `0.1.7`, requiring fresh SDK graph qualification. See the
+KB `0.1.8`, requiring fresh SDK graph qualification. See the
 [publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
 Optional `EngineeringMutationOptions` add caller cancellation and a trusted
 late `verifyBeforeCommit` guard to non-post follow-up mutations. Observation,

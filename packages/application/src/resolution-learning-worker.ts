@@ -785,6 +785,12 @@ export function createResolutionLearningWorkerServices(
             : await options.checks.verify(
                 command.verifiedCheckReceipt,
                 binding,
+                undefined,
+                {
+                  comparisonScope: {
+                    collectionId: command.exactRequest.collectionId,
+                  },
+                },
               );
         live(loaded, work, command);
         if (

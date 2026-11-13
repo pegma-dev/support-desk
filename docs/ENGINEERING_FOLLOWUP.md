@@ -112,6 +112,136 @@ existing proof, host guard and delivery guarantees, with the optional read
 observation below. No role, permission, record layout, model call or automatic
 customer notification is added.
 
+### Candidate 0.2.9 retest and provider controls
+
+The unpublished candidate adds optional `EngineeringMutationOptions` as the
+third argument to `submitEngineeringFollowupRetestResult`. A new retest write
+checks its original signal and late host guard after awaited evidence and at
+transaction handoff. Current-authorized exact accepted receipts recover before
+new mutable evidence or host controls. The existing trusted retest receipt
+still binds the actual request, bundle, product/build, execution and runner.
+
+The optional [SD05 OpenRouter adapter](../packages/ai/README.md#release-follow-up-provider-ports)
+provides purpose-specific generator/evaluation/usage and whole-bundle check
+ports. Its route, privacy, tokenizer and checker qualification stay explicit;
+provider and host activation remain pending. Retest requests remain advisory
+until the owning trusted evidence workflow verifies their actual execution.
+
+<a id="candidate-029-followup-invocations"></a>
+
+### Candidate 0.2.9 physical invocation phases
+
+Set `invocationMode: 'staged'` on the AI coordinator to separate durable model
+planning, one provider attempt and candidate completion. The actual application
+must expose `planEngineeringFollowupModel`, `beginEngineeringFollowupModel` and
+`recordEngineeringFollowupModel`. The checks port must expose its non-provider
+`prepare` capability. Missing capabilities hold before claiming. Omitting the
+option preserves the existing monolithic flow.
+
+| Physical invocation                               | Durable result                                                      | Provider entry             |
+| ------------------------------------------------- | ------------------------------------------------------------------- | -------------------------- |
+| Plan the exact bounded input                      | `pending`, `checkpoint: 'model_planned'`, `callState: 'not_called'` | None                       |
+| Conditionally begin and retain the bounded result | `pending`, `checkpoint: 'model_recorded'`, `callState: 'recorded'`  | At most one generator call |
+| Complete the retained candidate with fresh guards | `candidate`                                                         | None                       |
+
+Planning releases the claim with an explicit not-called attempt. The next
+invocation freshly checks authority, configuration, evaluation, policy, release
+facts and the original Source binding. Its conditional begin marks the attempt
+possibly called before the provider callback. A lost begin or provider ACK
+keeps unknown accounting and holds that attempt. It cannot become not-called or
+automatically invoke the provider again. A retained result grants no bundle or
+posting authority. Completion requires fresh guards and the exact retained
+candidate. A lost planning or result-recording ACK resumes the same durable
+state. Existing ambiguous `model_prepared` rows retain their unknown meaning.
+
+Each staged mutation supplies a callback-only `EngineeringFollowupModelObservation`.
+Its optional `readProof(access)` returns an immutable snapshot of that mutation's
+fresh App proof under the same caller and read permissions. It expires with the
+guard. The coordinator compares its exact Work and public facts, then retains
+fresh policy, evaluation, configuration, authority and final opaque-version
+checks. The claim proof supplies planning input only. Older structural
+observations retain the full proof-read fallback.
+
+All three model invocations share one configured model-attempt identity. A
+configured application and model ceiling of one remains supported. Staging
+preserves lease limits, lifetime attempt counts, usage reservations and the
+original Work deadline. The host must schedule each continuation in a later
+physical invocation within those bounds.
+
+The optional `./openrouter` checks controller accepts `deferred: true` for
+`forWork`. Its `prepare` persists a bounded private request and returns a
+body-free deferred operation. `scanPending` returns at most 32 operation hints
+with scope, expiry and `provider` or `receipt` phase. `precomputePending` first
+conditionally owns one provider attempt, performs the real fresh pre-fetch
+checks, accounts actual usage and durably records a received verdict. Its
+`received` outcome carries no `sf1` receipt. A later invocation freshly confirms
+the Source, authority, policy, configuration and key before committing a checked
+receipt. A checked replay also revalidates current proof and invokes no provider.
+Unknown or claimed attempts cannot generate again.
+
+The coordinator returns `checks_planned` with `callState: 'not_called'` for a
+queued operation and `checks_recorded` with `callState: 'recorded'` for a received
+verdict. Both include only the operation ID and expiry. The controller retains
+the distinct `sf1` domain and the existing independent-check funding pool.
+`forReassessment` preserves the existing inline path with its explicit current
+staff resolver. A background worker must never impersonate that reviewer.
+
+Prewrite a bounded body-free continuation before every possible provider phase,
+including a phase whose planning ACK might be lost. A `model_recorded` result
+may follow a provider call in that invocation. A later `not_claimed` invocation
+reaches neither the generator nor checks entry point and can drain a scheduling
+hint. Durable SDK state and accounting remain authoritative after unknown ACKs.
+The host owns bounded retries, scheduling fairness and capacity. Generic host
+proof callbacks retain their own billing policy.
+
+`createSupportReleaseFollowupCheckCleanup({store, clock})` exposes
+`discardTicket` and `purgeExpired` without model configuration, credentials or
+funding. Each handles the existing bounded head through at most two conditional
+update attempts. Deferred private requests default to 60 seconds of retention
+and accept an explicit bound from 1 through 300,000 milliseconds. Erasure keeps
+body-free intent tombstones, preventing expiry from authorizing another paid
+call. Wire ticket erasure into Source withdrawal and expiry erasure into existing
+maintenance even when paid configuration is removed. Application withdrawal
+also scrubs retained staged model output.
+
+Retest receipt ports may supply `observe` in addition to their existing
+`verify`. Its preliminary metadata is snapshotted immediately and remains
+untrusted until its live `confirm` closure succeeds. Opening report observation
+may overlap independent release verification after Source and association
+admission. Closing confirmation joins the original opaque-version checks. The
+original browser guard follows both, and any returned synchronous assertion runs
+at the transaction handoff. Each conditional retry opens a fresh observation.
+An unavailable supplied observation holds without falling back to `verify`.
+Omitting `observe` retains legacy verification, and exact accepted receipt
+recovery precedes either callback. Observation handles never cross requests or
+enter stored records.
+
+These source contracts do not qualify a host's physical D1 or CPU budget.
+Actual Workers Free 50-call and 100-parameter qualification remains separate.
+
+### Candidate bundle observation
+
+Actual Application claims advertise `bundleObservation: true` without storing
+an observation or changing the Work record. Staged workers may use that claim's
+proof for initial bundle/check-request planning only. Independent checks still
+inspect current Source/release facts; the Application admits its ordinary
+Source and accepted association before verifying the exact bundle receipt.
+
+The Application then obtains a fresh release proof **after** receipt verification,
+at the final guard's release-observation boundary. Its optional callback-scoped
+`EngineeringFollowupBundleObservation` exposes immutable Work and proof snapshots
+under the original principal and current read/queue permissions. It expires when
+the guard settles and refuses reads after proof or Work expiry. No opaque
+versions or reusable handles leave the Application. The coordinator retains
+fresh target, policy, receipt and service-authority checks and compares the exact
+claim/candidate/Source binding. The original five closing opaque versions,
+permission/deadline checks, host guard and transaction CAS still follow.
+
+Structural applications without the advertised capability or optional guard
+argument, and ordinary inline composition, retain full fresh proof/current-read
+fallbacks. A planning proof never authorizes commitment, posting or a provider
+call. This operation-local read reduction does not establish a host budget pass.
+
 ### Candidate post observation
 
 For each new application post attempt, the proof guard may receive an optional

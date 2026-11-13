@@ -15,7 +15,7 @@ describe("optional public provider subpath", () => {
       import: "./dist/openrouter/index.js",
     });
     expect(manifest.dependencies).toMatchObject({
-      zod: "4.4.3",
+      zod: "4.6.7",
       "@pegma/storage-core": "0.4.0",
     });
     for (const name of [

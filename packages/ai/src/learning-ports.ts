@@ -1,9 +1,11 @@
 import type { AccessContext } from "@pegma/authorization-core";
 import type { Clock, IsoTimestamp } from "@pegma/spine";
+import type { LearningComparisonSelection } from "./learning-comparison.js";
 import type {
   ResolutionLearningApplication,
   ResolutionLearningCandidate,
   ResolutionLearningChecksBinding,
+  ResolutionLearningChecksVerificationContext,
   ResolutionLearningClaim,
   ResolutionLearningClaimFence,
   ResolutionLearningDeliveryRequest,
@@ -209,6 +211,9 @@ export interface LearningCheckInput {
   readonly targetComparison: {
     readonly operation: "create" | "update";
     readonly existingDraft?: string;
+    /** Real bounded selection hints/scope. Completeness is established only by
+     * the actual KB background observation, never by an empty caller array. */
+    readonly selection?: LearningComparisonSelection;
   };
   readonly binding: ResolutionLearningChecksBinding;
 }
@@ -230,6 +235,7 @@ export interface LearningChecksPort extends LearningCheckPolicyPort {
     receipt: string,
     binding: ResolutionLearningChecksBinding,
     signal?: AbortSignal,
+    context?: ResolutionLearningChecksVerificationContext,
   ): Promise<VerifiedResolutionLearningChecks | null>;
 }
 

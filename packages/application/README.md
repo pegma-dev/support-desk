@@ -18,6 +18,12 @@ remains available to structural ports. See [staged draft delivery](../../docs/RE
 The source candidate is unpublished and current Native Workers Free 50/100
 qualification remains pending.
 
+The candidate also accepts optional `EngineeringMutationOptions` on
+`submitEngineeringFollowupRetestResult` after its existing command. New writes
+retain current retest evidence, signal and final host guards. Exact accepted
+receipts recover under current authorization before new mutable proof.
+See the [retest controls](../../docs/ENGINEERING_FOLLOWUP.md#candidate-029-retest-and-provider-controls).
+
 Authorized customer ticket services and provider-neutral durable outbox
 records for Support Desk. The host supplies an `@pegma/storage-core` `Store`
 and a trusted Authorization Core access context.

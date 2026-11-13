@@ -7,8 +7,8 @@ exact ACK recovery and the full fallback for older structural ports. Engineering
 coordinator methods are unchanged. See the [candidate notes](../../docs/RELEASE_NOTES.md#029-engineering-worker-observations)
 and [worker contract](../../docs/ENGINEERING_EXPORT.md#candidate-029-worker-observations).
 Its internal Support application pin is exact `0.2.9`; external KB application/
-contracts now pin exact verified public `0.1.7`; see its
-[strict registry verification](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.7/registry-verification.json).
+contracts now pin exact verified public `0.1.8`; see its
+[strict registry verification](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.8/registry-verification.json).
 The changed SDK candidate graph requires fresh qualification. Published Support Desk `0.2.8` retains KB `0.1.6`. Candidate source does not
 qualify registry publication, a host's query/CPU budget or activation.
 
@@ -27,6 +27,12 @@ parameters remains pending.
 Staged `reconcileSource` also advances one unconfirmed durable destination per
 invocation. An exact retirement attempt yields to a later physical readback
 under fresh retirement authority. Its existing result union is unchanged.
+
+The unpublished candidate also adds `invocationMode: 'staged'` to release
+follow-up coordination. Durable model planning, one provider attempt and fresh
+completion use separate physical invocations. Work checks can separately opt
+into deferred preparation, paid precompute and fresh receipt completion. See
+the [follow-up invocation contract](../../docs/ENGINEERING_FOLLOWUP.md#candidate-029-followup-invocations).
 
 Optional, provider-neutral Support Desk answer, learning, engineering, and
 release follow-up coordination.
@@ -341,7 +347,7 @@ The unpublished source candidate exposes provider adapters through
 The optional entry contains the bounded transport, purpose-isolated durable
 usage ledger and engineering/learning independent-check adapters ported from
 the tested Pegma reference host. The AI manifest declares exact direct
-`zod@4.4.3` and `@pegma/storage-core@0.4.0` dependencies.
+`zod@4.6.7` and `@pegma/storage-core@0.4.0` dependencies.
 
 `createSupportIndependentCheckModel(options, logicalHost)` and
 `createSupportIndependentChecks(options, logicalHost)` require the original
@@ -362,7 +368,104 @@ qualified token counting, credentials, receipt keys, bounded durable funding
 and retention. Keep `authority.resolve`, `readRoute`, `readReceiptKey` and
 `application` callbacks current over the host's actual domain instances.
 Importing the entry performs no network, Store, key or route
-activity. Source-reading verifiers observe current domain state. The read-free
-SDK verifiers authenticate the exact receipt inside the SDK's existing current
-Source/Work/target/authority and conditional-commit boundary. Neither verifier
-establishes customer activation, publication approval or a whole-host budget.
+activity. Source-reading verifiers observe current domain state. SDK verifiers
+authenticate the exact receipt inside the SDK's existing current
+Source/Work/target/authority and conditional-commit boundary. Learning verifiers
+also require the issuer's retained checked-attempt entry and proof in the same
+durable Store namespace, including legacy update proofs without comparison
+data. Comparison receipts recheck their retained KB resources and current scope
+without enumerating the corpus. The engineering SDK proof helper retains its
+read-free behavior. Neither verifier establishes customer activation,
+publication approval or a whole-host budget.
+
+Treat `maxReservations` as an admission ceiling. The independent-check head's
+60,000-byte encoded limit and reserved proof space can hold admission sooner.
+Deferred learning creates reserve the existing 16,000 proof limit before the
+background comparison is loaded. Queued request bodies and entry metadata also
+consume head capacity. A deferral that cannot fit is held before its entry is
+written. Expiry redaction removes request text and retains the attempt and its
+proof reservation. Retain these finite limits in host scheduling and funding
+plans.
+
+### Release follow-up provider ports
+
+The unpublished candidate adds `createSupportReleaseFollowupModel(options,
+logicalHost)` and `createSupportReleaseFollowupUsage({store, clock, policy})`.
+The model factory returns the SD05 configuration, evaluations, generator and
+qualified token counter. Its closed route binds `support_release_followup`,
+`openrouter-support-release-followup-v1`, the current model/prompt/parser
+evaluation, ZDR/privacy evidence, exact endpoint allowlist and tokenizer.
+Missing or expired evidence leaves these ports unavailable. The original
+options callbacks stay current; only the first `ReleaseFollowupModelInput`
+argument is provider-visible. Generator funding uses a separate finite ledger.
+
+`createSupportReleaseFollowupChecks(options, logicalHost)` checks the complete
+customer draft, KB handoff and advisory retests against actual current
+Support/KB/release observations. Its checker uses the existing independent
+transport and shared independent-check funding pool. The approved checker
+route must additionally contain `releaseFollowup` qualification with purpose
+`support_release_followup`, wire `openrouter-support-release-followup-check-v1`,
+`evidenceRef`, `verifiedAt` and `validUntil`; this object is included in the
+route policy hash. Existing engineering and learning approvals stay unchanged.
+
+Omitting `usagePolicy` leaves new checks `unavailable` before Store, App,
+receipt-key or provider work. Existing receipt verification and current
+check-policy resolution retain their own guards without requiring new funding.
+
+Use `forWork({ticketId, workId})` for background preparation.
+`forReassessment(key, reviewAuthority)` requires a per-operation resolver for
+the original authenticated staff actor's current Review, Read and queue
+permissions. It reads the actual public reassessment/prospective binding.
+Background service permissions stay unchanged. Both ports' scope-bound
+verifiers, and the global `sdkVerifier`, authenticate the exact `sf1` receipt
+inside the SDK's existing current Work/release/target/authority and final CAS
+fences. `currentVerifierFor(key, reviewAuthority?)` additionally reobserves the
+current Source. The receipt MAC domain is
+`${logicalHost}.support-release-followup-checks.v1`; engineering/learning
+receipts cannot become follow-up receipts.
+
+For staged Work, set the coordinator's `invocationMode: 'staged'` and the checks
+controller's `deferred: true`. The actual application must supply its optional
+plan/begin/record capabilities and checks must supply non-provider `prepare`.
+Missing capabilities hold before claim. A durable model plan explicitly records
+`not_called` and releases the claim. A later conditional begin marks possible
+execution before one generator call. Recorded output releases the claim for
+fresh completion. A lost begin or provider ACK stays unknown and cannot invoke
+that attempt again. Configured attempt ceilings and the original semantic
+deadline remain unchanged.
+
+Deferred `forWork` preparation returns a body-free operation. `scanPending`
+exposes its bounded `provider` or `receipt` phase. `precomputePending` returns
+`received` after durably accounting a verdict and returns `checked` only in a
+later fresh receipt phase or a verified receipt replay. Those checked invocations
+do not call the checker model. `forReassessment` remains inline under the original staff
+resolver. Prewrite scheduling continuations before possible paid invocations,
+including unknown ACKs. A later `not_claimed` Work invocation reaches neither
+generator nor checks and can drain its hint.
+
+Checker ownership retains at most 32 attempts, further bounded by the shared
+pool and a 60,000-byte head. Deferred pending attempts retain bounded private
+requests until receipt completion or erasure. Terminal entries retain body-free
+metadata. Ambiguous provider or storage outcomes keep
+ownership and conservative accounting; exact replay recovers a stored receipt
+without another paid opportunity. The existing ledger retains unknown usage
+through its immutable funding window. The ownership head retains terminal
+entries. Reaching its count, byte or shared-funding limit holds new checks.
+Reconstructing the checker on that Store with a different funding-policy hash
+also holds new checks. Funding is fixed at construction, with no automatic
+policy rollover, top-up, expiry reclamation or paid retry. Preserve attempt and
+usage records for receipt recovery and financial reconciliation. These checks
+issue no retest receipt. Actual
+retest execution remains the application's existing trusted evidence contract;
+KB publication and customer delivery retain their staff approval boundaries.
+
+`createSupportReleaseFollowupCheckCleanup({store, clock})` provides bounded
+`discardTicket` and `purgeExpired` without route, key or funding configuration.
+Wire it into source forgetting and existing maintenance even when paid options
+are removed. It erases private request payloads and retains intent tombstones.
+The optional application retest `observe` contract keeps confirmation within one
+attempt, before the final browser guard and synchronous CAS assertion. It never
+persists or reuses an opaque report observation across requests. See the
+[full phase and retest contract](../../docs/ENGINEERING_FOLLOWUP.md#candidate-029-followup-invocations).
+Host resource budgets, provider qualification and activation remain pending
+until measured on the composed hosts.

@@ -193,10 +193,10 @@ for (const [name, createStore] of engineeringFollowupStores) {
     );
 
     it.each(["withdrawn", "restricted"] as const)(
-      "checks the actual %s Source before reading any subsequent posting record",
+      "checks the actual %s Source before accepting the closing version wave",
       async (state) => {
         const f = await engineeringFollowupAiFixture(createStore());
-        await f.prepareBundle();
+        const prepared = await f.prepareBundle();
         const command = await f.postCommand(`source-first-post-${state}`);
         const actor = {
           ...staff,
@@ -238,15 +238,25 @@ for (const [name, createStore] of engineeringFollowupStores) {
               : "current_fence_changed",
         });
         expect(
-          f.readObserver.reads.map((read) => (read.key as { id?: string }).id),
-        ).toEqual(["engineering-source"]);
+          f.readObserver.reads
+            .map((read) => (read.key as { id?: string }).id)
+            .sort(),
+        ).toEqual(
+          [
+            "engineering-source",
+            `engineering-work:${prepared.association.engineeringSourceGeneration}`,
+            prepared.id,
+            "engineering-followup-head",
+            "ticket",
+          ].sort(),
+        );
         expect(await f.rows()).toEqual(afterChange);
       },
     );
 
-    it("rechecks closing read grants after the first opaque Source await", async () => {
+    it("rechecks closing read grants after the independent version wave", async () => {
       const f = await engineeringFollowupAiFixture(createStore());
-      await f.prepareBundle();
+      const prepared = await f.prepareBundle();
       const command = await f.postCommand("closing-observation-read-grants");
       const actor = { ...staff, permissions: [...staff.permissions] };
       const before = await f.rows();
@@ -281,7 +291,15 @@ for (const [name, createStore] of engineeringFollowupStores) {
       await expect(settled).resolves.toBeInstanceOf(
         SupportDeskAuthorizationError,
       );
-      expect(confirmed).toEqual(["engineering-source"]);
+      expect([...confirmed].sort()).toEqual(
+        [
+          "engineering-source",
+          `engineering-work:${prepared.association.engineeringSourceGeneration}`,
+          prepared.id,
+          "engineering-followup-head",
+          "ticket",
+        ].sort(),
+      );
       f.readObserver.afterRead(undefined);
       expect(await f.rows()).toEqual(before);
     });

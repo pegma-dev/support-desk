@@ -1,7 +1,8 @@
+import { containsPrivateText } from "./private-text.js";
 import { hasPermission, type AccessContext } from "@pegma/authorization-core";
 import {
   KnowledgeBaseNotFoundError,
-  type KnowledgeBaseApplication,
+  type PrivateSourcesVerifier,
 } from "@pegma/knowledge-base-application";
 import type { Clock } from "@pegma/spine";
 import { defineCollection, type Store } from "@pegma/storage-core";
@@ -11,6 +12,15 @@ import type {
   LearningServiceAccessPort,
 } from "../learning-ports.js";
 import type { LearningKnowledgeAccessPort } from "../learning-integration-types.js";
+import {
+  confirmLearningComparisonResources,
+  learningCheckedComparisonSchema,
+  learningComparisonSelectionSchema,
+  observeLearningComparison,
+  readLearningComparisonScope,
+  type LearningComparisonKnowledge,
+  type LearningCheckedComparison,
+} from "../learning-comparison.js";
 import {
   engineeringExportChecksBinding,
   engineeringRoutingBinding,
@@ -73,7 +83,9 @@ export interface SupportIndependentChecksOptions extends IndependentCheckModelOp
   readonly store: Store;
   readonly application: () => Application;
   readonly authority: LearningServiceAccessPort;
-  readonly knowledge?: Pick<KnowledgeBaseApplication, "getDraft">;
+  readonly knowledge?: LearningComparisonKnowledge;
+  /** Existing private-source verifier, needed for explicitly compared drafts. */
+  readonly knowledgeSources?: PrivateSourcesVerifier;
   readonly knowledgeAccess?: LearningKnowledgeAccessPort;
   readonly repositories?: EngineeringRepositoryMetadataPort;
   readonly usagePolicy?: SupportModelUsagePolicy;
@@ -155,6 +167,7 @@ const payloadSchema = z.discriminatedUnion("kind", [
       kind: z.literal("learning"),
       binding: learningBinding,
       target: targetSchema,
+      comparison: learningCheckedComparisonSchema.optional(),
     })
     .strict(),
 ]);
@@ -166,7 +179,7 @@ interface ReceiptHeader {
   readonly issuer: string;
   readonly verifiedAt: string;
   readonly validUntil: string;
-  readonly flag: "p" | "n" | "l";
+  readonly flag: "p" | "n" | "l" | "c";
   readonly signature: Uint8Array<ArrayBuffer>;
 }
 type Authority = {
@@ -176,6 +189,8 @@ type Authority = {
 };
 type EngineeringInput = Parameters<EngineeringChecksPort["check"]>[0];
 type LearningInput = Parameters<LearningChecksPort["check"]>[0];
+type Recovery = Parameters<LearningChecksPort["verify"]>[3];
+type ComparisonState = Awaited<ReturnType<typeof observeLearningComparison>>;
 type Input = EngineeringInput | LearningInput;
 const KEY = Object.freeze({
   partition: INDEPENDENT_CHECK_PURPOSE,
@@ -500,6 +515,8 @@ export function createSupportIndependentChecks(
     signal: AbortSignal,
     input: Input,
     original?: Authority,
+    knownComparison?: ComparisonState,
+    backgroundComparison = false,
   ) {
     scope = scopeSchema.parse(scope);
     const resolved = await authority(kind, signal, original);
@@ -584,15 +601,16 @@ export function createSupportIndependentChecks(
           }
         : {}),
     };
-    const sourceStamp = await knowledgeDigest({
+    let sourceStamp = await knowledgeDigest({
       sourceBindingHash: source.sourceBindingHash,
       evidenceFingerprint: source.evidenceFingerprint,
       candidateHash: work.candidateHash,
       facts,
     });
     let outbound: unknown;
-    let comparison: unknown;
-    let target: z.infer<typeof targetSchema> | undefined;
+    let comparison;
+    let comparisonState: ComparisonState | undefined;
+    let target;
     if (input) {
       requireCheck(
         input.binding.sourceBindingHash === source.sourceBindingHash &&
@@ -715,13 +733,17 @@ export function createSupportIndependentChecks(
       const r = value.exactRequest;
       const articleId = r.articleId;
       const originalGeneration = r.originalExpectedGeneration;
-      const payload = exact(JSON.parse(r.draftPayload), [
+      const rawPayload = plain(JSON.parse(r.draftPayload));
+      const payload = exact(rawPayload, [
         "draft",
         "scope",
         "configurationHash",
         "policyBinding",
         "requirements",
         "base",
+        ...(Object.hasOwn(rawPayload, "comparisonSelection")
+          ? ["comparisonSelection"]
+          : []),
       ]);
       requireCheck(
         (await equal(value.workingSolution, messages)) &&
@@ -819,6 +841,65 @@ export function createSupportIndependentChecks(
         outboundHash: outgoingHash,
       };
       comparison = existing;
+      if (r.operation === "create") {
+        const selected = learningComparisonSelectionSchema.parse(
+          payload.comparisonSelection,
+        );
+        const actualScope = exact(payload.scope, [
+          "version",
+          "collectionId",
+          "kind",
+          "searchQuery",
+          "explicitDraftIds",
+        ]);
+        requireCheck(
+          (await equal(value.targetComparison.selection, selected)) &&
+            selected.scope.version === actualScope.version &&
+            selected.scope.collectionId === r.collectionId &&
+            selected.scope.kind === draft.kind &&
+            selected.scope.query === actualScope.searchQuery &&
+            (await equal(
+              selected.scope.explicitDraftIds,
+              actualScope.explicitDraftIds,
+            )) &&
+            (await equal(selected.scope.applicability, draft.applicability)),
+        );
+        if (knownComparison) {
+          requireCheck(
+            await equal(knownComparison.evidence.selection, selected),
+          );
+          await confirmLearningComparisonResources(
+            options.knowledge,
+            options.knowledgeSources,
+            ka.authority.access,
+            knownComparison.evidence,
+            (work) => bounded(now() + operationLimit, signal, work),
+          );
+          comparisonState = knownComparison;
+        } else {
+          // Only the actual queued background precompute may enumerate the KB.
+          requireCheck(backgroundComparison);
+          comparisonState = await observeLearningComparison(
+            options.knowledge,
+            options.knowledgeSources,
+            ka.authority.access,
+            selected,
+            () => options.clock.now(),
+            (work) => bounded(now() + operationLimit, signal, work),
+          );
+        }
+        const requirements = plain(payload.requirements);
+        requireCheck(
+          requirements.collectionId === r.collectionId &&
+            requirements.governanceGeneration ===
+              comparisonState.evidence.scopeState.generation,
+        );
+        comparison = comparisonState.projection;
+        sourceStamp = await knowledgeDigest({
+          sourceStamp,
+          comparison: comparisonState.evidence.digest,
+        });
+      }
       const freshKA = await options.knowledgeAccess.resolve(signal);
       requireCheck(
         freshKA.outcome === "ready" &&
@@ -844,7 +925,7 @@ export function createSupportIndependentChecks(
     ].filter((v): v is string => typeof v === "string" && v.length > 0);
     if (input)
       requireCheck(
-        !privateValues.some((v) => JSON.stringify(outbound).includes(v)),
+        !containsPrivateText(JSON.stringify(outbound), privateValues),
       );
     return {
       sourceStamp,
@@ -852,7 +933,9 @@ export function createSupportIndependentChecks(
       candidate: work.candidate ?? { retainedDraft: retained!.request.bundle },
       outbound,
       comparison,
+      comparisonState,
       target,
+      privateValues,
       validUntil,
       workDeadline: work.deadline,
       authority: resolved,
@@ -892,7 +975,7 @@ export function createSupportIndependentChecks(
     };
     const verifiedAt = instant(parts[3]!);
     const validUntil = instant(parts[4]!);
-    const flag = z.enum(["p", "n", "l"]).parse(parts[5]);
+    const flag = z.enum(["p", "n", "l", "c"]).parse(parts[5]);
     const signature = unb64(parts[6]!);
     requireCheck(
       signature.length === 32 &&
@@ -902,11 +985,16 @@ export function createSupportIndependentChecks(
     );
     return { operation, issuer, verifiedAt, validUntil, flag, signature };
   }
-  async function issuerBinding(issuerId: string, authorityVersion: string) {
+  async function issuerBinding(
+    issuerId: string,
+    authorityVersion: string,
+    comparisonDigest?: string,
+  ) {
     const digest = await knowledgeDigest({
       purpose: INDEPENDENT_CHECK_PURPOSE,
       issuerId,
       authorityVersion,
+      ...(comparisonDigest === undefined ? {} : { comparisonDigest }),
     });
     return b64(
       Uint8Array.from({ length: 32 }, (_, i) =>
@@ -924,7 +1012,7 @@ export function createSupportIndependentChecks(
     requireCheck(
       kind === "engineering"
         ? h.flag === "p" || h.flag === "n"
-        : h.flag === "l",
+        : h.flag === "l" || h.flag === "c",
     );
     return bytes({
       domain: `${host}.support-independent-checks.v2`,
@@ -932,6 +1020,9 @@ export function createSupportIndependentChecks(
       kind,
       operationId: h.operation,
       issuerBinding: h.issuer,
+      ...(h.flag === "c"
+        ? { comparisonCoverage: "complete_authorized_search_scope_snapshot" }
+        : {}),
       binding:
         kind === "engineering"
           ? engineeringBinding.parse(binding)
@@ -1008,6 +1099,7 @@ export function createSupportIndependentChecks(
     scope?: IndependentCheckScope,
     known?: z.infer<typeof entrySchema>,
     sourceRead = true,
+    recovery?: Recovery,
   ) {
     try {
       return await bounded(now() + operationLimit, outer, async (signal) => {
@@ -1041,55 +1133,156 @@ export function createSupportIndependentChecks(
                 policyBinding: configured.policy.binding,
               })),
           );
-        // Exact request/candidate/target and final opaque versions remain the SDK's
-        // current commit fences. Reuse does not re-run paid checks or hydrate them.
-        if (sourceRead) {
-          const entry =
-            known ??
-            (
-              await options.store.collection(independentCheckAttempts).get(KEY)
-            )?.entries.find((e) => e.operation === h.operation);
-          requireCheck(
-            entry?.state === "checked" &&
-              entry.receipt === receipt &&
-              entry.proof,
-          );
-          const p = payloadSchema.parse(
-            JSON.parse(
-              new TextDecoder("utf-8", { fatal: true }).decode(
-                unb64(entry.proof),
+        const collectionHint =
+          kind === "learning" && h.flag === "c" && recovery?.comparisonScope
+            ? scalar.parse(recovery.comparisonScope.collectionId)
+            : undefined;
+        // Fresh independent reads, never a cached authority or caller proof.
+        // Catch immediately and drain even if receipt validation rejects first.
+        const scopeRead =
+          collectionHint === undefined
+            ? undefined
+            : bounded(now() + operationLimit, signal, async (currentSignal) => {
+                requireCheck(options.knowledge && options.knowledgeAccess);
+                const current =
+                  await options.knowledgeAccess.resolve(currentSignal);
+                requireCheck(current.outcome === "ready");
+                const actor = structuredClone(current.authority);
+                const state = await readLearningComparisonScope(
+                  options.knowledge,
+                  actor.access,
+                  collectionHint,
+                  (work) =>
+                    bounded(now() + operationLimit, currentSignal, work),
+                );
+                return { actor, state };
+              }).then(
+                (value) => ({ outcome: "ready" as const, ...value }),
+                () => ({ outcome: "unavailable" as const }),
+              );
+        let scopeReadConsumed = false;
+        try {
+          // Exact request/candidate/target and final opaque versions remain the SDK's
+          // current commit fences. Reuse does not re-run paid checks or hydrate them.
+          if (sourceRead || kind === "learning") {
+            const entry =
+              known ??
+              (
+                await options.store
+                  .collection(independentCheckAttempts)
+                  .get(KEY)
+              )?.entries.find((e) => e.operation === h.operation);
+            requireCheck(
+              entry?.state === "checked" &&
+                entry.receipt === receipt &&
+                entry.proof,
+            );
+            const p = payloadSchema.parse(
+              JSON.parse(
+                new TextDecoder("utf-8", { fatal: true }).decode(
+                  unb64(entry.proof),
+                ),
               ),
-            ),
-          );
-          requireCheck(
-            p.kind === kind &&
-              p.keyId === k.id &&
-              (await equal(p.binding, binding)) &&
-              p.receiptId === h.operation &&
-              p.verifiedAt === h.verifiedAt &&
-              p.validUntil === h.validUntil &&
-              p.policyVersion === configured.policy.version &&
-              p.policyBinding === configured.policy.binding &&
-              p.configurationVersion === configured.configuration.version &&
-              p.promptVersion === configured.configuration.promptVersion &&
-              p.modelVersion === configured.configuration.modelVersion &&
-              p.verifierVersion === configured.configuration.parserVersion &&
-              p.routePolicyHash ===
-                model.currentRoute()!.approval.requestPolicySha256 &&
-              (await issuerBinding(p.issuerId, p.authorityVersion)) ===
-                h.issuer &&
-              (await knowledgeDigest({
-                kind,
-                scope: p.scope,
-                binding,
-                policyVersion: p.policyVersion,
-                policyBinding: p.policyBinding,
-              })) === h.operation &&
-              (p.kind !== "engineering" ||
-                p.publicReproduction ===
-                  (h.flag === "p" ? "passed" : "not_applicable")),
-          );
-          await currentSource(p, signal);
+            );
+            requireCheck(
+              p.kind === kind &&
+                p.keyId === k.id &&
+                (await equal(p.binding, binding)) &&
+                p.receiptId === h.operation &&
+                p.verifiedAt === h.verifiedAt &&
+                p.validUntil === h.validUntil &&
+                p.policyVersion === configured.policy.version &&
+                p.policyBinding === configured.policy.binding &&
+                p.configurationVersion === configured.configuration.version &&
+                p.promptVersion === configured.configuration.promptVersion &&
+                p.modelVersion === configured.configuration.modelVersion &&
+                p.verifierVersion === configured.configuration.parserVersion &&
+                p.routePolicyHash ===
+                  model.currentRoute()!.approval.requestPolicySha256 &&
+                (await issuerBinding(
+                  p.issuerId,
+                  p.authorityVersion,
+                  p.kind === "learning" ? p.comparison?.digest : undefined,
+                )) === h.issuer &&
+                (await knowledgeDigest({
+                  kind,
+                  scope: p.scope,
+                  binding,
+                  policyVersion: p.policyVersion,
+                  policyBinding: p.policyBinding,
+                })) === h.operation &&
+                (p.kind !== "engineering" ||
+                  p.publicReproduction ===
+                    (h.flag === "p" ? "passed" : "not_applicable")),
+            );
+            if (p.kind === "learning") {
+              requireCheck((h.flag === "c") === (p.comparison !== undefined));
+              if (p.target.originalGeneration === 0 && !p.comparison) {
+                // Old create checks cannot authorize a new write. Only an App-owned
+                // accepted ACK can establish the historical no-write recovery path.
+                requireCheck(recovery?.acceptedAcknowledgement);
+                const actor = await authority("learning", signal);
+                const work = await options
+                  .application()
+                  .readResolutionLearningWork(actor.access, p.scope);
+                requireCheck(
+                  work.requestHash === binding.requestHash &&
+                    work.sourceBindingHash === binding.sourceBindingHash &&
+                    work.candidateHash === binding.candidateHash &&
+                    (await equal(
+                      work.acknowledgement,
+                      recovery.acceptedAcknowledgement,
+                    )) &&
+                    work.acknowledgement?.id === p.target.articleId,
+                );
+                await authority("learning", signal, actor);
+              }
+              if (p.comparison) {
+                requireCheck(
+                  Date.parse(p.comparison.observedAt) <=
+                    Date.parse(p.verifiedAt),
+                );
+                requireCheck(options.knowledge && options.knowledgeAccess);
+                requireCheck(
+                  collectionHint === undefined ||
+                    collectionHint ===
+                      p.comparison.selection.scope.collectionId,
+                );
+                const preloaded =
+                  scopeRead === undefined ? undefined : await scopeRead;
+                scopeReadConsumed = true;
+                if (preloaded?.outcome === "unavailable") throw new Held();
+                const resolved =
+                  preloaded === undefined
+                    ? await options.knowledgeAccess.resolve(signal)
+                    : { outcome: "ready" as const, authority: preloaded.actor };
+                requireCheck(resolved.outcome === "ready");
+                const ka = { authority: structuredClone(resolved.authority) };
+                await confirmLearningComparisonResources(
+                  options.knowledge,
+                  options.knowledgeSources,
+                  ka.authority.access,
+                  p.comparison,
+                  (work) => bounded(now() + operationLimit, signal, work),
+                  preloaded?.state,
+                );
+                const closing = await options.knowledgeAccess.resolve(signal);
+                requireCheck(
+                  closing.outcome === "ready" &&
+                    closing.authority.authorityVersion ===
+                      ka.authority.authorityVersion &&
+                    closing.authority.access.principalId ===
+                      ka.authority.access.principalId &&
+                    ka.authority.access.permissions.every((permission) =>
+                      hasPermission(closing.authority.access, permission),
+                    ),
+                );
+              }
+            }
+            if (sourceRead) await currentSource(p, signal);
+          }
+        } finally {
+          if (scopeRead && !scopeReadConsumed) await scopeRead;
         }
         currentFence(
           k,
@@ -1202,7 +1395,15 @@ export function createSupportIndependentChecks(
             : "policyVersion" in binding &&
                 binding.policyVersion === configured.policy.version,
         );
-        const initial = await inspect(kind, scope, signal, input);
+        const initial = await inspect(
+          kind,
+          scope,
+          signal,
+          input,
+          undefined,
+          undefined,
+          queued !== undefined,
+        );
         requireCheck(
           initial.authority.usageScopeRef === configured.usageScopeRef,
         );
@@ -1221,7 +1422,12 @@ export function createSupportIndependentChecks(
             ? {}
             : { comparison: initial.comparison }),
         };
-        requireCheck(model.withinBudget(modelInput, configured.configuration));
+        requireCheck(
+          !containsPrivateText(
+            JSON.stringify(modelInput),
+            initial.privateValues,
+          ) && model.withinBudget(modelInput, configured.configuration),
+        );
         const inputFingerprint = await knowledgeDigest(modelInput);
         operation = await knowledgeDigest({
           kind,
@@ -1282,6 +1488,9 @@ export function createSupportIndependentChecks(
                 kind,
                 binding,
                 target: initial.target,
+                ...(initial.comparisonState
+                  ? { comparison: initial.comparisonState.evidence }
+                  : {}),
               });
         const receiptBytes = 7 + Math.ceil(bytes(template).length / 3) * 4 + 43;
         owner = crypto.randomUUID();
@@ -1419,6 +1628,18 @@ export function createSupportIndependentChecks(
                   latestPolicy.policyHash === binding.policyHash,
               );
             }
+            if (initial.comparisonState) {
+              requireCheck(options.knowledge && options.knowledgeAccess);
+              const ka = await options.knowledgeAccess.resolve(physicalSignal);
+              requireCheck(ka.outcome === "ready");
+              await confirmLearningComparisonResources(
+                options.knowledge,
+                options.knowledgeSources,
+                ka.authority.access,
+                initial.comparisonState.evidence,
+                (work) => bounded(terminalDeadline, physicalSignal, work),
+              );
+            }
             await authority(kind, physicalSignal, active);
             return () => {
               requireCheck(!admission || admission() === true);
@@ -1459,6 +1680,7 @@ export function createSupportIndependentChecks(
           signal,
           input,
           initial.authority,
+          initial.comparisonState,
         );
         requireCheck(!admission || admission() === true);
         requireCheck(
@@ -1497,6 +1719,32 @@ export function createSupportIndependentChecks(
               : verdict.applicability === "passed" &&
                 verdict.duplication === "passed"),
         );
+        if (initial.comparisonState) {
+          // Consume the real KB handle after model work; it confirms the full
+          // background membership/version snapshot, not a future absence lock.
+          requireCheck(options.knowledgeAccess);
+          const current = await options.knowledgeAccess.resolve(signal);
+          requireCheck(current.outcome === "ready");
+          const actor = structuredClone(current.authority);
+          await initial.comparisonState.confirm(actor.access);
+          const closing = await options.knowledgeAccess.resolve(signal);
+          requireCheck(
+            closing.outcome === "ready" &&
+              closing.authority.access.principalId ===
+                actor.access.principalId &&
+              closing.authority.authorityVersion === actor.authorityVersion &&
+              actor.access.permissions.every((permission) =>
+                hasPermission(closing.authority.access, permission),
+              ),
+          );
+          await currentSource(template, signal, initial.authority);
+          currentFence(
+            k,
+            configured.configuration.version,
+            terminalDeadline,
+            signal,
+          );
+        }
         const payload = payloadSchema.parse({
           ...template,
           ...(kind === "engineering"
@@ -1509,12 +1757,17 @@ export function createSupportIndependentChecks(
           issuer: await issuerBinding(
             payload.issuerId,
             payload.authorityVersion,
+            payload.kind === "learning"
+              ? payload.comparison?.digest
+              : undefined,
           ),
           verifiedAt: payload.verifiedAt,
           validUntil: payload.validUntil,
           flag:
             payload.kind === "learning"
-              ? ("l" as const)
+              ? payload.comparison
+                ? ("c" as const)
+                : ("l" as const)
               : payload.publicReproduction === "passed"
                 ? ("p" as const)
                 : ("n" as const),
@@ -1660,7 +1913,7 @@ export function createSupportIndependentChecks(
   function boundLearningVerify(
     scope?: IndependentCheckScope,
   ): LearningChecksPort["verify"] {
-    return async (receipt, binding, signal) => {
+    return async (receipt, binding, signal, recovery) => {
       const result = await verify(
         "learning",
         receipt,
@@ -1669,6 +1922,7 @@ export function createSupportIndependentChecks(
         scope,
         undefined,
         false,
+        recovery,
       );
       return result?.kind === "learning"
         ? {
@@ -1805,6 +2059,25 @@ export function createSupportIndependentChecks(
           }
           const request = JSON.stringify(input);
           requireCheck(request.length <= 48_000);
+          if (
+            kind === "learning" &&
+            (input as LearningInput).exactRequest.operation === "create"
+          ) {
+            const value = input as LearningInput;
+            requireCheck(
+              typeof options.knowledge?.publishedSearchObservations
+                ?.readArticle === "function",
+            );
+            const payload = JSON.parse(
+              value.exactRequest.draftPayload,
+            ) as Record<string, unknown>;
+            const selected = learningComparisonSelectionSchema.parse(
+              payload.comparisonSelection,
+            );
+            requireCheck(
+              await equal(value.targetComparison.selection, selected),
+            );
+          }
           const policyHash = await knowledgeDigest(policy);
           const operation = await knowledgeDigest({
             kind,
@@ -1889,8 +2162,13 @@ export function createSupportIndependentChecks(
                     outboundHash: "0".repeat(64),
                   },
                 };
+          // Reserve the existing maximum for a background create comparison,
+          // whose actual complete snapshot is intentionally not loaded here.
           const receiptBytes =
-            7 + Math.ceil(bytes(template).length / 3) * 4 + 43;
+            kind === "learning" &&
+            (input as LearningInput).exactRequest.operation === "create"
+              ? 16_000
+              : 7 + Math.ceil(bytes(template).length / 3) * 4 + 43;
           const result = await records.update(
             KEY,
             (current) => {
@@ -2145,6 +2423,21 @@ export function createSupportIndependentChecks(
           input: LearningInput,
           context: Parameters<LearningChecksPort["check"]>[1],
         ) {
+          if (
+            options.deferred === false &&
+            input.exactRequest.operation === "create"
+          ) {
+            const receipt = await readCheckedReceipt(
+              "learning",
+              fixed,
+              input.binding,
+              input.binding.policyVersion,
+              context.signal,
+            );
+            return receipt
+              ? { outcome: "checked" as const, receipt }
+              : { outcome: "held" as const };
+          }
           const result = await (options.deferred === false
             ? check("learning", fixed, input, context)
             : defer("learning", fixed, input, context, capture));

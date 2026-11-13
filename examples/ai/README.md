@@ -7,7 +7,7 @@ then runs `run.ts` from its compiled output. Node 22 and 24 are supported.
 The example uses public package entry points, an actual Storage Core Store,
 and all four optional Support Desk coordinators from the unpublished `0.2.9`
 source candidate. It pins exact verified public KB application/contracts
-`0.1.7`. Fresh Node 22/24 qualification must exercise that installed graph;
+`0.1.8`. Fresh Node 22/24 qualification must exercise that installed graph;
 earlier `0.2.9`/KB `0.1.6` example results do not qualify this changed graph.
 It is not a published Support `0.2.9` consumer qualification. It uses no provider
 SDK, network client, mail provider, host framework, or production credentials. Its scripted `github.createIssue`
@@ -53,7 +53,7 @@ Separate instances keep their own Store, configuration, cursors, and secrets.
 
 The current synchronized Support Desk `0.2.8` release is published and strictly verified;
 see the [publication receipt](../../docs/RELEASING.md#verified-028-publication-2026-11-12).
-Its published AI package pins KB `0.1.6`; the `0.2.9`/public KB `0.1.7` graph
+Its published AI package pins KB `0.1.6`; the `0.2.9`/public KB `0.1.8` graph
 above remains development-only until the SDK candidate is qualified and released. Production adoption retains
 its own host acceptance gates.
 See [the existing human-support example](../composition/README.md),

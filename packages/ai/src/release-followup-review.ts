@@ -11,6 +11,8 @@ import {
   type EngineeringFollowupChecksBinding,
   type EngineeringFollowupKbTarget,
   type EngineeringFollowupWorkRecord,
+  type EngineeringFollowupBundleObservation,
+  type VerifiedEngineeringFollowupContext,
 } from "@pegma/support-desk-application";
 import type { SupportDeskReleaseFollowupOptions } from "./release-followup-ports.js";
 import type { LearningRuntime } from "./learning-runtime.js";
@@ -31,9 +33,19 @@ import {
   releaseFollowupCheckPolicy,
   releaseFollowupProof,
   releaseFollowupProofContext,
+  releaseFollowupProofSnapshot,
 } from "./release-followup-request.js";
 
 export class ReleaseFollowupReviewGuardFailure extends AssistantBoundaryError {}
+export class ReleaseFollowupCheckDeferred extends AssistantBoundaryError {
+  constructor(
+    readonly operationId: string,
+    readonly expiresAt: string,
+    readonly callState: "not_called" | "recorded",
+  ) {
+    super("checks_deferred");
+  }
+}
 
 function externalContext(runtime: LearningRuntime, phase: number) {
   return Object.freeze({
@@ -212,11 +224,29 @@ export async function prepareCheckedReleaseFollowupBundle(
   work: EngineeringFollowupWorkRecord,
   rawContent: EngineeringFollowupCandidate,
   runtime: LearningRuntime,
-  observeCurrent: () => Promise<void>,
+  observeCurrent: (
+    observation?: EngineeringFollowupBundleObservation,
+  ) => Promise<void>,
   phase = runtime.deadline,
+  planning?: {
+    readonly proof: VerifiedEngineeringFollowupContext;
+    readonly readProof: (
+      observation: EngineeringFollowupBundleObservation,
+    ) => Promise<VerifiedEngineeringFollowupContext>;
+  },
 ) {
   const content = releaseFollowupContent(rawContent);
-  const proof = await releaseFollowupProof(options, work, runtime, phase);
+  // This App claim proof supplies planning data only. Independent checks and
+  // the later App mutation still obtain fresh current release authority.
+  const proof =
+    planning === undefined
+      ? await releaseFollowupProof(options, work, runtime, phase)
+      : releaseFollowupProofSnapshot(
+          planning.proof,
+          work,
+          timestamp(options.clock.now()),
+        );
+  runtime.ensure(Math.min(phase, timestamp(proof.attestation.validUntil)));
   const target = await targetObservation(options, work, runtime, phase);
   const productBinding = await engineeringFollowupRetestProductBinding(
     proof.context,
@@ -269,9 +299,16 @@ export async function prepareCheckedReleaseFollowupBundle(
     followupRevocationEpoch: work.association.followupRevocationEpoch,
     context: proof.context,
   });
+  const check =
+    options.invocationMode === "staged"
+      ? options.checks.prepare
+      : options.checks.check;
+  if (typeof check !== "function")
+    throw new AssistantBoundaryError("staged_checks_unavailable");
   const checked = await runtime.within(
     () =>
-      options.checks.check(
+      check.call(
+        options.checks,
         {
           candidate: content,
           exactBundle: bundle,
@@ -284,6 +321,20 @@ export async function prepareCheckedReleaseFollowupBundle(
       ),
     phase,
   );
+  if (checked.outcome === "deferred") {
+    if (
+      !/^[a-f0-9]{64}$/u.test(scalar(checked.operationId)) ||
+      timestamp(checked.expiresAt) <= timestamp(options.clock.now())
+    )
+      throw new AssistantBoundaryError("checks_unavailable");
+    if (!["not_called", "recorded"].includes(checked.callState))
+      throw new AssistantBoundaryError("checks_unavailable");
+    throw new ReleaseFollowupCheckDeferred(
+      checked.operationId,
+      checked.expiresAt,
+      checked.callState,
+    );
+  }
   if (checked.outcome !== "checked")
     throw new AssistantBoundaryError(
       checked.outcome === "restricted"
@@ -305,14 +356,27 @@ export async function prepareCheckedReleaseFollowupBundle(
     receiptExpiry,
   );
   let verificationDeadline = deadline;
-  const guard = async (): Promise<void> => {
+  const guard = async (
+    observation?: EngineeringFollowupBundleObservation,
+  ): Promise<void> => {
     try {
-      const freshProof = await releaseFollowupProof(
-        options,
-        work,
-        runtime,
-        deadline,
-      );
+      const observed =
+        planning !== undefined && typeof observation?.readProof === "function"
+          ? await planning.readProof(observation)
+          : undefined;
+      const freshProof =
+        observed === undefined
+          ? await releaseFollowupProof(options, work, runtime, deadline)
+          : releaseFollowupProofSnapshot(
+              observed,
+              work,
+              timestamp(options.clock.now()),
+            );
+      if (
+        planning !== undefined &&
+        canonical(freshProof.publicFacts) !== canonical(proof.publicFacts)
+      )
+        throw new AssistantBoundaryError("release_proof_changed");
       const currentTarget = await targetObservation(
         options,
         work,
@@ -346,7 +410,7 @@ export async function prepareCheckedReleaseFollowupBundle(
         timestamp(freshProof.attestation.validUntil),
       );
       // The caller resolves its current authority before its direct storage-only fence.
-      await observeCurrent();
+      await observeCurrent(observed === undefined ? undefined : observation);
       runtime.ensure(verificationDeadline);
     } catch (error) {
       throw new ReleaseFollowupReviewGuardFailure(

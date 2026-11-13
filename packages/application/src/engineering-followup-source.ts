@@ -129,8 +129,15 @@ export function engineeringFollowupObservation(
           version: current.loaded.ticket.version,
         },
       ];
-      for (const expected of versions) {
-        const latest = await deps.records.getVersioned(expected.key);
+      const observed = await Promise.allSettled(
+        versions.map(async (expected) => ({
+          expected,
+          latest: await deps.records.getVersioned(expected.key),
+        })),
+      );
+      for (const result of observed) {
+        if (result.status === "rejected") throw result.reason;
+        const { expected, latest } = result.value;
         check(reader);
         if (
           (latest?.value.kind === "engineering_source" ||
@@ -149,6 +156,64 @@ export function engineeringFollowupObservation(
     },
   };
 }
+/** Authorized mutations may open independent keys together; reader authorization stays ordered. */
+export async function engineeringFollowupLoadMutation(
+  deps: EngineeringFollowupDependencies,
+  key: { readonly ticketId: string; readonly workId: string },
+): Promise<{
+  readonly loaded: EngineeringFollowupLoaded;
+  readonly stored: EngineeringFollowupWorkVersion;
+}> {
+  text(key.ticketId, "ticketId");
+  text(key.workId, "workId");
+  const points = await Promise.allSettled([
+    deps.records.getVersioned({ partition: key.ticketId, id: "ticket" }),
+    deps.records.getVersioned(engineeringSourceKey(key.ticketId)),
+    deps.records.getVersioned(engineeringFollowupHeadKey(key.ticketId)),
+    deps.records.getVersioned(
+      engineeringFollowupWorkKey(key.ticketId, key.workId),
+    ),
+  ]);
+  // Preserve the sequential loader's error precedence, including the bounded list before Work.
+  for (const point of points.slice(0, 3))
+    if (point.status === "rejected") throw point.reason;
+  const [ticket, source, head] = points
+    .slice(0, 3)
+    .map((point) => (point.status === "fulfilled" ? point.value : null));
+  if (
+    ticket?.value.kind !== "ticket" ||
+    source?.value.kind !== "engineering_source"
+  )
+    throw new SupportDeskNotFoundError();
+  if (head !== null && head?.value.kind !== "engineering_followup_head")
+    throw new SupportDeskConflictError("Follow-up head key collision");
+  const rows = await deps.records.list(key.ticketId);
+  if (rows.length > deps.limits.maxRecordsPerTicket)
+    throw new SupportDeskLimitError(
+      "ticket_partition",
+      deps.limits.maxRecordsPerTicket,
+    );
+  const work = points[3]!;
+  if (work.status === "rejected") throw work.reason;
+  if (work.value?.value.kind !== "engineering_followup_work")
+    throw new SupportDeskNotFoundError();
+  return {
+    loaded: {
+      ticket: { value: ticket.value, version: ticket.version },
+      source: { value: source.value, version: source.version },
+      head:
+        head === null
+          ? null
+          : {
+              value: head!.value as EngineeringFollowupHeadRecord,
+              version: head!.version,
+            },
+      rows,
+    },
+    stored: { value: work.value.value, version: work.value.version },
+  };
+}
+
 export function engineeringFollowupNow(
   deps: EngineeringFollowupDependencies,
 ): () => number {
@@ -260,6 +325,7 @@ function scrub(
   const {
     context: _context,
     candidate: _candidate,
+    pendingModelCompletion: _pendingModelCompletion,
     candidateHash: _candidateHash,
     preparedBundle: _bundle,
     handoff: _handoff,
@@ -468,48 +534,51 @@ export async function engineeringFollowupVersionsCurrent(
     readonly version: string;
   },
 ): Promise<boolean> {
-  const compare = async (
-    key: { partition: string; id: string },
-    version: string | null,
-  ) =>
-    (await deps.records.getVersioned(key))?.version === (version ?? undefined);
-  if (
-    work !== undefined &&
-    !(await compare(
-      { partition: work.value.partition, id: work.value.id },
-      work.version,
-    ))
-  )
-    return false;
-  if (
-    associationWork !== undefined &&
-    !(await compare(
-      {
-        partition: associationWork.value.partition,
-        id: associationWork.value.id,
-      },
-      associationWork.version,
-    ))
-  )
-    return false;
-  if (
-    !(await compare(
-      engineeringFollowupHeadKey(loaded.source.value.ticketId),
-      loaded.head?.version ?? null,
-    ))
-  )
-    return false;
-  if (
-    !(await compare(
-      { partition: loaded.ticket.value.partition, id: "ticket" },
-      loaded.ticket.version,
-    ))
-  )
-    return false;
-  return compare(
-    engineeringSourceKey(loaded.source.value.ticketId),
-    loaded.source.version,
+  const versions = [
+    ...(work === undefined
+      ? []
+      : [
+          {
+            key: { partition: work.value.partition, id: work.value.id },
+            version: work.version,
+          },
+        ]),
+    ...(associationWork === undefined
+      ? []
+      : [
+          {
+            key: {
+              partition: associationWork.value.partition,
+              id: associationWork.value.id,
+            },
+            version: associationWork.version,
+          },
+        ]),
+    {
+      key: engineeringFollowupHeadKey(loaded.source.value.ticketId),
+      version: loaded.head?.version,
+    },
+    {
+      key: { partition: loaded.ticket.value.partition, id: "ticket" },
+      version: loaded.ticket.version,
+    },
+    {
+      key: engineeringSourceKey(loaded.source.value.ticketId),
+      version: loaded.source.version,
+    },
+  ];
+  const observed = await Promise.allSettled(
+    versions.map(
+      async (expected) =>
+        (await deps.records.getVersioned(expected.key))?.version ===
+        expected.version,
+    ),
   );
+  for (const result of observed) {
+    if (result.status === "rejected") throw result.reason;
+    if (!result.value) return false;
+  }
+  return true;
 }
 export async function engineeringFollowupActive(
   deps: EngineeringFollowupDependencies,

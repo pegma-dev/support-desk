@@ -101,12 +101,12 @@ export const releaseVerificationPackages = [
     name: "@pegma/support-desk-ai",
     dependencies: {
       "@pegma/authorization-core": "0.4.0",
-      "@pegma/knowledge-base-application": "0.1.7",
-      "@pegma/knowledge-base-contracts": "0.1.7",
+      "@pegma/knowledge-base-application": "0.1.8",
+      "@pegma/knowledge-base-contracts": "0.1.8",
       "@pegma/spine": "0.1.2",
       "@pegma/support-desk-application": releaseVerificationVersion,
       "@pegma/storage-core": "0.4.0",
-      zod: "4.4.3",
+      zod: "4.6.7",
     },
   },
 ] as const;
