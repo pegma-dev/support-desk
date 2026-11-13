@@ -31,6 +31,20 @@ and [upgrade guidance](UPGRADING.md#unpublished-029-engineering-worker-observati
 These source changes do not establish a complete host query/CPU budget,
 provider qualification or registry publication.
 
+### Staff canned responses (Task 15 source addition)
+
+The optional deployment-owned `cannedResponses` catalog supplies bounded,
+immutable plain-text versions for staff preview and explicit reply/note commands.
+`listCannedResponses` filters definitions by current target permissions;
+`renderCannedResponse` expands literal allowlisted values. A command's optional
+`cannedResponse` selection must match its body and target exactly. Existing
+permissions, revision fences, capacity and exact replay remain in force.
+The original reply/note Audit event records content-free ID/version provenance
+atomically. Customer DTOs and automatic mail gain no staff metadata. Catalog
+withdrawal refuses new uses while exact accepted receipts remain recoverable.
+No package versions, dependency pins or collection layouts change. See
+[host composition](HOST_COMPOSITION.md#staff-canned-responses-task-15-source-candidate).
+
 ### Staged resolution learning
 
 The optional `deliveryMode: 'staged'` separates candidate, prepare, KB write and

@@ -10,6 +10,17 @@ import type {
   TicketRequester,
 } from "@pegma/support-desk-contracts";
 
+export {
+  defineCannedResponse,
+  defineCannedResponseCatalog,
+  renderCannedResponse,
+  snapshotCannedResponseSelection,
+} from "./canned-responses.js";
+export type {
+  CannedResponseDefinition,
+  CannedResponseSelection,
+} from "@pegma/support-desk-contracts";
+
 export type {
   CreateTicketInput,
   IsoTimestamp,

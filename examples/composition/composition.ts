@@ -42,6 +42,7 @@ import {
   recordDeliveryCallback,
   repairQueueProjectionPage,
   repairThreadIndexPage,
+  renderCannedResponse,
   supportMail,
   supportPermissions,
   supportRecords,
@@ -399,6 +400,24 @@ export function createExampleComposition(
   const application = createSupportDeskApplication({
     store,
     clock,
+    cannedResponses: [
+      {
+        id: "review",
+        version: 1,
+        title: "Review acknowledgement",
+        target: "reply",
+        variables: ["topic"],
+        body: "We will review {{topic}}.",
+      },
+      {
+        id: "checklist",
+        version: 1,
+        title: "Investigation checklist",
+        target: "note",
+        variables: [],
+        body: "Check the supplied reproduction steps.",
+      },
+    ],
     allowedCategories: EXAMPLE_CATEGORIES,
     allowedTags: ["needs_review", "follow_up"],
     maxTagsPerTicket: 4,
@@ -1023,6 +1042,69 @@ export async function runInboundExampleFlow(
     matched,
     unverifiedQueueSize: queue.items.length,
   };
+}
+
+/** Preview is data only; a separate explicit staff command commits each message. */
+export async function runCannedResponseExampleFlow(
+  composition: ExampleComposition = createExampleComposition(),
+) {
+  const { application } = composition;
+  const base = { ticketId: "ticket-canned", correlationId: "example-canned" };
+  await application.createCustomerTicket(EXAMPLE_CUSTOMER, {
+    ...base,
+    commandId: "create",
+    messageId: "initial",
+    subject: "Question",
+    body: "Please help",
+  });
+  const catalog = await application.listCannedResponses(EXAMPLE_STAFF);
+  const definition = catalog.find((item) => item.id === "review");
+  if (definition === undefined)
+    throw new Error(
+      "Canned response composition invariant failed: review definition missing",
+    );
+  const values = { topic: "your question" };
+  const preview = renderCannedResponse(definition, values);
+  // Production: show this preview to the staff member, then accept explicit send.
+  const command = {
+    ...base,
+    commandId: "reply",
+    messageId: "reply",
+    expectedRevision: 1,
+    body: preview,
+    cannedResponse: { id: definition.id, version: definition.version, values },
+  };
+  await application.replyAsStaff(EXAMPLE_STAFF, command);
+  await application.replyAsStaff(EXAMPLE_STAFF, command); // interrupted-response recovery
+  const note = catalog.find((item) => item.id === "checklist");
+  if (note === undefined)
+    throw new Error(
+      "Canned response composition invariant failed: checklist definition missing",
+    );
+  await application.addNote(EXAMPLE_STAFF, {
+    ...base,
+    commandId: "note",
+    messageId: "note",
+    expectedRevision: 2,
+    body: renderCannedResponse(note, {}),
+    cannedResponse: { id: note.id, version: note.version, values: {} },
+  });
+  const visible = await application.readCustomerTicket(
+    EXAMPLE_CUSTOMER,
+    base.ticketId,
+  );
+  const audit = await application.readTicketAuditHistory(
+    EXAMPLE_STAFF,
+    base.ticketId,
+  );
+  if (
+    visible.messages.length !== 2 ||
+    visible.messages[1]?.body !== preview ||
+    audit.filter((event) => event.details?.cannedResponseId !== undefined)
+      .length !== 2
+  )
+    throw new Error("Canned response composition invariant failed");
+  return { customerMessages: visible.messages.length, auditedUses: 2 };
 }
 
 /** Staff-only lifecycle metadata and an explicit changed-since-load handoff. */

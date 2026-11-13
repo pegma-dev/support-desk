@@ -258,6 +258,22 @@ Staff can:
 The UI should make customer-visible replies visually distinct from internal
 notes and require an explicit choice before sending.
 
+## Staff canned responses (Task 15 source candidate)
+
+Hosts may configure a bounded catalog of immutable plain-text response versions.
+Authorized staff preview substitutions and explicitly submit a reply or internal
+note using the exact selected version and expanded body. A template cannot change
+permissions, assignment, lifecycle or accounts. New uses of unknown/withdrawn
+versions, changed previews, and reply/note target mismatches fail closed.
+Existing reply/note permissions and revision checks still apply; exact accepted
+retries recover the original result under current permissions.
+
+Each accepted use records template ID/version through the existing reply/note
+Audit action in the same transaction. Internal notes and provenance stay out of
+customer DTOs and automatic mail. This unpublished source slice adds no package
+version or durable layout change. See the
+[composition contract](HOST_COMPOSITION.md#staff-canned-responses-task-15-source-candidate).
+
 ## Lifecycle extras (Buildout Task 13)
 
 Staff may replace a ticket's bounded tags using the host's normalized allowlist.

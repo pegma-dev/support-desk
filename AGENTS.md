@@ -146,6 +146,15 @@ first publish and later OIDC releases.
 
 ## Where things stand
 
+Task 15's bounded deployment-owned canned-response catalog is implemented in
+the unpublished source candidate. Staff preview literal values and explicitly
+submit an existing reply/note command; exact version/body/target validation and
+transactional Audit provenance retain current authorization, revision, replay
+and internal-note boundaries. It adds no collection or package version. See
+[host composition](docs/HOST_COMPOSITION.md#staff-canned-responses-task-15-source-candidate).
+Task 16 customer self-service polish is the next package slice; Task 12 still
+requires host production evidence.
+
 Buildout Task 14 attachments are published in `0.2.5`: host-owned immutable blobs, transactional message metadata, digest-bound scan callbacks, authorized clean-only downloads, deletion fences, bounded expiration and fenced orphan reconciliation. Inbound mail still drops attachments. See `docs/ATTACHMENTS.md`; host activation remains gated on private isolated storage, scanner and retention wiring.
 
 Foundation plus the customer-facing Phase 1/2 application services, staff

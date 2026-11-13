@@ -31,6 +31,24 @@ remains private at `0.0.0`. This alignment changes no Support Desk runtime
 source, API surface, record layout or host activation decision. Earlier release
 artifacts and receipts keep their original identities.
 
+## Unpublished Task 15 canned responses
+
+Omitting `cannedResponses` preserves manual staff replies/notes and their original
+fingerprints. Hosts may supply a bounded deployment catalog and explicitly pass
+`cannedResponse` on reply/note commands after preview and staff approval. Forward
+`listCannedResponses` when implementing the full `SupportDeskApplication`
+interface; it requires queue read and filters by target permissions. The pure
+`renderCannedResponse` helper is available from application and core.
+
+No collection, record migration, permission or dependency change is needed.
+The existing reply/note Audit details gain only template ID/version on selected
+uses. Keep catalog versions immutable across deployments. Withdrawn definitions
+refuse new uses; exact accepted commands replay under current permissions even
+after withdrawal. Do not remove or change their selection when retrying an
+uncertain commit. This is source-only work with unchanged package versions;
+verified publication and host acceptance remain required for production use.
+See [bounds and send semantics](HOST_COMPOSITION.md#staff-canned-responses-task-15-source-candidate).
+
 ## Unpublished 0.2.9 engineering worker observations
 
 All five candidate versions and internal Support pins advance together. The
