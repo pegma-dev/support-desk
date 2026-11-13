@@ -81,9 +81,9 @@ request budget and qualifies its deployment separately.
 
 ## Public packages
 
-This guide describes the verified published synchronized `0.2.9` release.
-Use exact `0.2.9` for the five Support Desk packages, including optional AI; see
-the [publication receipt](RELEASING.md#verified-029-publication-2026-11-13).
+This guide describes the verified published synchronized `0.2.10` release.
+Use exact `0.2.10` for the five Support Desk packages, including optional AI; see
+the [publication receipt](RELEASING.md#verified-0210-publication-2026-11-13).
 The historical [`0.2.8` receipt](RELEASING.md#verified-028-publication-2026-11-12)
 retains its original dependency graph and artifacts.
 It retains the attachments and opt-in staged human learning reviews published

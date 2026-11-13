@@ -651,8 +651,8 @@ P-00, KB-01 through KB-04, AUTH-01, SD-01, partial KB-05 source preparation
 final release preparation are already merged. The
 [standalone authoring recipe](HOST_COMPOSITION.md#kb-authoring-producers)
 selects the four strictly verified KB `0.1.8` packages and verified Agent
-Access `0.1.1`. Support Desk's current synchronized `0.2.9` release is published and strictly
-verified; see the [publication receipt](RELEASING.md#verified-029-publication-2026-11-13).
+Access `0.1.1`. Support Desk's current synchronized `0.2.10` release is published and strictly
+verified; see the [publication receipt](RELEASING.md#verified-0210-publication-2026-11-13).
 Follow its [coordination checkpoint](ASSISTANT_COORDINATION.md).
 PG-01/RG-01 consume both exact verified published producers and retain actual two-host
 existing-login/Admin consent and requested-client acceptance before activation

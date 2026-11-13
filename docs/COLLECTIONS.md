@@ -27,8 +27,8 @@ memory tests, and real-adapter tests.
 This checkpoint originated before SD-05 implementation. SD-05 later merged in
 [PR #41](https://github.com/pegma-dev/support-desk/pull/41) and first shipped in the
 verified synchronized [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current verified synchronized release is `0.2.9`; see its
-[publication receipt](RELEASING.md#verified-029-publication-2026-11-13).
+The current verified synchronized release is `0.2.10`; see its
+[publication receipt](RELEASING.md#verified-0210-publication-2026-11-13).
 Host acceptance remains open. The owning scope is
 [the approved release follow-up task](KNOWLEDGE_AI_PLAN.md#release-follow-up).
 
@@ -162,7 +162,7 @@ no new KB write, source verifier or fabricated resolution proof is introduced.
 
 This checkpoint originated before SD-04 production changes. SD-04 later merged
 in [PR #40](https://github.com/pegma-dev/support-desk/pull/40) and first shipped in
-verified synchronized `0.2.0`. Those contracts remain in current public `0.2.9`, whose
+verified synchronized `0.2.0`. Those contracts remain in current public `0.2.10`, whose
 publication receipt is linked above. Host acceptance remains separate. SD-03 merged in
 [PR #39](https://github.com/pegma-dev/support-desk/pull/39) before this work began.
 
@@ -401,13 +401,13 @@ KB-05 source preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pu
 and both producers' final release preparation are merged. All four KB
 packages have strictly verified trusted `0.1.8` releases. Verified Agent
 Access `0.1.1` completes the producer publication prerequisite. Support Desk's
-current synchronized `0.2.9`
+current synchronized `0.2.10`
 release is published and strictly verified; see the
-[publication receipt](RELEASING.md#verified-029-publication-2026-11-13).
+[publication receipt](RELEASING.md#verified-0210-publication-2026-11-13).
 The implementation checkpoint below is historical.
 The [standalone authoring recipe](HOST_COMPOSITION.md#kb-authoring-producers)
 selects all four KB `0.1.8` packages with Agent Access `0.1.1`. The current
-released AI `0.2.9`
+released AI `0.2.10`
 pins KB application/contracts `0.1.8`; historical AI `0.2.8` retains KB `0.1.6`,
 and earlier `0.2.1` manifests retain their
 exact KB `0.1.2` dependencies. The checkpoints below remain historical.
@@ -517,10 +517,10 @@ work became consumable after its exact public artifacts, signatures,
 provenance, and clean consumer were verified in
 [release run 42436081951](https://github.com/pegma-dev/knowledge-base/actions/runs/42436081951).
 At this historical checkpoint the optional delivery adapter pinned the verified
-public `0.1.2` producers. Current public AI `0.2.9` explicitly pins KB application/
+public `0.1.2` producers. Current public AI `0.2.10` explicitly pins KB application/
 contracts `0.1.8`; this does not rewrite the checkpoint's dependency evidence.
 SD-03 later merged in [PR #39](https://github.com/pegma-dev/support-desk/pull/39)
-and first shipped in the verified `0.2.0` release. The current public `0.2.9` release
+and first shipped in the verified `0.2.0` release. The current public `0.2.10` release
 retains those contracts; host activation remains separate.
 
 #### Enrollment, source authority, and evidence
