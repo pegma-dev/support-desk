@@ -276,6 +276,26 @@ export function createSupportReleaseFollowupChecks(
   ) {
     return { version: policy.version, binding: policy.binding };
   }
+  function routeIdentity(
+    route: Awaited<ReturnType<typeof configured>>["route"],
+  ) {
+    const { verifiedAt, validUntil, ...approval } = route.approval;
+    void verifiedAt;
+    void validUntil;
+    return { ...route, approval };
+  }
+  function sameAttemptRoute(
+    current: Awaited<ReturnType<typeof configured>>["route"],
+    captured: Awaited<ReturnType<typeof configured>>["route"],
+  ) {
+    // A fresh approval may extend the window without changing the paid request.
+    // The attempt and receipt keep their original expiry bounds.
+    return (
+      Date.parse(current.approval.validUntil) >=
+        Date.parse(captured.approval.validUntil) &&
+      canonical(routeIdentity(current)) === canonical(routeIdentity(captured))
+    );
+  }
   async function authority(
     signal: AbortSignal,
     previous?: { access: AccessContext; version: string; scope: string },
@@ -573,7 +593,7 @@ export function createSupportReleaseFollowupChecks(
         fresh.id === k.id &&
         fresh.key === k.key &&
         route &&
-        canonical(route) === canonical(expected.route),
+        sameAttemptRoute(route, expected.route),
     );
   }
   function header(receipt: string) {
@@ -915,8 +935,7 @@ export function createSupportReleaseFollowupChecks(
                     input.binding.checkPolicyVersion,
                   );
                   requireCheck(
-                    canonical(currentConfiguration.route) ===
-                      canonical(c.route),
+                    sameAttemptRoute(currentConfiguration.route, c.route),
                   );
                   fence(k, c, end, current);
                   return () => {
@@ -967,7 +986,7 @@ export function createSupportReleaseFollowupChecks(
                 input.binding.checkPolicyVersion,
               );
               requireCheck(
-                canonical(currentConfiguration.route) === canonical(c.route),
+                sameAttemptRoute(currentConfiguration.route, c.route),
               );
               const h = {
                 operation,

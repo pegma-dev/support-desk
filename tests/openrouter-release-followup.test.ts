@@ -1262,3 +1262,142 @@ for (const [backend, makeStore] of engineeringFollowupStores) {
     );
   });
 }
+
+for (const [backend, makeStore] of engineeringFollowupStores) {
+  describe("mid-check approval renewal " + backend, () => {
+    it.each(["before provider", "after provider"] as const)(
+      "accepts a benign approval-window extension %s with one paid check",
+      async (phase) => {
+        const f = await followupChecksFixture(makeStore());
+        const originalExpiry = new Date(
+          Date.parse(f.wire.state.now) + 120000,
+        ).toISOString();
+        f.wire.route.approval.validUntil = originalExpiry;
+        let changed = false;
+        const renew = () => {
+          if (changed) return;
+          changed = true;
+          f.f.advance(1000);
+          f.wire.state.now = f.f.clock.now();
+          f.wire.route.approval.verifiedAt = f.wire.state.now;
+          f.wire.route.approval.validUntil = new Date(
+            Date.parse(f.wire.state.now) + 180000,
+          ).toISOString();
+        };
+        const confirm = f.options.releaseEvidence.confirm;
+        const checker = createSupportReleaseFollowupChecks(
+          {
+            ...f.options,
+            readApiKey: () => {
+              if (phase === "before provider") renew();
+              return "fictional-key";
+            },
+            releaseEvidence: {
+              ...f.options.releaseEvidence,
+              confirm: async (...args) => {
+                const proof = await confirm(...args);
+                if (phase === "after provider" && f.wire.state.calls === 1)
+                  renew();
+                return proof;
+              },
+            },
+          },
+          "pegma.dev",
+        );
+        const port = checker.forWork(f.f.key);
+        const checked = await port.check(f.input, f.context);
+        expect(changed).toBe(true);
+        expect(checked.outcome).toBe("checked");
+        if (checked.outcome !== "checked")
+          throw new Error("Expected actual checked receipt");
+        const verified = await checker.sdkVerifier.verify(
+          checked.receipt,
+          f.input.binding,
+          signal(),
+        );
+        expect(verified).not.toBeNull();
+        expect(Date.parse(verified!.validUntil)).toBeLessThanOrEqual(
+          Date.parse(originalExpiry),
+        );
+        expect(
+          await checker
+            .currentVerifierFor(f.f.key)
+            .verify(checked.receipt, f.input.binding, signal()),
+        ).not.toBeNull();
+        expect(await port.check(f.input, f.context)).toEqual(checked);
+        expect(f.wire.state.calls).toBe(1);
+        const head = await f.store
+          .collection(releaseFollowupCheckAttempts)
+          .get({ partition: "support_release_followup", id: "attempts" });
+        expect(head?.entries).toHaveLength(1);
+        expect(head?.entries[0]?.state).toBe("checked");
+        const usage = await readActualCheckUsage(f.store);
+        expect(usage.reservations).toHaveLength(1);
+        expect(usage.reservations[0]?.state).toBe("known");
+        expect(usage.spentMicros).toBe("100");
+      },
+    );
+    it.each([
+      ["before provider", "shortened"],
+      ["after provider", "shortened"],
+      ["before provider", "expired"],
+      ["after provider", "expired"],
+    ] as const)(
+      "refuses a %s %s approval window without a checked receipt",
+      async (phase, change) => {
+        const f = await followupChecksFixture(makeStore());
+        f.wire.route.approval.validUntil = new Date(
+          Date.parse(f.wire.state.now) + 120000,
+        ).toISOString();
+        let changed = false;
+        const replace = () => {
+          if (changed) return;
+          changed = true;
+          f.f.advance(1000);
+          f.wire.state.now = f.f.clock.now();
+          f.wire.route.approval.verifiedAt = f.wire.state.now;
+          f.wire.route.approval.validUntil = new Date(
+            Date.parse(f.wire.state.now) + (change === "expired" ? -1 : 500),
+          ).toISOString();
+        };
+        const confirm = f.options.releaseEvidence.confirm;
+        const checker = createSupportReleaseFollowupChecks(
+          {
+            ...f.options,
+            readApiKey: () => {
+              if (phase === "before provider") replace();
+              return "fictional-key";
+            },
+            releaseEvidence: {
+              ...f.options.releaseEvidence,
+              confirm: async (...args) => {
+                const proof = await confirm(...args);
+                if (phase === "after provider" && f.wire.state.calls === 1)
+                  replace();
+                return proof;
+              },
+            },
+          },
+          "pegma.dev",
+        );
+        expect(
+          (await checker.forWork(f.f.key).check(f.input, f.context)).outcome,
+        ).toBe("held");
+        expect(changed).toBe(true);
+        expect(f.wire.state.calls).toBe(phase === "before provider" ? 0 : 1);
+        const head = await f.store
+          .collection(releaseFollowupCheckAttempts)
+          .get({ partition: "support_release_followup", id: "attempts" });
+        expect(head?.entries[0]?.receipt).toBeNull();
+        expect(head?.entries[0]?.state).toBe("held");
+        const usage = await readActualCheckUsage(f.store);
+        expect(usage.reservations[0]?.state).toBe(
+          phase === "before provider" ? "not_called" : "known",
+        );
+        expect(usage.spentMicros).toBe(
+          phase === "before provider" ? "0" : "100",
+        );
+      },
+    );
+  });
+}
