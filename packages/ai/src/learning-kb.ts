@@ -312,7 +312,11 @@ function payloadSnapshot(
     "policyBinding",
     "requirements",
     "base",
-    "comparisonSelection",
+    ...(parsed !== null &&
+    typeof parsed === "object" &&
+    Object.hasOwn(parsed, "comparisonSelection")
+      ? ["comparisonSelection"]
+      : []),
   ]);
   const scope = scopeSnapshot(value.scope as LearningTargetScope, maxExplicit);
   const draft = draftSnapshot(

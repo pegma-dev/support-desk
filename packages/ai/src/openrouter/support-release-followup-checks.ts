@@ -21,7 +21,9 @@ import {
   releaseFollowupProofSnapshot,
 } from "../release-followup-request.js";
 import { releaseFollowupContent } from "../release-followup-output.js";
+import { snapshot } from "../boundary.js";
 import { canonical } from "./support-openrouter-model.js";
+import { containsPrivateText } from "./private-text.js";
 import { checkedLogicalHost, knowledgeDigest } from "./canonical-digest.js";
 import {
   createSupportIndependentCheckModel,
@@ -159,10 +161,12 @@ function b64(value: Uint8Array) {
 }
 function unb64(value: string) {
   requireCheck(/^[A-Za-z0-9_-]{43}$/u.test(value));
-  return Uint8Array.from(
+  const decoded = Uint8Array.from(
     atob(value.replace(/-/gu, "+").replace(/_/gu, "/") + "="),
     (c) => c.charCodeAt(0),
   );
+  requireCheck(b64(decoded) === value);
+  return decoded;
 }
 
 /** Original options callbacks stay live. Receipts have a distinct SD05 MAC domain. */
@@ -264,6 +268,14 @@ export function createSupportReleaseFollowupChecks(
     );
     return { ...result, route: r };
   }
+  // Approval windows are current observations, not semantic policy identity.
+  // Receipt timestamps stay signed and are independently bounded by current
+  // route, purpose, key and policy expiry on every verification.
+  function policyIdentity(
+    policy: Awaited<ReturnType<typeof configured>>["policy"],
+  ) {
+    return { version: policy.version, binding: policy.binding };
+  }
   async function authority(
     signal: AbortSignal,
     previous?: { access: AccessContext; version: string; scope: string },
@@ -275,7 +287,7 @@ export function createSupportReleaseFollowupChecks(
       access,
       authorityVersion: version,
       usageScopeRef: scope,
-    } = r.authority;
+    } = snapshot(r.authority);
     scalar.parse(access.principalId);
     scalar.parse(version);
     scalar.parse(scope);
@@ -356,10 +368,16 @@ export function createSupportReleaseFollowupChecks(
     let baseline: CheckInput["targetBaseline"] = null;
     let requirements: CheckInput["validationRequirements"] = null;
     const selected = input?.exactBundle.kbProposal?.target;
-    if (selected?.kind === "article") {
+    if (
+      selected?.kind === "article" ||
+      (input?.exactBundle.kbProposal === null && input.targetBaseline !== null)
+    ) {
       requireCheck(input?.targetBaseline && input.validationRequirements);
       target = {
-        articleId: selected.articleId,
+        articleId:
+          selected?.kind === "article"
+            ? selected.articleId
+            : input.targetBaseline.articleId,
         generation: input!.targetBaseline!.generation,
         requirementsHash: await knowledgeDigest(input!.validationRequirements),
       };
@@ -368,11 +386,12 @@ export function createSupportReleaseFollowupChecks(
       requireCheck(options.knowledge && options.knowledgeAccess);
       const ka = await options.knowledgeAccess.resolve(signal);
       requireCheck(ka.outcome === "ready");
-      baseline = await options.knowledge.getDraft(ka.authority.access, {
+      const observed = snapshot(ka.authority);
+      baseline = await options.knowledge.getDraft(observed.access, {
         articleId: target.articleId,
       });
       requirements = await options.knowledge.getValidationRequirements(
-        ka.authority.access,
+        observed.access,
         {
           collectionId: baseline.revision.collectionId,
           kind: baseline.revision.kind,
@@ -385,7 +404,7 @@ export function createSupportReleaseFollowupChecks(
       const closing = await options.knowledgeAccess.resolve(signal);
       requireCheck(
         closing.outcome === "ready" &&
-          canonical(closing.authority) === canonical(ka.authority),
+          canonical(snapshot(closing.authority)) === canonical(observed),
       );
     }
     if (input) {
@@ -542,17 +561,19 @@ export function createSupportReleaseFollowupChecks(
   }
   function fence(
     k: IndependentCheckReceiptKey,
-    version: string,
+    expected: Awaited<ReturnType<typeof configured>>,
     deadline: number,
     signal: AbortSignal,
   ) {
     const fresh = key();
+    const route = model.currentRoute(expected.configuration.version);
     requireCheck(
       !signal.aborted &&
         now() < deadline &&
         fresh.id === k.id &&
         fresh.key === k.key &&
-        model.currentRoute(version),
+        route &&
+        canonical(route) === canonical(expected.route),
     );
   }
   function header(receipt: string) {
@@ -594,7 +615,7 @@ export function createSupportReleaseFollowupChecks(
         binding,
         route: c.route.approval.requestPolicySha256,
         configuration: c.configuration.version,
-        policy: c.policy,
+        policy: policyIdentity(c.policy),
       }),
     );
   }
@@ -633,7 +654,7 @@ export function createSupportReleaseFollowupChecks(
                 kind: "release_followup",
                 scope,
                 binding,
-                policy: c.policy,
+                policy: policyIdentity(c.policy),
               })),
           );
         if (scope && sourceRead) {
@@ -653,7 +674,7 @@ export function createSupportReleaseFollowupChecks(
             reviewAuthority,
           );
         }
-        fence(k, c.configuration.version, Date.parse(h.validUntil), current);
+        fence(k, c, Date.parse(h.validUntil), current);
         return {
           binding: structuredClone(binding),
           privacy: "passed" as const,
@@ -694,6 +715,9 @@ export function createSupportReleaseFollowupChecks(
       verify: (receipt, binding, signal) =>
         verify(receipt, binding, signal, scope, reviewAuthority, false),
       async check(raw, external) {
+        // The optional policy permits verifier-only/default-off composition.
+        // Admission for a new paid check needs explicit finite funding.
+        if (policy === undefined) return { outcome: "unavailable" };
         let context: IndependentCheckContext | undefined;
         let called = false;
         let accounted = false;
@@ -769,8 +793,9 @@ export function createSupportReleaseFollowupChecks(
                 validationRequirements: input.validationRequirements,
               };
               requireCheck(
-                !initial.privateValues.some((value) =>
-                  canonical(modelInput).includes(value),
+                !containsPrivateText(
+                  canonical(modelInput),
+                  initial.privateValues,
                 ) && model.withinBudget(modelInput, c.configuration),
               );
               operation = await knowledgeDigest({
@@ -778,7 +803,7 @@ export function createSupportReleaseFollowupChecks(
                 kind: "release_followup",
                 scope,
                 binding: input.binding,
-                policy: c.policy,
+                policy: policyIdentity(c.policy),
               });
               owner = crypto.randomUUID();
               const policyHash = await knowledgeDigest(policy ?? null);
@@ -885,10 +910,17 @@ export function createSupportReleaseFollowupChecks(
                   requireCheck(
                     fresh.proof.sourceStamp === initial.proof.sourceStamp,
                   );
-                  await configured(current, input.binding.checkPolicyVersion);
-                  fence(k, c.configuration.version, end, current);
+                  const currentConfiguration = await configured(
+                    current,
+                    input.binding.checkPolicyVersion,
+                  );
+                  requireCheck(
+                    canonical(currentConfiguration.route) ===
+                      canonical(c.route),
+                  );
+                  fence(k, c, end, current);
                   return () => {
-                    fence(k, c.configuration.version, end, current);
+                    fence(k, c, end, current);
                     return true;
                   };
                 },
@@ -896,7 +928,7 @@ export function createSupportReleaseFollowupChecks(
               requireCheck(
                 (await usage.reserve(context)).outcome === "reserved",
               );
-              fence(k, c.configuration.version, end, signal);
+              fence(k, c, end, signal);
               const result = await model.generate(
                 modelInput,
                 context,
@@ -930,7 +962,13 @@ export function createSupportReleaseFollowupChecks(
               requireCheck(
                 fresh.proof.sourceStamp === initial.proof.sourceStamp,
               );
-              await configured(signal, input.binding.checkPolicyVersion);
+              const currentConfiguration = await configured(
+                signal,
+                input.binding.checkPolicyVersion,
+              );
+              requireCheck(
+                canonical(currentConfiguration.route) === canonical(c.route),
+              );
               const h = {
                 operation,
                 verifiedAt: options.clock.now(),
@@ -952,7 +990,7 @@ export function createSupportReleaseFollowupChecks(
                   mac(input.binding, h, k, c),
                 ),
               );
-              fence(k, c.configuration.version, end, signal);
+              fence(k, c, end, signal);
               const receipt = [
                 "sf1",
                 operation,
@@ -961,10 +999,9 @@ export function createSupportReleaseFollowupChecks(
                 b64(signature),
               ].join(".");
               requireCheck(receipt.length <= 200);
-              commitFence = () =>
-                fence(k, c.configuration.version, end, signal);
+              commitFence = () => fence(k, c, end, signal);
               await settle("checked", receipt);
-              fence(k, c.configuration.version, end, signal);
+              fence(k, c, end, signal);
               return { outcome: "checked" as const, receipt };
             },
           );

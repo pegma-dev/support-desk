@@ -1,3 +1,4 @@
+import { containsPrivateText } from "./private-text.js";
 import { hasPermission, type AccessContext } from "@pegma/authorization-core";
 import {
   KnowledgeBaseNotFoundError,
@@ -924,7 +925,7 @@ export function createSupportIndependentChecks(
     ].filter((v): v is string => typeof v === "string" && v.length > 0);
     if (input)
       requireCheck(
-        !privateValues.some((v) => JSON.stringify(outbound).includes(v)),
+        !containsPrivateText(JSON.stringify(outbound), privateValues),
       );
     return {
       sourceStamp,

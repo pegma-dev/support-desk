@@ -37,6 +37,8 @@ export interface LearningPublishedSearchObservations {
     access: AccessContext,
     input: { readonly collectionId: string },
   ): Promise<LearningPublishedSearchScopeState>;
+  /** Omission keeps legacy structural ports usable; new create checks hold
+   * unless the complete authoring comparison capability is available. */
   readArticle?(
     access: AccessContext,
     input: { readonly articleId: string },
@@ -247,7 +249,7 @@ function matching(
 ) {
   requireComparison(
     value.collectionId === selection.scope.collectionId &&
-      value.kind === selection.scope.kind &&
+      articleKinds.includes(value.kind) &&
       canonical(value.applicability) ===
         canonical(selection.scope.applicability),
   );
@@ -425,6 +427,11 @@ export async function confirmLearningComparisonResources(
   const selection = evidence.selection;
   const observer = knowledge.publishedSearchObservations;
   requireComparison(typeof observer?.readArticle === "function");
+  if (freshScope !== undefined)
+    requireComparison(
+      canonical(scopeStateSchema.parse(freshScope)) ===
+        canonical(evidence.scopeState),
+    );
   for (const { applicationGeneration, ...ref } of evidence.published) {
     const article = await within(() =>
       observer.readArticle!(access, { articleId: ref.articleId }),
@@ -454,13 +461,14 @@ export async function confirmLearningComparisonResources(
   requireComparison(
     canonical(
       scopeStateSchema.parse(
-        freshScope ??
-          (await readLearningComparisonScope(
-            knowledge,
-            access,
-            selection.scope.collectionId,
-            within,
-          )),
+        // A parallel scope prefetch may finish before proof loading or resource
+        // checks. Always close against current collection policy after them.
+        await readLearningComparisonScope(
+          knowledge,
+          access,
+          selection.scope.collectionId,
+          within,
+        ),
       ),
     ) === canonical(evidence.scopeState),
   );

@@ -335,9 +335,17 @@ New scope members added after observation are evaluated in the next background
 comparison. Source, request, policy, target and final write guards still apply,
 and staff must approve the actual resulting draft before publication.
 
-Legacy update and engineering receipts retain their contracts. An old learning
-`l` receipt without comparison evidence cannot authorize a new create. Exact
-historical completion may use an accepted ACK independently read from the
+Every learning receipt verifier, including the App-facing SDK verifier, requires
+the issuer's retained checked entry, exact receipt and proof in the controller's
+attempt Store namespace. A reconstructed controller must retain access to that
+Store. This also applies to legacy learning update proofs without comparison
+data. Their proof format remains supported. A verifier whose Store lacks that
+entry cannot authenticate from the MAC alone. The engineering SDK proof helper
+retains its existing read-free behavior. These Store reads preserve the
+existing Source, Work, target, authority and final write guards.
+
+An old learning `l` receipt without comparison evidence cannot authorize a new
+create. Exact historical completion may use an accepted ACK independently read from the
 Support Work row; the optional recovery input is not caller authority and the
 App's ordinary two-argument verifier cannot grant this exception. If KB accepted
 but Support never retained its ACK, KB `0.1.8` has no read-only draft-write receipt

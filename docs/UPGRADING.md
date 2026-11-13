@@ -108,11 +108,23 @@ verified reconciliation, including after an unknown ACK. Keep scheduling the
 existing reconciliation result under fresh retirement authority while durable
 destinations remain pending. Inline reconciliation retains its bounded retries.
 
+## Unpublished 0.2.9 follow-up version reads
+
+Closing follow-up version checks start up to five independent Store reads
+together and wait for the whole wave to settle. Results retain their original
+order, so an earlier stale version or read failure keeps precedence over a later
+failure. Later reads can already have completed when that result is returned.
+This reduces serial round-trip latency while spending reads that an early-exit
+sequence could avoid. Late authority or cancellation rechecks can also wait for
+the started wave. Current permission, proof, version and commit guards remain.
+Include every started read in host invocation budgets and measure latency on
+the actual adapter.
+
 ## Unpublished 0.2.9 optional OpenRouter entry
 
 Import provider adapters explicitly from `@pegma/support-desk-ai/openrouter`.
 The AI root remains provider-neutral. Its manifest declares exact direct
-`zod@4.4.3` and `@pegma/storage-core@0.4.0` dependencies.
+`zod@4.6.7` and `@pegma/storage-core@0.4.0` dependencies.
 `createSupportIndependentCheckModel` and `createSupportIndependentChecks` each
 require the original options object and a second logical host string matching
 current route evidence. Keep authority, application, route/privacy and
@@ -120,6 +132,14 @@ receipt-key callbacks current. Pegma retains its existing route hashes, `ic2`
 encoding and `pegma.dev.support-independent-checks.v2` MAC domain. RetireGolden
 binds its own logical host and retains separate stores, keys, funding pools and
 privacy/configuration evidence. See [the adapter contract](../packages/ai/README.md#optional-openrouter-adapter-source-candidate).
+
+Learning receipt verification requires the issuer's retained checked-attempt
+record in the same durable Store namespace, including legacy update proofs
+without comparison data. Reconstructing a verifier against an empty Store
+cannot authenticate those receipts from the MAC alone. Preserve that Store
+alongside current authority, route and receipt-key wiring. See the
+[comparison contract](RESOLUTION_LEARNING.md#candidate-scoped-comparison-evidence)
+and the adapter's finite funding and record-capacity limits.
 
 ## Published 0.2.8 follow-up host guards
 

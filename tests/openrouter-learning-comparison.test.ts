@@ -13,6 +13,7 @@ import {
   type SupportIndependentChecksOptions,
 } from "@pegma/support-desk-ai/openrouter";
 import {
+  resolutionLearningDeliveryBinding,
   supportPermissions,
   type ResolutionLearningKey,
 } from "@pegma/support-desk-application";
@@ -423,25 +424,103 @@ async function legacyIssuer(t: Awaited<ReturnType<typeof fixture>>) {
   };
 }
 
+/** Reproduce an old producer packet through public App admission, not edited
+ * Work rows. Only the explicitly fictional legacy check issuer is substituted. */
+async function prepareLegacyPacketWithoutComparison(
+  t: Awaited<ReturnType<typeof fixture>>,
+) {
+  await t.enqueue();
+  const input = t.f.ports.check.mock.calls[0]![0];
+  const payload = JSON.parse(input.exactRequest.draftPayload);
+  delete payload.comparisonSelection;
+  const request = {
+    ...input.exactRequest,
+    draftPayload: JSON.stringify(payload),
+  };
+  const binding = await resolutionLearningDeliveryBinding({
+    ...input.binding,
+    applicability: input.candidate.applicability,
+    exactRequest: request,
+  });
+  const legacy = await legacyIssuer(t);
+  t.f.ports.verifyChecks.mockImplementation(legacy.verify);
+  const checked = await t.f.ports.check(
+    { ...input, exactRequest: request, binding },
+    {
+      purpose: "support_learning",
+      deadline: new Date(
+        Date.parse(t.f.support.clock.now()) + 5000,
+      ).toISOString(),
+      signal: new AbortController().signal,
+    },
+  );
+  if (checked.outcome !== "checked") throw new Error("Legacy issuer failed");
+  const resolved = await t.f.ports.resolveService(new AbortController().signal);
+  if (resolved.outcome !== "ready")
+    throw new Error("Actual service unavailable");
+  const service = resolved.authority.access;
+  const owner = await t.f.support.app.claimResolutionLearningWork(service, {
+    ...t.scope!,
+    workerId: "legacy-packet-prepare",
+    claimId: "legacy-packet-prepare",
+    leaseMilliseconds: 30_000,
+  });
+  if (!owner) throw new Error("Actual legacy preparation claim missing");
+  const capability = t.f.support.app.stagedResolutionLearningDelivery;
+  if (!capability) throw new Error("Actual staged delivery capability missing");
+  await capability.prepare(
+    service,
+    {
+      ...owner.fence,
+      step: "kb_delivery",
+      candidateHash: binding.candidateHash,
+      verifiedCheckReceipt: checked.receipt,
+      policyVersion: binding.policyVersion,
+      targetDecisionHash: binding.targetDecisionHash,
+      exactRequest: request,
+    },
+    async (observation) => {
+      await observation.confirm(service);
+      return () => true;
+    },
+  );
+  return { legacy, request, payload, service, capability };
+}
+
 for (const [backend, createStore] of learningKbStores) {
   describe("real learning comparison (" + backend + ")", () => {
-    it("holds missing strict capability without trusting the ordinary empty search", async () => {
-      const t = await fixture(createStore());
-      // The actual application remains underneath; omit only the optional port.
-      Reflect.set(t.options, "knowledge", { getDraft: t.f.kb.getDraft });
-      const result = await t.enqueue();
-      expect(result.outcome).toBe("held");
-      expect(t.hint).toBeUndefined();
-      expect(t.providerKey).not.toHaveBeenCalled();
-      expect(t.p.state.calls).toBe(0);
-      expect(t.usageMutations).toBe(0);
-      expect(
-        await t.f.backing.collection(independentCheckAttempts).get({
-          partition: "support_independent_check",
-          id: "attempts",
-        }),
-      ).toBeNull();
-    });
+    it.each(["all", "readArticle"] as const)(
+      "holds missing %s strict capability without trusting the ordinary empty search",
+      async (missing) => {
+        const t = await fixture(createStore());
+        // The actual application remains underneath; omit only the optional port.
+        Reflect.set(
+          t.options,
+          "knowledge",
+          missing === "all"
+            ? { getDraft: t.f.kb.getDraft }
+            : {
+                ...t.knowledge,
+                publishedSearchObservations: {
+                  ...t.knowledge.publishedSearchObservations!,
+                  readArticle: undefined,
+                },
+              },
+        );
+        const result = await t.enqueue();
+        expect(result.outcome).toBe("held");
+        expect(t.hint).toBeUndefined();
+        expect(t.providerKey).not.toHaveBeenCalled();
+        expect(t.p.state.calls).toBe(0);
+        expect(t.usageMutations).toBe(0);
+        expect(
+          await t.f.backing.collection(independentCheckAttempts).get({
+            partition: "support_independent_check",
+            id: "attempts",
+          }),
+        ).toBeNull();
+      },
+    );
 
     it.each(["partial", "unavailable"] as const)(
       "holds an explicit %s observation before reserve, key or provider",
@@ -624,6 +703,106 @@ for (const [backend, createStore] of learningKbStores) {
       expect(t.p.state.calls).toBe(0);
     });
 
+    it.each(["new", "accepted", "KB-only"] as const)(
+      "keeps a no-comparison legacy create %s recovery bound to its actual accepted Work ACK",
+      async (state) => {
+        const t = await fixture(createStore(), true);
+        const historical = await prepareLegacyPacketWithoutComparison(t);
+        const lost = new Error("Actual historical KB/Work response lost");
+        if (state !== "new") {
+          const owner = await t.f.support.app.claimResolutionLearningWork(
+            historical.service,
+            {
+              ...t.scope!,
+              workerId: "legacy-packet-write",
+              claimId: "legacy-packet-write",
+              leaseMilliseconds: 30_000,
+            },
+          );
+          if (!owner?.work.stepId || !owner.work.requestHash)
+            throw new Error("Actual prepared historical delivery missing");
+          const write = historical.capability.write(
+            historical.service,
+            {
+              ...owner.fence,
+              stepId: owner.work.stepId,
+              requestHash: owner.work.requestHash,
+            },
+            async (observation) => {
+              const knowledge = await t.f.ports.resolveKnowledge(
+                new AbortController().signal,
+              );
+              if (knowledge.outcome !== "ready")
+                throw new Error("Actual authoring access missing");
+              const ack = await t.f.ports.knowledge.createDraft(
+                knowledge.authority.access,
+                {
+                  commandId: historical.request.commandId,
+                  correlationId: historical.request.correlationId,
+                  expectedGeneration: 0,
+                  articleId: historical.request.articleId,
+                  collectionId: historical.request.collectionId,
+                  draft: historical.payload.draft,
+                  sourceReferences: historical.request.sourceReferences,
+                },
+              );
+              if (state === "KB-only") throw lost;
+              await observation.confirm(historical.service);
+              return { historicalAck: ack.value, assertCurrent: () => true };
+            },
+          );
+          if (state === "KB-only") {
+            await expect(write).rejects.toBe(lost);
+            await t.f.support.app.finishResolutionLearningWork(
+              historical.service,
+              {
+                ...owner.fence,
+                stepId: owner.work.stepId,
+                requestHash: owner.work.requestHash,
+                disposition: "unknown",
+              },
+            );
+          } else {
+            // The App accepted its real ACK before the caller lost the response.
+            await expect(
+              write.then(() => {
+                throw lost;
+              }),
+            ).rejects.toBe(lost);
+          }
+        }
+        const before = await t.f.support.app.readResolutionLearningWork(
+          t.f.access.staff,
+          t.scope!,
+        );
+        expect(
+          Object.hasOwn(
+            JSON.parse(before.exactRequest!.draftPayload),
+            "comparisonSelection",
+          ),
+        ).toBe(false);
+        expect(before.acknowledgement !== undefined).toBe(state === "accepted");
+        historical.legacy.restoreCurrent();
+        const result = await t.process();
+        expect(result.outcome).toBe(
+          state === "accepted" ? "delivered" : "held",
+        );
+        const after = await t.f.support.app.readResolutionLearningWork(
+          t.f.access.staff,
+          t.scope!,
+        );
+        expect(after.acknowledgement).toEqual(before.acknowledgement);
+        expect(after.exactRequest).toEqual(before.exactRequest);
+        expect(
+          t.f.ports.knowledgeCalls.filter(
+            (call) => call.operation === "createDraft",
+          ),
+        ).toHaveLength(state === "new" ? 0 : 1);
+        expect(t.providerKey).not.toHaveBeenCalled();
+        expect(t.p.state.calls).toBe(0);
+      },
+    );
+
     it("holds KB-accepted legacy delivery with a lost SDK ACK instead of replaying a possibly new write", async () => {
       const t = await fixture(createStore(), true);
       const legacy = await legacyIssuer(t);
@@ -672,9 +851,14 @@ for (const [backend, createStore] of learningKbStores) {
       expect(t.p.state.calls).toBe(0);
     });
 
-    it.each(["private", "bot-only"] as const)(
-      "uses the intrinsic draft ceiling for %s guidance and fresh parallel proof/scope reads",
-      async (mode) => {
+    it.each([
+      ["private", "explanation"],
+      ["bot-only", "explanation"],
+      ["private", "walkthrough"],
+      ["bot-only", "walkthrough"],
+    ] as const)(
+      "uses the intrinsic draft ceiling for %s %s guidance and fresh parallel proof/scope reads",
+      async (mode, kind) => {
         const t = await fixture(createStore());
         if (mode === "bot-only") {
           const preview = await t.f.kb.previewCollectionPolicy(
@@ -701,10 +885,25 @@ for (const [backend, createStore] of learningKbStores) {
         }
         // Publish through the actual KB approval path, without using a portal
         // read/index fixture that cannot operate in a bot-only collection.
-        await t.f.createGuide(
+        const original = await t.f.createGuide(
           "private-comparison-guide",
           "Distinct approved workspace reference available to authoring staff.",
         );
+        if (kind === "walkthrough")
+          await t.f.kb.updateDraft(t.f.access.admin, {
+            ...t.f.command("cross-kind-comparison", original.generation),
+            articleId: original.articleId,
+            collectionId: original.revision.collectionId,
+            draft: {
+              kind,
+              title: original.revision.title,
+              summary: original.revision.summary,
+              content: original.revision.content,
+              tags: original.revision.tags,
+              applicability: original.revision.applicability,
+            },
+            sourceReferences: [],
+          });
         await t.f.issueGuideEvidence("private-comparison-guide");
         const draft = await t.f.kb.getDraft(t.f.access.guideAuthor, {
           articleId: "private-comparison-guide",
@@ -756,6 +955,13 @@ for (const [backend, createStore] of learningKbStores) {
           JSON.parse(wire.messages[1].content).comparison.publishedMatches[0]
             .content.text,
         ).toContain("Distinct approved workspace reference");
+        expect(
+          JSON.parse(wire.messages[1].content).comparison.publishedMatches[0]
+            .kind,
+        ).toBe(kind);
+        expect(JSON.parse(wire.messages[1].content).outbound.draft.kind).toBe(
+          "explanation",
+        );
         const input = t.f.ports.check.mock.calls[0]![0];
         const headGate = learningKbBarrier();
         const scopeGate = learningKbBarrier();
@@ -824,7 +1030,7 @@ for (const [backend, createStore] of learningKbStores) {
           await pending;
         }
         expect(await pending).not.toBeNull();
-        expect(readScope).toHaveBeenCalledOnce();
+        expect(readScope).toHaveBeenCalledTimes(2);
         expect(
           await t.controller
             .learningFor(t.scope!)
@@ -953,6 +1159,98 @@ for (const [backend, createStore] of learningKbStores) {
         t.f.ports.knowledgeCalls.filter((c) => c.operation === "createDraft"),
       ).toHaveLength(0);
     });
+
+    it.each(["closed", "changed"] as const)(
+      "closes an empty hinted snapshot after collection policy %s while its proof head is pending",
+      async (state) => {
+        const t = await fixture(createStore());
+        await t.enqueue();
+        const checked = await t.precompute();
+        if (checked.outcome !== "checked")
+          throw new Error("Actual checked empty snapshot required");
+        const input = t.f.ports.check.mock.calls[0]![0];
+        const observer = t.knowledge.publishedSearchObservations;
+        if (!observer?.readArticle)
+          throw new Error("Actual authoring comparison capability required");
+        const headGate = learningKbBarrier();
+        const scopeRead = learningKbBarrier();
+        const backing = t.options.store;
+        const store: Store = {
+          collection(definition) {
+            const target = backing.collection(definition);
+            if (definition.name !== independentCheckAttempts.name)
+              return target;
+            const get: typeof target.get = async (...args) => {
+              const actual = await target.get(...args);
+              await headGate.wait();
+              return actual;
+            };
+            return new Proxy(target, {
+              get(object, property) {
+                if (property === "get") return get;
+                const value: unknown = Reflect.get(object, property, object);
+                return typeof value === "function" ? value.bind(object) : value;
+              },
+            });
+          },
+        };
+        const readScope = vi.fn(
+          async (...args: Parameters<typeof observer.readScope>) => {
+            const actual = await observer.readScope(...args);
+            scopeRead.release();
+            return actual;
+          },
+        );
+        Reflect.set(t.options, "store", store);
+        Reflect.set(t.options, "knowledge", {
+          ...t.knowledge,
+          publishedSearchObservations: { ...observer, readScope },
+        });
+        const pending = t.controller
+          .learningFor(t.scope!)
+          .verify(checked.receipt, input.binding, undefined, {
+            comparisonScope: { collectionId: learningKbCollectionId },
+          });
+        try {
+          await Promise.all([headGate.reached, scopeRead.wait()]);
+          expect(readScope).toHaveBeenCalledOnce();
+          const preview = await t.f.kb.previewCollectionPolicy(
+            t.f.access.admin,
+            {
+              collectionId: learningKbCollectionId,
+              uses: {
+                portal: { enabled: false },
+                bot:
+                  state === "closed"
+                    ? { enabled: false }
+                    : {
+                        enabled: true,
+                        audience: {
+                          kind: "permission",
+                          permission: learningKbAudience,
+                        },
+                      },
+              },
+            },
+          );
+          await t.f.kb.updateCollectionPolicy(t.f.access.admin, {
+            ...t.f.command(`pending-proof-scope-${state}`, preview.generation),
+            collectionId: learningKbCollectionId,
+            preview: preview.preview,
+          });
+        } finally {
+          headGate.release();
+        }
+        expect(await pending).toBeNull();
+        expect(readScope).toHaveBeenCalledTimes(2);
+        expect(t.p.state.calls).toBe(1);
+        expect(
+          t.f.ports.knowledgeCalls.filter(
+            (call) => call.operation === "createDraft",
+          ),
+        ).toHaveLength(0);
+      },
+    );
 
     it("invalidates an empty checked snapshot after the actual collection closes", async () => {
       const t = await fixture(createStore());

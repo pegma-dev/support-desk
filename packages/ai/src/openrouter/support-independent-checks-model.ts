@@ -198,6 +198,14 @@ export type IndependentCheckInput =
   | ReleaseFollowupIndependentCheckInput;
 
 function followupInput(input: ReleaseFollowupIndependentCheckInput) {
+  try {
+    validateFollowupInput(input);
+  } catch {
+    fail("invalid_input");
+  }
+}
+
+function validateFollowupInput(input: ReleaseFollowupIndependentCheckInput) {
   object(input, [
     "trustedInstructions",
     "kind",

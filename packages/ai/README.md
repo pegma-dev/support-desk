@@ -362,10 +362,24 @@ qualified token counting, credentials, receipt keys, bounded durable funding
 and retention. Keep `authority.resolve`, `readRoute`, `readReceiptKey` and
 `application` callbacks current over the host's actual domain instances.
 Importing the entry performs no network, Store, key or route
-activity. Source-reading verifiers observe current domain state. The read-free
-SDK verifiers authenticate the exact receipt inside the SDK's existing current
-Source/Work/target/authority and conditional-commit boundary. Neither verifier
-establishes customer activation, publication approval or a whole-host budget.
+activity. Source-reading verifiers observe current domain state. SDK verifiers
+authenticate the exact receipt inside the SDK's existing current
+Source/Work/target/authority and conditional-commit boundary. Learning verifiers
+also require the issuer's retained checked-attempt entry and proof in the same
+durable Store namespace, including legacy update proofs without comparison
+data. Comparison receipts recheck their retained KB resources and current scope
+without enumerating the corpus. The engineering SDK proof helper retains its
+read-free behavior. Neither verifier establishes customer activation,
+publication approval or a whole-host budget.
+
+Treat `maxReservations` as an admission ceiling. The independent-check head's
+60,000-byte encoded limit and reserved proof space can hold admission sooner.
+Deferred learning creates reserve the existing 16,000 proof limit before the
+background comparison is loaded. Queued request bodies and entry metadata also
+consume head capacity. A deferral that cannot fit is held before its entry is
+written. Expiry redaction removes request text and retains the attempt and its
+proof reservation. Retain these finite limits in host scheduling and funding
+plans.
 
 ### Release follow-up provider ports
 
@@ -388,6 +402,10 @@ route must additionally contain `releaseFollowup` qualification with purpose
 `evidenceRef`, `verifiedAt` and `validUntil`; this object is included in the
 route policy hash. Existing engineering and learning approvals stay unchanged.
 
+Omitting `usagePolicy` leaves new checks `unavailable` before Store, App,
+receipt-key or provider work. Existing receipt verification and current
+check-policy resolution retain their own guards without requiring new funding.
+
 Use `forWork({ticketId, workId})` for background preparation.
 `forReassessment(key, reviewAuthority)` requires a per-operation resolver for
 the original authenticated staff actor's current Review, Read and queue
@@ -404,8 +422,13 @@ Checker ownership stores at most 32 body-free attempts, further bounded by the
 shared pool and a 60,000-byte head. Ambiguous provider or storage outcomes keep
 ownership and conservative accounting; exact replay recovers a stored receipt
 without another paid opportunity. The existing ledger retains unknown usage
-through its immutable funding window. Finite pools have no automatic top-up,
-expiry reclamation or paid retry. These checks issue no retest receipt. Actual
+through its immutable funding window. The ownership head retains terminal
+entries. Reaching its count, byte or shared-funding limit holds new checks.
+Reconstructing the checker on that Store with a different funding-policy hash
+also holds new checks. Funding is fixed at construction, with no automatic
+policy rollover, top-up, expiry reclamation or paid retry. Preserve attempt and
+usage records for receipt recovery and financial reconciliation. These checks
+issue no retest receipt. Actual
 retest execution remains the application's existing trusted evidence contract;
 KB publication and customer delivery retain their staff approval boundaries.
 Host resource budgets, provider qualification and activation remain pending

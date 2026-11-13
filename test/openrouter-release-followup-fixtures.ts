@@ -149,6 +149,7 @@ export async function followupModelFixture(
 
 export async function followupControllerFixture(
   store: Store = createMemoryStore(),
+  fixtureOptions: { readonly privateNote?: string } = {},
 ) {
   const wire = await checkerModelFixture();
   wire.route.releaseFollowup = {
@@ -213,6 +214,7 @@ export async function followupControllerFixture(
   };
   let actual!: ReturnType<typeof createSupportReleaseFollowupChecks>;
   f = await engineeringFollowupFixture(store, {
+    support: fixtureOptions,
     followup: {
       checks: { verify: (...args) => actual.sdkVerifier.verify(...args) },
     },
@@ -250,8 +252,9 @@ export async function followupControllerFixture(
 
 export async function followupChecksFixture(
   store: Store = createMemoryStore(),
+  fixtureOptions: { readonly privateNote?: string } = {},
 ) {
-  const base = await followupControllerFixture(store);
+  const base = await followupControllerFixture(store, fixtureOptions);
   const { f, wire } = base;
   const prepared = await f.prepareCandidate();
   const work = await f.work();

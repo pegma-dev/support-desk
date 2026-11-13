@@ -230,6 +230,8 @@ export async function actualEngineeringCheckerFixture(
   inputBudget: {
     readonly maxMessages?: number;
     readonly secondVisibleMessage?: boolean;
+    readonly privateNote?: string;
+    readonly candidateSummary?: string;
   } = {},
 ) {
   const backing = createMemoryStore();
@@ -249,15 +251,22 @@ export async function actualEngineeringCheckerFixture(
       });
     },
   };
-  const f = await engineeringAiFixture(
-    store,
-    inputBudget.secondVisibleMessage
+  const f = await engineeringAiFixture(store, {
+    ...(inputBudget.secondVisibleMessage
       ? {
           notificationBody:
             "Synthetic export remains empty after verification.",
         }
-      : {},
-  );
+      : {}),
+    ...(inputBudget.privateNote === undefined
+      ? {}
+      : { privateNote: inputBudget.privateNote }),
+  });
+  const summary = inputBudget.candidateSummary;
+  if (summary !== undefined)
+    f.setModel(async () =>
+      f.answer({ outputJson: JSON.stringify(f.assessment({ summary })) }),
+    );
   const first = await f.engineering.processWork(f.nextCommand());
   if (first.outcome !== "candidate")
     throw new Error(

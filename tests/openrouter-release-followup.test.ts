@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createMemoryStore, type Store } from "@pegma/storage-core";
+import {
+  createMemoryStore,
+  defineCollection,
+  type Store,
+} from "@pegma/storage-core";
 import {
   engineeringFollowupChecksBinding,
   supportPermissions,
@@ -460,22 +464,13 @@ describe("SD05 bounded ambiguous recovery", () => {
       f.input.candidate.customerDraft.body,
     );
   });
-  it("does not append private notes or real Source identifiers to generator content", async () => {
-    const f = await followupControllerFixture();
-    const g = await followupModelFixture("pegma.dev", f.f.clock.now());
-    // Actual application fixture has a real internal note already. The generator
-    // fixture's public input remains the only serialized provider content.
+  it("rejects non-contract fields in a direct generator input", async () => {
+    const g = await followupModelFixture();
     await g.model.configuration.resolve(undefined, signal());
     await g.model.model.generate(g.input, g.context, g.c);
-    expect(String(g.state.requests[0]!.body)).not.toContain(
-      "PRIVATE_ENGINEERING_INTERNAL_NOTE",
-    );
-    const bad = {
-      ...g.input,
-      privateNote: "PRIVATE_ENGINEERING_INTERNAL_NOTE",
-    };
+    const extra = { ...g.input, privateNote: "EXTRA_FIELD" };
     await expect(
-      g.model.model.generate(bad, g.context, g.c),
+      g.model.model.generate(extra, g.context, g.c),
     ).rejects.toBeInstanceOf(SupportOpenRouterModelError);
     expect(g.state.calls).toBe(1);
   });
@@ -546,11 +541,19 @@ describe("SD05 checker direct-public boundary", () => {
 
 for (const [backend, makeStore] of engineeringFollowupStores) {
   describe("SD05 coordinator and staff reassessment " + backend, () => {
-    it.each([false, true])(
-      "drives actual coordinator stages with real SDK persistence and KB target=%s",
-      async (hasTarget) => {
+    it.each([
+      [false, false],
+      [true, false],
+      [true, true],
+    ] as const)(
+      "drives actual coordinator stages with real SDK persistence and KB target=%s customer-only=%s",
+      async (hasTarget, customerOnly) => {
         const f = await followupControllerFixture(makeStore());
         const g = await followupModelFixture("pegma.dev", f.f.clock.now());
+        if (customerOnly)
+          g.state.document.choices[0]!.message.content = JSON.stringify(
+            followupCandidate({ kbProposal: null }),
+          );
         const usage = createSupportReleaseFollowupUsage({
           store: f.store,
           clock: g.options.clock,
@@ -637,6 +640,8 @@ for (const [backend, makeStore] of engineeringFollowupStores) {
         expect(checked.outcome).toBe("prepared");
         const work = await f.f.work();
         expect(work.preparedBundle?.checksReceipt).toMatch(/^sf1\./u);
+        if (customerOnly)
+          expect(work.preparedBundle?.bundle.kbProposal).toBeNull();
         expect(work.delivered).toBeUndefined();
         expect(work.retestResults).toEqual([]);
         expect(g.state.calls).toBe(1);
@@ -646,6 +651,41 @@ for (const [backend, makeStore] of engineeringFollowupStores) {
           "PRIVATE_ENGINEERING_INTERNAL_NOTE",
         );
         expect(generatedWire).not.toContain("PRIVATE_FOLLOWUP_KB_GUIDE_BODY");
+        const source = await f.f.app.readEngineeringSource(
+          engineeringFollowupStaff,
+          f.f.key.ticketId,
+        );
+        const ticket = await f.f.app.readStaffTicket(
+          engineeringFollowupStaff,
+          f.f.key.ticketId,
+        );
+        const payload = JSON.parse(
+          JSON.parse(generatedWire).messages[1].content,
+        ) as {
+          trustedInstructions: string;
+          messages: { speaker: string; text: string }[];
+          publicReleaseFacts: { ref: string; text: string }[];
+        };
+        const disclosed = [
+          payload.trustedInstructions,
+          ...payload.messages.flatMap((m) => [m.speaker, m.text]),
+          ...payload.publicReleaseFacts.flatMap((f) => [f.ref, f.text]),
+        ];
+        for (const value of [
+          source.sourceId,
+          source.proofIdentity,
+          work.workId,
+          work.association.dispatchId,
+          ticket.ticket.requester.principalId,
+          ticket.ticket.requester.email,
+          ...ticket.messages
+            .filter((m) => m.visibility === "internal")
+            .map((m) => m.body),
+        ]) {
+          if (typeof value === "string" && value.length > 0)
+            expect(disclosed.every((text) => !text.includes(value))).toBe(true);
+        }
+
         if (knowledge) {
           const payload = JSON.parse(
             JSON.parse(String(f.wire.state.requests[0]!.init.body)).messages[1]
@@ -744,5 +784,481 @@ for (const [backend, makeStore] of engineeringFollowupStores) {
         .get({ partition: "support_release_followup", id: "attempts" });
       expect(head?.entries.every((e) => e.receipt === null)).toBe(true);
     });
+  });
+}
+
+for (const [backend, makeStore] of engineeringFollowupStores) {
+  describe("configured review SD05 regressions " + backend, () => {
+    it("requires canonical base64url signatures in every receipt verifier", async () => {
+      const f = await followupChecksFixture(makeStore());
+      const port = f.checks.forWork(f.f.key);
+      const result = await port.check(f.input, f.context);
+      expect(result.outcome).toBe("checked");
+      if (result.outcome !== "checked")
+        throw new Error("Actual checked receipt required");
+      expect(
+        await f.checks.sdkVerifier.verify(
+          result.receipt,
+          f.input.binding,
+          signal(),
+        ),
+      ).not.toBeNull();
+      expect(
+        await f.checks
+          .currentVerifierFor(f.f.key)
+          .verify(result.receipt, f.input.binding, signal()),
+      ).not.toBeNull();
+      const alphabet =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+      const parts = result.receipt.split(".");
+      const signature = parts[4]!;
+      const last = alphabet.indexOf(signature.at(-1)!);
+      expect(last % 4).toBe(0);
+      for (const lowBits of [1, 2, 3]) {
+        const alternate = [
+          ...parts.slice(0, 4),
+          signature.slice(0, -1) + alphabet[last + lowBits],
+        ].join(".");
+        expect(
+          await f.checks.sdkVerifier.verify(
+            alternate,
+            f.input.binding,
+            signal(),
+          ),
+        ).toBeNull();
+        expect(
+          await port.verify(alternate, f.input.binding, signal()),
+        ).toBeNull();
+        expect(
+          await f.checks
+            .currentVerifierFor(f.f.key)
+            .verify(alternate, f.input.binding, signal()),
+        ).toBeNull();
+      }
+      expect(f.wire.state.calls).toBe(1);
+    });
+    it("survives approval-window refresh with one exact operation and unchanged signed receipt expiry", async () => {
+      const f = await followupChecksFixture(makeStore());
+      f.wire.route.approval.validUntil = new Date(
+        Date.parse(f.wire.state.now) + 120000,
+      ).toISOString();
+      const port = f.checks.forWork(f.f.key);
+      const first = await port.check(f.input, f.context);
+      expect(first.outcome).toBe("checked");
+      if (first.outcome !== "checked")
+        throw new Error("Actual checked receipt required");
+      const original = await f.checks.sdkVerifier.verify(
+        first.receipt,
+        f.input.binding,
+        signal(),
+      );
+      expect(original).not.toBeNull();
+      await f.f.prepareBundle({
+        exactBundle: f.input.exactBundle,
+        checksReceipt: first.receipt,
+        checkPolicyVersion: f.input.binding.checkPolicyVersion,
+      });
+      f.f.advance(1000);
+      f.wire.state.now = f.f.clock.now();
+      f.wire.route.approval.verifiedAt = f.wire.state.now;
+      f.wire.route.approval.validUntil = new Date(
+        Date.parse(f.wire.state.now) + 180000,
+      ).toISOString();
+      const verified = await f.checks.sdkVerifier.verify(
+        first.receipt,
+        f.input.binding,
+        signal(),
+      );
+      expect(verified).not.toBeNull();
+      expect(verified?.validUntil).toBe(original?.validUntil);
+      expect(await port.check(f.input, f.context)).toEqual(first);
+      expect(f.wire.state.calls).toBe(1);
+      const head = await f.store
+        .collection(releaseFollowupCheckAttempts)
+        .get({ partition: "support_release_followup", id: "attempts" });
+      expect(head?.entries).toHaveLength(1);
+      const posted = await f.f.post();
+      expect(posted.result.messageId).toBeTruthy();
+      expect(f.wire.state.calls).toBe(1);
+      f.f.advance(60000);
+      f.wire.state.now = f.f.clock.now();
+      expect(
+        await f.checks.sdkVerifier.verify(
+          first.receipt,
+          f.input.binding,
+          signal(),
+        ),
+      ).toBeNull();
+    });
+    it("still rejects a shortened current approval window and changed semantic policy binding", async () => {
+      const f = await followupChecksFixture(makeStore());
+      const first = await f.checks.forWork(f.f.key).check(f.input, f.context);
+      expect(first.outcome).toBe("checked");
+      if (first.outcome !== "checked")
+        throw new Error("Actual checked receipt required");
+      const previous = f.wire.route.approval.validUntil;
+      f.wire.route.approval.validUntil = new Date(
+        Date.parse(f.wire.state.now) + 500,
+      ).toISOString();
+      expect(
+        await f.checks.sdkVerifier.verify(
+          first.receipt,
+          f.input.binding,
+          signal(),
+        ),
+      ).toBeNull();
+      f.wire.route.approval.validUntil = previous;
+      f.wire.route.configuration.policyBinding = "different-current-policy";
+      const { approval, ...base } = f.wire.route;
+      f.wire.route.approval.requestPolicySha256 =
+        await independentCheckRoutePolicyHash(base);
+      void approval;
+      expect(
+        await f.checks.sdkVerifier.verify(
+          first.receipt,
+          f.input.binding,
+          signal(),
+        ),
+      ).toBeNull();
+      expect(f.wire.state.calls).toBe(1);
+    });
+    it("makes absent funding unavailable before admission while keeping policy and receipt verification available", async () => {
+      const f = await followupChecksFixture(makeStore());
+      const accepted = await f.checks
+        .forWork(f.f.key)
+        .check(f.input, f.context);
+      expect(accepted.outcome).toBe("checked");
+      if (accepted.outcome !== "checked")
+        throw new Error("Actual checked receipt required");
+      const { usagePolicy, ...withoutPolicy } = f.options;
+      void usagePolicy;
+      const opened = vi.fn(),
+        application = vi.fn(() => {
+          throw new Error("No App admission expected");
+        }),
+        apiKey = vi.fn(() => "fictional-key"),
+        receiptKey = vi.fn(f.options.readReceiptKey!);
+      const store = new Proxy(f.store, {
+        get(target, key, receiver) {
+          const value = Reflect.get(target, key, receiver);
+          if (key === "collection")
+            return (...args: unknown[]) => {
+              opened();
+              return Reflect.apply(value, target, args);
+            };
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      const checker = createSupportReleaseFollowupChecks(
+        {
+          ...withoutPolicy,
+          store,
+          application,
+          readApiKey: apiKey,
+          readReceiptKey: receiptKey,
+        },
+        "pegma.dev",
+      );
+      expect(await checker.forWork(f.f.key).check(f.input, f.context)).toEqual({
+        outcome: "unavailable",
+      });
+      expect(opened).not.toHaveBeenCalled();
+      expect(application).not.toHaveBeenCalled();
+      expect(apiKey).not.toHaveBeenCalled();
+      expect(receiptKey).not.toHaveBeenCalled();
+      expect(f.wire.state.calls).toBe(1);
+      expect(
+        (
+          await checker.resolvePolicy(
+            f.input.binding.checkPolicyVersion,
+            signal(),
+          )
+        ).outcome,
+      ).toBe("ready");
+      expect(
+        await checker.sdkVerifier.verify(
+          accepted.receipt,
+          f.input.binding,
+          signal(),
+        ),
+      ).not.toBeNull();
+      expect(opened).not.toHaveBeenCalled();
+    });
+  });
+}
+
+async function readActualCheckUsage(store: Store) {
+  const key = { partition: "support_independent_check", id: "budget" };
+  const rows = defineCollection<{ payload: string }>({
+    name: "pegma.support-independent-checks.usage.v1",
+    key: () => key,
+    codec: {
+      encode() {
+        throw new Error("Read-only actual usage observation");
+      },
+      decode(raw) {
+        if (
+          raw.partition !== key.partition ||
+          raw.id !== key.id ||
+          typeof raw.payload !== "string"
+        )
+          throw new Error("Expected actual usage payload");
+        return { payload: raw.payload };
+      },
+    },
+  });
+  const row = await store.collection(rows).get(key);
+  if (!row) throw new Error("Expected actual durable usage head");
+  return JSON.parse(row.payload) as {
+    spentMicros: string;
+    reservations: { state: string; usage: { costMicros: number } | null }[];
+  };
+}
+for (const [backend, makeStore] of engineeringFollowupStores) {
+  describe("new configured review SD05 regressions " + backend, () => {
+    it.each([
+      "PRIVATE one\ntwo",
+      'PRIVATE "quoted" note',
+      "PRIVATE \\ backslash note",
+    ])(
+      "blocks an actual escaped internal note before HTTP: %s",
+      async (note) => {
+        const f = await followupControllerFixture(makeStore(), {
+          privateNote: note,
+        });
+        const prepared = await f.f.prepareCandidate({
+          candidate: followupCandidate({
+            customerDraft: { body: "Customer copy: " + note },
+          }),
+        });
+        const work = await f.f.work();
+        const bundle = await f.f.exactBundle(prepared.candidate);
+        const binding = await engineeringFollowupChecksBinding({
+          workBindingHash: work.workBindingHash,
+          candidateHash: prepared.candidateHash,
+          exactBundle: bundle,
+          checkPolicyVersion: f.wire.c.policyVersion,
+          followupRevocationEpoch: work.association.followupRevocationEpoch,
+          context: work.context!,
+        });
+        const context = {
+          purpose: "support_release_followup" as const,
+          deadline: new Date(
+            Date.parse(f.wire.state.now) + 15000,
+          ).toISOString(),
+          signal: signal(),
+        };
+        const result = await f.checks.forWork(f.f.key).check(
+          {
+            candidate: prepared.candidate,
+            exactBundle: bundle,
+            binding,
+            releaseProof: f.f.proof(),
+            targetBaseline: null,
+            validationRequirements: null,
+          },
+          context,
+        );
+        expect(result.outcome).toBe("held");
+        expect(f.wire.state.calls).toBe(0);
+        expect(
+          await f.store
+            .collection(releaseFollowupCheckAttempts)
+            .get({ partition: "support_release_followup", id: "attempts" }),
+        ).toBeNull();
+      },
+    );
+    it.each(["process", "review"] as const)(
+      "snapshots a shared mutable %s access object before awaited proof work",
+      async (mode) => {
+        const f = await followupChecksFixture(makeStore());
+        const access = structuredClone(
+          mode === "review"
+            ? engineeringFollowupStaff
+            : engineeringFollowupService,
+        );
+        const shared = {
+          access,
+          authorityVersion: "mutable-authority",
+          usageScopeRef: f.wire.route.usageScopeRef,
+        };
+        let changed = false;
+        const resolve = async () => ({
+          outcome: "ready" as const,
+          authority: shared,
+        });
+        const confirm = f.options.releaseEvidence.confirm;
+        const checker = createSupportReleaseFollowupChecks(
+          {
+            ...f.options,
+            authority: { resolve },
+            releaseEvidence: {
+              ...f.options.releaseEvidence,
+              confirm: async (...args) => {
+                const proof = await confirm(...args);
+                if (!changed) {
+                  changed = true;
+                  Reflect.set(
+                    access,
+                    "principalId",
+                    "replacement-with-the-same-grants",
+                  );
+                }
+                return proof;
+              },
+            },
+          },
+          "pegma.dev",
+        );
+        const port =
+          mode === "review"
+            ? checker.forReassessment(f.f.key, { resolve })
+            : checker.forWork(f.f.key);
+        expect((await port.check(f.input, f.context)).outcome).toBe("held");
+        expect(changed).toBe(true);
+        expect(f.wire.state.calls).toBe(0);
+      },
+    );
+    it("snapshots shared knowledge authority before actual draft/requirements awaits", async () => {
+      const f = await followupControllerFixture(makeStore());
+      const candidate = followupCandidate({ kbProposal: null });
+      const prepared = await f.f.prepareCandidate({ candidate });
+      const work = await f.f.work();
+      const bundle = await f.f.exactBundle(candidate);
+      const knowledge = await engineeringFollowupKnowledgeFixture(f.store);
+      const access = structuredClone(knowledge.access.draftService);
+      const shared = { access, authorityVersion: "mutable-knowledge" };
+      const resolve = async () => ({
+        outcome: "ready" as const,
+        authority: shared,
+      });
+      let changed = false;
+      const requirements =
+        await knowledge.ports.knowledge.getValidationRequirements(access, {
+          collectionId: knowledge.draft.revision.collectionId,
+          kind: knowledge.draft.revision.kind,
+        });
+      const checker = createSupportReleaseFollowupChecks(
+        {
+          ...f.options,
+          knowledge: {
+            ...knowledge.ports.knowledge,
+            getDraft: async (...args) => {
+              const value = await knowledge.ports.knowledge.getDraft(...args);
+              if (!changed) {
+                changed = true;
+                Reflect.set(
+                  access,
+                  "principalId",
+                  "another-reader-with-equal-grants",
+                );
+              }
+              return value;
+            },
+          },
+          knowledgeAccess: { resolve },
+        },
+        "pegma.dev",
+      );
+      const binding = await engineeringFollowupChecksBinding({
+        workBindingHash: work.workBindingHash,
+        candidateHash: prepared.candidateHash,
+        exactBundle: bundle,
+        checkPolicyVersion: f.wire.c.policyVersion,
+        followupRevocationEpoch: work.association.followupRevocationEpoch,
+        context: work.context!,
+      });
+      expect(
+        (
+          await checker.forWork(f.f.key).check(
+            {
+              candidate,
+              exactBundle: bundle,
+              binding,
+              releaseProof: f.f.proof(),
+              targetBaseline: knowledge.draft,
+              validationRequirements: requirements,
+            },
+            {
+              purpose: "support_release_followup",
+              deadline: new Date(
+                Date.parse(f.wire.state.now) + 15000,
+              ).toISOString(),
+              signal: signal(),
+            },
+          )
+        ).outcome,
+      ).toBe("held");
+      expect(changed).toBe(true);
+      expect(f.wire.state.calls).toBe(0);
+    });
+    it.each(["before provider", "after provider"] as const)(
+      "holds a same-version approved route replacement %s",
+      async (phase) => {
+        const f = await followupChecksFixture(makeStore());
+        const replacement = structuredClone(f.wire.route);
+        replacement.endpointTag = "fictional/alternate";
+        const { approval, ...base } = replacement;
+        replacement.approval.requestPolicySha256 =
+          await independentCheckRoutePolicyHash(base);
+        void approval;
+        const allowlist = [
+          ...f.options.allowlist!,
+          {
+            model: f.wire.c.model,
+            provider: f.wire.c.provider,
+            endpointTag: replacement.endpointTag,
+            outputTokenParameter: replacement.outputTokenParameter,
+          },
+        ];
+        let changed = false;
+        const swap = () => {
+          if (!changed) {
+            changed = true;
+            Object.assign(f.wire.route, replacement);
+          }
+        };
+        const confirm = f.options.releaseEvidence.confirm;
+        const checker = createSupportReleaseFollowupChecks(
+          {
+            ...f.options,
+            allowlist,
+            readApiKey: () => {
+              if (phase === "before provider") swap();
+              return "fictional-key";
+            },
+            releaseEvidence: {
+              ...f.options.releaseEvidence,
+              confirm: async (...args) => {
+                const result = await confirm(...args);
+                if (phase === "after provider" && f.wire.state.calls === 1)
+                  swap();
+                return result;
+              },
+            },
+          },
+          "pegma.dev",
+        );
+        expect(
+          (await checker.forWork(f.f.key).check(f.input, f.context)).outcome,
+        ).toBe("held");
+        expect(changed).toBe(true);
+        expect(f.wire.state.calls).toBe(phase === "before provider" ? 0 : 1);
+        const head = await f.store
+          .collection(releaseFollowupCheckAttempts)
+          .get({ partition: "support_release_followup", id: "attempts" });
+        expect(head?.entries[0]?.receipt).toBeNull();
+        expect(head?.entries[0]?.state).toBe("held");
+        const usage = await readActualCheckUsage(f.store);
+        if (phase === "after provider") {
+          expect(usage.reservations[0]?.state).toBe("known");
+          expect(usage.reservations[0]?.usage?.costMicros).toBe(100);
+          expect(usage.spentMicros).toBe("100");
+        } else {
+          expect(usage.reservations[0]?.state).toBe("not_called");
+          expect(usage.spentMicros).toBe("0");
+        }
+      },
+    );
   });
 }
