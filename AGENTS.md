@@ -185,7 +185,7 @@ dispatch observations while retaining fresh proof, authority, opaque-version
 confirmation and exact ACK recovery. Legacy structural ports keep their full
 fallback. See the [candidate notes](docs/RELEASE_NOTES.md#029-engineering-worker-observations)
 and [worker contract](docs/ENGINEERING_EXPORT.md#candidate-029-worker-observations).
-The candidate now pins exact verified public KB application/contracts `0.1.7`.
+The candidate now pins exact verified public KB application/contracts `0.1.8`.
 Its changed dependency graph requires fresh SDK qualification; published
 `0.2.8` retains its exact KB `0.1.6` pins. The
 root stays private at `0.0.0`; source or candidate packs do not qualify registry

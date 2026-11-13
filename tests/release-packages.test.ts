@@ -128,10 +128,10 @@ describe("release package metadata", () => {
     ).toBeUndefined();
     expect(
       manifests[4]?.dependencies?.["@pegma/knowledge-base-application"],
-    ).toBe("0.1.7");
+    ).toBe("0.1.8");
     expect(
       manifests[4]?.dependencies?.["@pegma/knowledge-base-contracts"],
-    ).toBe("0.1.7");
+    ).toBe("0.1.8");
     expect(
       Object.keys(manifests[3]?.dependencies ?? {}).filter((name) =>
         name.startsWith("@pegma/knowledge-base-"),

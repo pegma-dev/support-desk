@@ -18,10 +18,10 @@ registry application dependency lacks the new source exports. The five local
 bootstrap tarballs prove an isolated source assembly, not a usable registry
 dependency tree.
 
-## Unpublished 0.2.9 KB 0.1.7 alignment
+## Unpublished 0.2.9 KB 0.1.8 alignment
 
 The candidate AI manifest and repository development pins now select exact
-verified public KB application/contracts `0.1.7`. Use normal registry resolution
+verified public KB application/contracts `0.1.8`. Use normal registry resolution
 and a frozen install, then qualify the changed candidate graph on Node 22/24.
 Existing `0.2.9`/KB `0.1.6` results do not qualify this dependency alignment.
 
@@ -147,7 +147,7 @@ receipt recovery or fresh proof with retained observation data. See the
 [follow-up contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
 
 Use the verified `0.2.8`/KB `0.1.6` tuple; `0.2.9` remains an unpublished
-candidate pinning exact verified public KB `0.1.7` and requiring fresh SDK
+candidate pinning exact verified public KB `0.1.8` and requiring fresh SDK
 dependency qualification. All five candidate versions/internal
 pins advance together. No record migration is added.
 

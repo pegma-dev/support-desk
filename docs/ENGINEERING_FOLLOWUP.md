@@ -112,6 +112,21 @@ existing proof, host guard and delivery guarantees, with the optional read
 observation below. No role, permission, record layout, model call or automatic
 customer notification is added.
 
+### Candidate 0.2.9 retest and provider controls
+
+The unpublished candidate adds optional `EngineeringMutationOptions` as the
+third argument to `submitEngineeringFollowupRetestResult`. A new retest write
+checks its original signal and late host guard after awaited evidence and at
+transaction handoff. Current-authorized exact accepted receipts recover before
+new mutable evidence or host controls. The existing trusted retest receipt
+still binds the actual request, bundle, product/build, execution and runner.
+
+The optional [SD05 OpenRouter adapter](../packages/ai/README.md#release-follow-up-provider-ports)
+provides purpose-specific generator/evaluation/usage and whole-bundle check
+ports. Its route, privacy, tokenizer and checker qualification stay explicit;
+provider and host activation remain pending. Retest requests remain advisory
+until the owning trusted evidence workflow verifies their actual execution.
+
 ### Candidate post observation
 
 For each new application post attempt, the proof guard may receive an optional

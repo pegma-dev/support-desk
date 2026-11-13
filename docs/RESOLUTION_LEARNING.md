@@ -297,9 +297,8 @@ empty array, an unused new article ID, or ordinary lossy search cannot establish
 that no matching guidance exists.
 
 The controller loads KB's optional `publishedSearchObservations` capability
-only during deferred background precomputation. This capability is being
-prepared for KB `0.1.8`; the declared `0.1.7` graph does not supply it and holds
-new-create checks. Inline calls never enumerate the corpus. Missing, partial,
+from the declared verified public KB `0.1.8` graph only during deferred
+background precomputation. Inline calls never enumerate the corpus. Missing, partial,
 unavailable, changed or over-limit comparisons hold before provider admission.
 The complete search scope is the authorized collection, exact applicability
 and trusted lexical query over approved titles, summaries and tags. It is not
@@ -341,7 +340,7 @@ Legacy update and engineering receipts retain their contracts. An old learning
 historical completion may use an accepted ACK independently read from the
 Support Work row; the optional recovery input is not caller authority and the
 App's ordinary two-argument verifier cannot grant this exception. If KB accepted
-but Support never retained its ACK, KB `0.1.7` has no read-only draft-write receipt
+but Support never retained its ACK, KB `0.1.8` has no read-only draft-write receipt
 lookup: the attempt stays unknown/held without a speculative create replay.
 This candidate adds no Native query/CPU or host activation qualification.
 

@@ -7,8 +7,8 @@ exact ACK recovery and the full fallback for older structural ports. Engineering
 coordinator methods are unchanged. See the [candidate notes](../../docs/RELEASE_NOTES.md#029-engineering-worker-observations)
 and [worker contract](../../docs/ENGINEERING_EXPORT.md#candidate-029-worker-observations).
 Its internal Support application pin is exact `0.2.9`; external KB application/
-contracts now pin exact verified public `0.1.7`; see its
-[strict registry verification](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.7/registry-verification.json).
+contracts now pin exact verified public `0.1.8`; see its
+[strict registry verification](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.8/registry-verification.json).
 The changed SDK candidate graph requires fresh qualification. Published Support Desk `0.2.8` retains KB `0.1.6`. Candidate source does not
 qualify registry publication, a host's query/CPU budget or activation.
 

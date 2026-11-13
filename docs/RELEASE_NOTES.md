@@ -6,9 +6,9 @@
 
 All five local package versions and exact internal Support pins target
 unpublished `0.2.9`. Exact KB application/contracts now pin verified public
-`0.1.7`, requiring fresh SDK graph qualification. Published `0.2.8` retains KB `0.1.6`; Authorization Core `0.4.0`
+`0.1.8`, requiring fresh SDK graph qualification. Published `0.2.8` retains KB `0.1.6`; Authorization Core `0.4.0`
 remains unchanged. The AI manifest adds exact direct
-`zod@4.4.3` and `@pegma/storage-core@0.4.0` dependencies. The root stays private
+`zod@4.6.7` and `@pegma/storage-core@0.4.0` dependencies. The root stays private
 at `0.0.0`.
 
 Optional application model-planning, model preparation/completion, proposal
@@ -74,6 +74,24 @@ encoding and `pegma.dev.support-independent-checks.v2` MAC domain are preserved.
 RetireGolden uses its own host binding and separate stores, keys, funding and
 privacy/configuration evidence. See [the adapter contract](../packages/ai/README.md#optional-openrouter-adapter-source-candidate).
 
+### Release follow-up adapter and current comparison
+
+The optional entry adds SD05 configuration/evaluation/model ports and durable
+usage through `createSupportReleaseFollowupModel` and
+`createSupportReleaseFollowupUsage`. `createSupportReleaseFollowupChecks`
+checks the entire private handoff with a distinct `sf1` receipt and explicit
+current SD05 route qualification. Staff reassessment supplies the original
+actor's current Review/Read/queue resolver. The application also accepts
+optional `EngineeringMutationOptions` on `submitEngineeringFollowupRetestResult`.
+Actual retest evidence and staff posting remain the existing trusted boundaries.
+
+KB `0.1.8` supplies the optional authoring `publishedSearchObservations`
+capability for bounded background new-create comparison. The candidate retains
+complete/partial/unavailable handling, current resource/authority confirmation
+and exact historical ACK recovery. See the [comparison contract](RESOLUTION_LEARNING.md#candidate-scoped-comparison-evidence)
+and [SD05 adapter contract](../packages/ai/README.md#release-follow-up-provider-ports).
+Combined SDK and host qualification remain pending.
+
 <a id="028-followup-mutation-guards"></a>
 
 ## 0.2.8 — follow-up host guards and authorized reads, 2026-11-12
@@ -81,7 +99,7 @@ privacy/configuration evidence. See [the adapter contract](../packages/ai/README
 All five synchronized `0.2.8` packages are published and strictly verified.
 Its published AI package retains exact KB application/contracts `0.1.6`.
 The unpublished `0.2.9` candidate retains these controls and pins verified public
-KB `0.1.7`, requiring fresh SDK graph qualification. See the
+KB `0.1.8`, requiring fresh SDK graph qualification. See the
 [publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
 Optional `EngineeringMutationOptions` add caller cancellation and a trusted
 late `verifyBeforeCommit` guard to non-post follow-up mutations. Observation,

@@ -80,7 +80,20 @@ proof, authority, Source/Work opaque-version confirmation, exact ACK recovery
 and legacy structural-port fallbacks remain. See the
 [candidate notes](RELEASE_NOTES.md#029-engineering-worker-observations) and
 [worker contract](ENGINEERING_EXPORT.md#candidate-029-worker-observations).
-The candidate pins exact verified public KB application/contracts `0.1.7`.
+The candidate pins exact verified public KB application/contracts `0.1.8`.
+All four KB packages passed strict native registry/source/provenance and public
+consumer verification at 22:49:06 UTC on 2026-11-12 from signed source
+`04d07b66cac18b7f6e0ca1530714878f3d66084d`. The completed
+[publish/verification run](https://github.com/pegma-dev/knowledge-base/actions/runs/43317709761)
+retains original preparation artifact `13989866818` and manifest SHA-256
+`51465d457dd0360732170792ba7aabe5ecad1f51719ac70da1df565e722af956`.
+The [KB `0.1.8` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.8)
+retains the [strict public receipt](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.8/registry-verification.json),
+SHA-256 `22888dada71e6723d3852d2509adbd5392ec598ad11d7ccece3373451473cb6c`.
+The changed SDK composition remains unpublished pending fresh qualification.
+
+### Historical KB 0.1.7 qualification
+
 All four KB packages passed strict native registry/source/provenance and public
 consumer verification on 2026-11-12 at 18:22:28 UTC, from signed source
 `27074b8bba76817ea6960606cf29d8fc239943b0`. The original prepared artifact and
