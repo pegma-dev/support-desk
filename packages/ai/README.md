@@ -28,6 +28,12 @@ Staged `reconcileSource` also advances one unconfirmed durable destination per
 invocation. An exact retirement attempt yields to a later physical readback
 under fresh retirement authority. Its existing result union is unchanged.
 
+The unpublished candidate also adds `invocationMode: 'staged'` to release
+follow-up coordination. Durable model planning, one provider attempt and fresh
+completion use separate physical invocations. Work checks can separately opt
+into deferred preparation, paid precompute and fresh receipt completion. See
+the [follow-up invocation contract](../../docs/ENGINEERING_FOLLOWUP.md#candidate-029-followup-invocations).
+
 Optional, provider-neutral Support Desk answer, learning, engineering, and
 release follow-up coordination.
 The current verified published synchronized release is `0.2.8`;
@@ -418,8 +424,29 @@ current Source. The receipt MAC domain is
 `${logicalHost}.support-release-followup-checks.v1`; engineering/learning
 receipts cannot become follow-up receipts.
 
-Checker ownership stores at most 32 body-free attempts, further bounded by the
-shared pool and a 60,000-byte head. Ambiguous provider or storage outcomes keep
+For staged Work, set the coordinator's `invocationMode: 'staged'` and the checks
+controller's `deferred: true`. The actual application must supply its optional
+plan/begin/record capabilities and checks must supply non-provider `prepare`.
+Missing capabilities hold before claim. A durable model plan explicitly records
+`not_called` and releases the claim. A later conditional begin marks possible
+execution before one generator call. Recorded output releases the claim for
+fresh completion. A lost begin or provider ACK stays unknown and cannot invoke
+that attempt again. Configured attempt ceilings and the original semantic
+deadline remain unchanged.
+
+Deferred `forWork` preparation returns a body-free operation. `scanPending`
+exposes its bounded `provider` or `receipt` phase. `precomputePending` returns
+`received` after durably accounting a verdict and returns `checked` only in a
+later fresh receipt phase or a verified receipt replay. Those checked invocations
+do not call the checker model. `forReassessment` remains inline under the original staff
+resolver. Prewrite scheduling continuations before possible paid invocations,
+including unknown ACKs. A later `not_claimed` Work invocation reaches neither
+generator nor checks and can drain its hint.
+
+Checker ownership retains at most 32 attempts, further bounded by the shared
+pool and a 60,000-byte head. Deferred pending attempts retain bounded private
+requests until receipt completion or erasure. Terminal entries retain body-free
+metadata. Ambiguous provider or storage outcomes keep
 ownership and conservative accounting; exact replay recovers a stored receipt
 without another paid opportunity. The existing ledger retains unknown usage
 through its immutable funding window. The ownership head retains terminal
@@ -431,5 +458,14 @@ usage records for receipt recovery and financial reconciliation. These checks
 issue no retest receipt. Actual
 retest execution remains the application's existing trusted evidence contract;
 KB publication and customer delivery retain their staff approval boundaries.
+
+`createSupportReleaseFollowupCheckCleanup({store, clock})` provides bounded
+`discardTicket` and `purgeExpired` without route, key or funding configuration.
+Wire it into source forgetting and existing maintenance even when paid options
+are removed. It erases private request payloads and retains intent tombstones.
+The optional application retest `observe` contract keeps confirmation within one
+attempt, before the final browser guard and synchronous CAS assertion. It never
+persists or reuses an opaque report observation across requests. See the
+[full phase and retest contract](../../docs/ENGINEERING_FOLLOWUP.md#candidate-029-followup-invocations).
 Host resource budgets, provider qualification and activation remain pending
 until measured on the composed hosts.

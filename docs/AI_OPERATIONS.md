@@ -95,6 +95,25 @@ retest Audit/receipt rows use ordinary capacity. Use explicit staff retry for
 eligible draftless held/expired work, reassessment for retained drafts, or local
 abandonment to release reservations. None clears parent privacy withdrawal.
 
+The unpublished `0.2.9` follow-up `invocationMode: 'staged'` separates durable
+not-called planning, one conditional generator attempt and fresh completion.
+Use deferred Work checks for their separate prepare, provider and receipt
+invocations. A received verdict carries no check receipt. Original attempt
+ceilings, claim limits and semantic expiry still apply across queue waits.
+Unknown paid outcomes remain reserved and held without automatic paid retry.
+Keep body-free continuations durable before a possible paid phase. A later
+`not_claimed` Work invocation reaches neither generator nor checks and can
+remove a scheduling hint. Current staff reassessment retains its inline path.
+See the [invocation contract](ENGINEERING_FOLLOWUP.md#candidate-029-followup-invocations).
+
+Optional retest `observe` opens a fresh confirmation closure for each real
+application attempt. Snapshot preliminary metadata before awaits and confirm
+the actual single-use report observation before the final original-browser
+guard. Any returned synchronous assertion runs after that guard at CAS. A null
+or failed supplied observation holds without legacy fallback. Accepted receipt
+recovery precedes either observation or legacy verification. Never serialize,
+clone or reuse an opaque report handle across requests.
+
 ## External acceptance and reconciliation
 
 Learning KB delivery retains the exact prepared operation, original expected
@@ -134,6 +153,13 @@ enrolled learning and engineering source through its public command. Engineering
 withdrawal also scrubs follow-up children. These persisted hooks still run when
 later options omit a workflow. Do not spend one workflow's privacy reserve on
 another or delete an unknown destination to admit new work.
+
+For deferred SD05 checks, retain
+`createSupportReleaseFollowupCheckCleanup({store, clock})` independently of paid
+configuration. Call `discardTicket` during source forgetting and `purgeExpired`
+from existing bounded maintenance. These methods require no route, key or
+funding. They erase queued private requests while retaining body-free intent
+tombstones. Expiry never authorizes another provider attempt.
 
 Keep only required opaque delivery/usage/recovery identities after withdrawal.
 The host owns canonical message retention, external privacy remediation,

@@ -23,8 +23,9 @@ Exact model completion retries recover the accepted command fingerprint under
 current processing authority before obsolete Source/proof work. Permanent
 withdrawal can avoid futile finish retries without converting pending work or
 unknown usage to success. Existing known-usage accounting, approval, one-shot
-issue creation and reconciliation contracts remain. There is no new record
-layout, permission, model opportunity, queue or automatic activation.
+issue creation and reconciliation contracts remain. These engineering
+observation paths add no permission, model opportunity, queue or automatic
+activation.
 
 See the [worker observation contract](ENGINEERING_EXPORT.md#candidate-029-worker-observations)
 and [upgrade guidance](UPGRADING.md#unpublished-029-engineering-worker-observations).
@@ -84,6 +85,28 @@ current SD05 route qualification. Staff reassessment supplies the original
 actor's current Review/Read/queue resolver. The application also accepts
 optional `EngineeringMutationOptions` on `submitEngineeringFollowupRetestResult`.
 Actual retest evidence and staff posting remain the existing trusted boundaries.
+
+Opt-in `invocationMode: 'staged'` separates a released, durable `not_called`
+model plan, one conditional provider attempt with retained output, and fresh
+candidate completion. Existing ambiguous preparation and unknown paid outcomes
+stay held without automatic provider retry. Physical phases share the original
+attempt limit and semantic deadline. The default remains monolithic.
+
+The checks controller's `deferred: true` stages `forWork` preparation, one paid
+precompute and later fresh receipt completion. A received verdict grants no
+`sf1` receipt until that completion succeeds. `forReassessment` retains current
+staff authority and its inline contract. Hosts prewrite body-free continuations
+before possible paid phases. A later `not_claimed` invocation calls neither
+generator nor checks and can drain a scheduling hint.
+
+Store/Clock-only `createSupportReleaseFollowupCheckCleanup` keeps ticket and
+expiry erasure available when paid configuration is absent. Erasure retains
+intent tombstones and cannot authorize another paid call. Optional retest
+`observe` uses a fresh single-use confirmation closure per application attempt.
+Preliminary metadata cannot authorize a mutation before confirmation, final
+browser authority and synchronous CAS assertions. Exact accepted ACK recovery
+precedes observation, and omitted observation retains legacy verification. See
+the [physical invocation contract](ENGINEERING_FOLLOWUP.md#candidate-029-followup-invocations).
 
 KB `0.1.8` supplies the optional authoring `publishedSearchObservations`
 capability for bounded background new-create comparison. The candidate retains
