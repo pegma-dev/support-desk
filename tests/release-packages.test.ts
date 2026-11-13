@@ -90,7 +90,7 @@ describe("release package metadata", () => {
     ]);
   });
 
-  it("ships the synchronized 0.2.9 package set with exact internal pins", () => {
+  it("ships the synchronized 0.2.10 package set with exact internal pins", () => {
     const manifests = RELEASE_PACKAGES.map(({ directory }) =>
       JSON.parse(
         readFileSync(
@@ -105,24 +105,24 @@ describe("release package metadata", () => {
     }>;
 
     expect(manifests.map(({ name, version }) => ({ name, version }))).toEqual([
-      { name: "@pegma/support-desk-contracts", version: "0.2.9" },
-      { name: "@pegma/support-desk-core", version: "0.2.9" },
-      { name: "@pegma/support-desk-templates", version: "0.2.9" },
-      { name: "@pegma/support-desk-application", version: "0.2.9" },
-      { name: "@pegma/support-desk-ai", version: "0.2.9" },
+      { name: "@pegma/support-desk-contracts", version: "0.2.10" },
+      { name: "@pegma/support-desk-core", version: "0.2.10" },
+      { name: "@pegma/support-desk-templates", version: "0.2.10" },
+      { name: "@pegma/support-desk-application", version: "0.2.10" },
+      { name: "@pegma/support-desk-ai", version: "0.2.10" },
     ]);
     expect(manifests[1]?.dependencies?.["@pegma/support-desk-contracts"]).toBe(
-      "0.2.9",
+      "0.2.10",
     );
     expect(manifests[3]?.dependencies?.["@pegma/support-desk-contracts"]).toBe(
-      "0.2.9",
+      "0.2.10",
     );
     expect(manifests[3]?.dependencies?.["@pegma/support-desk-core"]).toBe(
-      "0.2.9",
+      "0.2.10",
     );
     expect(
       manifests[4]?.dependencies?.["@pegma/support-desk-application"],
-    ).toBe("0.2.9");
+    ).toBe("0.2.10");
     expect(
       manifests[4]?.dependencies?.["@pegma/support-desk-contracts"],
     ).toBeUndefined();
@@ -245,7 +245,7 @@ packages:
         "@pegma/support-desk-contracts"
       ],
     ).toEqual({
-      specifier: "0.2.9",
+      specifier: "0.2.10",
       version: "link:../contracts",
     });
     expect(

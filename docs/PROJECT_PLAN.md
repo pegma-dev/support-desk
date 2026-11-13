@@ -11,12 +11,19 @@ preparation are also merged. The ten entries in the
 [historical source ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) record
 the exact PRs/commits, verified gates, and remaining dependency order.
 
-Support Desk's current synchronized `0.2.8` release is published and strictly verified;
-see the [publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
+Source preparation, 2026-11-13, selects synchronized `0.2.10` and additive final
+host guards/cancellation for customer success and resolution evidence. Current
+receipt recovery, permissions and external dependency pins are retained. See
+the [patch notes](RELEASE_NOTES.md#0210-final-success-evidence-guards) and
+[release status](RELEASING.md#source-version-0210); combined-source review,
+validation and publication remain separate from this preparation.
+
+The synchronized `0.2.9` publication is strictly verified;
+see the [publication receipt](RELEASING.md#verified-029-publication-2026-11-13).
 It pins Audit `0.2.0`, Authorization Core `0.4.0`, Mail `0.1.1`, Spine `0.1.2`,
 and Storage Core `0.4.0`. The older base registry `0.1.1` artifacts remain
 immutable. Host adoption retains its own acceptance gates. All four KB packages
-have strictly verified trusted [`0.1.6` releases](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6).
+have strictly verified trusted [`0.1.8` releases](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.8).
 Agent Access remains verified at `0.1.1`. The
 [producer verification receipts](HOST_COMPOSITION.md#kb-authoring-producers)
 record exact release commits and strict registry/clean-consumer jobs. Earlier
@@ -24,7 +31,7 @@ manual `0.1.0` bootstrap receipts have no OIDC provenance and remain historical;
 the later trusted releases close the KB-05/Agent Access publication gates.
 
 SD-02's optional coordinator first shipped as `@pegma/support-desk-ai@0.2.0`.
-The current `@pegma/support-desk-ai@0.2.8` pins exact KB `0.1.6` runtime
+The published `@pegma/support-desk-ai@0.2.9` and prepared `0.2.10` metadata pin exact KB `0.1.8` runtime
 dependencies and bounded turn jobs in the existing ticket partition. The base application remains
 independent of KB/providers. Read the
 [coordination guide](ASSISTANT_COORDINATION.md) and
@@ -35,7 +42,7 @@ gates are recorded in the publication receipt above. Qualified storage adapter
 releases include `@pegma/storage-cloudflare-d1@0.4.6` and
 `@pegma/storage-dynamodb@0.4.5`; the [storage receipts](HOST_COMPOSITION.md#qualified-storage-adapters)
 bind their signed source, verification jobs, and unchanged Core/Azure `0.4.0`
-archives. The standalone authoring recipe selects all four KB `0.1.6`
+archives. The historical standalone authoring recipe selected all four KB `0.1.6`
 packages and Agent Access `0.1.1`. Published AI `0.2.1` retains its original
 KB `0.1.2` dependencies. Each host qualifies its installed graph separately.
 PG-01 source integration is tracked in
@@ -53,7 +60,9 @@ composition, deployment, provider/privacy and client acceptance gates.
 Task 12 remains pending on both hosts' durable-store production evidence.
 Provider/ZDR/intermediary verification, deployment applicability mapping,
 retention/recovery operations, dual-host acceptance, and pilots also remain
-open. Source tests do not satisfy these gates. Business-hours calendars,
+open. Sessions `0.3.0` is public; final site integration and complete host
+Workers Free 50/100 invocation/CPU acceptance remain pending. Source tests do
+not satisfy these gates. Business-hours calendars,
 presence, provider adapters, and operation remain host responsibilities.
 
 **Initial reference applications:** retiregolden.org for paid customer support
@@ -437,8 +446,8 @@ Current package work and remaining candidates:
 - [x] web attachment metadata and host blob port (Task 14, PR #32, `84dfcb2`);
 - [x] clean-only authorized downloads and digest-bound scan states (Task 14);
 - inbound attachment extraction remains deferred; host MIME adapters drop it;
-- [x] bounded staff canned responses and one-message macros (Task 15 source
-      candidate; unpublished, deployment-owned catalog and explicit staff send);
+- [x] bounded staff canned responses and one-message macros (Task 15,
+      included in published `0.2.9`; deployment-owned catalog and explicit staff send);
 - [x] staff-managed tags from a bounded host allowlist (Task 13);
 - category changes beyond the launch allowlists;
 - [x] revision-based collision hints for staff (Task 13);
@@ -462,10 +471,11 @@ producers' release preparation were merged. The four KB packages had strictly
 verified trusted `0.1.4` releases and Agent Access had verified `0.1.1`, closing
 SD-02's publication prerequisite at that checkpoint.
 
-The current standalone authoring recipe selects all four strictly verified KB
+The historical standalone authoring recipe selected all four strictly verified KB
 `0.1.6` packages and Agent Access `0.1.1` from the
 [producer handoff](HOST_COMPOSITION.md#kb-authoring-producers). Released
-Support Desk AI `0.2.8` pins exact KB application/contracts `0.1.6`. Older
+Support Desk AI `0.2.9` pins exact KB application/contracts `0.1.8`. Historical
+`0.2.8` retains its `0.1.6` pins. Older
 `0.2.1`/KB `0.1.2` manifests remain immutable. Host adoption requires its own
 reviewed exact registry set.
 Actual two-host existing-login/current-Admin consent and Codex, Claude Code,
@@ -497,7 +507,7 @@ human handoff, reviewed learning, and safe engineering follow-up.
 **Source status:** SD-01 through SD-05 are merged, covering handling/handoff,
 optional answer coordination, resolution learning, engineering export, and
 release follow-up. They first shipped in verified synchronized `0.2.0` and
-remain in current `0.2.8`, whose publication receipt is linked above. This phase's
+remain in current `0.2.9`, whose publication receipt is linked above. This phase's
 host/production acceptance remains open.
 See [assistant coordination](ASSISTANT_COORDINATION.md).
 
@@ -673,8 +683,8 @@ After the launch definition, the post-MVP queue in
 [`BUILDOUT.md`](BUILDOUT.md#post-mvp-queue) sequences the remaining
 full-featured support-desk work. Task 13 lifecycle extras (PR #29) and Task 14
 attachments (PR #32) are merged and shipped. Task 15's staff-only audited canned
-responses and one-message macros are implemented in the current source
-candidate without publication. Remaining package work starts with customer
+responses and one-message macros are included in published `0.2.9`.
+Remaining package work starts with customer
 self-service contract polish, rate-limit and abuse composition notes, and
 the approved standalone KB and evaluated customer-visible AI support work in
 [`KNOWLEDGE_AI_PLAN.md`](KNOWLEDGE_AI_PLAN.md), which supersedes the earlier

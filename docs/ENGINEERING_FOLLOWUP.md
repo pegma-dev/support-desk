@@ -3,8 +3,10 @@
 SD-05's source merged in [PR #41](https://github.com/pegma-dev/support-desk/pull/41)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current synchronized release is `0.2.8`; see its
-[publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
+The current verified synchronized release is `0.2.9`; see its
+[publication receipt](RELEASING.md#verified-029-publication-2026-11-13).
+Local source prepares unpublished `0.2.10`; see the
+[source handoff](RELEASING.md#source-version-0210).
 This handbook describes its contracts and host responsibilities, not deployment
 or host acceptance. SD-04 merged in
 [PR #40](https://github.com/pegma-dev/support-desk/pull/40). Scope comes from the
@@ -112,9 +114,11 @@ existing proof, host guard and delivery guarantees, with the optional read
 observation below. No role, permission, record layout, model call or automatic
 customer notification is added.
 
-### Candidate 0.2.9 retest and provider controls
+<a id="candidate-029-retest-and-provider-controls"></a>
 
-The unpublished candidate adds optional `EngineeringMutationOptions` as the
+### Published 0.2.9 retest and provider controls
+
+Published `0.2.9` adds optional `EngineeringMutationOptions` as the
 third argument to `submitEngineeringFollowupRetestResult`. A new retest write
 checks its original signal and late host guard after awaited evidence and at
 transaction handoff. Current-authorized exact accepted receipts recover before
@@ -128,8 +132,9 @@ provider and host activation remain pending. Retest requests remain advisory
 until the owning trusted evidence workflow verifies their actual execution.
 
 <a id="candidate-029-followup-invocations"></a>
+<a id="candidate-029-physical-invocation-phases"></a>
 
-### Candidate 0.2.9 physical invocation phases
+### Published 0.2.9 physical invocation phases
 
 Set `invocationMode: 'staged'` on the AI coordinator to separate durable model
 planning, one provider attempt and candidate completion. The actual application
@@ -219,7 +224,9 @@ enter stored records.
 These source contracts do not qualify a host's physical D1 or CPU budget.
 Actual Workers Free 50-call and 100-parameter qualification remains separate.
 
-### Candidate bundle observation
+<a id="candidate-bundle-observation"></a>
+
+### Published bundle observation
 
 Actual Application claims advertise `bundleObservation: true` without storing
 an observation or changing the Work record. Staged workers may use that claim's
@@ -242,7 +249,9 @@ argument, and ordinary inline composition, retain full fresh proof/current-read
 fallbacks. A planning proof never authorizes commitment, posting or a provider
 call. This operation-local read reduction does not establish a host budget pass.
 
-### Candidate post observation
+<a id="candidate-post-observation"></a>
+
+### Published post observation
 
 For each new application post attempt, the proof guard may receive an optional
 `EngineeringFollowupPostObservation`. `readWork(access)` lazily enforces the
@@ -260,7 +269,9 @@ forward its optional argument and returned assertion unchanged. Hosts must
 measure their complete invocation; this read optimization establishes no
 universal Workers call or CPU qualification.
 
-### Candidate reassessment observation
+<a id="candidate-reassessment-observation"></a>
+
+### Published reassessment observation
 
 `reassessEngineeringFollowupBundle` lets the Application own an entire staff
 reassessment attempt. Its immutable `ReassessEngineeringFollowupBundleCommand`

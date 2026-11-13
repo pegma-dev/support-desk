@@ -258,7 +258,9 @@ Staff can:
 The UI should make customer-visible replies visually distinct from internal
 notes and require an explicit choice before sending.
 
-## Staff canned responses (Task 15 source candidate)
+<a id="staff-canned-responses-task-15-source-candidate"></a>
+
+## Staff canned responses (Task 15, published 0.2.9)
 
 Hosts may configure a bounded catalog of immutable plain-text response versions.
 Authorized staff preview substitutions and explicitly submit a reply or internal
@@ -270,8 +272,8 @@ retries recover the original result under current permissions.
 
 Each accepted use records template ID/version through the existing reply/note
 Audit action in the same transaction. Internal notes and provenance stay out of
-customer DTOs and automatic mail. This unpublished source slice adds no package
-version or durable layout change. See the
+customer DTOs and automatic mail. This feature is included in verified public
+`0.2.9` and adds no new package or durable layout. See the
 [composition contract](HOST_COMPOSITION.md#staff-canned-responses-task-15-source-candidate).
 
 ## Lifecycle extras (Buildout Task 13)

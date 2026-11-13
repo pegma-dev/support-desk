@@ -23,7 +23,12 @@ import {
   type ResolutionLearningReviewAttemptRecord,
 } from "./resolution-learning-staged-records.js";
 import { auditRecordId, defineAudit, type AuditEvent } from "@pegma/audit";
-import { hasPermission, type AccessContext } from "@pegma/authorization-core";
+import {
+  hasPermission,
+  serializeAccessContext,
+  type AccessContext,
+} from "@pegma/authorization-core";
+import { engineeringMutationBoundary } from "./engineering-mutation-guard.js";
 import { defineMail, maxMailAttempts, type MailJob } from "@pegma/mail";
 import type { Clock, IsoTimestamp, Logger, PrincipalId } from "@pegma/spine";
 import { noopLogger } from "@pegma/spine";
@@ -1647,6 +1652,19 @@ export interface ConfirmCustomerSuccessCommand extends RequestPersonCommand {
   readonly lastSeenVisibleMessageId: MessageId;
 }
 
+/** Optional live host authority fence for a new customer-success mutation. */
+export interface ConfirmCustomerSuccessOptions {
+  /** Cancellation prevents a new write; exact accepted receipts remain recoverable. */
+  readonly signal?: AbortSignal;
+  /**
+   * Read-only current browser/entitlement check after all SDK proof reads, once
+   * per CAS attempt. A returned synchronous assertion runs at the transaction
+   * handoff; it must not perform async work. Exact accepted replay skips this.
+   */
+  readonly verifyBeforeCommit?: () =>
+    void | (() => true) | Promise<void | (() => true)>;
+}
+
 export interface AttachmentStateCommand {
   readonly ticketId: string;
   readonly messageId: string;
@@ -1868,6 +1886,7 @@ export interface SupportDeskApplication
   confirmCustomerSuccess(
     access: AccessContext,
     command: ConfirmCustomerSuccessCommand,
+    options?: ConfirmCustomerSuccessOptions,
   ): Promise<CustomerTicketView>;
   readCustomerSuccessConfirmations(
     access: AccessContext,
@@ -6220,7 +6239,13 @@ export function createSupportDeskApplication(options: {
     command: HandlingMutation,
     operation: HandlingOperation,
     assistantTurnCommit?: AssistantTurnCommit,
+    customerSuccess?: {
+      readonly actorId: PrincipalId;
+      readonly authorize: () => void;
+      readonly mutation: ReturnType<typeof engineeringMutationBoundary>;
+    },
   ): Promise<Ticket> {
+    customerSuccess?.authorize();
     requireIdentifier(access.principalId, "principalId");
     const customer =
       operation === "request_person" ||
@@ -6241,6 +6266,7 @@ export function createSupportDeskApplication(options: {
     const parallel =
       completion?.kind === "complete" || completion?.kind === "finish";
     for (let attempt = 0; attempt < maxConflictAttempts; attempt += 1) {
+      customerSuccess?.authorize();
       const ticketRead = records.getVersioned(ticketKey(command.ticketId));
       const duplicateRead = parallel
         ? prepareRead(() =>
@@ -6248,6 +6274,7 @@ export function createSupportDeskApplication(options: {
           )
         : undefined;
       const versioned = await ticketRead;
+      customerSuccess?.authorize();
       if (
         versioned?.value.kind !== "ticket" ||
         (customer && !owns(versioned.value.ticket, access.principalId))
@@ -6258,6 +6285,7 @@ export function createSupportDeskApplication(options: {
         duplicateRead === undefined
           ? await records.get(commandKey(command.ticketId, command.commandId))
           : readValue(await duplicateRead);
+      customerSuccess?.authorize();
       if (
         duplicateMatches(duplicate, operation, command.messageId, fingerprint)
       ) {
@@ -6272,6 +6300,7 @@ export function createSupportDeskApplication(options: {
         throw new SupportDeskConflictError(
           "Command ID reused with different input",
         );
+      customerSuccess?.mutation?.ensure();
       if (
         parallel &&
         (ticket.channel !== "web" ||
@@ -6308,6 +6337,7 @@ export function createSupportDeskApplication(options: {
       if (operation === "assistant_reply" && !assistantHandlingEnabled)
         throw new SupportDeskConflictError("Assistant handling is disabled");
       const rows = await records.list(command.ticketId);
+      customerSuccess?.authorize();
       enforcePartitionRecordLimit(
         partitionSizeWithAttachmentReserve(rows),
         limits.maxRecordsPerTicket,
@@ -6425,7 +6455,7 @@ export function createSupportDeskApplication(options: {
               rows,
               partitionSizeWithAttachmentReserve(rows),
             )
-          : { actions: [], additionalRows: 0 };
+          : { actions: [], additionalRows: 0, atCommit: undefined };
       const newRows =
         (operation === "take_over" ? 2 : 3) +
         learningMutation.additionalRows +
@@ -6595,12 +6625,38 @@ export function createSupportDeskApplication(options: {
         actions.push(assistantCommit.action);
         await assistantCommit.verifyBeforeCommit();
       }
+      if (customerSuccess !== undefined) {
+        // All SDK reads/planning precede the last awaited host authority check.
+        // A conflict discards this assertion and obtains a fresh one next time.
+        customerSuccess.authorize();
+        const assertCurrent =
+          customerSuccess.mutation === undefined
+            ? undefined
+            : await customerSuccess.mutation.verify();
+        customerSuccess.authorize();
+        if (!owns(ticket, customerSuccess.actorId))
+          throw new SupportDeskNotFoundError();
+        assertCurrent?.();
+      }
+      const currentLearningActions = learningConfirmation.atCommit?.();
+      if (
+        currentLearningActions !== undefined &&
+        currentLearningActions !== learningConfirmation.actions
+      )
+        actions.splice(
+          learningMutation.actions.length,
+          learningConfirmation.actions.length,
+          ...currentLearningActions,
+        );
+      customerSuccess?.authorize();
+      customerSuccess?.mutation?.ensure();
       if ((await records.transact(ticket.id, actions)).committed) {
         await safeProjectQueue(ticket.id);
         return updated;
       }
     }
     const current = await records.get(ticketKey(command.ticketId));
+    customerSuccess?.authorize();
     if (
       current?.kind !== "ticket" ||
       (customer && !owns(current.ticket, access.principalId))
@@ -6609,6 +6665,7 @@ export function createSupportDeskApplication(options: {
     const receipt = await records.get(
       commandKey(command.ticketId, command.commandId),
     );
+    customerSuccess?.authorize();
     if (
       duplicateMatches(receipt, operation, command.messageId, fingerprint) &&
       receipt?.kind === "command" &&
@@ -6930,8 +6987,23 @@ export function createSupportDeskApplication(options: {
       await mutateHandling(access, command, "take_over");
       return staffCommandResult(command.ticketId, command.commandId);
     },
-    async confirmCustomerSuccess(access, input) {
+    async confirmCustomerSuccess(access, input, options) {
       requirePermission(access, supportPermissions.confirmSuccess);
+      requireIdentifier(access.principalId, "principalId");
+      const actorId = access.principalId;
+      // A comparison fence for this trusted context, never a live session cache.
+      const grant = serializeAccessContext(access);
+      const authorize = (): void => {
+        requirePermission(access, supportPermissions.confirmSuccess);
+        if (
+          access.principalId !== actorId ||
+          serializeAccessContext(access) !== grant
+        )
+          throw new SupportDeskAuthorizationError(
+            supportPermissions.confirmSuccess,
+          );
+      };
+      const mutation = engineeringMutationBoundary(options);
       const raw = handlingInput(input, ["lastSeenVisibleMessageId"]);
       requireIdentifier(
         boundaryString(
@@ -6941,8 +7013,21 @@ export function createSupportDeskApplication(options: {
         "lastSeenVisibleMessageId",
       );
       const command = raw as unknown as ConfirmCustomerSuccessCommand;
-      await mutateHandling(access, command, "confirm_customer_success");
-      return customerViewAfterChange(access.principalId, command.ticketId);
+      await mutateHandling(
+        access,
+        command,
+        "confirm_customer_success",
+        undefined,
+        {
+          actorId,
+          authorize,
+          mutation,
+        },
+      );
+      authorize();
+      const view = await customerViewAfterChange(actorId, command.ticketId);
+      authorize();
+      return view;
     },
     async readCustomerSuccessConfirmations(access, ticketId) {
       requireStaffMutationAccess(access, supportPermissions.auditRead);

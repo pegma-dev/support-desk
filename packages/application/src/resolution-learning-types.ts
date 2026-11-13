@@ -408,6 +408,18 @@ export type ResolutionLearningReviewReceipt =
     };
 /** Read-only current authority/configuration/KB target confirmation. */
 export type ResolutionLearningCommitGuard = () => void | Promise<void>;
+/** Optional live host authority fence for a new resolution-evidence mutation. */
+export interface SubmitResolutionEvidenceOptions {
+  /** Cancellation prevents a new write; exact accepted receipts remain recoverable. */
+  readonly signal?: AbortSignal;
+  /**
+   * Read-only current browser/entitlement check after all SDK proof reads, once
+   * per CAS attempt. A returned synchronous assertion runs at the transaction
+   * handoff; it must not perform async work. Exact accepted replay skips this.
+   */
+  readonly verifyBeforeCommit?: () =>
+    void | (() => true) | Promise<void | (() => true)>;
+}
 export interface ResolutionLearningReconciliationView {
   readonly ticketId: TicketId;
   readonly sourceGeneration: number;
@@ -447,6 +459,7 @@ export interface ResolutionLearningApplication {
   submitResolutionEvidence(
     access: AccessContext,
     command: SubmitResolutionEvidenceCommand,
+    options?: SubmitResolutionEvidenceOptions,
   ): Promise<ResolutionLearningSourceResult>;
   readResolutionLearningSource(
     access: AccessContext,

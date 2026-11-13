@@ -5,11 +5,20 @@
 Approved product decisions: 2026-11-06; scoped-agent-access decision added
 2026-11-07. The ten entries in the ledger below are merged source, including
 AUTH-01, KB-04's transport source exit, and both producers' release preparation.
+Source preparation on 2026-11-13 now selects synchronized Support Desk
+`0.2.10`, adding optional final host guards/cancellation to customer success
+and resolution evidence while retaining exact KB `0.1.8` and other external
+pins. The [patch notes](RELEASE_NOTES.md#0210-final-success-evidence-guards) and
+[release operations](RELEASING.md#source-version-0210) distinguish prepared
+source from verified publication; host activation gates remain open.
 All five synchronized Support Desk packages are published and strictly
-verified at `0.2.8`. Optional AI pins Knowledge Base application and contracts
-to exact `0.1.6`. This host composition selects all four verified Knowledge
-Base `0.1.6` packages and Agent Access `0.1.1`. The dated ledger below records
-earlier checkpoints. [Support Desk publication receipt](RELEASING.md#verified-028-publication-2026-11-12) · [Knowledge Base release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6)
+verified at `0.2.9`. Optional AI pins Knowledge Base application and contracts
+to exact public `0.1.8`; fresh dependency, native cryptographic/source and clean
+public-consumer verification passed. The public producer tuple is SDK `0.2.9` /
+KB `0.1.8`; Agent Access `0.1.1` remains a separate authoring composition.
+Sessions `0.3.0` is also public. Final site integration and host activation gates
+remain open. The dated ledger below records earlier checkpoints.
+[Support Desk publication receipt](RELEASING.md#verified-029-publication-2026-11-13) · [Knowledge Base release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.8)
 
 Published `0.2.3` includes the final engineering approval/rejection guards and
 proof-expiry fence. Published `0.2.4` adds admitted customer intake, final draft
@@ -129,14 +138,15 @@ read-batching SDK patch establishes no universal Workers Free query or CPU
 bound and no host KB/AI activation, live-provider/privacy acceptance, actual
 requested-client acceptance (zero recorded here), evaluations or pilots.
 
-**Current version facts and next gates.** The verified Support Desk `0.2.8`
-AI manifest pins Knowledge Base application and contracts to exact `0.1.6`.
-The unpublished `0.2.9` AI manifest and repository development pins select exact
-verified public KB application/contracts `0.1.8`.
-Fresh SDK dependency qualification remains required; earlier candidate artifacts
-and results do not substitute for that changed public dependency graph.
+**Dated publication facts and next gates.** The verified Support Desk `0.2.9`
+AI manifest and repository development pins select exact public Knowledge Base
+application/contracts `0.1.8`. Release run
+[43366221098, attempt 1](https://github.com/pegma-dev/support-desk/actions/runs/43366221098/attempts/1)
+passed all seven jobs and 94 steps; all five packages passed strict original-byte,
+dependency, native signature/Sigstore/source and clean-public-consumer checks.
+Historical `0.2.8` retains its exact KB `0.1.6` pins.
 The earlier `0.2.1` AI manifest retains its exact `0.1.2` dependencies. The base
-application remains independent of KB and providers. [Current publication receipt](RELEASING.md#verified-028-publication-2026-11-12) · [Historical AI manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.1/packages/ai/package.json)
+application remains independent of KB and providers. [Current publication receipt](RELEASING.md#verified-029-publication-2026-11-13) · [Historical AI manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.1/packages/ai/package.json)
 
 Qualified Storage Core adapter releases include
 [Cloudflare D1 `0.4.6`](https://github.com/pegma-dev/storage-core/releases/tag/v0.4.6)
@@ -155,8 +165,9 @@ authority/data controls, and replay contract. Public-entry memory/Azurite tests
 with the actual KB and a fake provider, Node 22/24 gates, and code/security
 review support this SDK release; they do not establish host activation.
 The earlier standalone authoring recipe selected all four exact KB `0.1.4`
-packages and Agent Access `0.1.1`. This host composition pins KB `0.1.6` and
-Agent Access `0.1.1`. Each host qualifies its actual installed graph and records
+packages and Agent Access `0.1.1`. The historical host composition pinned KB
+`0.1.6` and Agent Access `0.1.1`; each host qualifies its actual installed graph
+when adopting the public SDK `0.2.9` / KB `0.1.8` tuple and records
 its own adoption evidence. [Producer handoff](HOST_COMPOSITION.md#kb-authoring-producers)
 PG-01 source integration is tracked in
 [PR #59](https://github.com/pegma-dev/pegma.dev/pull/59). Neither host's source
@@ -166,8 +177,9 @@ every requested client/mode acceptance. Those remain open activation gates
 tracked by P-00 and PG-01/RG-01; publication and source/SDK results do not close them.
 Task 12, provider/ZDR/intermediary verification,
 issue-to-deployed-build mapping, operations, dual-host acceptance, and supervised
-pilots remain open. Verified SDK publication does not close
-those gates.
+pilots remain open. The published Sessions `0.3.0` prerequisite and selected
+Native cases do not close final site integration, each host's complete Workers
+Free 50/100 invocation/CPU acceptance, or those client/provider/pilot gates.
 
 Read the decision record and boundaries below, then give an implementation
 agent exactly one task card. `PROJECT_PLAN.md` remains the roadmap and

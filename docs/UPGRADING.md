@@ -1,8 +1,10 @@
-# Upgrading to the synchronized 0.2.8 release
+# Upgrading synchronized Support Desk packages
 
-`0.2.8` is the current verified published synchronized release. Hosts retain
-their own deployment and acceptance gates. See the
-[publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
+Source preparation, 2026-11-13, selects synchronized `0.2.10`. Verify publication
+through [release operations](RELEASING.md#source-version-0210) before adopting
+its packages. The verified `0.2.9`
+[publication receipt](RELEASING.md#verified-029-publication-2026-11-13) remains
+the dated prior checkpoint; host deployment and acceptance gates are separate.
 The original SD-06 `0.2.0` release has its separate
 [historical receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
 The original four Support Desk packages were published at `0.1.1`. Before
@@ -18,20 +20,80 @@ registry application dependency lacks the new source exports. The five local
 bootstrap tarballs prove an isolated source assembly, not a usable registry
 dependency tree.
 
-## Unpublished 0.2.9 KB 0.1.8 alignment
+<a id="0210-final-success-and-evidence-guards"></a>
 
-The candidate AI manifest and repository development pins now select exact
-verified public KB application/contracts `0.1.8`. Use normal registry resolution
-and a frozen install, then qualify the changed candidate graph on Node 22/24.
-Existing `0.2.9`/KB `0.1.6` results do not qualify this dependency alignment.
+## 0.2.10 final success and evidence guards
 
-The current verified Support Desk `0.2.8` tuple retains exact KB `0.1.6`.
-All five candidate versions and internal Support pins remain `0.2.9`; the root
-remains private at `0.0.0`. This alignment changes no Support Desk runtime
+Synchronize all five public package versions and exact internal Support pins.
+The optional AI package and repository development pins retain exact public KB
+application/contracts `0.1.8`; `zod@4.6.7` and other external selections are
+unchanged. The root remains private at `0.0.0`.
+
+The unchanged `@pegma/authorization-core@0.4.0` dependency already exports
+`serializeAccessContext`. Its [original public tarball](https://registry.npmjs.org/@pegma/authorization-core/-/authorization-core-0.4.0.tgz)
+contains the named JavaScript export at `dist/index.js:121` and its declaration
+at `dist/index.d.ts:22`. The original archive SHA-256 is
+`1e449abf4815b99984f1991cb03be3a337edd1b092e523723b3eff8ed07625aa`;
+its [lockfile](../pnpm-lock.yaml) integrity is
+`sha512-GkagQwyDfKokB2Nm9EAo6cvKB8c90VN6Or6IdaWeMwCeuseOxDZ8ccxKqccW9YorByE6rHhr2nbxjsNWorZTHQ==`.
+Installed public JavaScript/declaration bytes matched that archive, and direct
+named ESM imports resolved to a function on Node 22.18.0 and 24.18.0.
+The [candidate CI run](https://github.com/pegma-dev/support-desk/actions/runs/43383002448)
+at [`f7bae286`](https://github.com/pegma-dev/support-desk/commit/f7bae28648cb760c6ee69430cdf3cf92b7b612da)
+passed 4,171 tests in each Node 22/24 lane and the normal packed-consumer checks
+([Node 22 artifact](https://github.com/pegma-dev/support-desk/actions/runs/43383002448/artifacts/14016684868),
+[Node 24 artifact](https://github.com/pegma-dev/support-desk/actions/runs/43383002448/artifacts/14017652633)).
+These calls use an existing public export; the dependency pin stays `0.4.0`.
+
+Forward the optional third argument on `confirmCustomerSuccess` and
+`submitResolutionEvidence` through host adapters. Its exported type is
+`ConfirmCustomerSuccessOptions` or `SubmitResolutionEvidenceOptions`, with
+`signal?: AbortSignal` and a read-only `verifyBeforeCommit` callback that may
+return a synchronous literal-true assertion. See the
+[exact declarations and commit/recovery contract](RESOLUTION_LEARNING.md#final-human-success-and-evidence-guards-0210).
+Existing two-argument signatures and return types remain supported.
+
+Current-authority checks also govern acknowledgements. `confirmCustomerSuccess` rechecks current
+authority before and after its post-commit customer-view read, including for
+two-argument callers. If access changes during that read, the SDK can refuse
+the view and surface an error after the confirmation transaction was accepted.
+That error does not roll back the accepted transaction or prove the command
+failed. Retain the exact original command and retry receipt recovery only with
+restored/current access and the required customer ownership; do not issue a
+replacement command to explain the missing acknowledgement.
+
+Supply the original browser/entitlement guard for new host mutations, after
+body admission. The SDK awaits it after asynchronous proof/planning, freshly
+on every actual CAS attempt, then makes its final synchronous checks without
+another SDK await. An abort prevents new acceptance and does not undo a
+commit. Do not place receipt lookup behind an obsolete product/test proof or
+an already aborted signal: exact accepted receipts recover first under current
+original permissions and customer ownership where required. Preserve the
+original command after an unknown ACK. No record migration, permission,
+storage/access port, paid retry or automatic activation is introduced.
+Qualify the combined source and each host independently; metadata and type
+checks alone do not establish the runtime guard or deployed-session behavior.
+
+<a id="unpublished-029-kb-018-alignment"></a>
+
+## Published 0.2.9 KB 0.1.8 alignment
+
+The published `0.2.9` AI manifest and repository development pins select exact
+verified public KB application/contracts `0.1.8`. Its
+[dated release receipt](RELEASING.md#verified-029-publication-2026-11-13) records
+strict qualification of that graph. Use normal registry resolution and frozen
+installs. Earlier `0.2.9`/KB `0.1.6` source-checkpoint results did not qualify
+this dependency alignment.
+
+The historical verified Support Desk `0.2.8` tuple retains exact KB `0.1.6`.
+All five published `0.2.9` versions and internal Support pins advanced together;
+the root stayed private at `0.0.0`. This alignment changed no Support Desk runtime
 source, API surface, record layout or host activation decision. Earlier release
 artifacts and receipts keep their original identities.
 
-## Unpublished Task 15 canned responses
+<a id="unpublished-task-15-canned-responses"></a>
+
+## Task 15 canned responses
 
 Omitting `cannedResponses` preserves manual staff replies/notes and their original
 fingerprints. Hosts may supply a bounded deployment catalog and explicitly pass
@@ -45,13 +107,15 @@ The existing reply/note Audit details gain only template ID/version on selected
 uses. Keep catalog versions immutable across deployments. Withdrawn definitions
 refuse new uses; exact accepted commands replay under current permissions even
 after withdrawal. Do not remove or change their selection when retrying an
-uncertain commit. This is source-only work with unchanged package versions;
-verified publication and host acceptance remain required for production use.
+uncertain commit. Use verified published artifacts and keep host acceptance
+separate from source readiness for production use.
 See [bounds and send semantics](HOST_COMPOSITION.md#staff-canned-responses-task-15-source-candidate).
 
-## Unpublished 0.2.9 engineering worker observations
+<a id="unpublished-029-engineering-worker-observations"></a>
 
-All five candidate versions and internal Support pins advance together. The
+## Published 0.2.9 engineering worker observations
+
+All five published `0.2.9` versions and internal Support pins advanced together. The
 optional application methods are `prepareEngineeringModelPlanned`,
 `prepareEngineeringModelObserved`, `completeEngineeringModelObserved`,
 `prepareEngineeringProposalObserved` and `beginEngineeringDispatchObserved`.
@@ -79,7 +143,9 @@ after returning; forwarding an observation does not certify an adapter's later
 awaits or confer permissions. Completion ACK recovery
 preserves a current held or superseded result instead of reporting a candidate.
 
-## Unpublished 0.2.9 staged learning delivery
+<a id="unpublished-029-staged-learning-delivery"></a>
+
+## Published 0.2.9 staged learning delivery
 
 Omitting `deliveryMode` preserves inline delivery. To select
 `deliveryMode: 'staged'`, forward the exact SDK-owned
@@ -99,8 +165,8 @@ composition uses deferred checks and receipt-only verification in these phases.
 Both inline and staged completion perform final policy/receipt/configuration
 checks after late KB reads. Current Source, role, target and opaque-version
 fences still apply. See [the staged contract](RESOLUTION_LEARNING.md#opt-in-staged-draft-delivery-029-candidate).
-The candidate is unpublished and complete Native Workers Free 50/100
-qualification remains pending.
+SDK publication does not establish complete Native Workers Free 50/100 host
+qualification, which remains pending.
 
 The same staged option bounds `reconcileSource` to one unconfirmed destination
 per invocation. A retirement attempt yields to later physical readback and
@@ -108,7 +174,9 @@ verified reconciliation, including after an unknown ACK. Keep scheduling the
 existing reconciliation result under fresh retirement authority while durable
 destinations remain pending. Inline reconciliation retains its bounded retries.
 
-## Unpublished 0.2.9 follow-up version reads
+<a id="unpublished-029-follow-up-version-reads"></a>
+
+## Published 0.2.9 follow-up version reads
 
 Closing follow-up version checks start up to five independent Store reads
 together and wait for the whole wave to settle. Results retain their original
@@ -120,7 +188,9 @@ the started wave. Current permission, proof, version and commit guards remain.
 Include every started read in host invocation budgets and measure latency on
 the actual adapter.
 
-## Unpublished 0.2.9 optional OpenRouter entry
+<a id="unpublished-029-optional-openrouter-entry"></a>
+
+## Published 0.2.9 optional OpenRouter entry
 
 Import provider adapters explicitly from `@pegma/support-desk-ai/openrouter`.
 The AI root remains provider-neutral. Its manifest declares exact direct
@@ -166,10 +236,10 @@ Structural ports may omit it to retain the full legacy path. Do not replace
 receipt recovery or fresh proof with retained observation data. See the
 [follow-up contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
 
-Use the verified `0.2.8`/KB `0.1.6` tuple; `0.2.9` remains an unpublished
-candidate pinning exact verified public KB `0.1.8` and requiring fresh SDK
-dependency qualification. All five candidate versions/internal
-pins advance together. No record migration is added.
+The dated verified `0.2.9`/KB `0.1.8` tuple supersedes the historical
+`0.2.8`/KB `0.1.6` checkpoint for producer adoption. Source preparation for
+`0.2.10` retains the same external graph; it requires its own combined-source
+release gates and publication receipt. No record migration is added.
 
 <a id="unpublished-027-source-candidate"></a>
 
@@ -415,8 +485,8 @@ boundaries before exposing the review surface.
 ## Rehearse the actual 0.1.1-to-0.2.0 upgrade
 
 The SD-06 rehearsal below is retained as historical migration evidence. For
-current `0.2.8` adoption, repeat the rehearsal against the exact selected `0.2.8`
-artifacts and record a new receipt; a `0.2.0` result does not qualify changed
+any later adoption, repeat the rehearsal against the exact selected verified
+published artifacts and record a new receipt; a `0.2.0` result does not qualify changed
 artifacts or a host's durable-store migration.
 
 The required migration proof starts with records produced by the actual

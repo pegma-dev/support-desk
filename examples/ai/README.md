@@ -5,11 +5,12 @@ dependencies. The root command builds the SDK and these TypeScript files,
 then runs `run.ts` from its compiled output. Node 22 and 24 are supported.
 
 The example uses public package entry points, an actual Storage Core Store,
-and all four optional Support Desk coordinators from the unpublished `0.2.9`
+and all four optional Support Desk coordinators from the unpublished `0.2.10`
 source candidate. It pins exact verified public KB application/contracts
-`0.1.8`. Fresh Node 22/24 qualification must exercise that installed graph;
-earlier `0.2.9`/KB `0.1.6` example results do not qualify this changed graph.
-It is not a published Support `0.2.9` consumer qualification. It uses no provider
+`0.1.8`, the same external KB selection as verified public Support `0.2.9`.
+Node 22/24 source qualification must exercise the current candidate; historical
+example results do not qualify it. Running this source example is separate from
+the published `0.2.9` clean-consumer qualification. It uses no provider
 SDK, network client, mail provider, host framework, or production credentials. Its scripted `github.createIssue`
 throws; the engineering flow only links an existing fictional issue privately.
 
@@ -51,10 +52,12 @@ must supply their own current authorities, verified provider route and
 evaluations, release attesters, usage ledger, and operational controls.
 Separate instances keep their own Store, configuration, cursors, and secrets.
 
-The current synchronized Support Desk `0.2.8` release is published and strictly verified;
-see the [publication receipt](../../docs/RELEASING.md#verified-028-publication-2026-11-12).
-Its published AI package pins KB `0.1.6`; the `0.2.9`/public KB `0.1.8` graph
-above remains development-only until the SDK candidate is qualified and released. Production adoption retains
+The current synchronized Support Desk `0.2.9` release is published and strictly verified;
+see the [publication receipt](../../docs/RELEASING.md#verified-029-publication-2026-11-13).
+Its published AI package pins KB `0.1.8`. The historical
+[`0.2.8` receipt](../../docs/RELEASING.md#verified-028-publication-2026-11-12)
+retains its KB `0.1.6` graph. The local `0.2.10` source candidate remains
+unpublished until separately qualified and released. Production adoption retains
 its own host acceptance gates.
 See [the existing human-support example](../composition/README.md),
 [host composition](../../docs/HOST_COMPOSITION.md), and the individual

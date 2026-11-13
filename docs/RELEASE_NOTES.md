@@ -1,12 +1,43 @@
 # Release notes
 
+<a id="0210-final-success-evidence-guards"></a>
+
+## 0.2.10 — final customer-success and resolution-evidence guards
+
+Release preparation, 2026-11-13: all five package versions and exact internal
+Support pins select `0.2.10`. The root remains private at `0.0.0`; exact public
+KB application/contracts `0.1.8`, `zod@4.6.7` and other external dependencies
+remain unchanged. This preparation is not a publication receipt. Use the
+[release operations](RELEASING.md#source-version-0210) and dated verified
+receipts for publication status.
+
+`confirmCustomerSuccess` and `submitResolutionEvidence` accept an additive
+optional third argument, respectively `ConfirmCustomerSuccessOptions` and
+`SubmitResolutionEvidenceOptions`, with `signal` and `verifyBeforeCommit`.
+Their existing two-argument calls and return types remain valid. The trusted
+host callback runs after asynchronous product/test/KB proof and mutation
+planning, freshly for each actual conditional-write attempt. Its optional
+synchronous literal-true assertion and the original signal, actor/grant,
+required permissions and customer ownership checks close the final commit
+boundary. No asynchronous SDK work follows the final awaited host callback.
+
+Exact accepted commands still recover their original receipt under current
+permissions, and customer ownership where required, before obsolete proofs,
+the optional final guard or an aborted signal. Cancellation prevents a new
+mutation; it cannot undo an accepted transaction. No permission, record
+migration, host access port, paid attempt or automatic retry is added.
+See [the public options contract](RESOLUTION_LEARNING.md#final-human-success-and-evidence-guards-0210)
+and [upgrade guidance](UPGRADING.md#0210-final-success-and-evidence-guards).
+Host integration, deployment, provider/privacy, requested-client and pilot
+acceptance retain their separate gates.
+
 <a id="029-engineering-worker-observations"></a>
 
-## 0.2.9 candidate — per-attempt engineering worker observations
+## 0.2.9 — per-attempt engineering worker observations, 2026-11-13
 
-All five local package versions and exact internal Support pins target
-unpublished `0.2.9`. Exact KB application/contracts now pin verified public
-`0.1.8`, requiring fresh SDK graph qualification. Published `0.2.8` retains KB `0.1.6`; Authorization Core `0.4.0`
+All five synchronized packages and exact internal Support pins are published
+and strictly verified at `0.2.9`. Exact KB application/contracts pin public
+`0.1.8`; fresh SDK graph qualification passed. Historical `0.2.8` retains KB `0.1.6`; Authorization Core `0.4.0`
 remains unchanged. The AI manifest adds exact direct
 `zod@4.6.7` and `@pegma/storage-core@0.4.0` dependencies. The root stays private
 at `0.0.0`.
@@ -29,10 +60,15 @@ activation.
 
 See the [worker observation contract](ENGINEERING_EXPORT.md#candidate-029-worker-observations)
 and [upgrade guidance](UPGRADING.md#unpublished-029-engineering-worker-observations).
-These source changes do not establish a complete host query/CPU budget,
-provider qualification or registry publication.
+The [dated publication receipt](RELEASING.md#verified-029-publication-2026-11-13)
+binds the signed source, complete release workflow, strict public verification
+and permanent assets. The Sessions `0.3.0` prerequisite is also public. Final
+site integration, complete host query/CPU acceptance, provider/privacy and
+requested-client qualification, and pilots remain pending.
 
-### Staff canned responses (Task 15 source addition)
+<a id="staff-canned-responses-task-15-source-addition"></a>
+
+### Staff canned responses (Task 15, published 0.2.9)
 
 The optional deployment-owned `cannedResponses` catalog supplies bounded,
 immutable plain-text versions for staff preview and explicit reply/note commands.
@@ -68,7 +104,7 @@ Inline reconciliation retains its bounded retry behavior.
 
 ### Optional OpenRouter entry
 
-The candidate adds `@pegma/support-desk-ai/openrouter` while keeping the AI root
+The release adds `@pegma/support-desk-ai/openrouter` while keeping the AI root
 provider-neutral. Both independent-check constructors require an explicit
 second logical host string and current host callbacks. Pegma's existing `ic2`
 encoding and `pegma.dev.support-independent-checks.v2` MAC domain are preserved.
@@ -109,11 +145,11 @@ precedes observation, and omitted observation retains legacy verification. See
 the [physical invocation contract](ENGINEERING_FOLLOWUP.md#candidate-029-followup-invocations).
 
 KB `0.1.8` supplies the optional authoring `publishedSearchObservations`
-capability for bounded background new-create comparison. The candidate retains
+capability for bounded background new-create comparison. The release retains
 complete/partial/unavailable handling, current resource/authority confirmation
 and exact historical ACK recovery. See the [comparison contract](RESOLUTION_LEARNING.md#candidate-scoped-comparison-evidence)
 and [SD05 adapter contract](../packages/ai/README.md#release-follow-up-provider-ports).
-Combined SDK and host qualification remain pending.
+SDK publication is qualified; complete host qualification remains pending.
 
 <a id="028-followup-mutation-guards"></a>
 
@@ -121,8 +157,8 @@ Combined SDK and host qualification remain pending.
 
 All five synchronized `0.2.8` packages are published and strictly verified.
 Its published AI package retains exact KB application/contracts `0.1.6`.
-The unpublished `0.2.9` candidate retains these controls and pins verified public
-KB `0.1.8`, requiring fresh SDK graph qualification. See the
+The later verified `0.2.9` release retains these controls and pins public
+KB `0.1.8`. See the
 [publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
 Optional `EngineeringMutationOptions` add caller cancellation and a trusted
 late `verifyBeforeCommit` guard to non-post follow-up mutations. Observation,

@@ -3,16 +3,19 @@
 SD-03's source merged in [PR #39](https://github.com/pegma-dev/support-desk/pull/39)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current synchronized release is `0.2.8`; see its
-[publication receipt](RELEASING.md#verified-028-publication-2026-11-12).
+The dated `0.2.9`
+[publication receipt](RELEASING.md#verified-029-publication-2026-11-13) records
+the verified public graph. Source metadata now prepares synchronized `0.2.10`;
+see [release status](RELEASING.md#source-version-0210) before host adoption.
 The ticket application implements enrollment, structured resolution evidence,
 durable work, exact staff review, invalidation, withdrawal, and reconciliation
 records. The optional AI package adds bounded model processing, KB draft
 delivery, exact staff review, and source retirement/reconciliation through
 `createSupportDeskLearning`, with read-only callbacks from
-`createSupportDeskLearningSourceVerifier`. The current AI `0.2.8` release
+`createSupportDeskLearningSourceVerifier`. The published AI `0.2.9` release
 consumes the application and contracts packages from the verified
-[KB `0.1.6` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.6).
+[KB `0.1.8` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.8).
+The historical AI `0.2.8` graph retains exact KB `0.1.6`.
 The initial SD-03 release consumed
 [KB `0.1.2`](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.2).
 SDK validation and publication do not establish host activation. No host has
@@ -25,9 +28,57 @@ durable layout and producer prerequisites in the
 [SD-03 collection checkpoint](COLLECTIONS.md#sd-03-resolution-learning-layout-and-api-checkpoint).
 The base application has no KB or model-provider dependency.
 
-Unpublished `0.2.9` adds [opt-in staged draft delivery](#opt-in-staged-draft-delivery-029-candidate).
+Published `0.2.9` adds [opt-in staged draft delivery](#opt-in-staged-draft-delivery-029-candidate).
 Its complete Native host qualification under 50 D1 calls and 100 SQL parameters
 remains pending.
+
+<a id="final-human-success-and-evidence-guards-0210"></a>
+
+## Final human success and evidence guards (0.2.10)
+
+`confirmCustomerSuccess` and `submitResolutionEvidence` add optional third
+arguments named `ConfirmCustomerSuccessOptions` and
+`SubmitResolutionEvidenceOptions`. Their public declarations are:
+
+```ts
+interface ConfirmCustomerSuccessOptions {
+  readonly signal?: AbortSignal;
+  readonly verifyBeforeCommit?: () =>
+    void | (() => true) | Promise<void | (() => true)>;
+}
+
+interface SubmitResolutionEvidenceOptions {
+  readonly signal?: AbortSignal;
+  readonly verifyBeforeCommit?: () =>
+    void | (() => true) | Promise<void | (() => true)>;
+}
+```
+
+Both are exported by the application package. Existing two-argument calls
+remain valid, with unchanged `CustomerTicketView` and
+`ResolutionLearningSourceResult` return types. This is a contract declaration,
+not a complete host composition example.
+
+The host callback is a trusted, read-only check of the original live browser
+session and current purpose-specific authority, including entitlement where
+the host requires it. It runs after all asynchronous product/test/KB proof,
+reads and mutation planning, freshly for each actual CAS attempt. It may
+return a synchronous assertion that must return the literal `true` at the
+conditional transaction boundary. No asynchronous SDK work follows the final
+awaited callback. The SDK closes with that assertion, the original signal,
+captured actor/full serialized grant and required permissions; customer
+confirmation also checks ticket ownership. A callback is not an access grant
+and must not mutate the supplied context or perform side effects.
+
+An aborted signal prevents new writes, including abort during product, test or
+guard waits. It cannot roll back an already committed transaction. Exact
+accepted-command recovery still requires current original permissions and,
+for customer confirmation, ticket ownership; it precedes obsolete product/test
+proof, the optional final guard and abort checks. Keep the original actor,
+command identity and packet after an unknown acknowledgement. A lost ACK is
+not permission to create another command or paid attempt. These options add
+no role, storage/access port, record migration or model call. Publication and
+host qualification remain governed by the dated release and host receipts.
 
 ## Enrollment and working facts
 
@@ -287,9 +338,11 @@ model validation requirements do not replace KB's actual guide requirements.
 Check-receipt and source-publication policy expiry also count elapsed time from
 the start of the invocation, including time spent awaiting verification ports.
 
-### Candidate scoped comparison evidence
+<a id="candidate-scoped-comparison-evidence"></a>
 
-The unpublished `0.2.9` OpenRouter controller requires genuine comparison
+### Published 0.2.9 scoped comparison evidence
+
+The published `0.2.9` OpenRouter controller requires genuine comparison
 evidence before signing a new-create check. Selection carries the actual
 bounded published matches, explicit draft versions and configured scope into
 the exact request. These are hints, not a completeness assertion. A caller's
@@ -350,7 +403,7 @@ Support Work row; the optional recovery input is not caller authority and the
 App's ordinary two-argument verifier cannot grant this exception. If KB accepted
 but Support never retained its ACK, KB `0.1.8` has no read-only draft-write receipt
 lookup: the attempt stays unknown/held without a speculative create replay.
-This candidate adds no Native query/CPU or host activation qualification.
+SDK publication adds no Native query/CPU or host activation qualification.
 
 Successful independent checks permit private draft transfer without routine
 human pre-transfer approval. Staff approval applies to the **actual KB draft**
@@ -383,8 +436,9 @@ authority. The exact-target and recovery contracts are exercised in
 [released-KB integration suite](../tests/resolution-learning-kb.test.ts).
 
 <a id="exact-review-intent-recovery-unpublished-022-candidate"></a>
+<a id="opt-in-staged-draft-delivery-029-candidate"></a>
 
-## Opt-in staged draft delivery (0.2.9 candidate)
+## Opt-in staged draft delivery (published 0.2.9)
 
 Set `deliveryMode: 'staged'` on `createSupportDeskLearning` to separate delivery
 work across physical invocations. Forward the exact SDK-owned
@@ -425,8 +479,8 @@ configuration checks run again. The application retains opaque
 Ticket/Source/Work confirmation, claim/lease and deadline fences at its
 conditional write boundary. Callback observations expire with their owning
 application call. The [staged delivery suite](../tests/resolution-learning-delivery-stages.test.ts)
-exercises these phases and inline closing checks. Publication and complete
-Native Workers Free 50/100 qualification remain pending for this candidate.
+exercises these phases and inline closing checks. SDK publication is verified;
+complete host Native Workers Free 50/100 qualification remains pending.
 
 In staged mode, `reconcileSource` processes one unconfirmed durable destination
 per invocation and skips confirmed entries. After one exact KB retirement

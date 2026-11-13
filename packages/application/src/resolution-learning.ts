@@ -1,6 +1,11 @@
 import type { supportTicketAuditActions } from "./index.js";
 import { createResolutionLearningStagedReviewServices } from "./resolution-learning-staged.js";
-import { hasPermission, type AccessContext } from "@pegma/authorization-core";
+import {
+  hasPermission,
+  serializeAccessContext,
+  type AccessContext,
+} from "@pegma/authorization-core";
+import { engineeringMutationBoundary } from "./engineering-mutation-guard.js";
 import type { Clock } from "@pegma/spine";
 import {
   MAX_SCAN_PAGE_SIZE,
@@ -250,6 +255,59 @@ function heldSource(
     ...(pending === undefined ? {} : { pendingProofReference: pending }),
   };
 }
+interface EvidencePlan {
+  readonly actions: readonly Action[];
+  readonly source: ResolutionLearningSourceRecord;
+  readonly additionalRows: number;
+}
+
+/** Prepare both held alternatives before the host's final await. Selection is
+ * synchronous at the transaction boundary and never renews captured trust. */
+function evidenceCommitPlans(
+  clock: Clock,
+  stored: SourceVersion,
+  plan: EvidencePlan,
+  evidence: ResolutionEvidence | null,
+  product: ResolutionProductContext | null,
+  now: string,
+  pending: string,
+) {
+  const hold = (reason: string): EvidencePlan => {
+    const source = heldSource(stored.value, now, reason, pending);
+    return {
+      source,
+      actions: [sourceAction(stored, source)],
+      additionalRows: 0,
+    };
+  };
+  const plans = [
+    plan,
+    hold("product_context_unverified"),
+    hold("test_receipt_unverified"),
+  ] as const;
+  return {
+    plans,
+    select(): 0 | 1 | 2 {
+      if (plan.source.state !== "eligible") return 0;
+      const at = timestamp(clock.now(), "clock.now()");
+      if (
+        product === null ||
+        timestamp(product.verifiedAt, "product.verifiedAt") > at ||
+        timestamp(product.validUntil, "product.validUntil") < at
+      )
+        return 1;
+      if (
+        evidence?.kind === "successful_test" &&
+        (timestamp(evidence.test.verifiedAt, "test.verifiedAt") > at ||
+          timestamp(evidence.test.executedAt, "test.executedAt") > at ||
+          timestamp(evidence.test.validUntil, "test.validUntil") < at)
+      )
+        return 2;
+      return 0;
+    },
+  };
+}
+
 async function evidencePlan(
   deps: Dependencies,
   stored: SourceVersion,
@@ -260,11 +318,7 @@ async function evidencePlan(
   pending: string,
   capacity: boolean,
   rows: readonly SupportRecord[],
-): Promise<{
-  readonly actions: readonly Action[];
-  readonly source: ResolutionLearningSourceRecord;
-  readonly additionalRows: number;
-}> {
+): Promise<EvidencePlan> {
   const source = stored.value;
   const hold = (reason: string) => {
     const next = heldSource(source, now, reason, pending);
@@ -429,6 +483,7 @@ export function createResolutionLearningServices(deps: Dependencies): {
   ): Promise<{
     readonly actions: readonly Action[];
     readonly additionalRows: number;
+    readonly atCommit?: () => readonly Action[];
   }>;
 } {
   const { records, options, clock } = deps;
@@ -889,8 +944,22 @@ export function createResolutionLearningServices(deps: Dependencies): {
       }
       throw new SupportDeskConflictError();
     },
-    async submitResolutionEvidence(access, input) {
+    async submitResolutionEvidence(access, input, mutationOptions) {
       permission(access, supportPermissions.learningEvidenceSubmit, true);
+      const actorId = access.principalId;
+      // A comparison fence for this trusted context, never a live session cache.
+      const grant = serializeAccessContext(access);
+      const authorize = (): void => {
+        permission(access, supportPermissions.learningEvidenceSubmit, true);
+        if (
+          access.principalId !== actorId ||
+          serializeAccessContext(access) !== grant
+        )
+          throw new SupportDeskAuthorizationError(
+            supportPermissions.learningEvidenceSubmit,
+          );
+      };
+      const mutation = engineeringMutationBoundary(mutationOptions);
       const command = snapshot(
         fields(input, "evidence command", [
           "ticketId",
@@ -921,19 +990,19 @@ export function createResolutionLearningServices(deps: Dependencies): {
           : raw.receipt,
         "verification reference",
       );
-      const hash = await commandFingerprint(
-        command,
-        access.principalId,
-        "evidence",
-      );
+      const hash = await commandFingerprint(command, actorId, "evidence");
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
+        authorize();
         const previous = await replay(command, hash);
+        authorize();
         if (previous !== null) return previous;
+        mutation?.ensure();
         const {
           ticket: versioned,
           source,
           rows,
         } = await load(command.ticketId);
+        authorize();
         const ticket = versioned.value.ticket;
         if (
           ticket.revision !== command.expectedRevision ||
@@ -954,15 +1023,10 @@ export function createResolutionLearningServices(deps: Dependencies): {
             "Visible solution message missing",
           );
         const now = clock.now();
-        const trusted = await context(
-          ticket,
-          source.value,
-          access.principalId,
-          now,
-        );
+        const trusted = await context(ticket, source.value, actorId, now);
         let evidence: ResolutionEvidence | null = null;
         if (command.evidence.kind === "staff_verified_fix")
-          evidence = { ...command.evidence, actorId: access.principalId };
+          evidence = { ...command.evidence, actorId };
         else if (
           trusted.product !== null &&
           options.testReceipts !== undefined
@@ -981,7 +1045,7 @@ export function createResolutionLearningServices(deps: Dependencies): {
           if (test !== null) {
             const proposed: ResolutionEvidence = {
               kind: "successful_test",
-              actorId: access.principalId,
+              actorId,
               solutionMessageId: command.evidence.solutionMessageId,
               test,
             };
@@ -1026,7 +1090,16 @@ export function createResolutionLearningServices(deps: Dependencies): {
                 room(ticket, rows, 3),
                 rows,
               );
-        const actions: Action[] = [
+        const commitProof = evidenceCommitPlans(
+          clock,
+          source,
+          plan,
+          evidence,
+          trusted.product,
+          now,
+          command.commandId,
+        );
+        const prepareActions = (plan: EvidencePlan): Action[] => [
           {
             action: "putIfUnchanged",
             version: versioned.version,
@@ -1038,16 +1111,35 @@ export function createResolutionLearningServices(deps: Dependencies): {
           deps.audit(
             command,
             ticket,
-            access.principalId,
+            actorId,
             now,
             "support.learning.evidence_recorded",
           ),
           receipt(command, hash, result(plan.source)),
         ];
-        if ((await records.transact(command.ticketId, actions)).committed)
-          return result(plan.source);
+        const alternatives = [
+          prepareActions(commitProof.plans[0]),
+          prepareActions(commitProof.plans[1]),
+          prepareActions(commitProof.plans[2]),
+        ] as const;
+        // All SDK reads/planning precede the last awaited host authority check.
+        // A conflict discards this assertion and obtains a fresh one next time.
+        authorize();
+        const assertCurrent =
+          mutation === undefined ? undefined : await mutation.verify();
+        authorize();
+        assertCurrent?.();
+        const selected = commitProof.select();
+        authorize();
+        mutation?.ensure();
+        if (
+          (await records.transact(command.ticketId, alternatives[selected]))
+            .committed
+        )
+          return result(commitProof.plans[selected].source);
       }
       const previous = await replay(command, hash);
+      authorize();
       if (previous !== null) return previous;
       throw new SupportDeskConflictError();
     },
@@ -1319,7 +1411,20 @@ export function createResolutionLearningServices(deps: Dependencies): {
         capacityRows + 4 <= deps.limits.maxRecordsPerTicket - humanTail,
         rows,
       );
-      return { actions: plan.actions, additionalRows: plan.additionalRows };
+      const commitProof = evidenceCommitPlans(
+        clock,
+        source,
+        plan,
+        { kind: "customer_confirmation", actorId, lastVisibleMessageId },
+        trusted.product,
+        ticket.updatedAt,
+        `success:${commandId}`,
+      );
+      return {
+        actions: plan.actions,
+        additionalRows: plan.additionalRows,
+        atCommit: () => commitProof.plans[commitProof.select()].actions,
+      };
     },
   };
 }
