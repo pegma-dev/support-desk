@@ -67,6 +67,9 @@ import type {
   EngineeringFollowupResult,
   PrepareEngineeringFollowupBundleCommand,
   EngineeringFollowupReassessmentObservation,
+  EngineeringFollowupModelCommitGuard,
+  PrepareEngineeringFollowupModelCommand,
+  EngineeringFollowupPreparedModel,
 } from "./engineering-followup-types.js";
 import { engineeringSourceKey } from "./engineering-records.js";
 import type { EngineeringAction } from "./engineering-internal.js";
@@ -80,6 +83,9 @@ type Methods = Pick<
   EngineeringFollowupApplication,
   | "claimEngineeringFollowupWork"
   | "prepareEngineeringFollowupModel"
+  | "planEngineeringFollowupModel"
+  | "beginEngineeringFollowupModel"
+  | "recordEngineeringFollowupModel"
   | "completeEngineeringFollowupModel"
   | "finishEngineeringFollowupModel"
   | "prepareEngineeringFollowupBundle"
@@ -203,9 +209,9 @@ export function createEngineeringFollowupWorkServices(
     if (mutation !== undefined) {
       const assertHostCurrent = await mutation.verify();
       assertHostCurrent();
-      beforeCommit?.();
-      mutation.ensure();
     }
+    beforeCommit?.();
+    mutation?.ensure();
     return (
       await records.transact(next.ticketId, [
         {
@@ -650,6 +656,223 @@ export function createEngineeringFollowupWorkServices(
     throw new SupportDeskConflictError();
   }
 
+  async function modelGuard(
+    access: AccessContext,
+    work: EngineeringFollowupWorkRecord,
+    guard: EngineeringFollowupModelCommitGuard | undefined,
+  ): Promise<void> {
+    if (typeof guard !== "function")
+      throw new TypeError("Follow-up invocation needs a current guard");
+    const actorId = access.principalId;
+    let active = true;
+    try {
+      await guard(
+        Object.freeze({
+          readWork(current: AccessContext) {
+            if (!active)
+              throw new SupportDeskConflictError(
+                "Follow-up observation expired",
+              );
+            permission(
+              current,
+              supportPermissions.engineeringFollowupRead,
+              actorId,
+            );
+            permission(current, supportPermissions.queueRead, actorId);
+            return snapshot(work);
+          },
+        }),
+      );
+    } finally {
+      active = false;
+    }
+  }
+  async function prepareModel(
+    access: AccessContext,
+    input: PrepareEngineeringFollowupModelCommand,
+    staged = false,
+    guard?: EngineeringFollowupModelCommitGuard,
+  ): Promise<EngineeringFollowupPreparedModel> {
+    const actorId = access.principalId;
+    const authorize = () =>
+      permission(
+        access,
+        supportPermissions.engineeringFollowupProcess,
+        actorId,
+      );
+    authorize();
+    const command = snapshot(
+      fields(input, "prepare follow-up model", [
+        "ticketId",
+        "workId",
+        "workerId",
+        "claimId",
+        "claimGeneration",
+        "binding",
+      ]),
+    ) as unknown as typeof input;
+    validateFence(command);
+    validateEngineeringFollowupModelBinding(command.binding);
+    if ((command.binding.staged !== undefined) !== staged)
+      throw new TypeError("Follow-up preparation mode differs from binding");
+    const now = engineeringFollowupNow(deps);
+    if (!options.enabled)
+      throw new SupportDeskConflictError("Follow-up model processing disabled");
+    for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
+      const loaded = await load(command.ticketId);
+      const stored = await workAt(command);
+      const work = stored.value;
+      live(work, command, now());
+      const current = await engineeringFollowupCurrent(
+        deps,
+        loaded,
+        stored,
+        now,
+      );
+      const binding = command.binding;
+      const manifest = binding.inputManifest;
+      if (
+        work.stage !== "model" ||
+        work.candidate !== undefined ||
+        work.preparedBundle !== undefined ||
+        work.completionRows !== 5 ||
+        work.messageSlots !== 1 ||
+        manifest.workBindingHash !== work.workBindingHash ||
+        manifest.contextHash !==
+          (await engineeringFollowupContextHash(work.context!)) ||
+        manifest.publicFactsHash !==
+          (await engineeringFollowupPublicFactsHash(
+            current.proof.publicFacts,
+          )) ||
+        binding.inputManifestHash !==
+          (await engineeringFollowupModelManifestHash(manifest)) ||
+        manifest.messages.some(
+          (reference) =>
+            !loaded.rows.some(
+              (row) =>
+                row.kind === "message" &&
+                row.message.visibility === "customer" &&
+                row.message.id === reference.messageId &&
+                row.ordinal === reference.ordinal &&
+                row.ordinal <= work.acceptedTicketRevision,
+            ),
+        )
+      )
+        throw new SupportDeskConflictError(
+          "Follow-up model manifest differs from current facts",
+        );
+      const deadline = timestamp(binding.deadline, "model.deadline");
+      if (
+        deadline <= now() ||
+        deadline > timestamp(work.deadline, "deadline") ||
+        (!staged && deadline > timestamp(work.leaseUntil!, "leaseUntil"))
+      )
+        throw new SupportDeskConflictError(
+          "Follow-up model deadline exceeds live claim",
+        );
+      const existing = work.modelAttempts.find(
+        (entry) => canonical(entry.binding) === canonical(binding),
+      );
+      if (existing !== undefined) {
+        if (
+          existing.preparedClaimGeneration !== command.claimGeneration ||
+          existing.stepId !== work.stepId
+        )
+          throw new SupportDeskConflictError(
+            "Follow-up preparation belongs to another physical invocation",
+          );
+        if (staged) await modelGuard(access, work, guard);
+        if (
+          !(await engineeringFollowupVersionsCurrent(
+            deps,
+            loaded,
+            stored,
+            current.engineeringWork,
+          ))
+        )
+          continue;
+        authorize();
+        live(work, command, now());
+        if (
+          now() >=
+          Math.min(
+            deadline,
+            timestamp(current.proof.attestation.validUntil, "validUntil"),
+          )
+        )
+          throw new SupportDeskConflictError("Follow-up model proof expired");
+        if (await save(loaded, stored, work)) {
+          authorize();
+          return {
+            stepId: existing.stepId,
+            requestHash: existing.requestHash,
+            maxCandidateBytes: 16_000,
+          };
+        }
+        continue;
+      }
+      if (
+        engineeringFollowupModelAttemptCount(work) >=
+          options.maxModelAttempts ||
+        work.modelAttempts.some(
+          (entry) => entry.preparedClaimGeneration === command.claimGeneration,
+        )
+      )
+        throw new SupportDeskConflictError(
+          "Follow-up paid attempt bound reached",
+        );
+      const requestHash = await fingerprint(binding);
+      const stepId = await fingerprint({
+        workId: work.workId,
+        claimGeneration: command.claimGeneration,
+        binding,
+      });
+      const next: EngineeringFollowupWorkRecord = {
+        ...compactModelAttempts(staged ? withoutLease(work) : work),
+        status: staged ? "retry" : "model_prepared",
+        stepId,
+        requestHash,
+        workGeneration: work.workGeneration + 1,
+        modelAttempts: [
+          {
+            preparedClaimGeneration: command.claimGeneration,
+            stepId,
+            requestHash,
+            binding,
+            accounting: staged ? "not_called" : "unknown",
+            ...(staged ? { callState: "not_called" as const } : {}),
+          },
+        ],
+      };
+      reserveEngineeringFollowupReachable(next);
+      if (staged) await modelGuard(access, work, guard);
+      if (
+        !(await engineeringFollowupVersionsCurrent(
+          deps,
+          loaded,
+          stored,
+          current.engineeringWork,
+        ))
+      )
+        continue;
+      authorize();
+      live(work, command, now());
+      if (
+        now() >=
+        Math.min(
+          deadline,
+          timestamp(current.proof.attestation.validUntil, "validUntil"),
+        )
+      )
+        throw new SupportDeskConflictError("Follow-up model proof expired");
+      if (await save(loaded, stored, next)) {
+        authorize();
+        return { stepId, requestHash, maxCandidateBytes: 16_000 };
+      }
+    }
+    throw new SupportDeskConflictError();
+  }
+
   const application: Methods = {
     async claimEngineeringFollowupWork(access, input) {
       const actorId = access.principalId;
@@ -789,7 +1012,13 @@ export function createEngineeringFollowupWorkServices(
       }
       throw new SupportDeskConflictError();
     },
-    async prepareEngineeringFollowupModel(access, input) {
+    prepareEngineeringFollowupModel(access, input) {
+      return prepareModel(access, input);
+    },
+    planEngineeringFollowupModel(access, input, guard) {
+      return prepareModel(access, input, true, guard);
+    },
+    async beginEngineeringFollowupModel(access, input, guard) {
       const actorId = access.principalId;
       const authorize = () =>
         permission(
@@ -799,22 +1028,24 @@ export function createEngineeringFollowupWorkServices(
         );
       authorize();
       const command = snapshot(
-        fields(input, "prepare follow-up model", [
+        fields(input, "begin follow-up model", [
           "ticketId",
           "workId",
           "workerId",
           "claimId",
           "claimGeneration",
-          "binding",
+          "stepId",
+          "requestHash",
         ]),
       ) as unknown as typeof input;
       validateFence(command);
-      validateEngineeringFollowupModelBinding(command.binding);
-      const now = engineeringFollowupNow(deps);
+      text(command.stepId, "stepId");
+      text(command.requestHash, "requestHash");
       if (!options.enabled)
         throw new SupportDeskConflictError(
           "Follow-up model processing disabled",
         );
+      const now = engineeringFollowupNow(deps);
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
         const loaded = await load(command.ticketId);
         const stored = await workAt(command);
@@ -826,121 +1057,48 @@ export function createEngineeringFollowupWorkServices(
           stored,
           now,
         );
-        const binding = command.binding;
-        const manifest = binding.inputManifest;
-        if (
-          work.stage !== "model" ||
-          work.candidate !== undefined ||
-          work.preparedBundle !== undefined ||
-          work.completionRows !== 5 ||
-          work.messageSlots !== 1 ||
-          manifest.workBindingHash !== work.workBindingHash ||
-          manifest.contextHash !==
-            (await engineeringFollowupContextHash(work.context!)) ||
-          manifest.publicFactsHash !==
-            (await engineeringFollowupPublicFactsHash(
-              current.proof.publicFacts,
-            )) ||
-          binding.inputManifestHash !==
-            (await engineeringFollowupModelManifestHash(manifest)) ||
-          manifest.messages.some(
-            (reference) =>
-              !loaded.rows.some(
-                (row) =>
-                  row.kind === "message" &&
-                  row.message.visibility === "customer" &&
-                  row.message.id === reference.messageId &&
-                  row.ordinal === reference.ordinal &&
-                  row.ordinal <= work.acceptedTicketRevision,
-              ),
-          )
-        )
-          throw new SupportDeskConflictError(
-            "Follow-up model manifest differs from current facts",
-          );
-        const deadline = timestamp(binding.deadline, "model.deadline");
-        if (
-          deadline <= now() ||
-          deadline > timestamp(work.deadline, "deadline") ||
-          deadline > timestamp(work.leaseUntil!, "leaseUntil")
-        )
-          throw new SupportDeskConflictError(
-            "Follow-up model deadline exceeds live claim",
-          );
-        const existing = work.modelAttempts.find(
-          (entry) => canonical(entry.binding) === canonical(binding),
+        const model = work.modelAttempts.find(
+          (entry) =>
+            entry.stepId === command.stepId &&
+            entry.requestHash === command.requestHash,
         );
-        if (existing !== undefined) {
-          if (
-            existing.preparedClaimGeneration !== command.claimGeneration ||
-            existing.stepId !== work.stepId
-          )
-            throw new SupportDeskConflictError(
-              "Follow-up preparation belongs to another physical invocation",
-            );
-          if (
-            !(await engineeringFollowupVersionsCurrent(
-              deps,
-              loaded,
-              stored,
-              current.engineeringWork,
-            ))
-          )
-            continue;
-          authorize();
-          live(work, command, now());
-          if (
-            now() >=
-            Math.min(
-              deadline,
-              timestamp(current.proof.attestation.validUntil, "validUntil"),
-            )
-          )
-            throw new SupportDeskConflictError("Follow-up model proof expired");
-          if (await save(loaded, stored, work)) {
-            authorize();
-            return {
-              stepId: existing.stepId,
-              requestHash: existing.requestHash,
-              maxCandidateBytes: 16_000,
-            };
-          }
-          continue;
-        }
         if (
-          engineeringFollowupModelAttemptCount(work) >=
-            options.maxModelAttempts ||
-          work.modelAttempts.some(
-            (entry) =>
-              entry.preparedClaimGeneration === command.claimGeneration,
-          )
+          model?.binding.staged === undefined ||
+          work.stepId !== command.stepId ||
+          work.requestHash !== command.requestHash ||
+          work.stage !== "model" ||
+          work.pendingModelCompletion !== undefined
         )
-          throw new SupportDeskConflictError(
-            "Follow-up paid attempt bound reached",
-          );
-        const requestHash = await fingerprint(binding);
-        const stepId = await fingerprint({
-          workId: work.workId,
-          claimGeneration: command.claimGeneration,
-          binding,
-        });
+          throw new SupportDeskConflictError("Follow-up model plan changed");
+        if (
+          model.callState !== "not_called" ||
+          model.accounting !== "not_called"
+        ) {
+          authorize();
+          return {
+            stepId: model.stepId,
+            requestHash: model.requestHash,
+            maxCandidateBytes: 16_000 as const,
+            callPermit: false,
+          };
+        }
         const next: EngineeringFollowupWorkRecord = {
-          ...compactModelAttempts(work),
+          ...work,
           status: "model_prepared",
-          stepId,
-          requestHash,
           workGeneration: work.workGeneration + 1,
-          modelAttempts: [
-            {
-              preparedClaimGeneration: command.claimGeneration,
-              stepId,
-              requestHash,
-              binding,
-              accounting: "unknown",
-            },
-          ],
+          modelAttempts: work.modelAttempts.map((entry) =>
+            entry !== model
+              ? entry
+              : {
+                  ...entry,
+                  preparedClaimGeneration: command.claimGeneration,
+                  callState: "possibly_called",
+                  accounting: "unknown",
+                },
+          ),
         };
-        reserveEngineeringFollowupReachable(next);
+        checkEngineeringFollowupRecordCapacity(next);
+        await modelGuard(access, work, guard);
         if (
           !(await engineeringFollowupVersionsCurrent(
             deps,
@@ -955,14 +1113,149 @@ export function createEngineeringFollowupWorkServices(
         if (
           now() >=
           Math.min(
-            deadline,
+            timestamp(model.binding.deadline, "model.deadline"),
             timestamp(current.proof.attestation.validUntil, "validUntil"),
           )
         )
-          throw new SupportDeskConflictError("Follow-up model proof expired");
+          throw new SupportDeskConflictError("Follow-up model plan expired");
         if (await save(loaded, stored, next)) {
           authorize();
-          return { stepId, requestHash, maxCandidateBytes: 16_000 };
+          return {
+            stepId: model.stepId,
+            requestHash: model.requestHash,
+            maxCandidateBytes: 16_000 as const,
+            callPermit: true,
+          };
+        }
+      }
+      throw new SupportDeskConflictError();
+    },
+    async recordEngineeringFollowupModel(access, input, guard) {
+      const actorId = access.principalId;
+      const authorize = () =>
+        permission(
+          access,
+          supportPermissions.engineeringFollowupProcess,
+          actorId,
+        );
+      authorize();
+      const command = snapshot(
+        fields(
+          input,
+          "record follow-up model",
+          [
+            "ticketId",
+            "workId",
+            "workerId",
+            "claimId",
+            "claimGeneration",
+            "stepId",
+            "requestHash",
+            "candidate",
+            "accounting",
+          ],
+          ["processing"],
+        ),
+      ) as unknown as typeof input;
+      validateFence(command);
+      text(command.stepId, "stepId");
+      text(command.requestHash, "requestHash");
+      validateEngineeringFollowupCandidate(command.candidate);
+      processing(command.processing);
+      if (!["accounted", "unknown"].includes(command.accounting))
+        throw new TypeError("Invalid follow-up accounting");
+      const hash = await fingerprint({ actorId, command });
+      const now = engineeringFollowupNow(deps);
+      for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
+        const loaded = await load(command.ticketId);
+        const stored = await workAt(command);
+        const work = stored.value;
+        if (work.lastModelRecord?.fingerprint === hash) {
+          authorize();
+          return snapshot(work.lastModelRecord.result);
+        }
+        if (!options.enabled)
+          throw new SupportDeskConflictError(
+            "Follow-up model processing disabled",
+          );
+        live(work, command, now());
+        const current = await engineeringFollowupCurrent(
+          deps,
+          loaded,
+          stored,
+          now,
+        );
+        const model = work.modelAttempts.find(
+          (entry) =>
+            entry.stepId === command.stepId &&
+            entry.requestHash === command.requestHash,
+        );
+        if (
+          model?.binding.staged === undefined ||
+          model.callState !== "possibly_called" ||
+          model.preparedClaimGeneration !== command.claimGeneration ||
+          work.stepId !== command.stepId ||
+          work.requestHash !== command.requestHash ||
+          work.stage !== "model" ||
+          work.pendingModelCompletion !== undefined
+        )
+          throw new SupportDeskConflictError(
+            "Follow-up model invocation changed",
+          );
+        const next: EngineeringFollowupWorkRecord = {
+          ...withoutLease(work),
+          status: "retry",
+          workGeneration: work.workGeneration + 1,
+          pendingModelCompletion: {
+            stepId: command.stepId,
+            requestHash: command.requestHash,
+            candidate: command.candidate,
+            accounting: command.accounting,
+            ...(command.processing === undefined
+              ? {}
+              : { processing: command.processing }),
+          },
+          modelAttempts: work.modelAttempts.map((entry) =>
+            entry !== model
+              ? entry
+              : {
+                  ...entry,
+                  callState: "recorded",
+                  accounting: command.accounting,
+                  ...(command.processing === undefined
+                    ? {}
+                    : { processing: command.processing }),
+                },
+          ),
+        };
+        const accepted: EngineeringFollowupWorkRecord = {
+          ...next,
+          lastModelRecord: { fingerprint: hash, result: result(next) },
+        };
+        checkEngineeringFollowupRecordCapacity(accepted);
+        await modelGuard(access, work, guard);
+        if (
+          !(await engineeringFollowupVersionsCurrent(
+            deps,
+            loaded,
+            stored,
+            current.engineeringWork,
+          ))
+        )
+          continue;
+        authorize();
+        live(work, command, now());
+        if (
+          now() >=
+          Math.min(
+            timestamp(model.binding.deadline, "model.deadline"),
+            timestamp(current.proof.attestation.validUntil, "validUntil"),
+          )
+        )
+          throw new SupportDeskConflictError("Follow-up model result expired");
+        if (await save(loaded, stored, accepted)) {
+          authorize();
+          return result(next);
         }
       }
       throw new SupportDeskConflictError();
@@ -1028,15 +1321,35 @@ export function createEngineeringFollowupWorkServices(
         if (
           work.stage !== "model" ||
           model === undefined ||
-          model.preparedClaimGeneration !== command.claimGeneration ||
+          (model.preparedClaimGeneration !== command.claimGeneration &&
+            work.pendingModelCompletion === undefined) ||
           work.stepId !== command.stepId ||
           work.requestHash !== command.requestHash
         )
           throw new SupportDeskConflictError(
             "Follow-up prepared model owner changed",
           );
+        if (
+          model.binding.staged !== undefined &&
+          (model.callState !== "recorded" ||
+            canonical(work.pendingModelCompletion) !==
+              canonical({
+                stepId: command.stepId,
+                requestHash: command.requestHash,
+                candidate: command.candidate,
+                accounting: command.accounting,
+                ...(command.processing === undefined
+                  ? {}
+                  : { processing: command.processing }),
+              }))
+        )
+          throw new SupportDeskConflictError(
+            "Follow-up recorded model result changed",
+          );
+        const { pendingModelCompletion: _pendingCompletion, ...retained } =
+          withoutLease(work);
         const next: EngineeringFollowupWorkRecord = compactModelAttempts({
-          ...withoutLease(work),
+          ...retained,
           status: "candidate",
           stage: "bundle",
           candidate: command.candidate,
@@ -1059,7 +1372,8 @@ export function createEngineeringFollowupWorkServices(
           lastCompletion: { fingerprint: hash, result: result(next) },
         };
         checkEngineeringFollowupRecordCapacity(accepted);
-        await guard();
+        if (model.binding.staged === undefined) await guard();
+        else await modelGuard(access, work, guard);
         if (
           !(await engineeringFollowupVersionsCurrent(
             deps,
@@ -1248,6 +1562,14 @@ export function createEngineeringFollowupWorkServices(
                     );
                   return entry;
                 }
+                if (
+                  entry.callState !== undefined &&
+                  entry.callState !== "not_called" &&
+                  command.accounting === "not_called"
+                )
+                  throw new SupportDeskConflictError(
+                    "A possibly called follow-up cannot become not-called",
+                  );
                 if (
                   entry.accounting !== "unknown" &&
                   command.accounting !== undefined &&
@@ -1595,6 +1917,7 @@ export function createEngineeringFollowupWorkServices(
         const {
           stepId: _step,
           requestHash: _request,
+          pendingModelCompletion: _pendingCompletion,
           heldReason: _reason,
           ...retained
         } = withoutLease(compactModelAttempts(work));
@@ -1918,15 +2241,9 @@ export function createEngineeringFollowupWorkServices(
             "Follow-up release verification unavailable",
           );
         authorize();
-        const proof = snapshot(
-          await engineeringFollowupTrusted(deps, (signal) =>
-            options.releaseEvidence!.confirm(
-              work.context!,
-              proofContext,
-              signal,
-            ),
-          ),
-        );
+        const observer = options.retestReceipts.observe;
+        const currentReleaseProof = async () => {
+          const proof = snapshot(await engineeringFollowupTrusted(deps, signal => options.releaseEvidence!.confirm(work.context!, proofContext, signal)));
         engineeringFollowupValidateProof(
           proof,
           proofContext,
@@ -1941,6 +2258,9 @@ export function createEngineeringFollowupWorkServices(
           throw new SupportDeskConflictError(
             "Follow-up retest deployment changed",
           );
+          return proof;
+        };
+        const legacyProof = observer === undefined ? await currentReleaseProof() : undefined;
         const requests =
           work.preparedBundle?.bundle.retestRequests ??
           work.handoff?.retestRequests;
@@ -1963,15 +2283,78 @@ export function createEngineeringFollowupWorkServices(
           productBinding: request.productBinding,
         };
         authorize();
-        const verified = snapshot(
-          await engineeringFollowupTrusted(deps, (signal) =>
-            options.retestReceipts!.verify(
+        const opened = await Promise.allSettled([
+          legacyProof === undefined ? currentReleaseProof() : Promise.resolve(legacyProof),
+          engineeringFollowupTrusted(deps, async (signal) => {
+            if (observer === undefined)
+              return {
+                verified: snapshot(
+                  await options.retestReceipts!.verify(
+                    command.receiptReference,
+                    binding,
+                    signal,
+                  ),
+                ),
+                confirm: undefined,
+              };
+            const observed = await observer.call(
+              options.retestReceipts,
               command.receiptReference,
               binding,
               signal,
+            );
+            if (observed === null)
+              return { verified: null, confirm: undefined };
+            // Snapshot immediately, before any later awaited work or confirmation.
+            const verified = snapshot(observed.verified);
+            if (typeof observed.confirm !== "function")
+              throw new TypeError(
+                "Follow-up retest observation lacks confirmation",
+              );
+            return { verified, confirm: observed.confirm.bind(observed) };
+          }),
+        ]);
+        if (opened[0]!.status === "rejected") throw opened[0]!.reason;
+        const proof = snapshot(opened[0]!.value);
+        if (opened[1]!.status === "rejected") throw opened[1]!.reason;
+        const observation = opened[1]!.value;
+        const verified = observation.verified;
+        let assertRetest: (() => true) | undefined;
+        let confirmed = observer === undefined;
+        const confirmCurrent = async (): Promise<boolean> => {
+          const closing = await Promise.allSettled([
+            engineeringFollowupVersionsCurrent(
+              deps,
+              loaded,
+              stored,
+              associated.engineeringWork,
             ),
-          ),
-        );
+            observation.confirm === undefined
+              ? Promise.resolve(undefined)
+              : engineeringFollowupTrusted(deps, (signal) =>
+                  observation.confirm!(signal),
+                ),
+          ]);
+          if (closing[0]!.status === "rejected") throw closing[0]!.reason;
+          if (closing[1]!.status === "rejected") throw closing[1]!.reason;
+          const assertion = closing[1]!.value;
+          if (assertion !== undefined && typeof assertion !== "function")
+            throw new TypeError("Invalid closing retest assertion");
+          assertRetest =
+            typeof assertion === "function" ? assertion : undefined;
+          confirmed =
+            observer === undefined || observation.confirm !== undefined;
+          return closing[0]!.value;
+        };
+        const assertConfirmed = () => {
+          if (
+            !confirmed ||
+            (assertRetest !== undefined && assertRetest() !== true)
+          )
+            throw new SupportDeskConflictError(
+              "Follow-up retest confirmation changed",
+            );
+        };
         if (
           verified === null ||
           canonical(verified.binding) !== canonical(binding) ||
@@ -1997,15 +2380,7 @@ export function createEngineeringFollowupWorkServices(
           (entry) => entry.requestId === request.requestId,
         );
         if (prior?.verificationHash === summary.verificationHash) {
-          if (
-            !(await engineeringFollowupVersionsCurrent(
-              deps,
-              loaded,
-              stored,
-              associated.engineeringWork,
-            ))
-          )
-            continue;
+          if (!(await confirmCurrent())) continue;
           authorize();
           if (
             now() >=
@@ -2017,6 +2392,7 @@ export function createEngineeringFollowupWorkServices(
             throw new SupportDeskConflictError(
               "Follow-up retest proof expired",
             );
+          assertConfirmed();
           return {
             ticketId: work.ticketId,
             workId: work.workId,
@@ -2080,15 +2456,7 @@ export function createEngineeringFollowupWorkServices(
               : ("recorded" as const),
           result: verified.result,
         };
-        if (
-          !(await engineeringFollowupVersionsCurrent(
-            deps,
-            loaded,
-            stored,
-            associated.engineeringWork,
-          ))
-        )
-          continue;
+        if (!(await confirmCurrent())) continue;
         authorize();
         if (
           now() >=
@@ -2122,6 +2490,7 @@ export function createEngineeringFollowupWorkServices(
             mutation,
             () => {
               authorize();
+              assertConfirmed();
               if (
                 now() >=
                 Math.min(

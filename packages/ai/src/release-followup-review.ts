@@ -34,6 +34,15 @@ import {
 } from "./release-followup-request.js";
 
 export class ReleaseFollowupReviewGuardFailure extends AssistantBoundaryError {}
+export class ReleaseFollowupCheckDeferred extends AssistantBoundaryError {
+  constructor(
+    readonly operationId: string,
+    readonly expiresAt: string,
+    readonly callState: "not_called" | "recorded",
+  ) {
+    super("checks_deferred");
+  }
+}
 
 function externalContext(runtime: LearningRuntime, phase: number) {
   return Object.freeze({
@@ -269,9 +278,16 @@ export async function prepareCheckedReleaseFollowupBundle(
     followupRevocationEpoch: work.association.followupRevocationEpoch,
     context: proof.context,
   });
+  const check =
+    options.invocationMode === "staged"
+      ? options.checks.prepare
+      : options.checks.check;
+  if (typeof check !== "function")
+    throw new AssistantBoundaryError("staged_checks_unavailable");
   const checked = await runtime.within(
     () =>
-      options.checks.check(
+      check.call(
+        options.checks,
         {
           candidate: content,
           exactBundle: bundle,
@@ -284,6 +300,20 @@ export async function prepareCheckedReleaseFollowupBundle(
       ),
     phase,
   );
+  if (checked.outcome === "deferred") {
+    if (
+      !/^[a-f0-9]{64}$/u.test(scalar(checked.operationId)) ||
+      timestamp(checked.expiresAt) <= timestamp(options.clock.now())
+    )
+      throw new AssistantBoundaryError("checks_unavailable");
+    if (!["not_called", "recorded"].includes(checked.callState))
+      throw new AssistantBoundaryError("checks_unavailable");
+    throw new ReleaseFollowupCheckDeferred(
+      checked.operationId,
+      checked.expiresAt,
+      checked.callState,
+    );
+  }
   if (checked.outcome !== "checked")
     throw new AssistantBoundaryError(
       checked.outcome === "restricted"

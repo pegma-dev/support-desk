@@ -192,6 +192,17 @@ export interface EngineeringFollowupRetestPort {
     binding: EngineeringFollowupRetestBinding,
     signal: AbortSignal,
   ): Promise<VerifiedEngineeringFollowupRetest | null>;
+  /** Preliminary metadata is usable only after this attempt's confirmation succeeds. */
+  observe?(
+    receiptReference: string,
+    binding: EngineeringFollowupRetestBinding,
+    signal: AbortSignal,
+  ): Promise<EngineeringFollowupRetestObservation | null>;
+}
+export interface EngineeringFollowupRetestObservation {
+  readonly verified: VerifiedEngineeringFollowupRetest;
+  /** A live closure, never a serialized or cross-request proof. */
+  confirm(signal: AbortSignal): Promise<void | (() => true)>;
 }
 export interface EngineeringFollowupOptions {
   readonly enabled?: boolean;
@@ -267,6 +278,14 @@ export interface EngineeringFollowupModelBinding {
   readonly budgetsHash: string;
   readonly usageReservationId: string;
   readonly deadline: IsoTimestamp;
+  /** Bounded comparison metadata for the opt-in invocation protocol. */
+  readonly staged?: {
+    readonly invocationId: string;
+    readonly authorityHash: string;
+    readonly configurationHash: string;
+    readonly evaluationHash: string;
+    readonly checkPolicyHash: string;
+  };
 }
 export interface EngineeringFollowupClaim {
   readonly fence: EngineeringFollowupClaimFence;
@@ -291,6 +310,17 @@ export interface EngineeringFollowupPreparedModel {
   readonly requestHash: string;
   readonly maxCandidateBytes: 16_000;
 }
+export interface BeginEngineeringFollowupModelCommand extends EngineeringFollowupClaimFence {
+  readonly stepId: string;
+  readonly requestHash: string;
+}
+/** This view expires when its application-owned guard settles. */
+export interface EngineeringFollowupModelObservation {
+  readWork(access: AccessContext): EngineeringFollowupWorkRecord;
+}
+export type EngineeringFollowupModelCommitGuard = (
+  observation?: EngineeringFollowupModelObservation,
+) => void | Promise<void>;
 export interface CompleteEngineeringFollowupModelCommand extends EngineeringFollowupClaimFence {
   readonly stepId: string;
   readonly requestHash: string;
@@ -454,10 +484,30 @@ export interface EngineeringFollowupApplication {
     access: AccessContext,
     command: PrepareEngineeringFollowupModelCommand,
   ): Promise<EngineeringFollowupPreparedModel>;
+  /** Commits a not-called plan and releases its claim for a later invocation. */
+  planEngineeringFollowupModel?(
+    access: AccessContext,
+    command: PrepareEngineeringFollowupModelCommand,
+    guard: EngineeringFollowupModelCommitGuard,
+  ): Promise<EngineeringFollowupPreparedModel>;
+  /** Only the first acknowledged transition grants a provider call permit. */
+  beginEngineeringFollowupModel?(
+    access: AccessContext,
+    command: BeginEngineeringFollowupModelCommand,
+    guard: EngineeringFollowupModelCommitGuard,
+  ): Promise<
+    EngineeringFollowupPreparedModel & { readonly callPermit: boolean }
+  >;
+  /** Retains the bounded result and releases its claim before fresh completion. */
+  recordEngineeringFollowupModel?(
+    access: AccessContext,
+    command: CompleteEngineeringFollowupModelCommand,
+    guard: EngineeringFollowupModelCommitGuard,
+  ): Promise<EngineeringFollowupResult>;
   completeEngineeringFollowupModel(
     access: AccessContext,
     command: CompleteEngineeringFollowupModelCommand,
-    guard: EngineeringCommitGuard,
+    guard: EngineeringFollowupModelCommitGuard,
   ): Promise<EngineeringFollowupResult>;
   finishEngineeringFollowupModel(
     access: AccessContext,

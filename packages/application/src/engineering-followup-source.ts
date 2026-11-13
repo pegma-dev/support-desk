@@ -267,6 +267,7 @@ function scrub(
   const {
     context: _context,
     candidate: _candidate,
+    pendingModelCompletion: _pendingModelCompletion,
     candidateHash: _candidateHash,
     preparedBundle: _bundle,
     handoff: _handoff,

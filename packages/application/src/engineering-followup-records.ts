@@ -72,6 +72,7 @@ export interface EngineeringFollowupModelAttempt {
   readonly requestHash: string;
   readonly binding: EngineeringFollowupModelBinding;
   readonly accounting: "not_called" | "accounted" | "unknown";
+  readonly callState?: "not_called" | "possibly_called" | "recorded";
   readonly processing?: EngineeringProcessing;
 }
 export interface EngineeringFollowupPreparedBundle {
@@ -137,6 +138,17 @@ export interface EngineeringFollowupWorkRecord {
   readonly requestHash?: string;
   readonly candidate?: EngineeringFollowupCandidate;
   readonly candidateHash?: string;
+  readonly pendingModelCompletion?: {
+    readonly stepId: string;
+    readonly requestHash: string;
+    readonly candidate: EngineeringFollowupCandidate;
+    readonly accounting: "accounted" | "unknown";
+    readonly processing?: EngineeringProcessing;
+  };
+  readonly lastModelRecord?: {
+    readonly fingerprint: string;
+    readonly result: EngineeringFollowupResult;
+  };
   readonly preparedBundle?: EngineeringFollowupPreparedBundle;
   readonly bundleRevision: number;
   readonly completionRows: 0 | 3 | 5;
@@ -600,24 +612,47 @@ export function validateEngineeringFollowupChecksBinding(
 export function validateEngineeringFollowupModelBinding(
   value: unknown,
 ): asserts value is EngineeringFollowupModelBinding {
-  const row = fields(value, "follow-up model binding", [
-    "inputManifest",
-    "inputFingerprint",
-    "inputManifestHash",
-    "configVersion",
-    "promptVersion",
-    "modelVersion",
-    "parserVersion",
-    "checkPolicyVersion",
-    "budgetsHash",
-    "usageReservationId",
-    "deadline",
-  ]);
+  const row = fields(
+    value,
+    "follow-up model binding",
+    [
+      "inputManifest",
+      "inputFingerprint",
+      "inputManifestHash",
+      "configVersion",
+      "promptVersion",
+      "modelVersion",
+      "parserVersion",
+      "checkPolicyVersion",
+      "budgetsHash",
+      "usageReservationId",
+      "deadline",
+    ],
+    ["staged"],
+  );
   for (const key of Object.keys(row).filter(
-    (key) => !["inputManifest", "deadline"].includes(key),
+    (key) => !["inputManifest", "deadline", "staged"].includes(key),
   ))
     text(row[key], key);
   timestamp(row.deadline, "deadline");
+  if (row.staged !== undefined) {
+    const staged = fields(row.staged, "follow-up staged binding", [
+      "invocationId",
+      "authorityHash",
+      "configurationHash",
+      "evaluationHash",
+      "checkPolicyHash",
+    ]);
+    text(staged.invocationId, "invocationId");
+    for (const key of [
+      "authorityHash",
+      "configurationHash",
+      "evaluationHash",
+      "checkPolicyHash",
+    ])
+      if (!/^[0-9a-f]{64}$/u.test(text(staged[key], key)))
+        throw new TypeError("Invalid staged follow-up binding hash");
+  }
   const manifest = fields(row.inputManifest, "follow-up input manifest", [
     "messages",
     "workBindingHash",
@@ -1150,6 +1185,8 @@ function validateWork(row: Record<string, unknown>): void {
       "usageTombstones",
       "lastCompletion",
       "lastFinish",
+      "pendingModelCompletion",
+      "lastModelRecord",
     ],
   );
   text(row.workId, "workId");
@@ -1259,7 +1296,7 @@ function validateWork(row: Record<string, unknown>): void {
         "binding",
         "accounting",
       ],
-      ["processing"],
+      ["processing", "callState"],
     );
     const owner = integer(
       attempt.preparedClaimGeneration,
@@ -1276,6 +1313,20 @@ function validateWork(row: Record<string, unknown>): void {
     ]);
     if (attempt.processing !== undefined)
       validateEngineeringProcessing(attempt.processing);
+    if (attempt.callState !== undefined) {
+      choice(attempt.callState, "callState", [
+        "not_called",
+        "possibly_called",
+        "recorded",
+      ]);
+      if (
+        (attempt.binding as EngineeringFollowupModelBinding).staged ===
+          undefined ||
+        (attempt.callState === "not_called" &&
+          attempt.accounting !== "not_called")
+      )
+        throw new TypeError("Invalid staged follow-up call state");
+    }
     if (
       owner > (row.claimGeneration as number) ||
       owners.has(owner) ||
@@ -1289,6 +1340,35 @@ function validateWork(row: Record<string, unknown>): void {
     validateEngineeringFollowupCandidate(row.candidate);
     if (row.candidateHash === undefined)
       throw new TypeError("Follow-up candidate lacks its hash");
+  }
+  if (row.pendingModelCompletion !== undefined) {
+    const completion = fields(
+      row.pendingModelCompletion,
+      "pending follow-up completion",
+      ["stepId", "requestHash", "candidate", "accounting"],
+      ["processing"],
+    );
+    text(completion.stepId, "stepId");
+    text(completion.requestHash, "requestHash");
+    validateEngineeringFollowupCandidate(completion.candidate);
+    choice(completion.accounting, "accounting", ["accounted", "unknown"]);
+    if (completion.processing !== undefined)
+      validateEngineeringProcessing(completion.processing);
+    if (
+      row.stage !== "model" ||
+      row.candidate !== undefined ||
+      !attempts.some(
+        (item) =>
+          (item as EngineeringFollowupModelAttempt).callState === "recorded" &&
+          (item as EngineeringFollowupModelAttempt).stepId ===
+            completion.stepId &&
+          (item as EngineeringFollowupModelAttempt).requestHash ===
+            completion.requestHash,
+      )
+    )
+      throw new TypeError(
+        "Pending follow-up completion differs from its attempt",
+      );
   }
   if (row.preparedBundle !== undefined) {
     const prepared = fields(row.preparedBundle, "prepared follow-up bundle", [
@@ -1396,7 +1476,7 @@ function validateWork(row: Record<string, unknown>): void {
     throw new TypeError(
       "Follow-up model history exceeds its lifetime attempt bound",
     );
-  for (const key of ["lastCompletion", "lastFinish"])
+  for (const key of ["lastCompletion", "lastFinish", "lastModelRecord"])
     if (row[key] !== undefined) {
       const receipt = fields(row[key], key, ["fingerprint", "result"]);
       text(receipt.fingerprint, "fingerprint");
@@ -1418,6 +1498,7 @@ function validateWork(row: Record<string, unknown>): void {
       "candidateHash",
       "preparedBundle",
       "handoff",
+      "pendingModelCompletion",
     ])
       if (row[key] !== undefined)
         throw new TypeError(
@@ -1695,6 +1776,7 @@ export function reserveEngineeringFollowupReachable(
   const {
     context: _context,
     candidate: _candidate,
+    pendingModelCompletion: _pendingModelCompletion,
     candidateHash: _candidateHash,
     preparedBundle: _prepared,
     handoff: _handoff,

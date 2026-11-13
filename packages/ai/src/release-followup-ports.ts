@@ -215,8 +215,16 @@ export interface ReleaseFollowupChecksPort
     context: ReleaseFollowupExternalContext,
   ): Promise<
     | { readonly outcome: "checked"; readonly receipt: string }
+    | {
+        readonly outcome: "deferred";
+        readonly operationId: string;
+        readonly expiresAt: IsoTimestamp;
+        readonly callState: "not_called" | "recorded";
+      }
     | { readonly outcome: "held" | "restricted" | "unavailable" }
   >;
+  /** Opt-in preparation/receipt lookup. This callback must not invoke a provider. */
+  readonly prepare?: ReleaseFollowupChecksPort["check"];
 }
 
 export interface SupportDeskReleaseFollowupOptions {
@@ -242,6 +250,8 @@ export interface SupportDeskReleaseFollowupOptions {
   readonly maxOperationMilliseconds?: number;
   readonly commitReserveMilliseconds?: number;
   readonly storageCommandAttempts?: number;
+  /** Each durable staged checkpoint must resume in a later physical invocation. */
+  readonly invocationMode?: "staged";
 }
 
 export type ReleaseFollowupProcessResult =
@@ -254,6 +264,17 @@ export type ReleaseFollowupProcessResult =
       readonly outcome: "pending";
       readonly stage: "prepare" | "complete" | "bundle" | "finish";
       readonly reason?: string;
+      /** Present only after the corresponding durable application transition. */
+      readonly checkpoint?:
+        | "model_planned"
+        | "model_recorded"
+        | "checks_planned"
+        | "checks_recorded";
+      readonly callState?: "not_called" | "recorded";
+      readonly checks?: {
+        readonly operationId: string;
+        readonly expiresAt: IsoTimestamp;
+      };
     };
 
 export interface PrepareReleaseFollowupStaffReassessmentCommand

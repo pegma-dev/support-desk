@@ -4,6 +4,8 @@ import {
   engineeringFollowupPublicFactsHash,
   type CompleteEngineeringFollowupModelCommand,
   type EngineeringFollowupClaim,
+  type EngineeringFollowupCandidate,
+  type EngineeringFollowupModelObservation,
   type EngineeringFollowupPreparedModel,
   type EngineeringProcessing,
   type FinishEngineeringFollowupModelCommand,
@@ -57,15 +59,27 @@ export async function processReleaseFollowupModel(
   const claim = snapshot(rawClaim);
   const attempts = count(options.storageCommandAttempts ?? 2, 3, 1);
   const reserve = count(options.commitReserveMilliseconds ?? 1_000, 5_000, 1);
-  const invocationId = crypto.randomUUID();
+  const staged = options.invocationMode === "staged";
+  const retainedAttempt = staged
+    ? claim.work.modelAttempts.find(
+        (entry) =>
+          entry.stepId === claim.work.stepId &&
+          entry.requestHash === claim.work.requestHash,
+      )
+    : undefined;
+  const invocationId =
+    retainedAttempt?.binding.staged?.invocationId ?? crypto.randomUUID();
   const provider = new AbortController();
   const cancel = (): void => provider.abort();
   runtime.signal.addEventListener("abort", cancel, { once: true });
   let prepared: EngineeringFollowupPreparedModel | undefined;
-  let processing: EngineeringProcessing | undefined;
+  let processing: EngineeringProcessing | undefined = staged
+    ? claim.work.pendingModelCompletion?.processing
+    : undefined;
   let identity: ReleaseFollowupUsageIdentity | undefined;
   let observation: ReleaseFollowupUsageObservation = { state: "not_called" };
-  let accounting: "not_called" | "accounted" | "unknown" = "not_called";
+  let accounting: "not_called" | "accounted" | "unknown" =
+    retainedAttempt?.accounting ?? "not_called";
   const settledAccounting = (): "accounted" | "unknown" =>
     accounting === "accounted" ? "accounted" : "unknown";
   const reconcile = async (): Promise<void> => {
@@ -166,7 +180,14 @@ export async function processReleaseFollowupModel(
         /* A possible paid attempt remains conservatively reserved. */
       }
     }
-    if (claim.recoveredModelPreparation) {
+    if (
+      claim.recoveredModelPreparation &&
+      !(
+        staged &&
+        (retainedAttempt?.callState === "not_called" ||
+          claim.work.pendingModelCompletion !== undefined)
+      )
+    ) {
       const old = claim.work.modelAttempts.find(
         (entry) => entry.stepId === claim.work.stepId,
       );
@@ -178,12 +199,15 @@ export async function processReleaseFollowupModel(
         maxCandidateBytes: 16_000,
       };
       accounting = "unknown";
-      return await finish("recovered_preparation", "retry");
+      return await finish("recovered_preparation", staged ? "held" : "retry");
     }
     const authority = await releaseFollowupAuthority(options, runtime);
     const config = await releaseFollowupConfiguration(options, runtime);
     const previousAttempts = engineeringFollowupModelAttemptCount(claim.work);
-    if (previousAttempts >= config.budgets.maxAttempts)
+    if (
+      previousAttempts - (retainedAttempt === undefined ? 0 : 1) >=
+      config.budgets.maxAttempts
+    )
       throw new AssistantBoundaryError("budget_exceeded");
     const evaluation = await releaseFollowupEvaluation(
       options,
@@ -203,49 +227,77 @@ export async function processReleaseFollowupModel(
       proof,
       config,
     );
-    const deadline = Math.min(
-      runtime.deadline,
-      timestamp(claim.leaseUntil),
-      timestamp(claim.work.deadline),
-      timestamp(config.dataControls.validUntil),
-      timestamp(evaluation.validUntil),
-      timestamp(policy.validUntil),
-      timestamp(proof.attestation.validUntil),
-    );
+    const deadline =
+      retainedAttempt?.binding.deadline === undefined
+        ? Math.min(
+            ...(staged ? [] : [runtime.deadline, timestamp(claim.leaseUntil)]),
+            timestamp(claim.work.deadline),
+            timestamp(config.dataControls.validUntil),
+            timestamp(evaluation.validUntil),
+            timestamp(policy.validUntil),
+            timestamp(proof.attestation.validUntil),
+          )
+        : timestamp(retainedAttempt.binding.deadline);
     const providerDeadline = Math.min(
       deadline - reserve,
+      runtime.deadline - reserve,
+      timestamp(claim.leaseUntil) - reserve,
       timestamp(options.clock.now()) + config.budgets.maxDurationMilliseconds,
     );
     runtime.ensure(providerDeadline);
     const usageReservationId =
+      retainedAttempt?.binding.usageReservationId ??
       "usage:" +
-      (
-        await fingerprint({
-          purpose: "support_release_followup",
-          operationId,
-          invocationId,
-        })
-      ).slice(0, 48);
+        (
+          await fingerprint({
+            purpose: "support_release_followup",
+            operationId,
+            invocationId,
+          })
+        ).slice(0, 48);
     const inputManifestHash = await engineeringFollowupModelManifestHash(
       request.manifest,
     );
-    const inputFingerprint = await fingerprint({
-      purpose: "support_release_followup",
-      invocationId,
-      operationId,
-      fence: claim.fence,
-      sourceFence: claim.sourceFence,
-      input: request.input,
-      manifest: request.manifest,
-      configuration: config,
-      authority,
-      checkPolicy: policy,
-      evaluation,
-      proof,
-      deadline,
-      providerDeadline,
-      usageReservationId,
-    });
+    const stagedBinding = staged
+      ? {
+          invocationId,
+          authorityHash: await fingerprint(authority),
+          configurationHash: await fingerprint(config),
+          evaluationHash: await fingerprint(evaluation),
+          checkPolicyHash: await fingerprint(policy),
+        }
+      : undefined;
+    const inputFingerprint = await fingerprint(
+      staged
+        ? {
+            purpose: "support_release_followup",
+            invocationId,
+            operationId,
+            sourceFence: claim.sourceFence,
+            input: request.input,
+            manifest: request.manifest,
+            staged: stagedBinding,
+            deadline,
+            usageReservationId,
+          }
+        : {
+            purpose: "support_release_followup",
+            invocationId,
+            operationId,
+            fence: claim.fence,
+            sourceFence: claim.sourceFence,
+            input: request.input,
+            manifest: request.manifest,
+            configuration: config,
+            authority,
+            checkPolicy: policy,
+            evaluation,
+            proof,
+            deadline,
+            providerDeadline,
+            usageReservationId,
+          },
+    );
     const command: PrepareEngineeringFollowupModelCommand = snapshot({
       ...claim.fence,
       binding: {
@@ -260,6 +312,7 @@ export async function processReleaseFollowupModel(
         budgetsHash: await fingerprint(config.budgets),
         usageReservationId,
         deadline: new Date(deadline).toISOString(),
+        ...(stagedBinding === undefined ? {} : { staged: stagedBinding }),
       },
     });
     const requestHash = await fingerprint(command.binding);
@@ -279,6 +332,7 @@ export async function processReleaseFollowupModel(
     const verifyCurrent = async (
       phase: number,
       beforeCall = false,
+      observation?: EngineeringFollowupModelObservation,
     ): Promise<void> => {
       const freshProof = await releaseFollowupProof(
         options,
@@ -326,28 +380,38 @@ export async function processReleaseFollowupModel(
         phase,
       );
       // No remote/config/proof/authority awaits below this final authoritative application bracket.
-      const current = await releaseFollowupCurrent(
-        options,
-        claim.work,
-        currentAuthority.access,
-        runtime,
-        phase,
-      );
+      const current =
+        observation === undefined
+          ? await releaseFollowupCurrent(
+              options,
+              claim.work,
+              currentAuthority.access,
+              runtime,
+              phase,
+            )
+          : snapshot(observation.readWork(currentAuthority.access));
+      if (
+        current.workBindingHash !== claim.work.workBindingHash ||
+        current.withdrawn ||
+        current.security !== "ordinary"
+      )
+        throw new AssistantBoundaryError("source_changed");
       const stored = current.modelAttempts.find(
         (entry) =>
           entry.stepId === prepared?.stepId &&
           entry.requestHash === requestHash,
       );
       if (
-        stored === undefined ||
-        canonical(stored.binding) !== canonical(command.binding)
+        prepared !== undefined &&
+        (stored === undefined ||
+          canonical(stored.binding) !== canonical(command.binding))
       )
         throw new AssistantBoundaryError("preparation_mismatch");
       if (
         beforeCall &&
         (current.claim === undefined ||
           canonical(current.claim) !== canonical(claim.fence) ||
-          current.status !== "model_prepared" ||
+          current.status !== (staged ? "claimed" : "model_prepared") ||
           current.stage !== "model" ||
           current.stepId !== prepared?.stepId ||
           current.requestHash !== requestHash ||
@@ -362,7 +426,67 @@ export async function processReleaseFollowupModel(
         Math.min(phase, timestamp(freshProof.attestation.validUntil)),
       );
     };
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (retainedAttempt !== undefined) {
+      if (canonical(retainedAttempt.binding) !== canonical(command.binding))
+        throw new AssistantBoundaryError("planned_input_changed");
+      prepared = checkedPreparation({
+        stepId: retainedAttempt.stepId,
+        requestHash: retainedAttempt.requestHash,
+        maxCandidateBytes: 16_000,
+      });
+    }
+    const completeCandidate = async (
+      candidate: EngineeringFollowupCandidate,
+      processing: EngineeringProcessing | undefined,
+      completionAccounting: "accounted" | "unknown",
+    ): Promise<ReleaseFollowupProcessResult> => {
+      const completion: CompleteEngineeringFollowupModelCommand = snapshot({
+        ...claim.fence,
+        stepId: prepared!.stepId,
+        requestHash: prepared!.requestHash,
+        candidate,
+        ...(processing === undefined ? {} : { processing }),
+        accounting: completionAccounting,
+      });
+      const guard = async (
+        observation?: EngineeringFollowupModelObservation,
+      ): Promise<void> => {
+        try {
+          await verifyCurrent(deadline, false, observation);
+        } catch (error) {
+          throw new ReleaseFollowupModelGuardFailure(
+            releaseFollowupFailure(error, "verification_unavailable"),
+          );
+        }
+      };
+      let uncertain = false;
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        try {
+          const current = await releaseFollowupAuthority(
+            options,
+            runtime,
+            authority,
+            deadline,
+          );
+          const accepted = await runtime.within(
+            () =>
+              options.application.completeEngineeringFollowupModel(
+                current.access,
+                completion,
+                guard,
+              ),
+            deadline,
+          );
+          return { outcome: "candidate", result: accepted };
+        } catch (error) {
+          if (error instanceof ReleaseFollowupModelGuardFailure && !uncertain)
+            return await finish(error.category);
+          uncertain = true;
+        }
+      }
+      return { outcome: "pending", stage: "complete" };
+    };
+    if (staged && retainedAttempt === undefined) {
       try {
         const current = await releaseFollowupAuthority(
           options,
@@ -370,28 +494,65 @@ export async function processReleaseFollowupModel(
           authority,
           providerDeadline,
         );
-        prepared = checkedPreparation(
-          await runtime.within(
-            () =>
-              options.application.prepareEngineeringFollowupModel(
-                current.access,
-                command,
-              ),
-            providerDeadline,
-          ),
+        await runtime.within(
+          () =>
+            options.application.planEngineeringFollowupModel!(
+              current.access,
+              command,
+              (observation) =>
+                verifyCurrent(providerDeadline, false, observation),
+            ),
+          providerDeadline,
         );
-        break;
+        return {
+          outcome: "pending",
+          stage: "prepare",
+          checkpoint: "model_planned",
+          callState: "not_called",
+        };
       } catch {
-        /* A lost preparation ACK never authorizes generation. */
+        return { outcome: "pending", stage: "prepare" };
       }
     }
+    if (staged && claim.work.pendingModelCompletion !== undefined) {
+      const completion = claim.work.pendingModelCompletion;
+      return await completeCandidate(
+        completion.candidate,
+        completion.processing,
+        completion.accounting,
+      );
+    }
+    if (!staged)
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        try {
+          const current = await releaseFollowupAuthority(
+            options,
+            runtime,
+            authority,
+            providerDeadline,
+          );
+          prepared = checkedPreparation(
+            await runtime.within(
+              () =>
+                options.application.prepareEngineeringFollowupModel(
+                  current.access,
+                  command,
+                ),
+              providerDeadline,
+            ),
+          );
+          break;
+        } catch {
+          /* A lost preparation ACK never authorizes generation. */
+        }
+      }
     if (prepared === undefined) return { outcome: "pending", stage: "prepare" };
     const context: ReleaseFollowupAttemptContext = Object.freeze({
       purpose: "support_release_followup",
       invocationId,
       operationId,
       attemptId: prepared.stepId,
-      attempt: previousAttempts + 1,
+      attempt: previousAttempts + (retainedAttempt === undefined ? 1 : 0),
       inputFingerprint,
       inputManifestHash,
       configurationVersion: config.version,
@@ -423,28 +584,58 @@ export async function processReleaseFollowupModel(
       reservation.usageReservationId !== usageReservationId
     )
       throw new AssistantBoundaryError("usage_unavailable");
-    const replayAuthority = await releaseFollowupAuthority(
-      options,
-      runtime,
-      authority,
-      providerDeadline,
-    );
-    if (
-      canonical(
-        checkedPreparation(
-          await runtime.within(
-            () =>
-              options.application.prepareEngineeringFollowupModel(
-                replayAuthority.access,
-                command,
-              ),
-            providerDeadline,
+    if (staged) {
+      const current = await releaseFollowupAuthority(
+        options,
+        runtime,
+        authority,
+        providerDeadline,
+      );
+      // The durable call transition may be accepted even when its ACK is lost.
+      observation = { state: "unknown" };
+      accounting = "unknown";
+      const begun = await runtime.within(
+        () =>
+          options.application.beginEngineeringFollowupModel!(
+            current.access,
+            {
+              ...claim.fence,
+              stepId: prepared!.stepId,
+              requestHash: prepared!.requestHash,
+            },
+            (observation) => verifyCurrent(providerDeadline, true, observation),
           ),
-        ),
-      ) !== canonical(prepared)
-    )
-      throw new AssistantBoundaryError("preparation_mismatch");
-    await verifyCurrent(providerDeadline, true);
+        providerDeadline,
+      );
+      if (!begun.callPermit) {
+        accounting = "unknown";
+        observation = { state: "unknown" };
+        return await finish("invocation_already_started");
+      }
+    } else {
+      const replayAuthority = await releaseFollowupAuthority(
+        options,
+        runtime,
+        authority,
+        providerDeadline,
+      );
+      if (
+        canonical(
+          checkedPreparation(
+            await runtime.within(
+              () =>
+                options.application.prepareEngineeringFollowupModel(
+                  replayAuthority.access,
+                  command,
+                ),
+              providerDeadline,
+            ),
+          ),
+        ) !== canonical(prepared)
+      )
+        throw new AssistantBoundaryError("preparation_mismatch");
+      await verifyCurrent(providerDeadline, true);
+    }
     runtime.ensure(providerDeadline);
     observation = { state: "unknown" };
     accounting = "unknown";
@@ -471,49 +662,45 @@ export async function processReleaseFollowupModel(
       prepared.maxCandidateBytes,
     );
     await reconcile();
-    const completion: CompleteEngineeringFollowupModelCommand = snapshot({
-      ...claim.fence,
-      stepId: prepared.stepId,
-      requestHash: prepared.requestHash,
-      candidate,
-      processing,
-      accounting: settledAccounting(),
-    });
-    const guard = async (): Promise<void> => {
-      try {
-        await verifyCurrent(deadline);
-      } catch (error) {
-        throw new ReleaseFollowupModelGuardFailure(
-          releaseFollowupFailure(error, "verification_unavailable"),
-        );
+    if (staged) {
+      const completion: CompleteEngineeringFollowupModelCommand = snapshot({
+        ...claim.fence,
+        stepId: prepared.stepId,
+        requestHash: prepared.requestHash,
+        candidate,
+        ...(processing === undefined ? {} : { processing }),
+        accounting: settledAccounting(),
+      });
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        try {
+          const current = await releaseFollowupAuthority(
+            options,
+            runtime,
+            authority,
+            deadline,
+          );
+          await runtime.within(
+            () =>
+              options.application.recordEngineeringFollowupModel!(
+                current.access,
+                completion,
+                (observation) => verifyCurrent(deadline, false, observation),
+              ),
+            deadline,
+          );
+          return {
+            outcome: "pending",
+            stage: "complete",
+            checkpoint: "model_recorded",
+            callState: "recorded",
+          };
+        } catch {
+          /* Exact durable capture retry, never another provider call. */
+        }
       }
-    };
-    let uncertain = false;
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      try {
-        const current = await releaseFollowupAuthority(
-          options,
-          runtime,
-          authority,
-          deadline,
-        );
-        const accepted = await runtime.within(
-          () =>
-            options.application.completeEngineeringFollowupModel(
-              current.access,
-              completion,
-              guard,
-            ),
-          deadline,
-        );
-        return { outcome: "candidate", result: accepted };
-      } catch (error) {
-        if (error instanceof ReleaseFollowupModelGuardFailure && !uncertain)
-          return await finish(error.category);
-        uncertain = true;
-      }
+      return { outcome: "pending", stage: "complete" };
     }
-    return { outcome: "pending", stage: "complete" };
+    return await completeCandidate(candidate, processing, settledAccounting());
   } catch (error) {
     await reconcile();
     return await finish(releaseFollowupFailure(error, "model_unavailable"));

@@ -49,6 +49,7 @@ import {
   confirmStoredReleaseFollowupBundle,
   prepareCheckedReleaseFollowupBundle,
   ReleaseFollowupReviewGuardFailure,
+  ReleaseFollowupCheckDeferred,
   retainedReleaseFollowupContent,
 } from "./release-followup-review.js";
 
@@ -114,6 +115,11 @@ async function prepareWorkerBundle(
   const finish = async (
     reason: string,
     restricted = false,
+    deferred?: {
+      readonly operationId: string;
+      readonly expiresAt: string;
+      readonly callState: "not_called" | "recorded";
+    },
   ): Promise<ReleaseFollowupProcessResult> => {
     const command: FinishEngineeringFollowupModelCommand = snapshot({
       ...claim.fence,
@@ -124,7 +130,7 @@ async function prepareWorkerBundle(
       ...(restricted && claim.work.candidateHash !== undefined
         ? { classificationCandidateHash: claim.work.candidateHash }
         : {}),
-      disposition: restricted ? "restricted" : "held",
+      disposition: deferred ? "retry" : restricted ? "restricted" : "held",
       reason,
     });
     for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -136,6 +142,20 @@ async function prepareWorkerBundle(
             command,
           ),
         );
+        if (deferred && result.status === "retry")
+          return {
+            outcome: "pending",
+            stage: "bundle",
+            checkpoint:
+              deferred.callState === "not_called"
+                ? "checks_planned"
+                : "checks_recorded",
+            callState: deferred.callState,
+            checks: {
+              operationId: deferred.operationId,
+              expiresAt: deferred.expiresAt,
+            },
+          };
         return { outcome: restricted ? "restricted" : "held", result };
       } catch {
         /* Exact finish retry only; accounting of the prior paid attempt is untouched. */
@@ -239,6 +259,15 @@ async function prepareWorkerBundle(
     }
     return { outcome: "pending", stage: "bundle" };
   } catch (error) {
+    if (
+      options.invocationMode === "staged" &&
+      error instanceof ReleaseFollowupCheckDeferred
+    )
+      return await finish("checks_deferred", false, {
+        operationId: error.operationId,
+        expiresAt: error.expiresAt,
+        callState: error.callState,
+      });
     return await finish(
       releaseFollowupFailure(error, "bundle_unavailable"),
       error instanceof AssistantBoundaryError &&
@@ -251,6 +280,11 @@ async function prepareWorkerBundle(
 export function createSupportDeskReleaseFollowup(
   options: SupportDeskReleaseFollowupOptions,
 ): SupportDeskReleaseFollowup {
+  if (
+    options.invocationMode !== undefined &&
+    options.invocationMode !== "staged"
+  )
+    throw new TypeError("Unknown release follow-up invocation mode");
   const attempts = count(options.storageCommandAttempts ?? 2, 3, 1);
   const milliseconds = count(
     options.maxOperationMilliseconds ?? 25_000,
@@ -290,6 +324,29 @@ export function createSupportDeskReleaseFollowup(
       command: Omit<ClaimEngineeringFollowupWorkCommand, "claimId">,
       run: { readonly signal?: AbortSignal } = {},
     ): Promise<ReleaseFollowupProcessResult> {
+      if (
+        options.invocationMode === "staged" &&
+        (typeof options.application.planEngineeringFollowupModel !==
+          "function" ||
+          typeof options.application.beginEngineeringFollowupModel !==
+            "function" ||
+          typeof options.application.recordEngineeringFollowupModel !==
+            "function")
+      )
+        return {
+          outcome: "pending",
+          stage: "prepare",
+          reason: "staged_invocation_unavailable",
+        };
+      if (
+        options.invocationMode === "staged" &&
+        typeof options.checks.prepare !== "function"
+      )
+        return {
+          outcome: "pending",
+          stage: "prepare",
+          reason: "staged_checks_unavailable",
+        };
       const runtime = createLearningRuntime(options, run);
       // Never accept a caller's reusable physical claim identity.
       const physicalClaim = snapshot({
