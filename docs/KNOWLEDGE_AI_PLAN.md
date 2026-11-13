@@ -147,7 +147,7 @@ passed all seven jobs and 94 steps; all five packages passed strict original-byt
 dependency, native signature/Sigstore/source and clean-public-consumer checks.
 Historical `0.2.8` retains its exact KB `0.1.6` pins.
 The earlier `0.2.1` AI manifest retains its exact `0.1.2` dependencies. The base
-application remains independent of KB and providers. [Current publication receipt](RELEASING.md#verified-029-publication-2026-11-13) · [Historical AI manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.1/packages/ai/package.json)
+application remains independent of KB and providers. [0.2.9 publication receipt](RELEASING.md#verified-029-publication-2026-11-13) · [Historical AI manifest](https://github.com/pegma-dev/support-desk/blob/v0.2.1/packages/ai/package.json)
 
 Qualified Storage Core adapter releases include
 [Cloudflare D1 `0.4.6`](https://github.com/pegma-dev/storage-core/releases/tag/v0.4.6)
