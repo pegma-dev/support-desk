@@ -1,13 +1,27 @@
 # @pegma/support-desk-application
 
-The local synchronized source version is unpublished `0.2.9`. It adds optional
-per-attempt engineering model-planning/completion, proposal and dispatch
-observations through the existing guarded kernels. Current authority, fresh
-proof and opaque-version checks remain; older structural ports keep their
-standalone fallback. See the [candidate notes](../../docs/RELEASE_NOTES.md#029-engineering-worker-observations)
+Source preparation, 2026-11-13, selects synchronized `0.2.10`. Verify publication
+through the [release operations](../../docs/RELEASING.md#source-version-0210)
+before host adoption. The patch adds optional final browser/authority guards
+and cancellation to customer success confirmation and resolution evidence.
+`ConfirmCustomerSuccessOptions` and `SubmitResolutionEvidenceOptions` are
+optional third arguments with `signal` and `verifyBeforeCommit`; existing
+two-argument calls and return types stay valid. The host callback follows all
+asynchronous proof/planning, freshly per CAS attempt, with its optional
+synchronous assertion at the transaction boundary. Exact accepted receipts
+recover first under current permissions and customer ownership where required,
+before obsolete proof, guard or abort checks. See the
+[exact options and recovery contract](../../docs/RESOLUTION_LEARNING.md#final-human-success-and-evidence-guards-0210)
+and [release notes](../../docs/RELEASE_NOTES.md#0210-final-success-evidence-guards).
+
+The verified `0.2.9` publication added optional per-attempt engineering
+model-planning/completion, proposal and dispatch observations through existing
+guarded kernels. Current authority, fresh proof and opaque-version checks
+remain; older structural ports keep their standalone fallback. See the
+[dated notes](../../docs/RELEASE_NOTES.md#029-engineering-worker-observations)
 and [worker contract](../../docs/ENGINEERING_EXPORT.md#candidate-029-worker-observations).
 
-The candidate exposes the optional SDK-owned
+The application exposes the optional SDK-owned
 `stagedResolutionLearningDelivery` capability with its exact own `prepare`,
 `write` and `complete` methods. It retains one immutable KB request, historical
 acknowledgement, current target checks and atomic claim release at delivery
@@ -15,10 +29,9 @@ checkpoints. Fresh authority, Source/Work/Ticket versions, claim and deadline
 fences remain required. The AI option `deliveryMode: 'staged'` requires the
 original capability and methods before claiming work. Existing inline delivery
 remains available to structural ports. See [staged draft delivery](../../docs/RESOLUTION_LEARNING.md#opt-in-staged-draft-delivery-029-candidate).
-The source candidate is unpublished and current Native Workers Free 50/100
-qualification remains pending.
+Complete Native Workers Free 50/100 host qualification remains pending.
 
-The candidate also accepts optional `EngineeringMutationOptions` on
+The application also accepts optional `EngineeringMutationOptions` on
 `submitEngineeringFollowupRetestResult` after its existing command. New writes
 retain current retest evidence, signal and final host guards. Exact accepted
 receipts recover under current authorization before new mutable proof.
@@ -27,7 +40,7 @@ See the [retest controls](../../docs/ENGINEERING_FOLLOWUP.md#candidate-029-retes
 Authorized customer ticket services and provider-neutral durable outbox
 records for Support Desk. The host supplies an `@pegma/storage-core` `Store`
 and a trusted Authorization Core access context.
-The unpublished Task 15 source addition accepts optional `cannedResponses`
+The Task 15 source addition accepts optional `cannedResponses`
 configuration and exposes `listCannedResponses` and pure `renderCannedResponse`.
 Existing explicit staff reply/note commands accept `cannedResponse` selections
 with exact preview validation and transactional content-free Audit provenance.
@@ -35,11 +48,11 @@ See [bounds, permissions and replay](../../docs/HOST_COMPOSITION.md#staff-canned
 The host server supplies `correlationId` on commands; the application validates
 and propagates it and never generates it.
 
-The current verified published synchronized release is `0.2.8` and includes
+The verified `0.2.9` publication includes
 changes beyond the immutable `0.1.0`/`0.1.1` artifacts. SD-01 first shipped
 handling/handoff foundations in `0.2.0` without model generation or a KB
-dependency. See the current
-[publication receipt](../../docs/RELEASING.md#verified-028-publication-2026-11-12).
+dependency. See its dated
+[publication receipt](../../docs/RELEASING.md#verified-029-publication-2026-11-13).
 Host adoption retains its own activation gates; source checkouts and
 overwritten registry versions are not release substitutes.
 
@@ -47,7 +60,7 @@ The published synchronized `0.2.1` patch groups independent Store reads for
 assistant answering while retaining current authority, ticket and turn fences.
 This package gains no KB or provider dependency. The historical
 [0.2.1 receipt](../../docs/RELEASING.md#verified-021-publication-2026-11-10)
-records that patch's exact artifacts; current `0.2.8` retains those guards. Grouped reads do not establish a universal host query or CPU
+records that patch's exact artifacts; later releases retain those guards. Grouped reads do not establish a universal host query or CPU
 budget.
 
 Published `0.2.3` includes the final engineering review guards described in

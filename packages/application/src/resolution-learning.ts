@@ -1,6 +1,11 @@
 import type { supportTicketAuditActions } from "./index.js";
 import { createResolutionLearningStagedReviewServices } from "./resolution-learning-staged.js";
-import { hasPermission, type AccessContext } from "@pegma/authorization-core";
+import {
+  hasPermission,
+  serializeAccessContext,
+  type AccessContext,
+} from "@pegma/authorization-core";
+import { engineeringMutationBoundary } from "./engineering-mutation-guard.js";
 import type { Clock } from "@pegma/spine";
 import {
   MAX_SCAN_PAGE_SIZE,
@@ -889,8 +894,22 @@ export function createResolutionLearningServices(deps: Dependencies): {
       }
       throw new SupportDeskConflictError();
     },
-    async submitResolutionEvidence(access, input) {
+    async submitResolutionEvidence(access, input, mutationOptions) {
       permission(access, supportPermissions.learningEvidenceSubmit, true);
+      const actorId = access.principalId;
+      // A comparison fence for this trusted context, never a live session cache.
+      const grant = serializeAccessContext(access);
+      const authorize = (): void => {
+        permission(access, supportPermissions.learningEvidenceSubmit, true);
+        if (
+          access.principalId !== actorId ||
+          serializeAccessContext(access) !== grant
+        )
+          throw new SupportDeskAuthorizationError(
+            supportPermissions.learningEvidenceSubmit,
+          );
+      };
+      const mutation = engineeringMutationBoundary(mutationOptions);
       const command = snapshot(
         fields(input, "evidence command", [
           "ticketId",
@@ -921,19 +940,19 @@ export function createResolutionLearningServices(deps: Dependencies): {
           : raw.receipt,
         "verification reference",
       );
-      const hash = await commandFingerprint(
-        command,
-        access.principalId,
-        "evidence",
-      );
+      const hash = await commandFingerprint(command, actorId, "evidence");
       for (let attempt = 0; attempt < deps.maxConflictAttempts; attempt += 1) {
+        authorize();
         const previous = await replay(command, hash);
+        authorize();
         if (previous !== null) return previous;
+        mutation?.ensure();
         const {
           ticket: versioned,
           source,
           rows,
         } = await load(command.ticketId);
+        authorize();
         const ticket = versioned.value.ticket;
         if (
           ticket.revision !== command.expectedRevision ||
@@ -954,15 +973,10 @@ export function createResolutionLearningServices(deps: Dependencies): {
             "Visible solution message missing",
           );
         const now = clock.now();
-        const trusted = await context(
-          ticket,
-          source.value,
-          access.principalId,
-          now,
-        );
+        const trusted = await context(ticket, source.value, actorId, now);
         let evidence: ResolutionEvidence | null = null;
         if (command.evidence.kind === "staff_verified_fix")
-          evidence = { ...command.evidence, actorId: access.principalId };
+          evidence = { ...command.evidence, actorId };
         else if (
           trusted.product !== null &&
           options.testReceipts !== undefined
@@ -981,7 +995,7 @@ export function createResolutionLearningServices(deps: Dependencies): {
           if (test !== null) {
             const proposed: ResolutionEvidence = {
               kind: "successful_test",
-              actorId: access.principalId,
+              actorId,
               solutionMessageId: command.evidence.solutionMessageId,
               test,
             };
@@ -1038,16 +1052,26 @@ export function createResolutionLearningServices(deps: Dependencies): {
           deps.audit(
             command,
             ticket,
-            access.principalId,
+            actorId,
             now,
             "support.learning.evidence_recorded",
           ),
           receipt(command, hash, result(plan.source)),
         ];
+        // All SDK reads/planning precede the last awaited host authority check.
+        // A conflict discards this assertion and obtains a fresh one next time.
+        authorize();
+        const assertCurrent =
+          mutation === undefined ? undefined : await mutation.verify();
+        authorize();
+        assertCurrent?.();
+        authorize();
+        mutation?.ensure();
         if ((await records.transact(command.ticketId, actions)).committed)
           return result(plan.source);
       }
       const previous = await replay(command, hash);
+      authorize();
       if (previous !== null) return previous;
       throw new SupportDeskConflictError();
     },

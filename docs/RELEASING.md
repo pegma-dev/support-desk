@@ -1,10 +1,79 @@
 # Release operations
 
+<a id="source-version-0210"></a>
+
+## 0.2.10 release preparation: 2026-11-13
+
+The synchronized source manifests and internal Support pins select `0.2.10`;
+the repository root stays private at `0.0.0`. This patch adds optional final
+host guards/cancellation to customer success confirmation and resolution
+evidence submission. Exact KB application/contracts `0.1.8`, `zod@4.6.7` and
+other external dependency selections are unchanged. See the
+[release notes](RELEASE_NOTES.md#0210-final-success-evidence-guards).
+
+Source preparation does not establish publication. The combined source must
+pass the normal Node 22/24 format, types, complete runtime tests, examples,
+release-pack and clean-consumer gates, configured review and CI before the
+protected signed-tag/OIDC release flow below. Its completed workflow, registry
+verification and permanent original assets must supply a new dated receipt.
+Consult [published releases](https://github.com/pegma-dev/support-desk/releases)
+for authoritative release status. The verified `0.2.9` receipt and all earlier
+artifacts remain preserved below; SDK publication does not close host
+deployment, complete invocation/CPU, provider/privacy, requested-client or pilot
+acceptance.
+
+<a id="verified-029-publication-2026-11-13"></a>
+
+## Verified 0.2.9 publication: 2026-11-13
+
+At this publication checkpoint, the verified synchronized release was **0.2.9** for all five public
+packages. The [protected signed `v0.2.9` release](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.9)
+binds source [`4d080cb11fa36a35ece2f21c51ee14812339eaf6`](https://github.com/pegma-dev/support-desk/commit/4d080cb11fa36a35ece2f21c51ee14812339eaf6)
+and tag object `ba6b4dfcbd304a1b016e2b39a6df986126573420`.
+[Run 43366221098, attempt 1](https://github.com/pegma-dev/support-desk/actions/runs/43366221098/attempts/1)
+completed all seven jobs and 94 steps successfully. Each Node22/24 release lane
+passed 4,061 tests across 93 files with zero skips. All five packages were
+published in attempt one; none was skipped and no recovery, repack or retag was
+required.
+
+The hosted verifier and an independent exact-source invocation passed original
+registry bytes and dependencies, native npm `11.18.0` signatures,
+Sigstore/TUF/source provenance and clean scripts-disabled public installation
+and entry-point imports. All five npm `latest` tags resolved to `0.2.9` at verification; AI's
+registration-only `bootstrap: 0.1.1` remains separate. Optional AI pins exact
+public KB application/contracts `0.1.8`.
+
+Original prepared artifact `14011470401` is retained byte-for-byte. Its ZIP
+SHA-256 is `14507d4610790b2b3222d88074648a37eb896c8127d03ec2810786396dacead7`;
+the independently recorded manifest SHA-256 is
+`fd08a7f6d50853bc6432cd79a57ed433337e3afff6d85bccb0d3f9786a8013d3`.
+
+The six permanent public assets passed authenticated API/digest checks and
+authenticated and anonymous exact-byte downloads before promotion to GitHub
+Latest at 05:06:16 UTC:
+
+| Public asset                                                                                                                                        | Asset ID    | Bytes  | SHA-256                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------ | ------------------------------------------------------------------ |
+| [package-manifest.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.9/package-manifest.json)                                   | `742349609` | 34592  | `fd08a7f6d50853bc6432cd79a57ed433337e3afff6d85bccb0d3f9786a8013d3` |
+| [prepared-artifact.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.9/prepared-artifact.json)                                 | `742349649` | 4314   | `5f0b947d21eb6333564e8603952a52ad8a62048ba0e2c8fa43fa060b2537cb59` |
+| [qualified-release-notes.md](https://github.com/pegma-dev/support-desk/releases/download/v0.2.9/qualified-release-notes.md)                         | `742349681` | 1899   | `627268f824fc671fdc992ef47e471c1687df3f46a73c546bb47b089a2e33417c` |
+| [registry-verification.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.9/registry-verification.json)                         | `742349725` | 17890  | `1ea0c8897c58f1d3223c998650dd6ba4507be2cf97b365ad9117a995e6d75630` |
+| [support-desk-release-43366221098-1.zip](https://github.com/pegma-dev/support-desk/releases/download/v0.2.9/support-desk-release-43366221098-1.zip) | `742349762` | 692915 | `14507d4610790b2b3222d88074648a37eb896c8127d03ec2810786396dacead7` |
+| [verification-job.json](https://github.com/pegma-dev/support-desk/releases/download/v0.2.9/verification-job.json)                                   | `742349812` | 2925   | `2f913b97c657e1523e31c91263ec5b79a53e6378d6bc371e7827490e2ae60969` |
+
+The release adds opt-in durable release-follow-up check phases and bundle
+observations, corrects approval renewal and deferred receipt expiry, and screens
+the complete independent-check payload for private ticket text. The Sessions
+`0.3.0` prerequisite is also public. SDK publication leaves final site
+integration, host deployment, complete Workers Free 50/100 invocation/CPU
+acceptance, provider/privacy and requested-client acceptance, and supervised
+pilots pending. Earlier receipts and original archives remain unchanged.
+
 <a id="verified-028-publication-2026-11-12"></a>
 
 ## Verified 0.2.8 publication: 2026-11-12
 
-The current verified synchronized release is **0.2.8** for all five public
+The verified synchronized release on this date was **0.2.8** for all five public
 packages. The [signed `v0.2.8` release](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.8)
 binds source [`e87381d547506ff5ebe8f5d92703a467647c2dce`](https://github.com/pegma-dev/support-desk/commit/e87381d547506ff5ebe8f5d92703a467647c2dce)
 and tag object `995634e2347f9fe037e643051d8170d3021d44e9`.
@@ -13,7 +82,7 @@ completed all seven jobs and 94 steps, including 3,355 tests across 72 files
 with zero skips on each Node22/24 lane. It published all five packages and
 skipped none. Independent native npm `11.18.0` signature and Sigstore/source
 verification passed before clean public entry-point imports. All five npm
-`latest` tags resolve to `0.2.8`; AI's registration-only `bootstrap: 0.1.1`
+`latest` tags resolved to `0.2.8` at verification; AI's registration-only `bootstrap: 0.1.1`
 remains separate.
 
 Original prepared artifact `13920290093` is retained byte-for-byte. Its ZIP
@@ -36,8 +105,8 @@ controls and callback-scoped reassessment/post observations, retaining current
 proof, authority and exact ACK recovery. Exact KB application/contracts
 `0.1.6` remain unchanged. This qualifies SDK publication; host deployment,
 privacy, provider, client and complete invocation/CPU acceptance remain separate.
-Earlier releases, receipts and original archives remain unchanged. The local
-`0.2.9` engineering-worker candidate below is not published.
+Earlier releases, receipts and original archives remain unchanged. The
+prepublication `0.2.9` source checkpoint below is retained as history.
 
 ## Historical 0.2.7 publication: 2026-11-11
 
@@ -71,16 +140,19 @@ SDK publication does not establish host deployment, privacy, client or pilot
 acceptance. Earlier `0.2.6` and older releases retain their immutable artifacts
 and original dependency pins.
 
-## Source version 0.2.9
+<a id="source-version-029"></a>
 
-All five local manifests and exact internal Support pins target unpublished
+## Historical source preparation for 0.2.9
+
+Before the verified publication recorded above, all five local manifests and
+exact internal Support pins targeted then-unpublished
 `0.2.9`. Optional per-attempt engineering model planning/completion, proposal
 and dispatch observations share the existing guarded mutation kernels. Fresh
 proof, authority, Source/Work opaque-version confirmation, exact ACK recovery
 and legacy structural-port fallbacks remain. See the
 [candidate notes](RELEASE_NOTES.md#029-engineering-worker-observations) and
 [worker contract](ENGINEERING_EXPORT.md#candidate-029-worker-observations).
-The candidate pins exact verified public KB application/contracts `0.1.8`.
+The candidate pinned exact verified public KB application/contracts `0.1.8`.
 All four KB packages passed strict native registry/source/provenance and public
 consumer verification at 22:49:06 UTC on 2026-11-12 from signed source
 `04d07b66cac18b7f6e0ca1530714878f3d66084d`. The completed
@@ -90,7 +162,8 @@ retains original preparation artifact `13989866818` and manifest SHA-256
 The [KB `0.1.8` release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.8)
 retains the [strict public receipt](https://github.com/pegma-dev/knowledge-base/releases/download/v0.1.8/registry-verification.json),
 SHA-256 `22888dada71e6723d3852d2509adbd5392ec598ad11d7ccece3373451473cb6c`.
-The changed SDK composition remains unpublished pending fresh qualification.
+At this checkpoint, the changed SDK composition remained unpublished pending
+fresh qualification; the dated `0.2.9` receipt above closes that publication gate.
 
 ### Historical KB 0.1.7 qualification
 
@@ -114,9 +187,10 @@ on the same date. Release `443299806` retains original preparation artifact
 The API digests match these identities. An anonymous receipt download also
 matched the retained receipt bytes and digest.
 
-The changed SDK dependency graph requires fresh qualification. Published Support Desk `0.2.8` and its exact KB
-`0.1.6` pins remain unchanged. Keep hosts on verified published artifacts
-until this candidate is merged, published and qualified.
+At this checkpoint, the changed SDK dependency graph required fresh
+qualification. Published Support Desk `0.2.8` and its exact KB `0.1.6` pins
+remained unchanged. Hosts stayed on verified published artifacts while this
+candidate awaited merge, publication and qualification.
 No candidate pack, copied source, local archive or override substitutes for a
 production dependency. The root remains private at `0.0.0`.
 
@@ -656,8 +730,8 @@ SD-06, and a clean memory consumer does not certify a host's durable migration.
 After the reviewed release PR is merged and every current-head gate is green,
 the authorized maintainer creates the protected signed annotated stable tag at
 the exact `origin/main` commit, pushes it, and creates its verified GitHub
-release. The current verified release identity is `v0.2.8`; the earlier
-`v0.2.7`, `v0.2.6`,
+release. The current verified release identity is `v0.2.9`; the earlier
+`v0.2.8`, `v0.2.7`, `v0.2.6`,
 `v0.2.5`, `v0.2.4`, `v0.2.3`, `v0.2.2`, `v0.2.1` and SD-06 `v0.2.0` identities remain
 historical.
 Do not create a GitHub release for `v0.1.1-ai-bootstrap`.

@@ -146,8 +146,17 @@ first publish and later OIDC releases.
 
 ## Where things stand
 
+Source preparation, 2026-11-13, synchronizes all five packages and internal
+Support pins at `0.2.10`; the root remains private at `0.0.0`. It adds optional
+third-argument `signal`/`verifyBeforeCommit` options to customer success and
+resolution evidence, retaining two-argument compatibility and receipt-first
+recovery under current authority. Exact KB `0.1.8`, `zod@4.6.7` and other
+external selections are unchanged. The combined source still needs the normal
+release gates and a publication receipt. See [patch notes](docs/RELEASE_NOTES.md#0210-final-success-evidence-guards)
+and [release status](docs/RELEASING.md#source-version-0210).
+
 Task 15's bounded deployment-owned canned-response catalog is implemented in
-the unpublished source candidate. Staff preview literal values and explicitly
+the released SDK source. Staff preview literal values and explicitly
 submit an existing reply/note command; exact version/body/target validation and
 transactional Audit provenance retain current authorization, revision, replay
 and internal-note boundaries. It adds no collection or package version. See
@@ -179,19 +188,19 @@ collision hints. Customer DTOs and automatic customer mail omit these fields.
 Calendars and presence stay host-owned. Task 12 remains pending on both hosts'
 durable-store production evidence. Source work does not publish a package.
 
-The five local manifests and exact internal Support pins target unpublished
-`0.2.9`. It adds optional per-attempt model-planning/completion, proposal and
+All five synchronized packages are published and strictly verified at `0.2.9`.
+It adds optional per-attempt model-planning/completion, proposal and
 dispatch observations while retaining fresh proof, authority, opaque-version
 confirmation and exact ACK recovery. Legacy structural ports keep their full
-fallback. See the [candidate notes](docs/RELEASE_NOTES.md#029-engineering-worker-observations)
+fallback. See the [release notes](docs/RELEASE_NOTES.md#029-engineering-worker-observations)
 and [worker contract](docs/ENGINEERING_EXPORT.md#candidate-029-worker-observations).
-The candidate now pins exact verified public KB application/contracts `0.1.8`.
-Its changed dependency graph requires fresh SDK qualification; published
-`0.2.8` retains its exact KB `0.1.6` pins. The
-root stays private at `0.0.0`; source or candidate packs do not qualify registry
-publication or a host's complete query/CPU budget.
+The optional AI package pins exact public KB application/contracts `0.1.8`.
+Its changed dependency graph passed strict registry, native cryptographic/source
+and clean-public-consumer qualification. Historical `0.2.8` retains its exact KB
+`0.1.6` pins. The root stays private at `0.0.0`; host integration and complete
+query/CPU acceptance retain their own gates.
 
-The unpublished `0.2.9` candidate also adds opt-in
+Published `0.2.9` also adds opt-in
 [`deliveryMode: 'staged'`](docs/RESOLUTION_LEARNING.md#opt-in-staged-draft-delivery-029-candidate)
 with durable prepare/write checkpoints that release the claim and a later
 physical completion phase.
@@ -200,14 +209,16 @@ yields after one retirement attempt for later fresh readback.
 Closing policy/receipt checks apply to inline delivery too. The optional
 [`./openrouter` entry](packages/ai/README.md#optional-openrouter-adapter-source-candidate)
 keeps the AI root provider-neutral and requires explicit host binding with
-separate host stores, keys and current privacy/configuration evidence. Native
-Workers Free 50/100 qualification remains pending.
+separate host stores, keys and current privacy/configuration evidence. The
+Sessions `0.3.0` prerequisite is public. Final site integration, complete host
+Workers Free 50/100 invocation/CPU acceptance, provider/privacy and requested-client
+acceptance, and supervised pilots remain pending.
 
-All five packages have verified published `0.2.8` versions. The synchronized
+All five packages have verified published `0.2.9` versions. The synchronized
 `0.2.1` and `0.2.0` artifacts remain immutable history. The original four names also retain
 their published `0.1.0`/`0.1.1` artifacts; the AI name's `0.1.1` is a separate
 registration-only bootstrap. Follow the
-[publication receipt](docs/RELEASING.md#verified-028-publication-2026-11-12)
+[publication receipt](docs/RELEASING.md#verified-029-publication-2026-11-13)
 and release operations. Customer services return safe DTOs; staff
 services return the authoritative ticket for authorized staff only, and the
 staff queue scans a confirmed projection that is never authorization evidence.
@@ -257,13 +268,13 @@ messages with exact completion fences, and adds deterministic owned
 request-person, staff takeover, private success evidence, human queue
 selection, and bounded atomic handoff work. It adds no model, KB dependency,
 or package; its behavior first shipped in synchronized `0.2.0` and remains in
-current `0.2.8`. Do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
+published `0.2.9`. Do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
 activation gates after verified SDK publication.
 Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
 preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
 both producers' final release preparation are merged. The
-[standalone authoring recipe](docs/HOST_COMPOSITION.md#kb-authoring-producers)
-selects all four strictly verified KB `0.1.6` packages and verified Agent
+[historical standalone authoring recipe](docs/HOST_COMPOSITION.md#kb-authoring-producers)
+selected all four strictly verified KB `0.1.6` packages and verified Agent
 Access `0.1.1`. The trusted releases close the producer publication gates.
 Their manual `0.1.0` bootstrap receipts remain historical and have no OIDC
 provenance. SD-02
@@ -281,8 +292,8 @@ signed `v0.2.0` at `efc9d733b3d305d24cf4197444e1d76c99bdb777`; see
 `docs/RELEASING.md` for the dated receipt. Its public composition example lives in `examples/ai`;
 the migration and operations handbooks are `docs/UPGRADING.md` and
 `docs/AI_OPERATIONS.md`. The base application has no KB or provider dependency; actual KB
-`0.1.6` application/contracts dependencies belong only to the current
-optional AI `0.2.8` package. Older `0.2.0` and
+`0.1.8` application/contracts dependencies belong only to the current
+published optional AI `0.2.9` package and prepared `0.2.10` metadata. Historical `0.2.8` retains `0.1.6`; older `0.2.0` and
 `0.2.1` AI manifests retain their original `0.1.2` pins. See [assistant coordination](docs/ASSISTANT_COORDINATION.md)
 and its [layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint).
 PG-01/RG-01 consume exact verified published producers and still require actual
