@@ -3,10 +3,10 @@
 SD-05's source merged in [PR #41](https://github.com/pegma-dev/support-desk/pull/41)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current verified synchronized release is `0.2.9`; see its
-[publication receipt](RELEASING.md#verified-029-publication-2026-11-13).
-Local source prepares unpublished `0.2.10`; see the
-[source handoff](RELEASING.md#source-version-0210).
+The current verified synchronized release is `0.2.10`; see its
+[publication receipt](RELEASING.md#verified-0210-publication-2026-11-13).
+Local source prepares unpublished `0.2.11`; see the
+[source handoff](RELEASING.md#source-version-0211).
 This handbook describes its contracts and host responsibilities, not deployment
 or host acceptance. SD-04 merged in
 [PR #40](https://github.com/pegma-dev/support-desk/pull/40). Scope comes from the

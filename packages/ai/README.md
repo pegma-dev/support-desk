@@ -47,9 +47,9 @@ the [follow-up invocation contract](../../docs/ENGINEERING_FOLLOWUP.md#candidate
 
 Optional, provider-neutral Support Desk answer, learning, engineering, and
 release follow-up coordination.
-The current verified published synchronized release is `0.2.9`;
-see the [publication receipt](../../docs/RELEASING.md#verified-029-publication-2026-11-13).
-Its exact internal Support application pin is `0.2.9`; external KB application
+The current verified published synchronized release is `0.2.10`;
+see the [publication receipt](../../docs/RELEASING.md#verified-0210-publication-2026-11-13).
+Its exact internal Support application pin is `0.2.10`; external KB application
 and contracts pins are exact `0.1.8`. The earlier
 [`0.2.8` receipt](../../docs/RELEASING.md#verified-028-publication-2026-11-12)
 retains its original KB `0.1.6` graph. Host activation and whole-invocation/CPU
@@ -387,6 +387,10 @@ token and context ceilings. Larger inputs may therefore hold before dispatch.
 V1 route approvals and tokenizer qualifications do not authorize the new wire;
 hosts must qualify the actual new request and route-policy hash. This instruction
 boundary does not establish factual model quality or close evaluation gates.
+The structured-output schema name intentionally remains
+`support_independent_check_v1`: it identifies the unchanged verdict schema,
+while `openrouter-support-independent-check-v2` identifies the changed message
+wire and its required route/tokenizer qualification.
 
 Hosts supply current authority, purpose-specific route/privacy evidence,
 qualified token counting, credentials, receipt keys, bounded durable funding

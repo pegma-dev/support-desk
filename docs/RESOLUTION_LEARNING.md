@@ -3,10 +3,11 @@
 SD-03's source merged in [PR #39](https://github.com/pegma-dev/support-desk/pull/39)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The dated `0.2.9`
-[publication receipt](RELEASING.md#verified-029-publication-2026-11-13) records
-the verified public graph. Source metadata now prepares synchronized `0.2.10`;
-see [release status](RELEASING.md#source-version-0210) before host adoption.
+The current verified synchronized release is `0.2.10`; its dated
+[publication receipt](RELEASING.md#verified-0210-publication-2026-11-13) records
+the public graph and final success/evidence guards. Source metadata prepares
+unpublished synchronized `0.2.11`; see the
+[source handoff](RELEASING.md#source-version-0211) before host adoption.
 The ticket application implements enrollment, structured resolution evidence,
 durable work, exact staff review, invalidation, withdrawal, and reconciliation
 records. The optional AI package adds bounded model processing, KB draft
