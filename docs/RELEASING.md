@@ -1,26 +1,71 @@
 # Release operations
 
+<a id="source-version-0211"></a>
+
+## 0.2.11 source preparation: 2026-11-13
+
+The synchronized source manifests and exact internal Support pins select
+`0.2.11`; the repository root stays private at `0.0.0`. This candidate corrects
+the trusted independent-check policy boundary and selects wire v2. Exact KB
+application/contracts `0.1.8`, `zod@4.6.7` and other external selections are
+unchanged. See the [candidate notes](RELEASE_NOTES.md#0211-trusted-independent-check-policy).
+
+This source preparation is not a publication receipt. The combined source
+must pass the normal Node 22/24 format, types, complete runtime tests,
+examples, release-pack and clean-consumer gates, configured review and CI,
+then the protected signed-tag/OIDC release flow below. A new completed
+workflow, strict registry verification and permanent original assets must
+supply its own dated receipt. Do not adopt unpublished candidate artifacts
+as production dependencies. The recorded verified release remains `0.2.10`.
+SDK publication does not establish factual model quality or close the host's
+deployment, invocation/CPU, provider/privacy, client or pilot acceptance gates.
+
 <a id="source-version-0210"></a>
+<a id="verified-0210-publication-2026-11-13"></a>
 
-## 0.2.10 release preparation: 2026-11-13
+## Verified 0.2.10 publication: 2026-11-13
 
-The synchronized source manifests and internal Support pins select `0.2.10`;
-the repository root stays private at `0.0.0`. This patch adds optional final
-host guards/cancellation to customer success confirmation and resolution
-evidence submission. Exact KB application/contracts `0.1.8`, `zod@4.6.7` and
-other external dependency selections are unchanged. See the
-[release notes](RELEASE_NOTES.md#0210-final-success-evidence-guards).
+All five synchronized packages are published and strictly verified at `0.2.10`.
+The [protected signed release](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.10)
+binds source [`0563bd526f248fc72408f51d0e93110c1c5b60ca`](https://github.com/pegma-dev/support-desk/commit/0563bd526f248fc72408f51d0e93110c1c5b60ca)
+and tag object `886ee0b28c4c3d2260bae2779b03ab301404e35a`.
+[Run 43442973443](https://github.com/pegma-dev/support-desk/actions/runs/43442973443)
+completed recovery on attempt 2: all seven selected successful job records and
+94 selected actual step records succeeded. Both Node 22/24 release lanes passed
+4,171 tests across 95 files with zero skips. Identity, Node lanes and preparation
+retain their original attempt-one executions; recovery metadata does not imply
+those jobs reran. Fresh attempt-two preflight, publisher and verifier completed
+the release, publishing four absent versions and authenticating/skipping one
+existing version. Per-package provenance identifies each actual writer attempt.
+Attempt one's registry-visibility failure and skipped verifier remain history.
+No repack or retag occurred.
 
-Source preparation does not establish publication. The combined source must
-pass the normal Node 22/24 format, types, complete runtime tests, examples,
-release-pack and clean-consumer gates, configured review and CI before the
-protected signed-tag/OIDC release flow below. Its completed workflow, registry
-verification and permanent original assets must supply a new dated receipt.
-Consult [published releases](https://github.com/pegma-dev/support-desk/releases)
-for authoritative release status. The verified `0.2.9` receipt and all earlier
-artifacts remain preserved below; SDK publication does not close host
-deployment, complete invocation/CPU, provider/privacy, requested-client or pilot
-acceptance.
+Hosted and independent exact-source verification passed original bytes and
+dependencies, native npm `11.18.0` signatures, Sigstore/TUF and exact
+tag/source/workflow provenance, then a clean scripts-disabled public install
+and every public entry-point import. All five npm `latest` tags were observed
+at `0.2.10` at verification. Optional AI retains exact public KB
+application/contracts `0.1.8`. See the
+[qualified notes](https://github.com/pegma-dev/support-desk/releases/download/v0.2.10/qualified-release-notes.md),
+[strict registry receipt](https://github.com/pegma-dev/support-desk/releases/download/v0.2.10/registry-verification.json)
+and [actual verification job](https://github.com/pegma-dev/support-desk/releases/download/v0.2.10/verification-job.json).
+
+Original prepared artifact `14046297667` is preserved byte-for-byte as
+[support-desk-release-43442973443-1.zip](https://github.com/pegma-dev/support-desk/releases/download/v0.2.10/support-desk-release-43442973443-1.zip),
+SHA-256 `a27c76a77a3a65520edbdebe25a737ec7756772240b4475bd3fc3928fdb38b93`.
+The independently bound
+[canonical manifest](https://github.com/pegma-dev/support-desk/releases/download/v0.2.10/package-manifest.json)
+has SHA-256 `a47d3e1e130edcf263cd236c5ff70248fd2325f7b2fa9a7ed9935c448e687015`.
+The six permanent public assets passed authenticated and anonymous exact-byte
+readback before promotion to GitHub Latest at 15:14 UTC. Separate hashed
+consumer/preflight bindings and original producer metadata remain in the
+[prepared-artifact receipt](https://github.com/pegma-dev/support-desk/releases/download/v0.2.10/prepared-artifact.json).
+
+The [0.2.10 notes](RELEASE_NOTES.md#0210-final-success-evidence-guards) describe
+its optional final success/evidence guards. The earlier `0.2.9`, `0.2.8` and
+older dated receipts and original archives below remain unchanged. These SDK
+receipts do not close host deployment, physical budget, provider/privacy,
+requested-client or pilot acceptance.
 
 <a id="verified-029-publication-2026-11-13"></a>
 
@@ -730,8 +775,8 @@ SD-06, and a clean memory consumer does not certify a host's durable migration.
 After the reviewed release PR is merged and every current-head gate is green,
 the authorized maintainer creates the protected signed annotated stable tag at
 the exact `origin/main` commit, pushes it, and creates its verified GitHub
-release. The current verified release identity is `v0.2.9`; the earlier
-`v0.2.8`, `v0.2.7`, `v0.2.6`,
+release. The current verified release identity is `v0.2.10`; the earlier
+`v0.2.9`, `v0.2.8`, `v0.2.7`, `v0.2.6`,
 `v0.2.5`, `v0.2.4`, `v0.2.3`, `v0.2.2`, `v0.2.1` and SD-06 `v0.2.0` identities remain
 historical.
 Do not create a GitHub release for `v0.1.1-ai-bootstrap`.

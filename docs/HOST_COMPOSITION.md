@@ -12,7 +12,7 @@ See also the runnable example at
 
 ## Published 0.2.6 guarded engineering controls
 
-The current verified registry tuple is `0.2.9`. The local synchronized `0.2.10`
+The current verified registry tuple is `0.2.10`. The local synchronized `0.2.11`
 source candidate remains unpublished and retains these guarded controls.
 Candidate metadata or a local pack does not qualify host adoption. Published
 `0.2.6` adds an optional third
@@ -34,13 +34,14 @@ fallback. It does not extend that observation to all seven controls. See the
 Its optional AI package pins exact verified public KB application/contracts
 `0.1.6`. Published `0.2.9` instead pins exact verified public KB
 application/contracts `0.1.8`; that graph passed strict registry and clean-consumer
-qualification. Source preparation for `0.2.10` retains those external pins and
+qualification. Published `0.2.10` retains those external pins. Source
+preparation for `0.2.11` also retains them and
 requires its own release qualification. The `0.2.8` controls retained in `0.2.9`
 add late host controls to the separate non-post follow-up methods and
 optional callback-scoped reassessment/post read observations; see
 the [published 0.2.8 follow-up contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards).
 Qualify the complete published consumer graph for the host; the candidate
-remains unpublished. See the [source handoff](RELEASING.md#source-version-0210).
+remains unpublished. See the [source handoff](RELEASING.md#source-version-0211).
 
 Options use a plain object with the two named, enumerable own data fields.
 Unknown keys, accessors and inherited options fail validation. The optional
@@ -150,13 +151,13 @@ recorded synthetic KB protocol proof used four packed KB packages with registry
 `@pegma/agent-access@0.1.1`.
 
 The KB-05 publication prerequisite for SD-02 is closed. The optional AI package
-in the verified `0.2.9` tuple uses exact KB application/contracts `0.1.8`
-dependencies. The unpublished `0.2.10` candidate retains those external pins
+in the verified `0.2.10` tuple uses exact KB application/contracts `0.1.8`
+dependencies. The unpublished `0.2.11` candidate retains those external pins
 and requires its own release qualification. The base application has no KB
 or provider dependency. SD-02 source passed validation/review and merged in
 [PR #38](https://github.com/pegma-dev/support-desk/pull/38);
 that behavior first shipped in verified synchronized `0.2.0` and remains in
-current public `0.2.9`, whose publication receipt is linked above. Host acceptance remains required. Do not substitute branches, copied source,
+current public `0.2.10`, whose publication receipt is linked above. Host acceptance remains required. Do not substitute branches, copied source,
 local paths, or unpublished tarballs for production dependencies.
 
 SD-03's atomic-provenance prerequisite is the verified trusted
@@ -227,7 +228,7 @@ own dependency pins. The AI package's immutable
 pins `@pegma/knowledge-base-application@0.1.2` and
 `@pegma/knowledge-base-contracts@0.1.2`. Adding a newer standalone SDK does not
 replace those dependencies or establish mixed-version host acceptance. The
-current verified AI `0.2.9` manifest explicitly pins KB application/contracts
+current verified AI `0.2.10` manifest explicitly pins KB application/contracts
 `0.1.8`; hosts must adopt and qualify that coherent graph separately.
 
 #### Qualified storage adapters
@@ -593,7 +594,7 @@ Keep model activation disabled until the host gates pass. This composition
 uses the verified KB `0.1.8` set and Agent Access `0.1.1` listed above.
 SD-02's producer publication prerequisite is complete. Its optional coordinator source is
 merged after validation/review, as are SD-03 through SD-05. They first shipped
-in verified synchronized `0.2.0` and remain in current public `0.2.9`, whose publication
+in verified synchronized `0.2.0` and remain in current public `0.2.10`, whose publication
 receipt is linked above. The current AI consumer pins exact KB application/
 contracts `0.1.8`; the earlier `0.2.1`/KB `0.1.2` manifests remain immutable. Actual two-host
 login/client, privacy, operations, Task 12,

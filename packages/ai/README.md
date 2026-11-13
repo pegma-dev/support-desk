@@ -1,12 +1,15 @@
 # @pegma/support-desk-ai
 
-The local synchronized source candidate is unpublished `0.2.10`. Its internal
-Support application pin is exact `0.2.10`; external KB application/contracts
+The local synchronized source candidate is unpublished `0.2.11`. Its internal
+Support application pin is exact `0.2.11`; external KB application/contracts
 retain exact verified public `0.1.8`. See the
-[source handoff](../../docs/RELEASING.md#source-version-0210) and
-[guard upgrade guidance](../../docs/UPGRADING.md#0210-final-success-and-evidence-guards).
+[source handoff](../../docs/RELEASING.md#source-version-0211) and
+[candidate notes](../../docs/RELEASE_NOTES.md#0211-trusted-independent-check-policy).
 Candidate source requires its own release qualification and publication before
-production adoption.
+production adoption. Current public `0.2.10` is strictly verified; its
+[receipt](../../docs/RELEASING.md#verified-0210-publication-2026-11-13) and
+[guard upgrade guidance](../../docs/UPGRADING.md#0210-final-success-and-evidence-guards)
+remain separate from the new checker wire's requalification.
 
 Published `0.2.9` engineering coordination selects optional application-owned model-planning/completion,
 proposal and dispatch observations while preserving fresh proof, authority,
@@ -374,6 +377,16 @@ activation decisions. The
 [focused fixtures](../../test/openrouter-fixtures.ts) exercise this API through
 actual SDK Source/Work reads; the [packed consumer](../../examples/ai/synthetic-ports.ts)
 checks its public declarations.
+
+The next source wire, `openrouter-support-independent-check-v2`, places the
+current server-configured review instructions in the system message on each
+attempt. Facts, candidate, outbound and comparison remain user-message data;
+the existing user envelope is retained. Admission counts both complete message
+contents plus the unchanged framing allowance under the existing byte, input
+token and context ceilings. Larger inputs may therefore hold before dispatch.
+V1 route approvals and tokenizer qualifications do not authorize the new wire;
+hosts must qualify the actual new request and route-policy hash. This instruction
+boundary does not establish factual model quality or close evaluation gates.
 
 Hosts supply current authority, purpose-specific route/privacy evidence,
 qualified token counting, credentials, receipt keys, bounded durable funding

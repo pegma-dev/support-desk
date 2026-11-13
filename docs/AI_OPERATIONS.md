@@ -1,8 +1,8 @@
 # Optional AI operations
 
 This runbook describes the merged SD-01 through SD-05 contracts assembled by
-the current verified published synchronized `0.2.9` release; see its
-[publication receipt](RELEASING.md#verified-029-publication-2026-11-13).
+the current verified published synchronized `0.2.10` release; see its
+[publication receipt](RELEASING.md#verified-0210-publication-2026-11-13).
 SDK publication does not establish production deployment, verified host data
 controls, or pilot acceptance. Use exact published artifacts and complete each
 host's own [upgrade rehearsal](UPGRADING.md).
@@ -16,11 +16,12 @@ usable with all optional AI capabilities disabled.
 Published `0.2.6` introduced final host guards and cancellation on seven
 engineering controls. Published `0.2.7` adds compatible approval observations
 and authorized engineering reads, retaining fresh proof and host authority.
-The current `0.2.9` tuple pins exact public KB application/contracts `0.1.8`
+The current `0.2.10` tuple pins exact public KB application/contracts `0.1.8`
 and passed strict registry and clean-consumer qualification. Local source
-prepares unpublished `0.2.10` with the same external KB pins; its guards need
-their own combined-source qualification and publication before adoption.
-See the [source handoff](RELEASING.md#source-version-0210). The historical
+prepares unpublished `0.2.11` with the same external KB pins; its checker
+policy/wire v2 correction needs combined-source qualification and publication
+before adoption, plus actual v2 route requalification before use. See the
+[source handoff](RELEASING.md#source-version-0211). The historical
 [`0.2.8` receipt](RELEASING.md#verified-028-publication-2026-11-12) and its KB
 `0.1.6` graph remain unchanged.
 
@@ -32,10 +33,10 @@ ports keep the full legacy path. Use the existing
 current-browser/permission/deadline fence; a guard is read-only and does not
 replace SDK proof. Web posting retains its authorization/delivery guarantees
 and can use a per-attempt application-owned read observation with fresh opaque
-confirmations; the compatibility fallback remains. Use the verified `0.2.9`
+confirmations; the compatibility fallback remains. Use the verified `0.2.10`
 tuple and qualify the host's actual composition separately.
 See the [published 0.2.8 contract](ENGINEERING_FOLLOWUP.md#candidate-028-followup-host-guards)
-and [current source handoff](RELEASING.md#source-version-0210).
+and [current source handoff](RELEASING.md#source-version-0211).
 
 ## Controls and human fallback
 
