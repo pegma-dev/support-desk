@@ -152,8 +152,15 @@ for (const [name, createStore] of engineeringFollowupStores) {
 
     it("checks the returned assertion at CAS when the optional browser callback is omitted", async () => {
       const t = await fixture(createStore());
-      t.state.afterConfirm = async () => { t.state.denied = true; };
-      await expect(t.f.app.submitEngineeringFollowupRetestResult(engineeringFollowupStaff, t.command)).rejects.toThrow();
+      t.state.afterConfirm = async () => {
+        t.state.denied = true;
+      };
+      await expect(
+        t.f.app.submitEngineeringFollowupRetestResult(
+          engineeringFollowupStaff,
+          t.command,
+        ),
+      ).rejects.toThrow();
       expect((await t.f.work()).retestResults).toEqual([]);
     });
 

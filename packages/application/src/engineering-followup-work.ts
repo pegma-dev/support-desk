@@ -2243,24 +2243,33 @@ export function createEngineeringFollowupWorkServices(
         authorize();
         const observer = options.retestReceipts.observe;
         const currentReleaseProof = async () => {
-          const proof = snapshot(await engineeringFollowupTrusted(deps, signal => options.releaseEvidence!.confirm(work.context!, proofContext, signal)));
-        engineeringFollowupValidateProof(
-          proof,
-          proofContext,
-          associated.engineeringWork.value.product!,
-          now,
-        );
-        if (
-          canonical(proof.context) !== canonical(work.context) ||
-          proof.context.mapping === undefined ||
-          proof.context.deploymentHead.state !== "deployed"
-        )
-          throw new SupportDeskConflictError(
-            "Follow-up retest deployment changed",
+          const proof = snapshot(
+            await engineeringFollowupTrusted(deps, (signal) =>
+              options.releaseEvidence!.confirm(
+                work.context!,
+                proofContext,
+                signal,
+              ),
+            ),
           );
+          engineeringFollowupValidateProof(
+            proof,
+            proofContext,
+            associated.engineeringWork.value.product!,
+            now,
+          );
+          if (
+            canonical(proof.context) !== canonical(work.context) ||
+            proof.context.mapping === undefined ||
+            proof.context.deploymentHead.state !== "deployed"
+          )
+            throw new SupportDeskConflictError(
+              "Follow-up retest deployment changed",
+            );
           return proof;
         };
-        const legacyProof = observer === undefined ? await currentReleaseProof() : undefined;
+        const legacyProof =
+          observer === undefined ? await currentReleaseProof() : undefined;
         const requests =
           work.preparedBundle?.bundle.retestRequests ??
           work.handoff?.retestRequests;
@@ -2284,7 +2293,9 @@ export function createEngineeringFollowupWorkServices(
         };
         authorize();
         const opened = await Promise.allSettled([
-          legacyProof === undefined ? currentReleaseProof() : Promise.resolve(legacyProof),
+          legacyProof === undefined
+            ? currentReleaseProof()
+            : Promise.resolve(legacyProof),
           engineeringFollowupTrusted(deps, async (signal) => {
             if (observer === undefined)
               return {

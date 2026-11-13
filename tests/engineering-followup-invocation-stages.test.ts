@@ -309,17 +309,31 @@ for (const [name, createStore] of engineeringFollowupStores) {
     });
 
     it("uses fresh physical deadlines after queue waits without renewing its semantic plan", async () => {
-      const f = await engineeringFollowupAiFixture(createStore(), { followup: { maxModelAttempts: 1 } });
+      const f = await engineeringFollowupAiFixture(createStore(), {
+        followup: { maxModelAttempts: 1 },
+      });
       f.setBudgets({ maxAttempts: 1 });
-      const followup = createSupportDeskReleaseFollowup({ ...stagedOptions(f), invocationMode: "staged", maxOperationMilliseconds: 5000 });
-      expect(await followup.processWork(f.nextCommand())).toMatchObject({ checkpoint: "model_planned" });
+      const followup = createSupportDeskReleaseFollowup({
+        ...stagedOptions(f),
+        invocationMode: "staged",
+        maxOperationMilliseconds: 5000,
+      });
+      expect(await followup.processWork(f.nextCommand())).toMatchObject({
+        checkpoint: "model_planned",
+      });
       const plan = (await f.work()).modelAttempts[0]!;
       f.advance(10_000);
-      expect(await followup.processWork(f.nextCommand())).toMatchObject({ checkpoint: "model_recorded" });
-      expect(f.generate.mock.calls[0]?.[1].deadline).toBe(new Date(Date.parse(f.clock.now()) + 4000).toISOString());
+      expect(await followup.processWork(f.nextCommand())).toMatchObject({
+        checkpoint: "model_recorded",
+      });
+      expect(f.generate.mock.calls[0]?.[1].deadline).toBe(
+        new Date(Date.parse(f.clock.now()) + 4000).toISOString(),
+      );
       expect((await f.work()).modelAttempts[0]?.binding).toEqual(plan.binding);
       f.advance(10_000);
-      expect(await followup.processWork(f.nextCommand())).toMatchObject({ outcome: "candidate" });
+      expect(await followup.processWork(f.nextCommand())).toMatchObject({
+        outcome: "candidate",
+      });
       expect(f.generate).toHaveBeenCalledOnce();
     });
   });
