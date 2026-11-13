@@ -11,6 +11,8 @@ import {
   type EngineeringFollowupChecksBinding,
   type EngineeringFollowupKbTarget,
   type EngineeringFollowupWorkRecord,
+  type EngineeringFollowupBundleObservation,
+  type VerifiedEngineeringFollowupContext,
 } from "@pegma/support-desk-application";
 import type { SupportDeskReleaseFollowupOptions } from "./release-followup-ports.js";
 import type { LearningRuntime } from "./learning-runtime.js";
@@ -31,6 +33,7 @@ import {
   releaseFollowupCheckPolicy,
   releaseFollowupProof,
   releaseFollowupProofContext,
+  releaseFollowupProofSnapshot,
 } from "./release-followup-request.js";
 
 export class ReleaseFollowupReviewGuardFailure extends AssistantBoundaryError {}
@@ -221,11 +224,29 @@ export async function prepareCheckedReleaseFollowupBundle(
   work: EngineeringFollowupWorkRecord,
   rawContent: EngineeringFollowupCandidate,
   runtime: LearningRuntime,
-  observeCurrent: () => Promise<void>,
+  observeCurrent: (
+    observation?: EngineeringFollowupBundleObservation,
+  ) => Promise<void>,
   phase = runtime.deadline,
+  planning?: {
+    readonly proof: VerifiedEngineeringFollowupContext;
+    readonly readProof: (
+      observation: EngineeringFollowupBundleObservation,
+    ) => Promise<VerifiedEngineeringFollowupContext>;
+  },
 ) {
   const content = releaseFollowupContent(rawContent);
-  const proof = await releaseFollowupProof(options, work, runtime, phase);
+  // This App claim proof supplies planning data only. Independent checks and
+  // the later App mutation still obtain fresh current release authority.
+  const proof =
+    planning === undefined
+      ? await releaseFollowupProof(options, work, runtime, phase)
+      : releaseFollowupProofSnapshot(
+          planning.proof,
+          work,
+          timestamp(options.clock.now()),
+        );
+  runtime.ensure(Math.min(phase, timestamp(proof.attestation.validUntil)));
   const target = await targetObservation(options, work, runtime, phase);
   const productBinding = await engineeringFollowupRetestProductBinding(
     proof.context,
@@ -335,14 +356,27 @@ export async function prepareCheckedReleaseFollowupBundle(
     receiptExpiry,
   );
   let verificationDeadline = deadline;
-  const guard = async (): Promise<void> => {
+  const guard = async (
+    observation?: EngineeringFollowupBundleObservation,
+  ): Promise<void> => {
     try {
-      const freshProof = await releaseFollowupProof(
-        options,
-        work,
-        runtime,
-        deadline,
-      );
+      const observed =
+        planning !== undefined && typeof observation?.readProof === "function"
+          ? await planning.readProof(observation)
+          : undefined;
+      const freshProof =
+        observed === undefined
+          ? await releaseFollowupProof(options, work, runtime, deadline)
+          : releaseFollowupProofSnapshot(
+              observed,
+              work,
+              timestamp(options.clock.now()),
+            );
+      if (
+        planning !== undefined &&
+        canonical(freshProof.publicFacts) !== canonical(proof.publicFacts)
+      )
+        throw new AssistantBoundaryError("release_proof_changed");
       const currentTarget = await targetObservation(
         options,
         work,
@@ -376,7 +410,7 @@ export async function prepareCheckedReleaseFollowupBundle(
         timestamp(freshProof.attestation.validUntil),
       );
       // The caller resolves its current authority before its direct storage-only fence.
-      await observeCurrent();
+      await observeCurrent(observed === undefined ? undefined : observation);
       runtime.ensure(verificationDeadline);
     } catch (error) {
       throw new ReleaseFollowupReviewGuardFailure(

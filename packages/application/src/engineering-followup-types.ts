@@ -288,6 +288,8 @@ export interface EngineeringFollowupModelBinding {
   };
 }
 export interface EngineeringFollowupClaim {
+  /** Actual App support for late, callback-scoped bundle proof observations. */
+  readonly bundleObservation?: true;
   readonly fence: EngineeringFollowupClaimFence;
   readonly sourceFence: EngineeringFollowupFence;
   readonly workGeneration: number;
@@ -322,6 +324,14 @@ export interface EngineeringFollowupModelObservation {
 }
 export type EngineeringFollowupModelCommitGuard = (
   observation?: EngineeringFollowupModelObservation,
+) => void | Promise<void>;
+/** One bundle mutation's admitted Work and freshly verified late release proof. */
+export interface EngineeringFollowupBundleObservation {
+  readWork(access: AccessContext): EngineeringFollowupWorkRecord;
+  readProof(access: AccessContext): VerifiedEngineeringFollowupContext;
+}
+export type EngineeringFollowupBundleCommitGuard = (
+  observation?: EngineeringFollowupBundleObservation,
 ) => void | Promise<void>;
 export interface CompleteEngineeringFollowupModelCommand extends EngineeringFollowupClaimFence {
   readonly stepId: string;
@@ -518,7 +528,7 @@ export interface EngineeringFollowupApplication {
   prepareEngineeringFollowupBundle(
     access: AccessContext,
     command: PrepareEngineeringFollowupBundleCommand,
-    guard: EngineeringCommitGuard,
+    guard: EngineeringFollowupBundleCommitGuard,
     options?: EngineeringMutationOptions,
   ): Promise<EngineeringFollowupResult>;
   recoverEngineeringFollowupPreparation(

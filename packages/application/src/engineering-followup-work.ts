@@ -46,6 +46,7 @@ import {
   engineeringFollowupResult as result,
   engineeringFollowupWithoutLease as withoutLease,
   engineeringFollowupCurrent,
+  engineeringFollowupActive,
   engineeringFollowupLoadMutation,
   engineeringFollowupVersionsCurrent,
   holdEngineeringFollowupWork,
@@ -69,6 +70,8 @@ import type {
   PrepareEngineeringFollowupBundleCommand,
   EngineeringFollowupReassessmentObservation,
   EngineeringFollowupModelCommitGuard,
+  EngineeringFollowupBundleObservation,
+  EngineeringFollowupBundleCommitGuard,
   PrepareEngineeringFollowupModelCommand,
   EngineeringFollowupPreparedModel,
   VerifiedEngineeringFollowupContext,
@@ -474,8 +477,15 @@ export function createEngineeringFollowupWorkServices(
           "Follow-up bundle preparation needs a current read-only guard",
         );
       mutation?.ensure();
-      const loaded = initial?.current.loaded ?? (await load(command.ticketId));
-      const stored = initial?.current.work ?? (await workAt(command));
+      const { loaded, stored } =
+        initial !== undefined
+          ? { loaded: initial.current.loaded, stored: initial.current.work }
+          : staff
+            ? {
+                loaded: await load(command.ticketId),
+                stored: await workAt(command),
+              }
+            : await engineeringFollowupLoadMutation(deps, command);
       const work = stored.value;
       if (
         work.workGeneration !== command.expectedWorkGeneration ||
@@ -506,7 +516,7 @@ export function createEngineeringFollowupWorkServices(
         : null;
       const current = staff
         ? null
-        : await engineeringFollowupCurrent(deps, loaded, stored, now);
+        : await engineeringFollowupActive(deps, loaded, stored, now);
       if (
         !staff &&
         (work.stage !== "bundle" ||
@@ -580,8 +590,13 @@ export function createEngineeringFollowupWorkServices(
         [next, ...cohort.nextWorkRows],
         2,
       );
-      await guard();
-      const proof = rearm?.proof ?? current!.proof;
+      // Source/association admission precedes receipt callbacks. The release
+      // proof is deliberately fresh AFTER verifyBundle, at the late guard's
+      // original release-observation boundary rather than reused across it.
+      const proof =
+        rearm?.proof ?? (await lateBundleProof(stored, current!, now));
+      if (staff) await guard();
+      else await bundleGuard(access, work, proof, guard, authorize, now);
       const associationWork =
         rearm?.engineeringWork ?? current!.engineeringWork;
       if (
@@ -656,6 +671,98 @@ export function createEngineeringFollowupWorkServices(
     }
     if (initial !== undefined) throw new ReassessmentRetry();
     throw new SupportDeskConflictError();
+  }
+
+  async function lateBundleProof(
+    stored: EngineeringFollowupWorkVersion,
+    current: Awaited<ReturnType<typeof engineeringFollowupActive>>,
+    now: () => number,
+  ): Promise<VerifiedEngineeringFollowupContext> {
+    if (options.releaseEvidence === undefined)
+      throw new SupportDeskConflictError(
+        "Follow-up release verification unavailable",
+      );
+    const proof = snapshot(
+      await engineeringFollowupTrusted(deps, (signal) =>
+        options.releaseEvidence!.confirm(
+          stored.value.context!,
+          current.proofContext,
+          signal,
+        ),
+      ),
+    );
+    engineeringFollowupValidateProof(
+      proof,
+      current.proofContext,
+      current.engineeringWork.value.product!,
+      now,
+    );
+    if (
+      canonical(proof.context) !== canonical(stored.value.context) ||
+      proof.context.mapping === undefined ||
+      proof.context.deploymentHead.state !== "deployed" ||
+      timestamp(stored.value.deadline, "deadline") <= now()
+    )
+      throw new SupportDeskConflictError("Follow-up deployment changed");
+    return proof;
+  }
+
+  async function bundleGuard(
+    access: AccessContext,
+    work: EngineeringFollowupWorkRecord,
+    proof: VerifiedEngineeringFollowupContext,
+    guard: EngineeringFollowupBundleCommitGuard,
+    authorize: () => void,
+    now: () => number,
+  ): Promise<void> {
+    const actorId = access.principalId;
+    let active = true;
+    const check = (reader: AccessContext): void => {
+      if (!active)
+        throw new SupportDeskConflictError("Follow-up observation expired");
+      authorize();
+      permission(
+        reader,
+        supportPermissions.engineeringFollowupRead,
+        actorId,
+        true,
+      );
+      if (
+        now() >=
+        Math.min(
+          timestamp(proof.attestation.validUntil, "validUntil"),
+          timestamp(work.deadline, "deadline"),
+        )
+      )
+        throw new SupportDeskConflictError(
+          "Follow-up bundle observation expired",
+        );
+    };
+    function detached<T>(value: T): T {
+      const copy = snapshot(value);
+      function freeze(item: unknown): void {
+        if (item === null || typeof item !== "object") return;
+        for (const child of Object.values(item)) freeze(child);
+        Object.freeze(item);
+      }
+      freeze(copy);
+      return copy;
+    }
+    const observation: EngineeringFollowupBundleObservation = Object.freeze({
+      readWork(reader: AccessContext) {
+        check(reader);
+        return detached(work);
+      },
+      readProof(reader: AccessContext) {
+        check(reader);
+        return detached(proof);
+      },
+    });
+    try {
+      await guard(observation);
+    } finally {
+      active = false;
+    }
   }
 
   async function modelGuard(
@@ -1010,6 +1117,7 @@ export function createEngineeringFollowupWorkServices(
         if (await save(loaded, stored, next)) {
           authorize();
           return {
+            bundleObservation: true,
             fence: snapshot(next.claim!),
             sourceFence: {
               ticketId: work.ticketId,

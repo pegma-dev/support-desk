@@ -219,6 +219,29 @@ enter stored records.
 These source contracts do not qualify a host's physical D1 or CPU budget.
 Actual Workers Free 50-call and 100-parameter qualification remains separate.
 
+### Candidate bundle observation
+
+Actual Application claims advertise `bundleObservation: true` without storing
+an observation or changing the Work record. Staged workers may use that claim's
+proof for initial bundle/check-request planning only. Independent checks still
+inspect current Source/release facts; the Application admits its ordinary
+Source and accepted association before verifying the exact bundle receipt.
+
+The Application then obtains a fresh release proof **after** receipt verification,
+at the final guard's release-observation boundary. Its optional callback-scoped
+`EngineeringFollowupBundleObservation` exposes immutable Work and proof snapshots
+under the original principal and current read/queue permissions. It expires when
+the guard settles and refuses reads after proof or Work expiry. No opaque
+versions or reusable handles leave the Application. The coordinator retains
+fresh target, policy, receipt and service-authority checks and compares the exact
+claim/candidate/Source binding. The original five closing opaque versions,
+permission/deadline checks, host guard and transaction CAS still follow.
+
+Structural applications without the advertised capability or optional guard
+argument, and ordinary inline composition, retain full fresh proof/current-read
+fallbacks. A planning proof never authorizes commitment, posting or a provider
+call. This operation-local read reduction does not establish a host budget pass.
+
 ### Candidate post observation
 
 For each new application post attempt, the proof guard may receive an optional

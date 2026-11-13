@@ -16,6 +16,7 @@ import type {
   EngineeringFollowupPostObservation,
   FinishEngineeringFollowupModelCommand,
   PrepareEngineeringFollowupBundleCommand,
+  EngineeringFollowupBundleObservation,
 } from "@pegma/support-desk-application";
 import type {
   PrepareReleaseFollowupStaffReassessmentCommand,
@@ -181,21 +182,37 @@ async function prepareWorkerBundle(
       undefined,
       phase,
     );
-    const observeCurrent = async (): Promise<void> => {
+    const observeCurrent = async (
+      observation?: EngineeringFollowupBundleObservation,
+    ): Promise<void> => {
       const currentAuthority = await releaseFollowupAuthority(
         options,
         runtime,
         authority,
         phase,
       );
-      const current = await releaseFollowupCurrent(
-        options,
-        claim.work,
-        currentAuthority.access,
-        runtime,
-        phase,
-      );
+      const current =
+        observation === undefined
+          ? await releaseFollowupCurrent(
+              options,
+              claim.work,
+              currentAuthority.access,
+              runtime,
+              phase,
+            )
+          : snapshot(observation.readWork(currentAuthority.access));
       if (
+        current.ticketId !== claim.work.ticketId ||
+        current.workId !== claim.work.workId ||
+        current.workGeneration !== claim.work.workGeneration ||
+        current.workBindingHash !== claim.work.workBindingHash ||
+        current.withdrawn ||
+        current.security !== "ordinary" ||
+        current.parentSourceGeneration !== claim.work.parentSourceGeneration ||
+        current.acceptedTicketRevision !== claim.work.acceptedTicketRevision ||
+        current.lastVisibleMessageId !== claim.work.lastVisibleMessageId ||
+        canonical(current.context) !== canonical(claim.work.context) ||
+        canonical(current.association) !== canonical(claim.work.association) ||
         current.claim === undefined ||
         canonical(current.claim) !== canonical(claim.fence) ||
         current.candidateHash !== claim.work.candidateHash ||
@@ -211,6 +228,20 @@ async function prepareWorkerBundle(
       runtime,
       observeCurrent,
       phase,
+      options.invocationMode === "staged" && claim.bundleObservation === true
+        ? {
+            proof: claim.proof,
+            async readProof(observation) {
+              const current = await releaseFollowupAuthority(
+                options,
+                runtime,
+                authority,
+                phase,
+              );
+              return observation.readProof(current.access);
+            },
+          }
+        : undefined,
     );
     const commandId =
       "followup-bundle:" +
