@@ -410,8 +410,8 @@ const application = createSupportDeskApplication({
 });
 ```
 
-`listCannedResponses(access)` requires `support.queue.read` and returns frozen
-definitions filtered by current `support.ticket.reply.any` / `support.ticket.note`
+`listCannedResponses(access)` requires `support.queue.read` and returns a new frozen
+array of frozen definitions filtered by current `support.ticket.reply.any` / `support.ticket.note`
 permissions. An empty catalog is the default. Catalog access is staff-only;
 never expose it through a customer or assistant endpoint. The host controls
 catalog changes through its deployment review. This API provides no settings
@@ -478,7 +478,9 @@ published catalog version immutable and increment its template version when
 changing text, variables, title or target (this is separate from package versions).
 
 Existing `support.ticket.staff_replied` / `support.ticket.note_added` Audit events
-add only `cannedResponseId` and `cannedResponseVersion` details. They commit with
+add only `cannedResponseId` and `cannedResponseVersion` alongside the existing
+`commandId` and `correlationId` details. No other canned-response fields are
+included. The events commit with
 the message, revision, receipt and optional reply outbox in one ticket partition.
 Bodies and variable values stay out of Audit. Provenance is not added to message
 DTOs or notification variables. Notes remain absent from customer reads, customer

@@ -178,21 +178,21 @@ inferred return type can also see the added capability.
 
 Staff services use the same application factory and ticket partition:
 
-| Method                   | Permission(s)                                     | Effect                                                                                         |
-| ------------------------ | ------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `readStaffTicket`        | `support.queue.read`                              | Authoritative ticket plus every message (including internal notes)                             |
-| `listStaffQueue`         | `support.queue.read`                              | Bounded projection scan; confirm each row; filter/sort in memory                               |
-| `listCannedResponses`    | `support.queue.read`                              | Frozen staff catalog filtered by `support.ticket.reply.any` / `support.ticket.note`; no writes |
-| `queueProjectionHealth`  | (none; process-local)                             | Consecutive projection failures and last failure metadata                                      |
-| `replyAsStaff`           | `support.queue.read` + `support.ticket.reply.any` | Customer-visible staff reply → `waiting_on_customer`; optional mail                            |
-| `addNote`                | `support.queue.read` + `support.ticket.note`      | Internal note; no mail; status and `customerUpdatedAt` unchanged                               |
-| `assignTicket`           | `support.queue.read` + `support.ticket.assign`    | Assign or unassign; status unchanged                                                           |
-| `changePriority`         | `support.queue.read` + `support.ticket.manage`    | Priority only; status unchanged                                                                |
-| `resolveTicket`          | `support.queue.read` + `support.ticket.manage`    | → `resolved` (closed tickets must reopen first)                                                |
-| `closeTicket`            | `support.queue.read` + `support.ticket.manage`    | → `closed` (resolved only)                                                                     |
-| `reopenTicket`           | `support.queue.read` + `support.ticket.manage`    | resolved/closed → `waiting_on_support`                                                         |
-| `setTags`                | `support.queue.read` + `support.ticket.manage`    | Replace staff tags; status, customer time, and mail unchanged                                  |
-| `readTicketAuditHistory` | `support.audit.read`                              | Ordered Audit history for one ticket                                                           |
+| Method                   | Permission(s)                                     | Effect                                                                                                                                  |
+| ------------------------ | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `readStaffTicket`        | `support.queue.read`                              | Authoritative ticket plus every message (including internal notes)                                                                      |
+| `listStaffQueue`         | `support.queue.read`                              | Bounded projection scan; confirm each row; filter/sort in memory                                                                        |
+| `listCannedResponses`    | `support.queue.read`                              | New frozen catalog snapshot per call, with frozen definitions filtered by `support.ticket.reply.any` / `support.ticket.note`; no writes |
+| `queueProjectionHealth`  | (none; process-local)                             | Consecutive projection failures and last failure metadata                                                                               |
+| `replyAsStaff`           | `support.queue.read` + `support.ticket.reply.any` | Customer-visible staff reply → `waiting_on_customer`; optional mail                                                                     |
+| `addNote`                | `support.queue.read` + `support.ticket.note`      | Internal note; no mail; status and `customerUpdatedAt` unchanged                                                                        |
+| `assignTicket`           | `support.queue.read` + `support.ticket.assign`    | Assign or unassign; status unchanged                                                                                                    |
+| `changePriority`         | `support.queue.read` + `support.ticket.manage`    | Priority only; status unchanged                                                                                                         |
+| `resolveTicket`          | `support.queue.read` + `support.ticket.manage`    | → `resolved` (closed tickets must reopen first)                                                                                         |
+| `closeTicket`            | `support.queue.read` + `support.ticket.manage`    | → `closed` (resolved only)                                                                                                              |
+| `reopenTicket`           | `support.queue.read` + `support.ticket.manage`    | resolved/closed → `waiting_on_support`                                                                                                  |
+| `setTags`                | `support.queue.read` + `support.ticket.manage`    | Replace staff tags; status, customer time, and mail unchanged                                                                           |
+| `readTicketAuditHistory` | `support.audit.read`                              | Ordered Audit history for one ticket                                                                                                    |
 
 ### Optional handling and human controls (SD-01)
 

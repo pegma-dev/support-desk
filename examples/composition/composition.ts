@@ -1058,7 +1058,11 @@ export async function runCannedResponseExampleFlow(
     body: "Please help",
   });
   const catalog = await application.listCannedResponses(EXAMPLE_STAFF);
-  const definition = catalog.find((item) => item.id === "review")!;
+  const definition = catalog.find((item) => item.id === "review");
+  if (definition === undefined)
+    throw new Error(
+      "Canned response composition invariant failed: review definition missing",
+    );
   const values = { topic: "your question" };
   const preview = renderCannedResponse(definition, values);
   // Production: show this preview to the staff member, then accept explicit send.
@@ -1072,7 +1076,11 @@ export async function runCannedResponseExampleFlow(
   };
   await application.replyAsStaff(EXAMPLE_STAFF, command);
   await application.replyAsStaff(EXAMPLE_STAFF, command); // interrupted-response recovery
-  const note = catalog.find((item) => item.id === "checklist")!;
+  const note = catalog.find((item) => item.id === "checklist");
+  if (note === undefined)
+    throw new Error(
+      "Canned response composition invariant failed: checklist definition missing",
+    );
   await application.addNote(EXAMPLE_STAFF, {
     ...base,
     commandId: "note",

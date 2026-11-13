@@ -1,4 +1,5 @@
 import { TableClient } from "@azure/data-tables";
+import { createHash } from "node:crypto";
 import { createAzureTablesStore } from "@pegma/storage-azure-tables";
 import { createMemoryStore, type Store } from "@pegma/storage-core";
 import { describe, expect, it, vi } from "vitest";
@@ -13,6 +14,7 @@ import {
 import {
   EXAMPLE_CUSTOMER as customer,
   EXAMPLE_STAFF as staff,
+  createExampleComposition,
   runCannedResponseExampleFlow,
 } from "../examples/composition/composition.js";
 import { TABLE_PORT } from "../test/azurite.js";
@@ -63,11 +65,17 @@ function azureStore(): Store {
     ),
   });
 }
-async function setup(store: Store) {
+async function setup(
+  store: Store,
+  attachments?: Parameters<
+    typeof createSupportDeskApplication
+  >[0]["attachments"],
+) {
   const app = createSupportDeskApplication({
     store,
     clock,
     cannedResponses: catalog,
+    ...(attachments === undefined ? {} : { attachments }),
   });
   await app.createCustomerTicket(customer, {
     ticketId: "ticket",
@@ -85,6 +93,176 @@ for (const [name, fixture] of [
   ["Azurite", azureStore],
 ] as const) {
   describe(`staff canned responses (${name})`, () => {
+    it.each(["reply", "note"] as const)(
+      "pins the exact canned %s Audit details to command identity and ID/version only",
+      async (target) => {
+        const app = await setup(fixture());
+        if (target === "reply") await app.replyAsStaff(staff, reply);
+        else
+          await app.addNote(staff, {
+            ...reply,
+            body: catalog[1]!.body,
+            cannedResponse: { id: "investigate", version: 2, values: {} },
+          });
+        const event = (await app.readTicketAuditHistory(staff, "ticket")).at(
+          -1,
+        );
+        expect(event?.action).toBe(
+          target === "reply"
+            ? "support.ticket.staff_replied"
+            : "support.ticket.note_added",
+        );
+        expect(event?.details).toEqual({
+          commandId: reply.commandId,
+          correlationId: reply.correlationId,
+          cannedResponseId: target === "reply" ? "acknowledge" : "investigate",
+          cannedResponseVersion: target === "reply" ? "1" : "2",
+        });
+      },
+    );
+
+    it.each(["reply", "note"] as const)(
+      "binds canned %s attachments to exact replay without another blob or ticket write",
+      async (target) => {
+        const store = fixture();
+        const blobs = new Map<string, Uint8Array>();
+        const put = vi.fn(async (key: string, bytes: Uint8Array) => {
+          blobs.set(key, new Uint8Array(bytes));
+        });
+        const attachments = {
+          blobs: {
+            put,
+            async get(key: string) {
+              const bytes = blobs.get(key);
+              if (!bytes) throw new Error("Missing synthetic blob");
+              return new Uint8Array(bytes);
+            },
+            async delete(key: string) {
+              blobs.delete(key);
+            },
+          },
+        };
+        const app = await setup(store, attachments);
+        const bytes = new TextEncoder().encode("Synthetic attachment A");
+        const file = {
+          filename: "context.txt",
+          contentType: "text/plain",
+          bytes,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+        };
+        const command = {
+          ...reply,
+          ...(target === "note"
+            ? {
+                body: catalog[1]!.body,
+                cannedResponse: { id: "investigate", version: 2, values: {} },
+              }
+            : {}),
+          attachments: [file],
+        };
+        const send = (
+          application: typeof app,
+          input: Parameters<typeof app.replyAsStaff>[1],
+        ) =>
+          target === "reply"
+            ? application.replyAsStaff(staff, input)
+            : application.addNote(staff, input);
+        const accepted = await send(app, command);
+        const before = await store.collection(supportRecords).list("ticket");
+        const removed = createSupportDeskApplication({
+          store,
+          clock,
+          attachments,
+        });
+        expect(await send(removed, command)).toEqual(accepted);
+        const changedBytes = new TextEncoder().encode("Synthetic attachment B");
+        const { attachments: _attachments, ...withoutAttachments } = command;
+        for (const changed of [
+          { ...command, attachments: [{ ...file, filename: "changed.txt" }] },
+          {
+            ...command,
+            attachments: [
+              {
+                ...file,
+                bytes: changedBytes,
+                sha256: createHash("sha256").update(changedBytes).digest("hex"),
+              },
+            ],
+          },
+          withoutAttachments,
+        ])
+          await expect(send(removed, changed)).rejects.toThrow(
+            SupportDeskConflictError,
+          );
+        expect(put).toHaveBeenCalledOnce();
+        expect(await store.collection(supportRecords).list("ticket")).toEqual(
+          before,
+        );
+      },
+    );
+
+    it("binds canned notification routing and content to replay without another outbox write", async () => {
+      const store = fixture();
+      const app = await setup(store);
+      const notification = {
+        id: "mail",
+        recipientRef: "customer",
+        templateId: "reply",
+        templateVersion: 1,
+        variables: { topic: "question" },
+        subject: "Reply",
+        outboundMessageId: "<reply@example.invalid>",
+      };
+      const command = { ...reply, notification };
+      const accepted = await app.replyAsStaff(staff, command);
+      const before = await store.collection(supportRecords).list("ticket");
+      const removed = createSupportDeskApplication({ store, clock });
+      expect(await removed.replyAsStaff(staff, command)).toEqual(accepted);
+      const { notification: _notification, ...withoutNotification } = command;
+      for (const changed of [
+        {
+          ...command,
+          notification: { ...notification, recipientRef: "other-customer" },
+        },
+        {
+          ...command,
+          notification: { ...notification, variables: { topic: "changed" } },
+        },
+        { ...command, notification: { ...notification, subject: "Changed" } },
+        withoutNotification,
+      ])
+        await expect(removed.replyAsStaff(staff, changed)).rejects.toThrow(
+          SupportDeskConflictError,
+        );
+      expect(before.filter((row) => row.kind === "delivery_job")).toHaveLength(
+        1,
+      );
+      expect(await store.collection(supportRecords).list("ticket")).toEqual(
+        before,
+      );
+    });
+
+    it.each(["review", "checklist"] as const)(
+      "reports a missing %s example definition with its own invariant diagnostic",
+      async (missing) => {
+        const composition = createExampleComposition({ store: fixture() });
+        const definitions =
+          await composition.application.listCannedResponses(staff);
+        const application = createSupportDeskApplication({
+          store: composition.store,
+          clock: composition.clock,
+          cannedResponses: definitions.filter(
+            (definition) => definition.id !== missing,
+          ),
+        });
+        await expect(
+          runCannedResponseExampleFlow({ ...composition, application }),
+        ).rejects.toThrow(
+          `Canned response composition invariant failed: ${missing} definition missing`,
+        );
+      },
+    );
+
     it("commits reply provenance in Audit, replays after catalog removal, and enforces current authority", async () => {
       const store = fixture();
       const app = await setup(store);

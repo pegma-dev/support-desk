@@ -16,8 +16,9 @@ The synchronized `0.2.8` release includes the
 [application/AI additions](../../docs/RELEASE_NOTES.md). Host adoption retains
 its own composition and activation gates.
 
-Pure ticket creation and revisioned workflow transitions. This package performs
-no I/O, authorization, mail delivery, or persistence.
+Pure ticket creation, revisioned workflow transitions and bounded canned-response
+definition, selection and rendering helpers. This package performs no I/O,
+authorization, mail delivery, or persistence.
 
 Create accepts optional `category` and sets both `updatedAt` and
 `customerUpdatedAt`. Customer-visible events (replies and lifecycle) advance
