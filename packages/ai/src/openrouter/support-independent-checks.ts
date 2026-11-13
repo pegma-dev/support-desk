@@ -935,6 +935,7 @@ export function createSupportIndependentChecks(
       comparison,
       comparisonState,
       target,
+      privateValues,
       validUntil,
       workDeadline: work.deadline,
       authority: resolved,
@@ -1421,7 +1422,12 @@ export function createSupportIndependentChecks(
             ? {}
             : { comparison: initial.comparison }),
         };
-        requireCheck(model.withinBudget(modelInput, configured.configuration));
+        requireCheck(
+          !containsPrivateText(
+            JSON.stringify(modelInput),
+            initial.privateValues,
+          ) && model.withinBudget(modelInput, configured.configuration),
+        );
         const inputFingerprint = await knowledgeDigest(modelInput);
         operation = await knowledgeDigest({
           kind,

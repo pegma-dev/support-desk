@@ -163,8 +163,9 @@ async function fixture(store: Store, staged = false) {
       })
       .check(input, context);
   });
-  async function enqueue() {
+  async function enqueue(beforeProcess?: () => Promise<void>) {
     scope = await f.eligible("staff_verified_fix");
+    await beforeProcess?.();
     expect((await process()).outcome).toBe("candidate");
     const result = await process();
     return result;
@@ -1357,6 +1358,99 @@ for (const [backend, createStore] of learningKbStores) {
       expect(t.f.otherSources.canRead).toHaveBeenCalled();
       expect(t.p.state.calls).toBe(1);
     });
+
+    it.each(
+      (["draft", "publication"] as const).flatMap((kind) =>
+        (
+          [
+            "note",
+            "escaped note",
+            "email",
+            "Source ID",
+            "proof identity",
+          ] as const
+        ).map((privateField) => [kind, privateField] as const),
+      ),
+    )(
+      "withholds %s comparison containing the current %s before funding or provider admission",
+      async (kind, privateField) => {
+        const t = await fixture(createStore());
+        let privateValue = "";
+        await t.enqueue(async () => {
+          const escapedNote =
+            'PRIVATE comparison note: "quoted" \\ path\nsecond line';
+          if (privateField === "escaped note")
+            await t.f.support.app.addNote(t.f.access.staff, {
+              ...t.f.support.command("escaped-comparison-note"),
+              messageId: "escaped-comparison-note",
+              body: escapedNote,
+            });
+          const ticket = await t.f.support.app.readStaffTicket(
+            t.f.access.staff,
+            t.scope!.ticketId,
+          );
+          const source = await t.f.support.app.readResolutionLearningSource(
+            t.f.access.staff,
+            t.scope!.ticketId,
+          );
+          privateValue =
+            privateField === "note"
+              ? ticket.messages.find(
+                  (message) => message.visibility === "internal",
+                )!.body
+              : privateField === "escaped note"
+                ? escapedNote
+                : privateField === "email"
+                  ? ticket.ticket.requester.email!
+                  : privateField === "Source ID"
+                    ? source.sourceId
+                    : source.proofIdentity!;
+          expect(privateValue.length).toBeGreaterThan(0);
+          const articleId = "comparison-private-collision";
+          const content =
+            "Distinct workspace export comparison: " + privateValue;
+          if (kind === "publication")
+            await t.f.publishIndependentGuide(articleId, content);
+          else {
+            await t.f.createGuide(articleId, content);
+            t.f.state.scope = {
+              ...t.f.state.scope,
+              explicitDraftIds: [articleId],
+            };
+          }
+        });
+        const input = t.f.ports.check.mock.calls[0]![0];
+        const payload = JSON.parse(input.exactRequest.draftPayload);
+        const outbound = JSON.stringify({
+          operation: input.exactRequest.operation,
+          draft: payload.draft,
+          requirements: payload.requirements,
+        });
+        const encodedPrivateValue = JSON.stringify(privateValue).slice(1, -1);
+        expect(outbound).not.toContain(encodedPrivateValue);
+        expect(t.usageMutations).toBe(0);
+        const result = await t.precompute();
+        const leakedComparison = t.p.state.requests.some((request) => {
+          const wire = JSON.parse(String(request.init.body));
+          const providerInput = JSON.parse(wire.messages[1].content);
+          return JSON.stringify(providerInput.comparison).includes(
+            encodedPrivateValue,
+          );
+        });
+        expect({
+          outcome: result.outcome,
+          providerCalls: t.p.state.calls,
+          fundingUpdates: t.usageMutations,
+          leakedComparison,
+        }).toEqual({
+          outcome: "held",
+          providerCalls: 0,
+          fundingUpdates: 0,
+          leakedComparison: false,
+        });
+        expect(t.providerKey).not.toHaveBeenCalled();
+      },
+    );
 
     it("does not turn earlier caller-empty hints into a passing absence claim when a real matching guide appears", async () => {
       const t = await fixture(createStore());

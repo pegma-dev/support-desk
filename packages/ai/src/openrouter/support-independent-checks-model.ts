@@ -2,6 +2,7 @@ import type { ReleaseFollowupChecksPort } from "../release-followup-ports.js";
 import { releaseFollowupContent } from "../release-followup-output.js";
 import type { Clock } from "@pegma/spine";
 import { z } from "zod";
+import { sameApprovalRenewal } from "./approval-renewal.js";
 import {
   knowledgeDigest,
   checkedLogicalHost,
@@ -483,9 +484,21 @@ function live(at: { verifiedAt: string; validUntil: string }, now: number) {
 export function createSupportIndependentCheckModel(
   options: IndependentCheckModelOptions,
   logicalHost: string,
+  attemptPolicy?: { readonly allowApprovalRenewal: boolean },
 ) {
   const host = checkedLogicalHost(logicalHost);
-  let qualified: { digest: string; snapshot: string } | undefined;
+  // Only the SD05 wrapper opts in. Capture the policy rather than trusting a
+  // mutable caller object to change an already-created model's behavior.
+  const allowApprovalRenewal = attemptPolicy?.allowApprovalRenewal === true;
+  const sameRoute = (
+    current: IndependentCheckRoute,
+    captured: IndependentCheckRoute,
+  ) =>
+    allowApprovalRenewal
+      ? sameApprovalRenewal(current, captured, canonical)
+      : JSON.stringify(current) === JSON.stringify(captured);
+  let qualified:
+    { digest: string; snapshot: IndependentCheckRoute } | undefined;
   const allowed = structuredClone(options.allowlist ?? []);
   const counter = options.counter;
   const count = counter?.count;
@@ -536,7 +549,7 @@ export function createSupportIndependentCheckModel(
           c.budgets.maxContextTokens ||
         (requireQualified &&
           (!qualified ||
-            qualified.snapshot !== JSON.stringify(r) ||
+            !sameRoute(r, qualified.snapshot) ||
             qualified.digest !== r.approval.requestPolicySha256))
       )
         return undefined;
@@ -562,6 +575,7 @@ export function createSupportIndependentCheckModel(
     credential: string,
     current: () => boolean,
     onPhysicalCall?: () => void,
+    allowRenewal = false,
   ) =>
     createSupportOpenRouterModel<
       IndependentCheckInput,
@@ -595,6 +609,7 @@ export function createSupportIndependentCheckModel(
         system: SYSTEM,
         schemaName: "support_independent_check_v1",
         schema: OUTPUT_SCHEMA,
+        allowApprovalRenewal: allowApprovalRenewal && allowRenewal,
         input(input) {
           return JSON.stringify(input);
         },
@@ -659,11 +674,11 @@ export function createSupportIndependentCheckModel(
       if (
         signal?.aborted ||
         !latest ||
-        JSON.stringify(latest) !== JSON.stringify(r) ||
+        !sameRoute(latest, r) ||
         digest !== a.requestPolicySha256
       )
         return null;
-      qualified = { digest, snapshot: JSON.stringify(latest) };
+      qualified = { digest, snapshot: structuredClone(latest) };
       return Object.freeze({
         configuration: latest.configuration,
         policy: {
@@ -745,6 +760,7 @@ export function createSupportIndependentCheckModel(
           credential,
           current,
           context.onPhysicalCall,
+          input.kind === "release_followup",
         ).generate(
           input,
           { ...context, signal: controller.signal },

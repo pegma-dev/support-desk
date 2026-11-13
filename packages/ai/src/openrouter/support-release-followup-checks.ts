@@ -294,7 +294,9 @@ export function createSupportReleaseFollowupChecks(
   logicalHost: string,
 ) {
   const host = checkedLogicalHost(logicalHost);
-  const model = createSupportIndependentCheckModel(options, host);
+  const model = createSupportIndependentCheckModel(options, host, {
+    allowApprovalRenewal: true,
+  });
   const policy =
     options.usagePolicy === undefined
       ? undefined
@@ -1637,9 +1639,8 @@ export function createSupportReleaseFollowupChecks(
               input.binding.checkPolicyVersion,
             );
             requireCheck(sameAttemptRoute(closingConfiguration.route, c.route));
-            const end = Math.min(
-              Date.parse(external.deadline),
-              now() + limit,
+            const validUntil = Math.min(
+              now() + receiptLimit,
               Date.parse(entry.expiresAt),
               fresh.validUntil,
               Date.parse(k.validUntil),
@@ -1647,12 +1648,17 @@ export function createSupportReleaseFollowupChecks(
               Date.parse(c.route.releaseFollowup!.validUntil),
               Date.parse(policy!.validUntil),
             );
+            // The invocation must commit promptly; its receipt can be consumed
+            // later, within the original queued and current semantic bounds.
+            const commitDeadline = Math.min(
+              Date.parse(external.deadline),
+              now() + limit,
+              validUntil,
+            );
             const h = {
               operation: operationId,
               verifiedAt: options.clock.now(),
-              validUntil: new Date(
-                Math.min(end, now() + receiptLimit),
-              ).toISOString(),
+              validUntil: new Date(validUntil).toISOString(),
             };
             const signature = new Uint8Array(
               await crypto.subtle.sign(
@@ -1675,7 +1681,7 @@ export function createSupportReleaseFollowupChecks(
                 KEY,
                 (current) => {
                   requireCheck(killGate?.() !== false);
-                  fence(k, c, end, signal);
+                  fence(k, c, commitDeadline, signal);
                   const selected = current?.entries.find(
                     (value) =>
                       value.operation === operationId &&
@@ -1718,7 +1724,7 @@ export function createSupportReleaseFollowupChecks(
               ),
             );
             requireCheck(killGate?.() !== false);
-            fence(k, c, end, signal);
+            fence(k, c, commitDeadline, signal);
             return { outcome: "checked" as const, receipt };
           },
         );

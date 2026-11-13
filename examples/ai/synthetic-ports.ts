@@ -683,7 +683,7 @@ export type SyntheticIndependentModelHostIsRequired =
   AssertOptionalProviderContract<
     Parameters<
       OptionalOpenRouterSurface["createSupportIndependentCheckModel"]
-    >["length"] extends 2
+    > extends [unknown, string, ...unknown[]]
       ? true
       : false
   >;

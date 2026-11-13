@@ -1,4 +1,5 @@
 import type { Clock } from "@pegma/spine";
+import { sameApprovalRenewal } from "./approval-renewal.js";
 
 export type SupportOpenRouterModelFailure =
   | "route_unavailable"
@@ -545,6 +546,8 @@ export function createSupportOpenRouterModel<
     readonly system: string;
     readonly schemaName: string;
     readonly schema: unknown;
+    /** Internal purpose opt-in; all other route fields remain exactly pinned. */
+    readonly allowApprovalRenewal?: boolean;
     input(input: Input, context: Context): string;
     output(content: string, context: Context): string;
     validate(
@@ -640,7 +643,10 @@ export function createSupportOpenRouterModel<
           );
           if (
             !current ||
-            canonical(current) !== routeBinding ||
+            (protocol.allowApprovalRenewal === true
+              ? !sameApprovalRenewal(current, route, canonical)
+              : canonical(current) !== routeBinding) ||
+            Date.parse(route.approval.validUntil) <= now ||
             Date.parse(current.approval.validUntil) <= now
           )
             fail("route_unavailable");
