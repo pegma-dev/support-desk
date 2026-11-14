@@ -1,7 +1,12 @@
 # @pegma/support-desk-ai
 
+This checkout prepares the synchronized **unpublished `0.2.13` candidate**
+for SD05 independent-check provider groups. The current verified public release
+remains `0.2.12`. See the [candidate notes](../../docs/RELEASE_NOTES.md#0213-sd05-provider-group-checks)
+and [source preparation](../../docs/RELEASING.md#source-version-0213).
+
 The synchronized `0.2.12` release is published and strictly verified. Its
-internal Support application pin is exact `0.2.12`; external KB
+published internal Support application pin is exact `0.2.12`; external KB
 application/contracts retain exact verified public `0.1.8`. See the
 [publication receipt](../../docs/RELEASING.md#verified-0212-publication-2026-11-14)
 and [release notes](../../docs/RELEASE_NOTES.md#0212-opt-in-provider-group-checks).
@@ -424,8 +429,9 @@ plans.
 
 Published `0.2.12` permits an explicitly approved provider group for learning
 and engineering independent checks. Structural support does not activate a host or authorize a live call.
-Answering and generation routes retain their existing policies; the release
-follow-up checker refuses group mode before funding.
+Answering and generation routes retain their existing policies. Published
+`0.2.12` release-follow-up checks refuse group mode before funding; the
+unreleased source extension below is not a published host dependency.
 
 The host must set `providerSelectionScope: "provider_group"` in all three places:
 the independent-check route, its matching static allowlist entry, and
@@ -474,6 +480,38 @@ Unknown or over-limit native usage remains conservatively held, never recorded
 as free or retried automatically. The dated receipt records SDK qualification
 and publication; each host's current privacy, evaluation and activation gates
 remain separate.
+
+<a id="unreleased-source-sd05-independent-check-provider-groups"></a>
+
+### 0.2.13 source candidate: SD05 independent-check provider groups
+
+The source `createSupportReleaseFollowupChecks` now permits the same explicit
+three-part group opt-in described above. This extends only SD05 independent
+checks, not `createSupportReleaseFollowupModel` or any generator. Hosts must
+wait for a separately reviewed and verified public release; published `0.2.12`
+still has its documented SD05 refusal. The five source versions and internal pins select unpublished `0.2.13`;
+no default route, credential, host profile or provider choice is activated.
+
+SD05 still requires current, separate `route.releaseFollowup` evidence for
+`support_release_followup` and `openrouter-support-release-followup-check-v1`.
+Its validity must cover the current independent-check approval. Complete input,
+purpose, Source/Work authority and before-physical-call guards remain mandatory.
+The producer remains independent-check wire v2 with the unchanged verdict
+schema; a group selector does not authorize an engineering receipt as SD05.
+
+The distinct `sf1` receipt MAC still binds the SD05 purpose, route-policy hash,
+configuration and policy. A benign Admin approval renewal may extend only its
+observation dates, within the existing evidence ceilings; it cannot change the
+group, selector scope, prices or approved hash, or extend a retained attempt's
+or receipt's lifetime. Deferred provider/receipt phases retain the exact queued
+configuration identity and refuse semantic route changes even when separately
+newly approved. Native charges, conservative unknown usage and no-automatic-retry
+behavior are unchanged. Invalid groups reach no provider credential, funding
+or fetch; existing receipt-signing-key reads/order are unchanged.
+
+Legacy absent-key route hashes and complete wire bytes retain their golden
+regressions. Source/unit qualification does not establish live group privacy,
+model quality, tokenizer framing, deployed Free CPU or activation acceptance.
 
 ### Release follow-up provider ports
 

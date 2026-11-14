@@ -507,8 +507,8 @@ export function createSupportIndependentCheckModel(
 ) {
   const host = checkedLogicalHost(logicalHost);
   // Capture per-instance policy before callers can mutate the supplied object.
-  // SD05 alone opts into approval renewal and explicitly disables groups.
-  // Independent checks support groups only with route/allowlist/approval opt-in.
+  // SD05 alone opts into approval renewal. Group routing still requires the
+  // route, static allowlist and current approval to opt in together.
   const allowApprovalRenewal = attemptPolicy?.allowApprovalRenewal === true;
   const allowProviderGroup = attemptPolicy?.allowProviderGroup !== false;
   const sameRoute = (
@@ -725,7 +725,6 @@ export function createSupportIndependentCheckModel(
             const r = read(config.version);
             if (
               !r?.releaseFollowup ||
-              r.providerSelectionScope !== undefined ||
               !live(r.releaseFollowup, Date.parse(options.clock.now())) ||
               Date.parse(r.approval.validUntil) >
                 Date.parse(r.releaseFollowup.validUntil)
@@ -827,7 +826,6 @@ export function createSupportIndependentCheckModel(
           followupInput(input);
           if (
             !route.releaseFollowup ||
-            route.providerSelectionScope !== undefined ||
             !live(route.releaseFollowup, Date.parse(options.clock.now())) ||
             Date.parse(route.approval.validUntil) >
               Date.parse(route.releaseFollowup.validUntil)

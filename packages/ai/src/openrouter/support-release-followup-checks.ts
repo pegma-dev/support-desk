@@ -296,7 +296,7 @@ export function createSupportReleaseFollowupChecks(
   const host = checkedLogicalHost(logicalHost);
   const model = createSupportIndependentCheckModel(options, host, {
     allowApprovalRenewal: true,
-    allowProviderGroup: false,
+    allowProviderGroup: true,
   });
   const policy =
     options.usagePolicy === undefined

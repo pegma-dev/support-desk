@@ -1,5 +1,27 @@
 # Release operations
 
+<a id="source-version-0213"></a>
+
+## 0.2.13 source preparation: 2026-11-14
+
+All five source package versions and exact internal Support pins select
+**unpublished `0.2.13`**, including the root Support development pins and
+matching workspace lock importers. The root remains private at `0.0.0`; exact
+KB application/contracts `0.1.8` and all other external selections are unchanged.
+
+The candidate extends explicit route/static-allowlist/Admin-approved group
+routing to SD05 independent checks only. Separate SD05 evidence, `sf1` receipt
+binding, current Source/Work fences, immutable queued route identity and native
+usage accounting remain required. Generators and omitted-option request bytes
+and hashes are unchanged. See the [candidate notes](RELEASE_NOTES.md#0213-sd05-provider-group-checks).
+
+The required source gates below, configured review and CI must pass on the
+reviewed head before the maintainer performs the protected signed-tag/OIDC
+release. The current verified public release remains `0.2.12`, with its original
+receipt, assets and history below unchanged. Candidate metadata is not a
+publication receipt or authority for host adoption, paid calls, customer AI,
+provider privacy/quality, requested clients or Free invocation/CPU acceptance.
+
 <a id="verified-0212-publication-2026-11-14"></a>
 
 ## Verified 0.2.12 publication: 2026-11-14
