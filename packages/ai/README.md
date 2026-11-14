@@ -1,7 +1,12 @@
 # @pegma/support-desk-ai
 
+This checkout prepares the synchronized **unpublished `0.2.13` candidate**
+for SD05 independent-check provider groups. The current verified public release
+remains `0.2.12`. See the [candidate notes](../../docs/RELEASE_NOTES.md#0213-sd05-provider-group-checks)
+and [source preparation](../../docs/RELEASING.md#source-version-0213).
+
 The synchronized `0.2.12` release is published and strictly verified. Its
-internal Support application pin is exact `0.2.12`; external KB
+published internal Support application pin is exact `0.2.12`; external KB
 application/contracts retain exact verified public `0.1.8`. See the
 [publication receipt](../../docs/RELEASING.md#verified-0212-publication-2026-11-14)
 and [release notes](../../docs/RELEASE_NOTES.md#0212-opt-in-provider-group-checks).
@@ -476,14 +481,16 @@ as free or retried automatically. The dated receipt records SDK qualification
 and publication; each host's current privacy, evaluation and activation gates
 remain separate.
 
-### Unreleased source: SD05 independent-check provider groups
+<a id="unreleased-source-sd05-independent-check-provider-groups"></a>
+
+### 0.2.13 source candidate: SD05 independent-check provider groups
 
 The source `createSupportReleaseFollowupChecks` now permits the same explicit
 three-part group opt-in described above. This extends only SD05 independent
 checks, not `createSupportReleaseFollowupModel` or any generator. Hosts must
 wait for a separately reviewed and verified public release; published `0.2.12`
-still has its documented SD05 refusal. No package version, default route,
-credential, host profile or provider choice is changed by this source feature.
+still has its documented SD05 refusal. The five source versions and internal pins select unpublished `0.2.13`;
+no default route, credential, host profile or provider choice is activated.
 
 SD05 still requires current, separate `route.releaseFollowup` evidence for
 `support_release_followup` and `openrouter-support-release-followup-check-v1`.

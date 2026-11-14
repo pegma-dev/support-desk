@@ -1,6 +1,6 @@
 # Upgrading synchronized Support Desk packages
 
-## Unreleased source: SD05 checker provider-group opt-in
+## 0.2.13 source candidate: SD05 checker provider-group opt-in
 
 The source SD05 independent checker now accepts the existing explicit group
 route, matching static allowlist scope and current Admin scope approval, with
@@ -10,8 +10,10 @@ evidence and receipt MAC, current Source/Work checks, native usage accounting
 and finite approval/attempt lifetimes are retained. Benign approval-date
 renewals cannot widen group scope or prices or replace a queued route hash.
 
-There is no new version or published artifact in this source change. Hosts
-must preserve the public `0.2.12` SD05 group refusal until a separately
+All five source versions and internal Support pins select unpublished
+`0.2.13`, with root development pins and workspace lock importers synchronized.
+External dependency selections remain unchanged. No published artifact is
+claimed. Hosts must preserve the public `0.2.12` SD05 group refusal until a separately
 verified release supplies the feature. Requalify the actual model, route hash,
 full SYSTEM/USER wire, token counter and framing, provider-group privacy,
 native cost and host Free CPU; do not relabel prior endpoint evidence or

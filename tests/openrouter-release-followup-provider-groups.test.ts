@@ -397,11 +397,11 @@ describe("SD05 group renewal and exact receipt recovery", () => {
   );
 
   it.each(["before provider", "after provider"] as const)(
-    "allows only a benign approval extension %s and retains the original receipt expiry",
+    "allows a benign approval extension %s without extending the queued receipt expiry",
     async (phase) => {
       const f = await fixture(),
         original = new Date(
-          Date.parse(f.wire.state.now) + 120_000,
+          Date.parse(f.wire.state.now) + 30_000,
         ).toISOString();
       f.wire.route.approval.validUntil = original;
       let renewed = false;
@@ -419,6 +419,8 @@ describe("SD05 group renewal and exact receipt recovery", () => {
       const checks = createSupportReleaseFollowupChecks(
         {
           ...f.options,
+          deferred: true,
+          deferredRetentionMilliseconds: 60_000,
           readApiKey: () => {
             if (phase === "before provider") renew();
             return "fictional-key";
@@ -435,20 +437,48 @@ describe("SD05 group renewal and exact receipt recovery", () => {
         },
         "pegma.dev",
       );
-      const checked = await checks.forWork(f.f.key).check(f.input, f.context);
+      expect(
+        await checks.forWork(f.f.key).prepare!(f.input, f.context),
+      ).toMatchObject({ outcome: "deferred" });
+      const [pending] = await checks.scanPending();
+      // The original receipt-key/approval window, not the default 60s receipt
+      // limit or retention, is the decisive bound captured before renewal.
+      expect(pending!.expiresAt).toBe(original);
+      expect(
+        await checks.precomputePending(
+          pending!.operationId,
+          f.context,
+          f.f.key,
+        ),
+      ).toEqual({ outcome: "received" });
+      const checked = await checks.precomputePending(
+        pending!.operationId,
+        f.context,
+        f.f.key,
+      );
       expect(renewed).toBe(true);
       expect(checked.outcome).toBe("checked");
       if (checked.outcome !== "checked")
         throw new Error("Benign renewed receipt required");
       const proof = await checks.sdkVerifier.verify(
-        checked.receipt,
+        checked.receipt!,
         f.input.binding,
         signal(),
       );
       expect(proof).not.toBeNull();
-      expect(Date.parse(proof!.validUntil)).toBeLessThanOrEqual(
-        Date.parse(original),
+      expect(proof!.validUntil).toBe(original);
+      expect(Date.parse(proof!.validUntil)).toBeLessThan(
+        Date.parse(f.wire.route.approval.validUntil),
       );
+      f.f.advance(Date.parse(original) - Date.parse(f.f.clock.now()));
+      f.wire.state.now = f.f.clock.now();
+      expect(
+        await checks.sdkVerifier.verify(
+          checked.receipt!,
+          f.input.binding,
+          signal(),
+        ),
+      ).toBeNull();
       expect(f.wire.state.calls).toBe(1);
     },
   );

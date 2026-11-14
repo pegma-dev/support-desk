@@ -1,5 +1,10 @@
 # @pegma/support-desk-templates
 
+This checkout prepares the synchronized **unpublished `0.2.13` candidate**
+for SD05 independent-check provider groups. The current verified public release
+remains `0.2.12`. See the [candidate notes](../../docs/RELEASE_NOTES.md#0213-sd05-provider-group-checks)
+and [source preparation](../../docs/RELEASING.md#source-version-0213).
+
 The synchronized `0.2.12` release is published and strictly verified. See the
 [publication receipt](../../docs/RELEASING.md#verified-0212-publication-2026-11-14),
 [release notes](../../docs/RELEASE_NOTES.md#0212-opt-in-provider-group-checks)

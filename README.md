@@ -1,5 +1,10 @@
 # Support Desk
 
+This checkout prepares the synchronized **unpublished `0.2.13` candidate**
+for SD05 independent-check provider groups. The current verified public release
+remains `0.2.12`. See the [candidate notes](docs/RELEASE_NOTES.md#0213-sd05-provider-group-checks)
+and [source preparation](docs/RELEASING.md#source-version-0213).
+
 [![CI](https://github.com/pegma-dev/support-desk/actions/workflows/ci.yml/badge.svg)](https://github.com/pegma-dev/support-desk/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
