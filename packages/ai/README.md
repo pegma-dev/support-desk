@@ -1,13 +1,13 @@
 # @pegma/support-desk-ai
 
-The synchronized `0.2.11` release is published and strictly verified. Its
-internal Support application pin is exact `0.2.11`; external KB
+The synchronized `0.2.12` release is published and strictly verified. Its
+internal Support application pin is exact `0.2.12`; external KB
 application/contracts retain exact verified public `0.1.8`. See the
-[publication receipt](../../docs/RELEASING.md#verified-0211-publication-2026-11-14)
-and [release notes](../../docs/RELEASE_NOTES.md#0211-trusted-independent-check-policy).
-Hosts must requalify the actual v2 checker request and route-policy hash;
-SDK publication does not establish factual model quality or host activation.
-The [guard upgrade guidance](../../docs/UPGRADING.md#0210-final-success-and-evidence-guards)
+[publication receipt](../../docs/RELEASING.md#verified-0212-publication-2026-11-14)
+and [release notes](../../docs/RELEASE_NOTES.md#0212-opt-in-provider-group-checks).
+Explicit provider-group checks require fresh scope/price approval and actual
+provider qualification. SDK publication does not establish factual model quality
+or host activation. The [guard upgrade guidance](../../docs/UPGRADING.md#0210-final-success-and-evidence-guards)
 remains applicable.
 
 Published `0.2.9` engineering coordination selects optional application-owned model-planning/completion,
@@ -46,9 +46,9 @@ the [follow-up invocation contract](../../docs/ENGINEERING_FOLLOWUP.md#candidate
 
 Optional, provider-neutral Support Desk answer, learning, engineering, and
 release follow-up coordination.
-The current verified published synchronized release is `0.2.11`;
-see the [publication receipt](../../docs/RELEASING.md#verified-0211-publication-2026-11-14).
-Its exact internal Support application pin is `0.2.11`; external KB application
+The current verified published synchronized release is `0.2.12`;
+see the [publication receipt](../../docs/RELEASING.md#verified-0212-publication-2026-11-14).
+Its exact internal Support application pin is `0.2.12`; external KB application
 and contracts pins are exact `0.1.8`. The earlier
 [`0.2.8` receipt](../../docs/RELEASING.md#verified-028-publication-2026-11-12)
 retains its original KB `0.1.6` graph. Host activation and whole-invocation/CPU
@@ -418,11 +418,12 @@ written. Expiry redaction removes request text and retains the attempt and its
 proof reservation. Retain these finite limits in host scheduling and funding
 plans.
 
-### Opt-in provider-group checks (source only)
+<a id="opt-in-provider-group-checks-source-only"></a>
 
-The source addition permits an explicitly approved provider group for learning
-and engineering independent checks. It is not part of the published `0.2.11`
-contract. Structural support does not activate a host or authorize a live call.
+### Opt-in provider-group checks
+
+Published `0.2.12` permits an explicitly approved provider group for learning
+and engineering independent checks. Structural support does not activate a host or authorize a live call.
 Answering and generation routes retain their existing policies; the release
 follow-up checker refuses group mode before funding.
 
@@ -470,8 +471,9 @@ references; the SDK adds no metadata network port. These unit-price ceilings do
 not replace `maxCostMicros`, token limits, durable reservation/spending caps or
 actual native-charge accounting.
 Unknown or over-limit native usage remains conservatively held, never recorded
-as free or retried automatically. SDK qualification and publication, then each
-host's current privacy, evaluation and activation gates, remain separate.
+as free or retried automatically. The dated receipt records SDK qualification
+and publication; each host's current privacy, evaluation and activation gates
+remain separate.
 
 ### Release follow-up provider ports
 

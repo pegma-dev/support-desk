@@ -146,31 +146,28 @@ first publish and later OIDC releases.
 
 ## Where things stand
 
-The current source candidate is synchronized `0.2.12`, adding explicit opt-in
-provider-group routing for learning and engineering independent checks. All
-five source package versions, exact internal Support pins and root Support
-development pins select `0.2.12`; the root stays private at `0.0.0`. External
-dependency selections are unchanged. Route, static allowlist and Admin approval
-must agree on group scope, with a newly hash-bound price policy and current
-qualification/privacy evidence. Azure group selection does not guarantee a
-region or activate a host. See the [source preparation](docs/RELEASING.md#source-version-0212)
-and [candidate notes](docs/RELEASE_NOTES.md#0212-opt-in-provider-group-checks).
-Normal Node 22/24, review, CI and protected release gates remain required;
-the candidate is not a published dependency.
+All five synchronized packages and exact internal Support pins are published
+and strictly verified at `0.2.12`; the root stays private at `0.0.0`. This release
+adds explicit opt-in provider-group routing for learning and engineering
+independent checks. Route, static allowlist and Admin approval must agree on
+scope, with a new hash-bound price policy and current qualification/privacy
+evidence. Azure group selection does not guarantee a region or activate a host.
+Exact KB `0.1.8`, `zod@4.6.7` and other external selections are unchanged. See the
+[release notes](docs/RELEASE_NOTES.md#0212-opt-in-provider-group-checks) and
+[dated receipt](docs/RELEASING.md#verified-0212-publication-2026-11-14).
+SDK publication does not establish factual model quality, actual provider-group
+qualification or host activation.
 
-The latest verified public synchronized release remains `0.2.11`, with exact
-internal Support pins at `0.2.11`; the root stays private at `0.0.0`. This release
-corrects the trusted independent-check policy boundary and selects wire v2.
-Exact KB `0.1.8`, `zod@4.6.7` and other external selections are unchanged. See
-[release notes](docs/RELEASE_NOTES.md#0211-trusted-independent-check-policy) and
-the [dated receipt](docs/RELEASING.md#verified-0211-publication-2026-11-14).
-Hosts must requalify the actual v2 request and route-policy hash. SDK publication
-does not establish factual model quality or host activation.
+The earlier `0.2.11` release corrected the trusted independent-check policy
+boundary and selected wire v2. Its [notes](docs/RELEASE_NOTES.md#0211-trusted-independent-check-policy)
+and [original receipt](docs/RELEASING.md#verified-0211-publication-2026-11-14)
+remain unchanged. Hosts must qualify the actual v2 request and route-policy hash;
+old exact-route approval does not authorize a provider group.
 
 The earlier `0.2.10` release introduced optional final
 `signal`/`verifyBeforeCommit` guards on customer success and resolution
 evidence, two-argument compatibility and receipt-first recovery under current
-authority. Those APIs remain in `0.2.11`; see the [0.2.10 notes](docs/RELEASE_NOTES.md#0210-final-success-evidence-guards)
+authority. Those APIs remain in `0.2.12`; see the [0.2.10 notes](docs/RELEASE_NOTES.md#0210-final-success-evidence-guards)
 and [historical receipt](docs/RELEASING.md#verified-0210-publication-2026-11-13).
 
 Task 15's bounded deployment-owned canned-response catalog is implemented in
@@ -232,11 +229,11 @@ Sessions `0.3.0` prerequisite is public. Final site integration, complete host
 Workers Free 50/100 invocation/CPU acceptance, provider/privacy and requested-client
 acceptance, and supervised pilots remain pending.
 
-All five packages have verified published `0.2.11` versions. The synchronized
+All five packages have verified published `0.2.12` versions. The synchronized
 `0.2.1` and `0.2.0` artifacts remain immutable history. The original four names also retain
 their published `0.1.0`/`0.1.1` artifacts; the AI name's `0.1.1` is a separate
 registration-only bootstrap. Follow the
-[publication receipt](docs/RELEASING.md#verified-0211-publication-2026-11-14)
+[publication receipt](docs/RELEASING.md#verified-0212-publication-2026-11-14)
 and release operations. Customer services return safe DTOs; staff
 services return the authoritative ticket for authorized staff only, and the
 staff queue scans a confirmed projection that is never authorization evidence.
@@ -286,7 +283,7 @@ messages with exact completion fences, and adds deterministic owned
 request-person, staff takeover, private success evidence, human queue
 selection, and bounded atomic handoff work. It adds no model, KB dependency,
 or package; its behavior first shipped in synchronized `0.2.0` and remains in
-published `0.2.11`. Do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
+published `0.2.12`. Do not overwrite registry `0.1.1` or install a source substitute. Host adoption retains its own
 activation gates after verified SDK publication.
 Standalone KB-01 through KB-04, AUTH-01 Agent Access, partial KB-05 source
 preparation ([KB #4](https://github.com/pegma-dev/knowledge-base/pull/4)), and
@@ -311,7 +308,7 @@ signed `v0.2.0` at `efc9d733b3d305d24cf4197444e1d76c99bdb777`; see
 the migration and operations handbooks are `docs/UPGRADING.md` and
 `docs/AI_OPERATIONS.md`. The base application has no KB or provider dependency; actual KB
 `0.1.8` application/contracts dependencies belong only to the current
-published optional AI `0.2.11` package. Historical `0.2.8` retains `0.1.6`; older `0.2.0` and
+published optional AI `0.2.12` package. Historical `0.2.8` retains `0.1.6`; older `0.2.0` and
 `0.2.1` AI manifests retain their original `0.1.2` pins. See [assistant coordination](docs/ASSISTANT_COORDINATION.md)
 and its [layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint).
 PG-01/RG-01 consume exact verified published producers and still require actual

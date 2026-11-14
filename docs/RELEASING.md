@@ -1,35 +1,86 @@
 # Release operations
 
+<a id="verified-0212-publication-2026-11-14"></a>
+
+## Verified 0.2.12 publication: 2026-11-14
+
+All five synchronized packages are published and strictly verified at `0.2.12`.
+The [protected signed release](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.12)
+binds source [`b41b301c955b1960ca2c6f9d3a186f2c6be28ca2`](https://github.com/pegma-dev/support-desk/commit/b41b301c955b1960ca2c6f9d3a186f2c6be28ca2)
+and tag object `a4e055d43fcf1dd53672fdcccbab1c78e40a602f`.
+[Run 43553356739, attempt 1](https://github.com/pegma-dev/support-desk/actions/runs/43553356739/attempts/1)
+completed all seven jobs and 94 actual steps successfully. Both Node 22/24
+release lanes passed 4,258 tests across 97 files with zero skips. All five
+packages were published; none was skipped. The original release attempt
+completed without a workflow rerun, repack or retag.
+
+The 163-check preapproval audit authenticated the original preparation,
+339 package members, both Node consumers and registry preflight before protected
+publication. The original preparation producer was run `43553356739`, attempt
+`1`, [Prepare job 132322419938](https://github.com/pegma-dev/support-desk/actions/runs/43553356739/job/132322419938).
+The [publisher](https://github.com/pegma-dev/support-desk/actions/runs/43553356739/job/132322635579)
+and [hosted verifier](https://github.com/pegma-dev/support-desk/actions/runs/43553356739/job/132327168543)
+identities are separately bound by actual workflow evidence; package provenance
+identifies its actual publisher run and attempt.
+
+Hosted and independent exact-source verification passed original registry
+bytes and dependencies, native npm `11.18.0` signatures, Sigstore/TUF and exact
+tag/source/workflow provenance, then a fresh scripts-disabled public install
+and every public entry-point import. The independent native qualification
+completed at `2026-11-14T04:15:29Z`. All five npm `latest` tags were observed at
+`0.2.12`; optional AI retains exact public KB application/contracts `0.1.8` and
+its separate registration-only `bootstrap: 0.1.1`. See the
+[qualified notes](https://github.com/pegma-dev/support-desk/releases/download/v0.2.12/qualified-release-notes.md),
+[strict registry receipt](https://github.com/pegma-dev/support-desk/releases/download/v0.2.12/registry-verification.json)
+and [actual verification job](https://github.com/pegma-dev/support-desk/releases/download/v0.2.12/verification-job.json).
+
+Original prepared artifact `14097113298` is preserved byte-for-byte as
+[support-desk-release-43553356739-1.zip](https://github.com/pegma-dev/support-desk/releases/download/v0.2.12/support-desk-release-43553356739-1.zip),
+SHA-256 `f7e5f212589756cd6234aa428f5ea5c3c76426f9e7d971b73a610d81f1758904`.
+The independently bound
+[canonical manifest](https://github.com/pegma-dev/support-desk/releases/download/v0.2.12/package-manifest.json)
+has SHA-256 `10589e55a04377cdb9790b4f4896667ef1ba00da50f17c6c549585827e43f6eb`.
+All six permanent public assets passed authenticated and anonymous exact-byte
+readback before promotion to GitHub Latest on 2026-11-14. Separate hashed
+consumer/preflight bindings and original producer metadata remain in the
+[prepared-artifact receipt](https://github.com/pegma-dev/support-desk/releases/download/v0.2.12/prepared-artifact.json).
+The `0.2.11` body/assets and all prior non-latest npm tags were preserved.
+Earlier dated receipts, anchors and original archives remain unchanged.
+
+The [0.2.12 notes](RELEASE_NOTES.md#0212-opt-in-provider-group-checks)
+describe explicit opt-in provider-group routing for learning and engineering
+independent checks. Route, static allowlist and Admin approval must agree on
+scope and the new hash-bound price policy. Omitted keys retain existing
+exact-mode request bytes and hashes. This SDK qualification does not establish
+actual provider-group privacy/price eligibility, model quality, host deployment,
+invocation/CPU, requested-client or pilot acceptance, and authorizes no live call.
+
 <a id="source-version-0212"></a>
 
 <a id="0212-source-preparation-2026-11-14"></a>
 
-## 0.2.12 source preparation: 2026-11-14
+## Historical 0.2.12 source preparation: 2026-11-14
 
-The synchronized source candidate selects `0.2.12` for all five package
-versions and exact internal Support pins, including root Support development
-pins and matching workspace lock importers. The root remains private at
-`0.0.0`. Exact KB application/contracts `0.1.8`, `zod@4.6.7` and every other
-external dependency selection are unchanged.
+Before the verified publication above, synchronized source manifests and exact
+internal Support pins selected then-unpublished `0.2.12`, including root Support
+development pins and matching workspace lock importers. The root stayed private
+at `0.0.0`; exact KB application/contracts `0.1.8`, `zod@4.6.7` and every other
+external dependency selection were unchanged.
 
-This candidate adds explicit opt-in provider-group routing for learning and
-engineering independent checks. The route, static allowlist and Admin approval
-must agree on group scope; scope and explicit price ceilings enter the route
-policy hash. Existing exact mode, request bodies and hashes remain unchanged
-when the new fields are omitted. See the
-[candidate notes](RELEASE_NOTES.md#0212-opt-in-provider-group-checks) and
+That candidate added explicit provider-group routing for learning and
+engineering independent checks, with route/allowlist/Admin scope agreement and
+hash-bound price ceilings. Its omitted-option exact mode was preserved. See the
+[release notes](RELEASE_NOTES.md#0212-opt-in-provider-group-checks) and
 [adapter contract](../packages/ai/README.md#opt-in-provider-group-checks-source-only).
 
-This is source preparation, not publication or host activation. The latest
-verified public release remains `0.2.11`, recorded below. Before release, the
-final source must pass the normal Node 22/24 format, types, complete runtime
-tests, examples, release metadata, clean release-pack and consumer gates,
-configured review and CI, then the protected signed-tag/OIDC workflow in this
-guide. Unpublished candidate archives are not production dependencies. Actual
-group privacy, endpoint/price eligibility, wire/model/tokenizer qualification,
-native accounting, model quality and each host's deployment and activation
-gates remain separate. Historical receipts, anchors and release policy below
-remain unchanged.
+The source checkpoint required the normal Node 22/24 format, types, complete
+runtime tests, examples, release metadata, clean pack/consumer, configured review
+and CI gates, followed by the protected signed-tag/OIDC workflow. The recorded
+verified release at that checkpoint was `0.2.11`. The dated `0.2.12` receipt above
+now records completed publication, strict verification and permanent original
+assets. Unpublished candidate archives were not production dependencies. Actual
+provider-group qualification and each host's quality/deployment/activation gates
+remain separate; SDK publication closes none of those gates automatically.
 
 <a id="verified-0211-publication-2026-11-14"></a>
 
@@ -854,8 +905,8 @@ SD-06, and a clean memory consumer does not certify a host's durable migration.
 After the reviewed release PR is merged and every current-head gate is green,
 the authorized maintainer creates the protected signed annotated stable tag at
 the exact `origin/main` commit, pushes it, and creates its verified GitHub
-release. The current verified release identity is `v0.2.11`; the earlier
-`v0.2.10`, `v0.2.9`, `v0.2.8`, `v0.2.7`, `v0.2.6`,
+release. The current verified release identity is `v0.2.12`; the earlier
+`v0.2.11`, `v0.2.10`, `v0.2.9`, `v0.2.8`, `v0.2.7`, `v0.2.6`,
 `v0.2.5`, `v0.2.4`, `v0.2.3`, `v0.2.2`, `v0.2.1` and SD-06 `v0.2.0` identities remain
 historical.
 Do not create a GitHub release for `v0.1.1-ai-bootstrap`.
