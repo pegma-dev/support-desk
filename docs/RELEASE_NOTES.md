@@ -1,5 +1,17 @@
 # Release notes
 
+## Unreleased source — SD05 independent-check provider groups
+
+SD05 independent whole-bundle checks may explicitly opt into the same
+route/static-allowlist/Admin-approved group scope and hash-bound price ceilings
+as learning and engineering checks. The separate SD05 evidence and `sf1` MAC
+domain, current Source/Work fences, approval renewal identity, conservative
+native-charge accounting and exact receipt recovery remain required.
+Generators, legacy absent-key routes/wires/hashes, defaults and external
+dependency pins are unchanged. No version bump, public release, live provider
+qualification or host activation is included; published `0.2.12` retains its
+SD05 refusal. See the [source contract](../packages/ai/README.md#unreleased-source-sd05-independent-check-provider-groups).
+
 <a id="0212-opt-in-provider-group-checks"></a>
 
 <a id="0212-source-candidate--opt-in-provider-group-checks"></a>

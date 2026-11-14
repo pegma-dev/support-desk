@@ -587,8 +587,8 @@ describe("group routing preserves independent response guards", () => {
   });
 });
 
-describe("SD05 remains outside provider-group approval", () => {
-  it("refuses a group at SD05 model resolution even though the ordinary independent checker accepts it", async () => {
+describe("explicit capability and SD05 evidence refusals", () => {
+  it("retains the internal purpose-protocol opt-out even when the ordinary independent checker accepts a group", async () => {
     const f = await groupFixture();
     expect(await f.model.resolve()).not.toBeNull();
     const model = createSupportIndependentCheckModel(f.options, "pegma.dev", {
@@ -598,9 +598,10 @@ describe("SD05 remains outside provider-group approval", () => {
     await refusesBeforeCredentials({ ...f, model });
   });
 
-  it("refuses a complete direct release_followup request before credentials despite live SD05 evidence", async () => {
+  it("refuses a direct release_followup group before credentials when its separate SD05 approval is absent", async () => {
     const f = await followupChecksFixture(createMemoryStore());
     group(f.wire);
+    Reflect.deleteProperty(f.wire.route, "releaseFollowup");
     await approve(f.wire);
     const ordinary = createSupportIndependentCheckModel(
       f.wire.options,
@@ -648,9 +649,10 @@ describe("SD05 remains outside provider-group approval", () => {
     expect(f.wire.state.calls).toBe(0);
   });
 
-  it("makes SD05 policy unavailable and holds an actual check before model credentials, authority or durable admission", async () => {
+  it("makes incomplete group policy unavailable and holds an SD05 check before credentials, authority or durable admission", async () => {
     const f = await followupChecksFixture(createMemoryStore());
     group(f.wire);
+    Reflect.deleteProperty(f.wire.route.approval, "providerSelectionScope");
     await approve(f.wire);
     const credential = vi.fn(() => "fictional-provider-key");
     const authority = vi.fn(f.options.authority.resolve);

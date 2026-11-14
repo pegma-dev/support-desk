@@ -152,6 +152,9 @@ export async function followupControllerFixture(
   fixtureOptions: {
     readonly privateNote?: string;
     readonly maxModelAttempts?: number;
+    readonly configureChecker?: (
+      wire: Awaited<ReturnType<typeof checkerModelFixture>>,
+    ) => void | Promise<void>;
   } = {},
 ) {
   const wire = await checkerModelFixture();
@@ -249,6 +252,8 @@ export async function followupControllerFixture(
     validUntil: wire.route.approval.validUntil,
   });
   // The factory snapshots policy at creation: create it only after clock alignment.
+  if (fixtureOptions.configureChecker)
+    await fixtureOptions.configureChecker(wire);
   const { approval: ignored, ...shifted } = wire.route;
   void ignored;
   wire.route.approval.requestPolicySha256 =
@@ -261,7 +266,12 @@ export async function followupControllerFixture(
 
 export async function followupChecksFixture(
   store: Store = createMemoryStore(),
-  fixtureOptions: { readonly privateNote?: string } = {},
+  fixtureOptions: {
+    readonly privateNote?: string;
+    readonly configureChecker?: (
+      wire: Awaited<ReturnType<typeof checkerModelFixture>>,
+    ) => void | Promise<void>;
+  } = {},
 ) {
   const base = await followupControllerFixture(store, fixtureOptions);
   const { f, wire } = base;

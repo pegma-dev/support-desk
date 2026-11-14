@@ -129,6 +129,16 @@ ports. Its route, privacy, tokenizer and checker qualification stay explicit;
 provider and host activation remain pending. Retest requests remain advisory
 until the owning trusted evidence workflow verifies their actual execution.
 
+The [unreleased SD05 checker group source](../packages/ai/README.md#unreleased-source-sd05-independent-check-provider-groups)
+adds explicit route/static-allowlist/Admin group approval and hash-bound price
+ceilings to independent whole-bundle checks only. Its separate live SD05
+purpose/wire evidence, Source/Work guards and `sf1` receipt domain remain
+required. Approval renewal cannot change a queued selector, scope, price or
+route-policy hash. Generators retain their endpoint-qualified route policy.
+Published `0.2.12` still refuses SD05 group checks; hosts must await a verified
+future release and qualify their actual group privacy, request, model and
+Free CPU before activation. This source change supplies no live authority.
+
 <a id="candidate-029-followup-invocations"></a>
 <a id="candidate-029-physical-invocation-phases"></a>
 

@@ -1,5 +1,22 @@
 # Upgrading synchronized Support Desk packages
 
+## Unreleased source: SD05 checker provider-group opt-in
+
+The source SD05 independent checker now accepts the existing explicit group
+route, matching static allowlist scope and current Admin scope approval, with
+the complete hash-bound `providerMaxPrice` policy. This is not a generator
+capability or a default selector change. Its separate SD05 purpose/wire
+evidence and receipt MAC, current Source/Work checks, native usage accounting
+and finite approval/attempt lifetimes are retained. Benign approval-date
+renewals cannot widen group scope or prices or replace a queued route hash.
+
+There is no new version or published artifact in this source change. Hosts
+must preserve the public `0.2.12` SD05 group refusal until a separately
+verified release supplies the feature. Requalify the actual model, route hash,
+full SYSTEM/USER wire, token counter and framing, provider-group privacy,
+native cost and host Free CPU; do not relabel prior endpoint evidence or
+activate customer AI from source tests. See the [adapter contract](../packages/ai/README.md#unreleased-source-sd05-independent-check-provider-groups).
+
 The current verified synchronized release is `0.2.12`; see its
 [publication receipt](RELEASING.md#verified-0212-publication-2026-11-14).
 Hosts must qualify the [new checker wire](../packages/ai/README.md#optional-openrouter-adapter)
