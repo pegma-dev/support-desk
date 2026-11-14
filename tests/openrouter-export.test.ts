@@ -3,8 +3,40 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import * as root from "@pegma/support-desk-ai";
 import * as provider from "@pegma/support-desk-ai/openrouter";
+import type {
+  IndependentCheckModelOptions,
+  IndependentCheckRoute,
+  SupportProviderMaxPrice,
+} from "@pegma/support-desk-ai/openrouter";
 
 describe("optional public provider subpath", () => {
+  it("types an explicit provider-group policy through the public subpath", () => {
+    const price: SupportProviderMaxPrice = {
+      prompt: 1.75,
+      completion: 14,
+      request: 0,
+    };
+    const route: Pick<
+      IndependentCheckRoute,
+      "providerSelectionScope" | "providerMaxPrice"
+    > = { providerSelectionScope: "provider_group", providerMaxPrice: price };
+    const approval: Pick<
+      IndependentCheckRoute["approval"],
+      "providerSelectionScope"
+    > = { providerSelectionScope: "provider_group" };
+    const allowlist: IndependentCheckModelOptions["allowlist"] = [
+      {
+        model: "fictional/model",
+        provider: "Azure",
+        endpointTag: "azure",
+        outputTokenParameter: "max_completion_tokens",
+        providerSelectionScope: "provider_group",
+      },
+    ];
+    expect(route.providerSelectionScope).toBe(approval.providerSelectionScope);
+    expect(allowlist[0]!.providerSelectionScope).toBe("provider_group");
+    expect(root).not.toHaveProperty("providerMaxPrice");
+  });
   it("exports one optional level while keeping the AI root provider-neutral", () => {
     const manifest = JSON.parse(
       readFileSync("packages/ai/package.json", "utf8"),

@@ -418,6 +418,56 @@ written. Expiry redaction removes request text and retains the attempt and its
 proof reservation. Retain these finite limits in host scheduling and funding
 plans.
 
+### Opt-in provider-group checks (source only)
+
+The source addition permits an explicitly approved provider group for learning
+and engineering independent checks. It is not part of the published `0.2.11`
+contract. Structural support does not activate a host or authorize a live call.
+Answering and generation routes retain their existing policies; the release
+follow-up checker refuses group mode before funding.
+
+The host must set `providerSelectionScope: "provider_group"` in all three places:
+the independent-check route, its matching static allowlist entry, and
+`route.approval`. The route also requires
+`providerMaxPrice: { prompt, completion, request: 0 }`. Group `endpointTag` is a
+bare base-provider slug, such as `azure`, rather than a region-suffixed selector.
+Omitting the new fields preserves the existing exact mode, selector refusals,
+request body and route-policy hashes; there is no inferred group or default.
+
+Build the complete new route base and calculate
+`independentCheckRoutePolicyHash(base)` before obtaining fresh Admin-approved
+evidence. The scope and price object participate in that hash;
+`approval.requestPolicySha256` must match it and the approval's scope must match
+the route and allowlist. An old exact-route approval cannot authorize a group
+route. Requalify the actual wire, model, token counter, response identity and
+provider-group privacy evidence before returning ready configuration.
+
+OpenRouter's [base-slug matching](https://openrouter.ai/docs/guides/routing/provider-selection#base-slug-matching)
+can include eligible variants and regions. Selecting `azure` therefore does
+not guarantee Sweden, another particular region or a previously observed
+endpoint. Approve the actual group scope rather than reusing an exact regional
+attestation. The request still restricts `provider.only` to that group with
+`allow_fallbacks: false`, `zdr: true`, `data_collection: "deny"` and
+`require_parameters: true`. No other provider or retention-mode fallback is
+enabled. Existing verified controls keep SafetyRetention, input/output logging
+and use, broadcast and response caching off; current evidence, expiry and
+implicit-cache approval checks still apply.
+
+The group's `providerMaxPrice` is serialized as `provider.max_price`.
+OpenRouter's [price filter](https://openrouter.ai/docs/guides/routing/provider-selection#max-price)
+uses USD per **million** text tokens for `prompt` and `completion`;
+`request` is a separate per-request price ceiling. This mode requires and sends
+`request: 0`; actual provider eligibility and enforcement still need live
+qualification. Missing request-price metadata is not proof of zero charges.
+The host must review eligible endpoint metadata and non-token charges before
+admission under its current verified features, exceptions and evaluation
+references; the SDK adds no metadata network port. These unit-price ceilings do
+not replace `maxCostMicros`, token limits, durable reservation/spending caps or
+actual native-charge accounting.
+Unknown or over-limit native usage remains conservatively held, never recorded
+as free or retried automatically. SDK qualification and publication, then each
+host's current privacy, evaluation and activation gates, remain separate.
+
 ### Release follow-up provider ports
 
 Published `0.2.9` adds `createSupportReleaseFollowupModel(options,

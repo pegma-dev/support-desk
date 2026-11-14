@@ -1,6 +1,6 @@
 {
   "name": "@pegma/support-desk-contracts",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "description": "Provider-neutral ticket and message contracts for Support Desk.",
   "license": "MIT",
   "type": "module",

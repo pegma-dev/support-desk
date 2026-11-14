@@ -1,5 +1,10 @@
 import type { Clock } from "@pegma/spine";
 import { sameApprovalRenewal } from "./approval-renewal.js";
+import {
+  selectedProviderMaxPrice,
+  type SupportProviderMaxPrice,
+} from "./provider-selection.js";
+export type { SupportProviderMaxPrice } from "./provider-selection.js";
 
 export type SupportOpenRouterModelFailure =
   | "route_unavailable"
@@ -55,10 +60,13 @@ export interface SupportOpenRouterRoute<Configuration> {
   readonly credentialRef: string;
   readonly usageScopeRef: string;
   readonly endpointTag: string;
+  readonly providerSelectionScope?: "provider_group" | undefined;
+  readonly providerMaxPrice?: SupportProviderMaxPrice | undefined;
   readonly outputTokenParameter: "max_tokens" | "max_completion_tokens";
   readonly approval: {
     readonly validUntil: string;
     readonly implicitCache: "absent" | "approved";
+    readonly providerSelectionScope?: "provider_group" | undefined;
   };
 }
 export interface SupportOpenRouterModelOptions<Configuration> {
@@ -548,6 +556,9 @@ export function createSupportOpenRouterModel<
     readonly schema: unknown;
     /** Internal purpose opt-in; all other route fields remain exactly pinned. */
     readonly allowApprovalRenewal?: boolean;
+    /** Only a purpose controller with explicit route/allowlist/approval policy
+     * may enable group serialization. Omission retains the legacy wire. */
+    readonly allowProviderGroup?: boolean;
     input(input: Input, context: Context): string;
     output(content: string, context: Context): string;
     validate(
@@ -630,6 +641,16 @@ export function createSupportOpenRouterModel<
         protocol.validate(input, context, configuration);
         if (context.budgets.currency !== configuration.budgets.currency)
           fail("usage_invalid");
+        let providerPrice: SupportProviderMaxPrice | undefined;
+        try {
+          providerPrice = selectedProviderMaxPrice(
+            route,
+            context.budgets,
+            protocol.allowProviderGroup === true,
+          );
+        } catch {
+          fail("route_unavailable");
+        }
         const routeBinding = canonical(route);
         const guard = () => {
           if (stopped || context.signal.aborted) fail("aborted");
@@ -692,6 +713,9 @@ export function createSupportOpenRouterModel<
             data_collection: "deny",
             zdr: true,
             require_parameters: true,
+            ...(providerPrice === undefined
+              ? {}
+              : { max_price: providerPrice }),
           },
         });
         context.signal.addEventListener("abort", onAbort, { once: true });

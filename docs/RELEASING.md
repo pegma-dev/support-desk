@@ -1,5 +1,36 @@
 # Release operations
 
+<a id="source-version-0212"></a>
+
+<a id="0212-source-preparation-2026-11-14"></a>
+
+## 0.2.12 source preparation: 2026-11-14
+
+The synchronized source candidate selects `0.2.12` for all five package
+versions and exact internal Support pins, including root Support development
+pins and matching workspace lock importers. The root remains private at
+`0.0.0`. Exact KB application/contracts `0.1.8`, `zod@4.6.7` and every other
+external dependency selection are unchanged.
+
+This candidate adds explicit opt-in provider-group routing for learning and
+engineering independent checks. The route, static allowlist and Admin approval
+must agree on group scope; scope and explicit price ceilings enter the route
+policy hash. Existing exact mode, request bodies and hashes remain unchanged
+when the new fields are omitted. See the
+[candidate notes](RELEASE_NOTES.md#0212-opt-in-provider-group-checks) and
+[adapter contract](../packages/ai/README.md#opt-in-provider-group-checks-source-only).
+
+This is source preparation, not publication or host activation. The latest
+verified public release remains `0.2.11`, recorded below. Before release, the
+final source must pass the normal Node 22/24 format, types, complete runtime
+tests, examples, release metadata, clean release-pack and consumer gates,
+configured review and CI, then the protected signed-tag/OIDC workflow in this
+guide. Unpublished candidate archives are not production dependencies. Actual
+group privacy, endpoint/price eligibility, wire/model/tokenizer qualification,
+native accounting, model quality and each host's deployment and activation
+gates remain separate. Historical receipts, anchors and release policy below
+remain unchanged.
+
 <a id="verified-0211-publication-2026-11-14"></a>
 
 ## Verified 0.2.11 publication: 2026-11-14

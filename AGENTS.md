@@ -146,8 +146,20 @@ first publish and later OIDC releases.
 
 ## Where things stand
 
-All five synchronized packages and exact internal Support pins are published
-and strictly verified at `0.2.11`; the root stays private at `0.0.0`. This release
+The current source candidate is synchronized `0.2.12`, adding explicit opt-in
+provider-group routing for learning and engineering independent checks. All
+five source package versions, exact internal Support pins and root Support
+development pins select `0.2.12`; the root stays private at `0.0.0`. External
+dependency selections are unchanged. Route, static allowlist and Admin approval
+must agree on group scope, with a newly hash-bound price policy and current
+qualification/privacy evidence. Azure group selection does not guarantee a
+region or activate a host. See the [source preparation](docs/RELEASING.md#source-version-0212)
+and [candidate notes](docs/RELEASE_NOTES.md#0212-opt-in-provider-group-checks).
+Normal Node 22/24, review, CI and protected release gates remain required;
+the candidate is not a published dependency.
+
+The latest verified public synchronized release remains `0.2.11`, with exact
+internal Support pins at `0.2.11`; the root stays private at `0.0.0`. This release
 corrects the trusted independent-check policy boundary and selects wire v2.
 Exact KB `0.1.8`, `zod@4.6.7` and other external selections are unchanged. See
 [release notes](docs/RELEASE_NOTES.md#0211-trusted-independent-check-policy) and
