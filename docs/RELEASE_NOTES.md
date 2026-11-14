@@ -1,5 +1,46 @@
 # Release notes
 
+<a id="0212-opt-in-provider-group-checks"></a>
+
+<a id="0212-source-candidate--opt-in-provider-group-checks"></a>
+
+## 0.2.12 source candidate — opt-in provider-group checks
+
+Source preparation dated 2026-11-14 synchronizes all five package versions,
+exact internal Support pins, root Support development pins and lock importers
+at `0.2.12`. The root stays private at `0.0.0`; all external dependency
+selections remain unchanged. This candidate is not published. The verified
+`0.2.11` release and its original artifacts/receipts remain unchanged; see the
+[source checkpoint](RELEASING.md#source-version-0212).
+
+Learning and engineering independent checks may explicitly opt into
+`providerSelectionScope: "provider_group"` on the route, matching static
+allowlist entry and Admin approval. The route requires
+`providerMaxPrice: { prompt, completion, request: 0 }`; scope and prices bind
+the newly approved route-policy hash. Leaving these keys absent retains existing
+selector policy, refusals, request bodies and hashes. Explicit `undefined`
+properties are refused as incomplete policy, even where optional authoring types
+can represent them; omit unused keys entirely. Group mode uses a
+bare provider slug such as `azure`, which can include eligible variants and
+regions; it does not guarantee Sweden or another endpoint's location. The
+release follow-up checker refuses group mode before funding; answering and
+generation policies are unchanged.
+
+ZDR-only routing, no-other-provider fallback, disabled input/output logging,
+current evidence/expiry, token limits and durable spending caps remain in
+force. Prompt and completion price ceilings are USD per million text tokens,
+separate from total request cost and actual native charges. Missing request
+price metadata is not proven zero by `request: 0`: the host must review eligible
+endpoint metadata and non-token charges under its current verified evidence.
+No metadata network port, automatic paid retry, permission or durable layout
+is added. Unknown usage retains conservative accounting.
+
+See the [adapter contract](../packages/ai/README.md#opt-in-provider-group-checks-source-only)
+for approval and qualification requirements. Normal source/release gates,
+actual provider privacy and price enforcement, model quality and each host's
+deployment, client and activation acceptance remain required. Structural
+support does not authorize a live call.
+
 <a id="0211-trusted-independent-check-policy"></a>
 
 <a id="0211-source-candidate--trusted-independent-check-policy"></a>

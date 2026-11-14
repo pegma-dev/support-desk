@@ -1,10 +1,36 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import * as root from "@pegma/support-desk-ai";
 import * as provider from "@pegma/support-desk-ai/openrouter";
+import type {
+  IndependentCheckModelOptions,
+  IndependentCheckRoute,
+  SupportProviderMaxPrice,
+} from "@pegma/support-desk-ai/openrouter";
 
 describe("optional public provider subpath", () => {
+  it("types an explicit provider-group policy through the public subpath", () => {
+    expectTypeOf<SupportProviderMaxPrice>().toEqualTypeOf<{
+      prompt: number;
+      completion: number;
+      request: 0;
+    }>();
+    expectTypeOf<IndependentCheckRoute["providerMaxPrice"]>().toEqualTypeOf<
+      SupportProviderMaxPrice | undefined
+    >();
+    expectTypeOf<
+      IndependentCheckRoute["providerSelectionScope"]
+    >().toEqualTypeOf<"provider_group" | undefined>();
+    expectTypeOf<
+      IndependentCheckRoute["approval"]["providerSelectionScope"]
+    >().toEqualTypeOf<"provider_group" | undefined>();
+    expectTypeOf<
+      NonNullable<
+        IndependentCheckModelOptions["allowlist"]
+      >[number]["providerSelectionScope"]
+    >().toEqualTypeOf<"provider_group" | undefined>();
+  });
   it("exports one optional level while keeping the AI root provider-neutral", () => {
     const manifest = JSON.parse(
       readFileSync("packages/ai/package.json", "utf8"),
@@ -27,6 +53,7 @@ describe("optional public provider subpath", () => {
       expect(provider[name]).toBeTypeOf("function");
       expect(root).not.toHaveProperty(name);
     }
+    expect(root).not.toHaveProperty("providerMaxPrice");
   });
   it("imports in a clean process without provider, secret, application or Store activity", () => {
     const child = spawnSync(

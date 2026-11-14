@@ -60,6 +60,17 @@ version, verification time, and expiry. Typed references alone do not verify
 the provider's settings. Disabled, expired, unavailable, or changed proof holds
 new work. There is no implicit provider or retention-mode fallback.
 
+The source-only [provider-group checker option](../packages/ai/README.md#opt-in-provider-group-checks-source-only)
+requires explicit route, static allowlist and Admin-approval scope selections,
+plus a newly hash-bound price policy and current group privacy/qualification
+evidence. It does not extend the published `0.2.11` contract or enable a host.
+An Azure group may include eligible regions and variants; it does not establish
+the exact region of a previous endpoint approval. Preserve ZDR-only routing,
+disabled input/output logging and no-other-provider fallback. The prompt and
+completion price filters are USD per million tokens, separate from total
+spending caps and actual native charges. Retain durable unknown-usage holds and
+require the host's independent approval and activation gates before live use.
+
 ## Bounded workers and durable recovery
 
 Persist a separate opaque cursor for each scheduled scan loop and purpose.

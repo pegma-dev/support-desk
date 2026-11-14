@@ -4,6 +4,10 @@ import type { Clock } from "@pegma/spine";
 import { z } from "zod";
 import { sameApprovalRenewal } from "./approval-renewal.js";
 import {
+  providerMaxPrice,
+  selectedProviderMaxPrice,
+} from "./provider-selection.js";
+import {
   knowledgeDigest,
   checkedLogicalHost,
   isPlainObject,
@@ -102,6 +106,7 @@ const approval = evidence
     responseCache: z.literal(false),
     unreviewedFeatures: z.literal(false),
     implicitCache: z.enum(["absent", "approved"]),
+    providerSelectionScope: z.literal("provider_group").optional(),
   })
   .strict();
 const route = z
@@ -109,7 +114,9 @@ const route = z
     host: z.string().min(1).max(253),
     purpose: z.literal(INDEPENDENT_CHECK_PURPOSE),
     endpoint: z.literal(INDEPENDENT_CHECK_ENDPOINT),
-    endpointTag: scalar.regex(/^[a-z0-9-]+\/[a-z0-9._/-]+$/u),
+    endpointTag: scalar,
+    providerSelectionScope: z.literal("provider_group").optional(),
+    providerMaxPrice: providerMaxPrice.optional(),
     outputTokenParameter: z.enum(["max_tokens", "max_completion_tokens"]),
     credentialRef: scalar,
     usageScopeRef: scalar,
@@ -151,6 +158,8 @@ export interface IndependentCheckModelOptions {
     readonly provider: string;
     readonly endpointTag: string;
     readonly outputTokenParameter: "max_tokens" | "max_completion_tokens";
+    /** Explicit server-admin permission for a provider family, not one region. */
+    readonly providerSelectionScope?: "provider_group";
   }[];
   readonly counter?: IndependentCheckCounter;
   readonly readApiKey?: (credentialRef: string) => string | undefined;
@@ -491,12 +500,17 @@ function live(at: { verifiedAt: string; validUntil: string }, now: number) {
 export function createSupportIndependentCheckModel(
   options: IndependentCheckModelOptions,
   logicalHost: string,
-  attemptPolicy?: { readonly allowApprovalRenewal: boolean },
+  attemptPolicy?: {
+    readonly allowApprovalRenewal: boolean;
+    readonly allowProviderGroup?: boolean;
+  },
 ) {
   const host = checkedLogicalHost(logicalHost);
-  // Only the SD05 wrapper opts in. Capture the policy rather than trusting a
-  // mutable caller object to change an already-created model's behavior.
+  // Capture per-instance policy before callers can mutate the supplied object.
+  // SD05 alone opts into approval renewal and explicitly disables groups.
+  // Independent checks support groups only with route/allowlist/approval opt-in.
   const allowApprovalRenewal = attemptPolicy?.allowApprovalRenewal === true;
+  const allowProviderGroup = attemptPolicy?.allowProviderGroup !== false;
   const sameRoute = (
     current: IndependentCheckRoute,
     captured: IndependentCheckRoute,
@@ -526,6 +540,16 @@ export function createSupportIndependentCheckModel(
       if (r.host !== host) return undefined;
       const q = qualification.parse(options.counter.qualification);
       const c = r.configuration;
+      const groupPrice = selectedProviderMaxPrice(
+        r,
+        c.budgets,
+        allowProviderGroup,
+      );
+      if (
+        groupPrice === undefined &&
+        !/^[a-z0-9-]+\/[a-z0-9._/-]+$/u.test(r.endpointTag)
+      )
+        return undefined;
       const now = Date.parse(options.clock.now());
       if (
         !Number.isFinite(now) ||
@@ -538,7 +562,8 @@ export function createSupportIndependentCheckModel(
             a.model === c.model &&
             a.provider === c.provider &&
             a.endpointTag === r.endpointTag &&
-            a.outputTokenParameter === r.outputTokenParameter,
+            a.outputTokenParameter === r.outputTokenParameter &&
+            a.providerSelectionScope === r.providerSelectionScope,
         ) ||
         r.approval.configurationVersion !== c.version ||
         c.dataControls.configurationBinding !== c.version ||
@@ -584,8 +609,9 @@ export function createSupportIndependentCheckModel(
     context?: IndependentCheckContext,
   ): boolean {
     try {
+      const currentRoute = read(configured.version);
       if (
-        !read(configured.version) ||
+        !currentRoute ||
         input.trustedInstructions !== configured.trustedInstructions
       )
         return false;
@@ -604,6 +630,21 @@ export function createSupportIndependentCheckModel(
         configured.budgets.maxContextTokens,
         context?.budgets.maxContextTokens ??
           configured.budgets.maxContextTokens,
+      );
+      selectedProviderMaxPrice(
+        currentRoute,
+        {
+          maxInputTokens: maximumTokens,
+          maxOutputTokens:
+            context?.budgets.maxOutputTokens ??
+            configured.budgets.maxOutputTokens,
+          maxCostMicros: Math.min(
+            configured.budgets.maxCostMicros,
+            context?.budgets.maxCostMicros ?? configured.budgets.maxCostMicros,
+          ),
+          currency: context?.budgets.currency ?? configured.budgets.currency,
+        },
+        allowProviderGroup,
       );
       // Count both actual message contents. The unchanged framing allowance is
       // retained for the schema/envelope; no SYSTEM policy is hidden inside it.
@@ -665,6 +706,7 @@ export function createSupportIndependentCheckModel(
         schemaName: "support_independent_check_v1",
         schema: OUTPUT_SCHEMA,
         allowApprovalRenewal: allowApprovalRenewal && allowRenewal,
+        allowProviderGroup,
         input(input) {
           return JSON.stringify(input);
         },
@@ -683,6 +725,7 @@ export function createSupportIndependentCheckModel(
             const r = read(config.version);
             if (
               !r?.releaseFollowup ||
+              r.providerSelectionScope !== undefined ||
               !live(r.releaseFollowup, Date.parse(options.clock.now())) ||
               Date.parse(r.approval.validUntil) >
                 Date.parse(r.releaseFollowup.validUntil)
@@ -784,6 +827,7 @@ export function createSupportIndependentCheckModel(
           followupInput(input);
           if (
             !route.releaseFollowup ||
+            route.providerSelectionScope !== undefined ||
             !live(route.releaseFollowup, Date.parse(options.clock.now())) ||
             Date.parse(route.approval.validUntil) >
               Date.parse(route.releaseFollowup.validUntil)
