@@ -68,8 +68,10 @@ function fitsPriceBudget(price: SupportProviderMaxPrice, budget: PriceBudget) {
   return micros <= BigInt(budget.maxCostMicros);
 }
 
-/** New policy is opt-in. Absence returns no new wire property and does not
- * reinterpret or tighten the generic transport's existing selector contract. */
+/** New policy is opt-in. Absence means no own property, not a property set to
+ * undefined. Incomplete policy objects fail closed even when authoring types
+ * can describe them. Truly absent keys add no wire property and retain the
+ * generic transport's existing selector contract. */
 export function selectedProviderMaxPrice(
   route: Selection,
   budget: PriceBudget,

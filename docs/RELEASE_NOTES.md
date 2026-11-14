@@ -17,8 +17,10 @@ Learning and engineering independent checks may explicitly opt into
 `providerSelectionScope: "provider_group"` on the route, matching static
 allowlist entry and Admin approval. The route requires
 `providerMaxPrice: { prompt, completion, request: 0 }`; scope and prices bind
-the newly approved route-policy hash. Omitting these fields retains existing
-exact mode, selector refusals, request bodies and hashes. Group mode uses a
+the newly approved route-policy hash. Leaving these keys absent retains existing
+selector policy, refusals, request bodies and hashes. Explicit `undefined`
+properties are refused as incomplete policy, even where optional authoring types
+can represent them; omit unused keys entirely. Group mode uses a
 bare provider slug such as `azure`, which can include eligible variants and
 regions; it does not guarantee Sweden or another endpoint's location. The
 release follow-up checker refuses group mode before funding; answering and

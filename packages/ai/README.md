@@ -431,8 +431,13 @@ the independent-check route, its matching static allowlist entry, and
 `route.approval`. The route also requires
 `providerMaxPrice: { prompt, completion, request: 0 }`. Group `endpointTag` is a
 bare base-provider slug, such as `azure`, rather than a region-suffixed selector.
-Omitting the new fields preserves the existing exact mode, selector refusals,
-request body and route-policy hashes; there is no inferred group or default.
+Leaving the new property keys absent preserves the existing selector policy,
+refusals, request body and route-policy hashes; there is no inferred group or
+default. A present key whose value is `undefined` is not absent: verified routes
+refuse it before credentials or admission, including after schema parsing.
+Optional authoring types can represent that incomplete object, but verification
+still fails closed. Omit unused keys entirely; conditional spreads should add
+no group keys when disabled rather than assigning `undefined`.
 
 Build the complete new route base and calculate
 `independentCheckRoutePolicyHash(base)` before obtaining fresh Admin-approved

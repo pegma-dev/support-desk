@@ -60,12 +60,15 @@ export interface SupportOpenRouterRoute<Configuration> {
   readonly credentialRef: string;
   readonly usageScopeRef: string;
   readonly endpointTag: string;
+  /** Omit unused policy keys entirely; an own property set to undefined refuses. */
   readonly providerSelectionScope?: "provider_group" | undefined;
+  /** Required for group mode; absent, rather than undefined, in legacy mode. */
   readonly providerMaxPrice?: SupportProviderMaxPrice | undefined;
   readonly outputTokenParameter: "max_tokens" | "max_completion_tokens";
   readonly approval: {
     readonly validUntil: string;
     readonly implicitCache: "absent" | "approved";
+    /** Omit in legacy approvals; explicit undefined is not an absent key. */
     readonly providerSelectionScope?: "provider_group" | undefined;
   };
 }

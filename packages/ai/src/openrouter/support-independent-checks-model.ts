@@ -506,8 +506,9 @@ export function createSupportIndependentCheckModel(
   },
 ) {
   const host = checkedLogicalHost(logicalHost);
-  // Only the SD05 wrapper opts in. Capture the policy rather than trusting a
-  // mutable caller object to change an already-created model's behavior.
+  // Capture per-instance policy before callers can mutate the supplied object.
+  // SD05 alone opts into approval renewal and explicitly disables groups.
+  // Independent checks support groups only with route/allowlist/approval opt-in.
   const allowApprovalRenewal = attemptPolicy?.allowApprovalRenewal === true;
   const allowProviderGroup = attemptPolicy?.allowProviderGroup !== false;
   const sameRoute = (

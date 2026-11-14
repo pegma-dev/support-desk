@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import * as root from "@pegma/support-desk-ai";
 import * as provider from "@pegma/support-desk-ai/openrouter";
 import type {
@@ -11,31 +11,25 @@ import type {
 
 describe("optional public provider subpath", () => {
   it("types an explicit provider-group policy through the public subpath", () => {
-    const price: SupportProviderMaxPrice = {
-      prompt: 1.75,
-      completion: 14,
-      request: 0,
-    };
-    const route: Pick<
-      IndependentCheckRoute,
-      "providerSelectionScope" | "providerMaxPrice"
-    > = { providerSelectionScope: "provider_group", providerMaxPrice: price };
-    const approval: Pick<
-      IndependentCheckRoute["approval"],
-      "providerSelectionScope"
-    > = { providerSelectionScope: "provider_group" };
-    const allowlist: IndependentCheckModelOptions["allowlist"] = [
-      {
-        model: "fictional/model",
-        provider: "Azure",
-        endpointTag: "azure",
-        outputTokenParameter: "max_completion_tokens",
-        providerSelectionScope: "provider_group",
-      },
-    ];
-    expect(route.providerSelectionScope).toBe(approval.providerSelectionScope);
-    expect(allowlist[0]!.providerSelectionScope).toBe("provider_group");
-    expect(root).not.toHaveProperty("providerMaxPrice");
+    expectTypeOf<SupportProviderMaxPrice>().toEqualTypeOf<{
+      prompt: number;
+      completion: number;
+      request: 0;
+    }>();
+    expectTypeOf<IndependentCheckRoute["providerMaxPrice"]>().toEqualTypeOf<
+      SupportProviderMaxPrice | undefined
+    >();
+    expectTypeOf<
+      IndependentCheckRoute["providerSelectionScope"]
+    >().toEqualTypeOf<"provider_group" | undefined>();
+    expectTypeOf<
+      IndependentCheckRoute["approval"]["providerSelectionScope"]
+    >().toEqualTypeOf<"provider_group" | undefined>();
+    expectTypeOf<
+      NonNullable<
+        IndependentCheckModelOptions["allowlist"]
+      >[number]["providerSelectionScope"]
+    >().toEqualTypeOf<"provider_group" | undefined>();
   });
   it("exports one optional level while keeping the AI root provider-neutral", () => {
     const manifest = JSON.parse(
@@ -59,6 +53,7 @@ describe("optional public provider subpath", () => {
       expect(provider[name]).toBeTypeOf("function");
       expect(root).not.toHaveProperty(name);
     }
+    expect(root).not.toHaveProperty("providerMaxPrice");
   });
   it("imports in a clean process without provider, secret, application or Store activity", () => {
     const child = spawnSync(

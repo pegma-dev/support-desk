@@ -104,6 +104,22 @@ describe("explicit independent-check provider groups", () => {
     });
   });
 
+  it.each(["route scope", "route price", "approval scope"] as const)(
+    "refuses an explicitly present undefined %s before credentials or dispatch",
+    async (field) => {
+      const f = await checkerModelFixture();
+      expect(await f.model.resolve()).not.toBeNull();
+      const approvedHash = f.route.approval.requestPolicySha256;
+      const target = field === "approval scope" ? f.route.approval : f.route;
+      const key =
+        field === "route price" ? "providerMaxPrice" : "providerSelectionScope";
+      Reflect.set(target, key, undefined);
+      expect(Object.hasOwn(target, key)).toBe(true);
+      expect(f.route.approval.requestPolicySha256).toBe(approvedHash);
+      await refusesBeforeCredentials(f);
+    },
+  );
+
   it.each(Array.from({ length: 8 }, (_, mask) => mask))(
     "requires matching route, approval and allowlist scope opt-ins (mask %i)",
     async (mask) => {
