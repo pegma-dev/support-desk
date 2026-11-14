@@ -213,7 +213,7 @@ physical completion phase.
 Staged reconciliation advances one unconfirmed destination per invocation and
 yields after one retirement attempt for later fresh readback.
 Closing policy/receipt checks apply to inline delivery too. The optional
-[`./openrouter` entry](packages/ai/README.md#optional-openrouter-adapter-source-candidate)
+[`./openrouter` entry](packages/ai/README.md#optional-openrouter-adapter)
 keeps the AI root provider-neutral and requires explicit host binding with
 separate host stores, keys and current privacy/configuration evidence. The
 Sessions `0.3.0` prerequisite is public. Final site integration, complete host

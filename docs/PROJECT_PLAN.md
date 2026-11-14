@@ -19,10 +19,7 @@ and [publication receipt](RELEASING.md#verified-0211-publication-2026-11-14).
 Hosts must requalify the actual v2 request and route-policy hash. This
 structural correction does not establish factual model quality.
 
-The synchronized `0.2.11` publication retains final success/evidence guards and
-is strictly verified; see the
-[publication receipt](RELEASING.md#verified-0211-publication-2026-11-14).
-It pins Audit `0.2.0`, Authorization Core `0.4.0`, Mail `0.1.1`, Spine `0.1.2`,
+The release retains final success/evidence guards and pins Audit `0.2.0`, Authorization Core `0.4.0`, Mail `0.1.1`, Spine `0.1.2`,
 and Storage Core `0.4.0`. The older base registry `0.1.1` artifacts remain
 immutable. Host adoption retains its own acceptance gates. All four KB packages
 have strictly verified trusted [`0.1.8` releases](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.8).

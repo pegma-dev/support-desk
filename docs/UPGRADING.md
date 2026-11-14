@@ -2,7 +2,7 @@
 
 The current verified synchronized release is `0.2.11`; see its
 [publication receipt](RELEASING.md#verified-0211-publication-2026-11-14).
-Hosts must qualify the [new checker wire](../packages/ai/README.md#optional-openrouter-adapter-source-candidate)
+Hosts must qualify the [new checker wire](../packages/ai/README.md#optional-openrouter-adapter)
 and its route-policy hash before use. SDK publication does not establish
 factual model quality. Host deployment and acceptance gates are separate.
 The original SD-06 `0.2.0` release has its separate
@@ -201,7 +201,7 @@ current route evidence. Keep authority, application, route/privacy and
 receipt-key callbacks current. Pegma retains its existing route hashes, `ic2`
 encoding and `pegma.dev.support-independent-checks.v2` MAC domain. RetireGolden
 binds its own logical host and retains separate stores, keys, funding pools and
-privacy/configuration evidence. See [the adapter contract](../packages/ai/README.md#optional-openrouter-adapter-source-candidate).
+privacy/configuration evidence. See [the adapter contract](../packages/ai/README.md#optional-openrouter-adapter).
 
 Learning receipt verification requires the issuer's retained checked-attempt
 record in the same durable Store namespace, including legacy update proofs

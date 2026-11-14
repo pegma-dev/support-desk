@@ -352,6 +352,9 @@ evaluations, complete-workflow acceptance, and supervised pilots remain their
 separate activation gates. Provider SDKs, credentials, model selection, HTTP,
 customer UI, schedulers, and operational content logging remain host work.
 
+<a id="optional-openrouter-adapter"></a>
+<!-- Legacy fragment retained for existing documentation links. -->
+
 <a id="optional-openrouter-adapter-source-candidate"></a>
 
 ## Optional OpenRouter adapter (published 0.2.9)
@@ -377,9 +380,9 @@ activation decisions. The
 actual SDK Source/Work reads; the [packed consumer](../../examples/ai/synthetic-ports.ts)
 checks its public declarations.
 
-The next source wire, `openrouter-support-independent-check-v2`, places the
-current server-configured review instructions in the system message on each
-attempt. Facts, candidate, outbound and comparison remain user-message data;
+Published `0.2.11` selects `openrouter-support-independent-check-v2`, which
+places the current server-configured review instructions in the system message
+on each attempt. Facts, candidate, outbound and comparison remain user-message data;
 the existing user envelope is retained. Admission counts both complete message
 contents plus the unchanged framing allowance under the existing byte, input
 token and context ceilings. Larger inputs may therefore hold before dispatch.
