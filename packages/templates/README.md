@@ -1,13 +1,13 @@
 # @pegma/support-desk-templates
 
-The local synchronized source version is unpublished `0.2.11`. See the
-[source handoff](../../docs/RELEASING.md#source-version-0211),
+The synchronized `0.2.11` release is published and strictly verified. See the
+[publication receipt](../../docs/RELEASING.md#verified-0211-publication-2026-11-14),
 [release notes](../../docs/RELEASE_NOTES.md#0211-trusted-independent-check-policy)
 and [engineering read phases](../../docs/ENGINEERING_EXPORT.md#entry-points-and-authority). This package adds no new runtime API.
 
-The current verified synchronized registry release is `0.2.10`; see the
-[publication receipt](../../docs/RELEASING.md#verified-0210-publication-2026-11-13).
-The synchronized `0.2.10` release retains the
+The current verified synchronized registry release is `0.2.11`; see the
+[publication receipt](../../docs/RELEASING.md#verified-0211-publication-2026-11-14).
+The synchronized `0.2.11` release retains the
 [application/AI additions](../../docs/RELEASE_NOTES.md). Host adoption retains
 its own composition and activation gates.
 

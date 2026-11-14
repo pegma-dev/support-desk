@@ -5,14 +5,13 @@ dependencies. The root command builds the SDK and these TypeScript files,
 then runs `run.ts` from its compiled output. Node 22 and 24 are supported.
 
 The example uses public package entry points, an actual Storage Core Store,
-and all four optional Support Desk coordinators from the unpublished `0.2.11`
-source candidate. It pins exact verified public KB application/contracts
-`0.1.8`, the same external KB selection as verified public Support `0.2.10`.
-Node 22/24 source qualification must exercise the current candidate; historical
-example results do not qualify it. Running this source example is separate from
-the published `0.2.10` clean-consumer qualification. It uses no provider
-SDK, network client, mail provider, host framework, or production credentials. Its scripted `github.createIssue`
-throws; the engineering flow only links an existing fictional issue privately.
+and all four optional Support Desk coordinators from synchronized `0.2.11`.
+It pins exact verified public KB application/contracts `0.1.8`. Both Node 22/24
+release gates exercised this source example; the separate published `0.2.11`
+qualification passed a clean public consumer. This example uses no provider
+SDK, network client, mail provider, host framework, or production credentials.
+Its scripted `github.createIssue` throws; the engineering flow only links an
+existing fictional issue privately.
 
 Two fictional tickets exercise the boundaries:
 
@@ -52,13 +51,12 @@ must supply their own current authorities, verified provider route and
 evaluations, release attesters, usage ledger, and operational controls.
 Separate instances keep their own Store, configuration, cursors, and secrets.
 
-The current synchronized Support Desk `0.2.10` release is published and strictly verified;
-see the [publication receipt](../../docs/RELEASING.md#verified-0210-publication-2026-11-13).
+The current synchronized Support Desk `0.2.11` release is published and strictly verified;
+see the [publication receipt](../../docs/RELEASING.md#verified-0211-publication-2026-11-14).
 Its published AI package pins KB `0.1.8`. The historical
 [`0.2.8` receipt](../../docs/RELEASING.md#verified-028-publication-2026-11-12)
-retains its KB `0.1.6` graph. The local `0.2.11` source candidate remains
-unpublished until separately qualified and released. Production adoption retains
-its own host acceptance gates.
+retains its KB `0.1.6` graph. Production adoption retains its own host
+acceptance gates.
 See [the existing human-support example](../composition/README.md),
 [host composition](../../docs/HOST_COMPOSITION.md), and the individual
 [assistant](../../docs/ASSISTANT_COORDINATION.md),

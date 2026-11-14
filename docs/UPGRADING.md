@@ -1,12 +1,10 @@
 # Upgrading synchronized Support Desk packages
 
-Source preparation, 2026-11-13, selects unpublished synchronized `0.2.11`.
-Follow the [source handoff](RELEASING.md#source-version-0211) and qualify the
-[new checker wire](../packages/ai/README.md#optional-openrouter-adapter-source-candidate)
-and its route-policy hash before adoption. Publication is still required.
-The current verified synchronized release is `0.2.10`; see its
-[publication receipt](RELEASING.md#verified-0210-publication-2026-11-13).
-Host deployment and acceptance gates are separate.
+The current verified synchronized release is `0.2.11`; see its
+[publication receipt](RELEASING.md#verified-0211-publication-2026-11-14).
+Hosts must qualify the [new checker wire](../packages/ai/README.md#optional-openrouter-adapter)
+and its route-policy hash before use. SDK publication does not establish
+factual model quality. Host deployment and acceptance gates are separate.
 The original SD-06 `0.2.0` release has its separate
 [historical receipt](RELEASING.md#verified-sd-06-publication-2026-11-08).
 The original four Support Desk packages were published at `0.1.1`. Before
@@ -203,7 +201,7 @@ current route evidence. Keep authority, application, route/privacy and
 receipt-key callbacks current. Pegma retains its existing route hashes, `ic2`
 encoding and `pegma.dev.support-independent-checks.v2` MAC domain. RetireGolden
 binds its own logical host and retains separate stores, keys, funding pools and
-privacy/configuration evidence. See [the adapter contract](../packages/ai/README.md#optional-openrouter-adapter-source-candidate).
+privacy/configuration evidence. See [the adapter contract](../packages/ai/README.md#optional-openrouter-adapter).
 
 Learning receipt verification requires the issuer's retained checked-attempt
 record in the same durable Store namespace, including legacy update proofs
@@ -240,9 +238,10 @@ receipt recovery or fresh proof with retained observation data. See the
 
 The dated verified `0.2.9`/KB `0.1.8` tuple supersedes the historical
 `0.2.8`/KB `0.1.6` checkpoint for producer adoption. Verified `0.2.10` and
-unpublished `0.2.11` retain the same external graph; the latter requires its
-own combined-source release gates and publication receipt. No record migration
-is added.
+current public `0.2.11` retain the same external graph. The
+[0.2.11 receipt](RELEASING.md#verified-0211-publication-2026-11-14) records its
+completed SDK release gates; actual wire-v2 host qualification remains separate.
+No record migration is added.
 
 <a id="unpublished-027-source-candidate"></a>
 

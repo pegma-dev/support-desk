@@ -2,14 +2,19 @@
 
 <a id="0211-trusted-independent-check-policy"></a>
 
-## 0.2.11 source candidate — trusted independent-check policy
+<a id="0211-source-candidate--trusted-independent-check-policy"></a>
 
-Release preparation, 2026-11-13: all five package versions and exact internal
-Support pins select `0.2.11`. This candidate is not published. The root stays
-private at `0.0.0`; exact KB application/contracts `0.1.8`, `zod@4.6.7` and all
-other external dependency selections remain unchanged. See the
-[source handoff](RELEASING.md#source-version-0211). The latest verified
-publication recorded here is [0.2.10](RELEASING.md#verified-0210-publication-2026-11-13).
+## 0.2.11 — trusted independent-check policy
+
+Published and strictly verified on 2026-11-14: all five synchronized packages
+and exact internal Support pins select `0.2.11`. The root stays private at
+`0.0.0`; exact KB application/contracts `0.1.8`, `zod@4.6.7` and all other
+external dependency selections remain unchanged. The
+[dated publication receipt](RELEASING.md#verified-0211-publication-2026-11-14)
+binds the original signed-tag artifacts, successful workflow, strict native
+registry/source verification and permanent public assets. The
+[source preparation checkpoint](RELEASING.md#source-version-0211) is retained
+as dated history.
 
 The optional OpenRouter independent checker places the current server-configured
 `trustedInstructions` in the system message for each attempt, after the fixed

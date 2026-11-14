@@ -6,22 +6,22 @@
 A composable, open-source support queue for web and email.
 
 > [!IMPORTANT]
-> Support Desk is in early `0.x` development. All five synchronized `0.2.10`
+> Support Desk is in early `0.x` development. All five synchronized `0.2.11`
 > packages are published and strictly verified. Hosts consume exact published
 > versions and retain their own adoption and activation gates.
 
-Source preparation, 2026-11-13, selects synchronized **`0.2.11`** for the
-trusted independent-check policy/wire v2 correction. This candidate is
-unpublished. Hosts must requalify its actual v2 request and route-policy hash;
-the instruction boundary does not establish factual model quality. See the
-[candidate notes](docs/RELEASE_NOTES.md#0211-trusted-independent-check-policy)
-and [source handoff](docs/RELEASING.md#source-version-0211).
+The current verified synchronized publication is **`0.2.11`**. It corrects the
+trusted independent-check policy boundary and selects wire v2. All five
+packages passed strict registry, native cryptographic/source and clean public consumer verification. Hosts must requalify the actual v2 request and its
+route-policy hash; the instruction boundary does not establish factual model
+quality. See the [release notes](docs/RELEASE_NOTES.md#0211-trusted-independent-check-policy)
+and [verified receipt](docs/RELEASING.md#verified-0211-publication-2026-11-14).
 
-The dated verified synchronized publication is **`0.2.10`**. It adds optional
-final host guards/cancellation on customer success and resolution evidence,
-retaining two-argument compatibility and receipt-first recovery under current
-authority. See the [published patch notes](docs/RELEASE_NOTES.md#0210-final-success-evidence-guards)
-and [verified receipt](docs/RELEASING.md#verified-0210-publication-2026-11-13).
+The earlier verified `0.2.10` release added optional final host
+guards/cancellation on customer success and resolution evidence, retaining
+two-argument compatibility and receipt-first recovery under current authority.
+Those guards remain in `0.2.11`. See the [0.2.10 notes](docs/RELEASE_NOTES.md#0210-final-success-evidence-guards)
+and [dated receipt](docs/RELEASING.md#verified-0210-publication-2026-11-13).
 Publication and host acceptance remain separate gates.
 
 The earlier verified synchronized `0.2.9` publication remains preserved.
@@ -52,7 +52,7 @@ one. Full configuration and authority snapshots must remain identical across
 phases; live guards still run. Publication establishes no universal query or
 CPU budget and does not qualify a host, provider or client.
 
-All five synchronized `0.2.10` packages are published and strictly verified. See
+All five synchronized `0.2.11` packages are published and strictly verified. See
 the [release notes](docs/RELEASE_NOTES.md). Host composition, deployment,
 provider/privacy and client acceptance remain separate gates. The Sessions
 `0.3.0` prerequisite is public; final site integration, complete host Workers
@@ -68,7 +68,7 @@ tags, host-computed response targets and milestones, and revision collision hint
 (Buildout Task 13), with all new metadata limited to staff views. Durable host
 deployments, customer UI, staff UI, inbound provider adapters, and production
 hardening remain later buildout tasks. Task 12 stays pending on host durable-store
-evidence; the dated verified package receipt records `0.2.10`.
+evidence; the dated verified package receipt records `0.2.11`.
 
 Buildout Task 14 [attachment APIs](docs/ATTACHMENTS.md) are also implemented
 in published `0.2.5`: a host blob port, transactional message metadata,
@@ -116,12 +116,12 @@ See the [producer evidence and bootstrap handoff](docs/HOST_COMPOSITION.md#kb-au
 The [assistant coordination guide](docs/ASSISTANT_COORDINATION.md) and
 [layout checkpoint](docs/COLLECTIONS.md#sd-02-assistant-turn-layout-checkpoint)
 describe the SDK contracts. The base application works without AI; only
-the optional coordinator depends on KB. Its current released `0.2.10` manifest
+the optional coordinator depends on KB. Its current released `0.2.11` manifest
 pins exact KB application/contracts `0.1.8`; historical `0.2.8` retains `0.1.6`,
 and the older `0.2.1` manifest retains
 its original `0.1.2` dependencies. The standalone-authoring recipe and Agent
 Access selection in the producer handoff remain separate compositions. The
-[verified 0.2.10 publication receipt](docs/RELEASING.md#verified-0210-publication-2026-11-13)
+[verified 0.2.11 publication receipt](docs/RELEASING.md#verified-0211-publication-2026-11-14)
 records the exact release; host adoption retains its own acceptance gates.
 Use the [implementation ledger](docs/KNOWLEDGE_AI_PLAN.md#status-and-reading-order)
 for source/release evidence and the remaining activation gates.
@@ -211,9 +211,9 @@ The organization profile is at
 | `@pegma/support-desk-ai`          | Optional answers, resolution learning, engineering export and follow-up |
 
 All five packages are published under the `@pegma` scope at verified
-[`0.2.10`](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.10). The optional AI package's
+[`0.2.11`](https://github.com/pegma-dev/support-desk/releases/tag/v0.2.11). The optional AI package's
 registration-only `bootstrap` remains `0.1.1`; earlier registry versions are
-immutable history. The [publication receipt](docs/RELEASING.md#verified-0210-publication-2026-11-13)
+immutable history. The [publication receipt](docs/RELEASING.md#verified-0211-publication-2026-11-14)
 records the original artifacts and strict verification. There is
 deliberately no storage package and no access package. Inbound mail processing
 is implemented (Buildout Task 11); host adapters, production hardening, and the

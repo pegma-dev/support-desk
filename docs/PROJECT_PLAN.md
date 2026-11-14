@@ -11,18 +11,15 @@ preparation are also merged. The ten entries in the
 [historical source ledger](KNOWLEDGE_AI_PLAN.md#status-and-reading-order) record
 the exact PRs/commits, verified gates, and remaining dependency order.
 
-Source preparation, 2026-11-13, selects unpublished synchronized `0.2.11` for
-the trusted independent-check SYSTEM policy boundary and wire v2. Receipt
-recovery, permissions and external dependency pins are retained. See the
-[patch notes](RELEASE_NOTES.md#0211-trusted-independent-check-policy) and
-[source handoff](RELEASING.md#source-version-0211); combined-source review,
-validation and publication remain separate from this structural correction,
-which does not establish factual model quality.
+The synchronized `0.2.11` release is published and strictly verified. It
+corrects the trusted independent-check SYSTEM policy boundary and selects wire
+v2 while retaining receipt recovery, permissions and external dependency pins.
+See the [patch notes](RELEASE_NOTES.md#0211-trusted-independent-check-policy)
+and [publication receipt](RELEASING.md#verified-0211-publication-2026-11-14).
+Hosts must requalify the actual v2 request and route-policy hash. This
+structural correction does not establish factual model quality.
 
-The synchronized `0.2.10` publication, including final success/evidence guards,
-is strictly verified; see the
-[publication receipt](RELEASING.md#verified-0210-publication-2026-11-13).
-It pins Audit `0.2.0`, Authorization Core `0.4.0`, Mail `0.1.1`, Spine `0.1.2`,
+The release retains final success/evidence guards and pins Audit `0.2.0`, Authorization Core `0.4.0`, Mail `0.1.1`, Spine `0.1.2`,
 and Storage Core `0.4.0`. The older base registry `0.1.1` artifacts remain
 immutable. Host adoption retains its own acceptance gates. All four KB packages
 have strictly verified trusted [`0.1.8` releases](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.8).
@@ -33,7 +30,7 @@ manual `0.1.0` bootstrap receipts have no OIDC provenance and remain historical;
 the later trusted releases close the KB-05/Agent Access publication gates.
 
 SD-02's optional coordinator first shipped as `@pegma/support-desk-ai@0.2.0`.
-The published `@pegma/support-desk-ai@0.2.10` and prepared `0.2.11` metadata pin exact KB `0.1.8` runtime
+The published `@pegma/support-desk-ai@0.2.11` pins exact KB `0.1.8` runtime
 dependencies and bounded turn jobs in the existing ticket partition. The base application remains
 independent of KB/providers. Read the
 [coordination guide](ASSISTANT_COORDINATION.md) and
@@ -509,7 +506,7 @@ human handoff, reviewed learning, and safe engineering follow-up.
 **Source status:** SD-01 through SD-05 are merged, covering handling/handoff,
 optional answer coordination, resolution learning, engineering export, and
 release follow-up. They first shipped in verified synchronized `0.2.0` and
-remain in current `0.2.10`, whose publication receipt is linked above. This phase's
+remain in current `0.2.11`, whose publication receipt is linked above. This phase's
 host/production acceptance remains open.
 See [assistant coordination](ASSISTANT_COORDINATION.md).
 

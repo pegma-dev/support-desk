@@ -1,15 +1,14 @@
 # @pegma/support-desk-ai
 
-The local synchronized source candidate is unpublished `0.2.11`. Its internal
-Support application pin is exact `0.2.11`; external KB application/contracts
-retain exact verified public `0.1.8`. See the
-[source handoff](../../docs/RELEASING.md#source-version-0211) and
-[candidate notes](../../docs/RELEASE_NOTES.md#0211-trusted-independent-check-policy).
-Candidate source requires its own release qualification and publication before
-production adoption. Current public `0.2.10` is strictly verified; its
-[receipt](../../docs/RELEASING.md#verified-0210-publication-2026-11-13) and
-[guard upgrade guidance](../../docs/UPGRADING.md#0210-final-success-and-evidence-guards)
-remain separate from the new checker wire's requalification.
+The synchronized `0.2.11` release is published and strictly verified. Its
+internal Support application pin is exact `0.2.11`; external KB
+application/contracts retain exact verified public `0.1.8`. See the
+[publication receipt](../../docs/RELEASING.md#verified-0211-publication-2026-11-14)
+and [release notes](../../docs/RELEASE_NOTES.md#0211-trusted-independent-check-policy).
+Hosts must requalify the actual v2 checker request and route-policy hash;
+SDK publication does not establish factual model quality or host activation.
+The [guard upgrade guidance](../../docs/UPGRADING.md#0210-final-success-and-evidence-guards)
+remains applicable.
 
 Published `0.2.9` engineering coordination selects optional application-owned model-planning/completion,
 proposal and dispatch observations while preserving fresh proof, authority,
@@ -47,9 +46,9 @@ the [follow-up invocation contract](../../docs/ENGINEERING_FOLLOWUP.md#candidate
 
 Optional, provider-neutral Support Desk answer, learning, engineering, and
 release follow-up coordination.
-The current verified published synchronized release is `0.2.10`;
-see the [publication receipt](../../docs/RELEASING.md#verified-0210-publication-2026-11-13).
-Its exact internal Support application pin is `0.2.10`; external KB application
+The current verified published synchronized release is `0.2.11`;
+see the [publication receipt](../../docs/RELEASING.md#verified-0211-publication-2026-11-14).
+Its exact internal Support application pin is `0.2.11`; external KB application
 and contracts pins are exact `0.1.8`. The earlier
 [`0.2.8` receipt](../../docs/RELEASING.md#verified-028-publication-2026-11-12)
 retains its original KB `0.1.6` graph. Host activation and whole-invocation/CPU
@@ -353,6 +352,9 @@ evaluations, complete-workflow acceptance, and supervised pilots remain their
 separate activation gates. Provider SDKs, credentials, model selection, HTTP,
 customer UI, schedulers, and operational content logging remain host work.
 
+<a id="optional-openrouter-adapter"></a>
+<!-- Legacy fragment retained for existing documentation links. -->
+
 <a id="optional-openrouter-adapter-source-candidate"></a>
 
 ## Optional OpenRouter adapter (published 0.2.9)
@@ -378,9 +380,9 @@ activation decisions. The
 actual SDK Source/Work reads; the [packed consumer](../../examples/ai/synthetic-ports.ts)
 checks its public declarations.
 
-The next source wire, `openrouter-support-independent-check-v2`, places the
-current server-configured review instructions in the system message on each
-attempt. Facts, candidate, outbound and comparison remain user-message data;
+Published `0.2.11` selects `openrouter-support-independent-check-v2`, which
+places the current server-configured review instructions in the system message
+on each attempt. Facts, candidate, outbound and comparison remain user-message data;
 the existing user envelope is retained. Admission counts both complete message
 contents plus the unchanged framing allowance under the existing byte, input
 token and context ceilings. Larger inputs may therefore hold before dispatch.
