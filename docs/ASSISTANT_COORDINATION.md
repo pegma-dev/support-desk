@@ -11,13 +11,13 @@ deployment, live-provider, or pilot result. Follow
 and the actual public types in `packages/application/src/assistant-turn-types.ts`
 and `packages/ai/src/ports.ts` when changing this boundary.
 
-The published `0.2.10` optional `@pegma/support-desk-ai` package owns coordination
+The published `0.2.11` optional `@pegma/support-desk-ai` package owns coordination
 and exact KB application/contracts `0.1.8` dependencies. The base application
 remains usable without AI and contains no KB or model-provider dependency. The
-current synchronized `0.2.10` release is published and strictly verified; see the
-[publication receipt](RELEASING.md#verified-0210-publication-2026-11-13).
-Local source prepares unpublished `0.2.11` with unchanged external KB pins;
-see the [source handoff](RELEASING.md#source-version-0211).
+current synchronized `0.2.11` release is published and strictly verified; see the
+[publication receipt](RELEASING.md#verified-0211-publication-2026-11-14).
+The released tuple retains those external KB pins and includes the
+[wire-v2 checker correction](RELEASE_NOTES.md#0211-trusted-independent-check-policy).
 Host activation retains its own acceptance gates. Existing registry versions
 remain immutable.
 
