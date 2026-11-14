@@ -5,22 +5,22 @@
 Approved product decisions: 2026-11-06; scoped-agent-access decision added
 2026-11-07. The ten entries in the ledger below are merged source, including
 AUTH-01, KB-04's transport source exit, and both producers' release preparation.
-Published synchronized Support Desk `0.2.11` binds the current trusted
-independent-check policy into each attempt's SYSTEM message with wire v2.
-Exact KB `0.1.8` and other external pins are retained. The
-[patch notes](RELEASE_NOTES.md#0211-trusted-independent-check-policy) and
-[publication receipt](RELEASING.md#verified-0211-publication-2026-11-14)
-record the structural correction and SDK qualification. Hosts must requalify
-the actual v2 request and route-policy hash; factual model quality and host
-activation gates remain open.
+Published synchronized Support Desk `0.2.12` adds explicit opt-in provider-group
+checks with matching route, static allowlist and Admin approval scope, a
+hash-bound price policy and current qualification/privacy evidence. It retains
+the earlier wire-v2 trusted checker boundary and exact KB `0.1.8` external pins.
+The [patch notes](RELEASE_NOTES.md#0212-opt-in-provider-group-checks) and
+[publication receipt](RELEASING.md#verified-0212-publication-2026-11-14)
+record SDK qualification. Hosts must qualify the actual request and route-policy
+hash; factual model quality and host activation gates remain open.
 All five synchronized Support Desk packages are published and strictly
-verified at `0.2.11`, including the final customer-success/evidence guards. Optional AI pins Knowledge Base application and contracts
+verified at `0.2.12`, including the final customer-success/evidence guards. Optional AI pins Knowledge Base application and contracts
 to exact public `0.1.8`; fresh dependency, native cryptographic/source and clean
-public-consumer verification passed. The public producer tuple is SDK `0.2.11` /
+public-consumer verification passed. The public producer tuple is SDK `0.2.12` /
 KB `0.1.8`; Agent Access `0.1.1` remains a separate authoring composition.
 Sessions `0.3.0` is also public. Final site integration and host activation gates
 remain open. The dated ledger below records earlier checkpoints.
-[Support Desk publication receipt](RELEASING.md#verified-0211-publication-2026-11-14) · [Knowledge Base release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.8)
+[Support Desk publication receipt](RELEASING.md#verified-0212-publication-2026-11-14) · [Knowledge Base release](https://github.com/pegma-dev/knowledge-base/releases/tag/v0.1.8)
 
 Published `0.2.3` includes the final engineering approval/rejection guards and
 proof-expiry fence. Published `0.2.4` adds admitted customer intake, final draft

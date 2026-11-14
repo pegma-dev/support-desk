@@ -1,8 +1,8 @@
 # @pegma/support-desk-core
 
-The synchronized `0.2.11` release is published and strictly verified. See the
-[publication receipt](../../docs/RELEASING.md#verified-0211-publication-2026-11-14),
-[release notes](../../docs/RELEASE_NOTES.md#0211-trusted-independent-check-policy)
+The synchronized `0.2.12` release is published and strictly verified. See the
+[publication receipt](../../docs/RELEASING.md#verified-0212-publication-2026-11-14),
+[release notes](../../docs/RELEASE_NOTES.md#0212-opt-in-provider-group-checks)
 and [engineering read phases](../../docs/ENGINEERING_EXPORT.md#entry-points-and-authority).
 Task 15, published in `0.2.9`, exposes pure `defineCannedResponse`,
 `defineCannedResponseCatalog`, `snapshotCannedResponseSelection` and
@@ -11,9 +11,9 @@ and literal value substitution; application services enforce staff permissions,
 catalog selection and atomic Audit. See
 [host composition](../../docs/HOST_COMPOSITION.md#staff-canned-responses-task-15-source-candidate).
 
-The current verified synchronized registry release is `0.2.11`; see the
-[publication receipt](../../docs/RELEASING.md#verified-0211-publication-2026-11-14).
-The synchronized `0.2.11` release retains the
+The current verified synchronized registry release is `0.2.12`; see the
+[publication receipt](../../docs/RELEASING.md#verified-0212-publication-2026-11-14).
+The synchronized `0.2.12` release retains the
 [application/AI additions](../../docs/RELEASE_NOTES.md). Host adoption retains
 its own composition and activation gates.
 
@@ -69,7 +69,7 @@ application's explicit assistant creation sets that reserve marker.
 closed work first; ownership and visible-message evidence are application
 checks. Pure functions grant no permission, perform no model/KB work, and
 commit no Audit, receipt, or handoff row. These SD-01 changes first shipped in
-verified synchronized `0.2.0` and remain in current public `0.2.11`; see its
-[publication receipt](../../docs/RELEASING.md#verified-0211-publication-2026-11-14).
+verified synchronized `0.2.0` and remain in current public `0.2.12`; see its
+[publication receipt](../../docs/RELEASING.md#verified-0212-publication-2026-11-14).
 Existing registry `0.1.1` artifacts remain immutable; host activation retains
 its own acceptance gates.

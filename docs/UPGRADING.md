@@ -1,7 +1,7 @@
 # Upgrading synchronized Support Desk packages
 
-The current verified synchronized release is `0.2.11`; see its
-[publication receipt](RELEASING.md#verified-0211-publication-2026-11-14).
+The current verified synchronized release is `0.2.12`; see its
+[publication receipt](RELEASING.md#verified-0212-publication-2026-11-14).
 Hosts must qualify the [new checker wire](../packages/ai/README.md#optional-openrouter-adapter)
 and its route-policy hash before use. SDK publication does not establish
 factual model quality. Host deployment and acceptance gates are separate.
@@ -238,8 +238,8 @@ receipt recovery or fresh proof with retained observation data. See the
 
 The dated verified `0.2.9`/KB `0.1.8` tuple supersedes the historical
 `0.2.8`/KB `0.1.6` checkpoint for producer adoption. Verified `0.2.10` and
-current public `0.2.11` retain the same external graph. The
-[0.2.11 receipt](RELEASING.md#verified-0211-publication-2026-11-14) records its
+current public `0.2.12` retain the same external graph. The
+[0.2.12 receipt](RELEASING.md#verified-0212-publication-2026-11-14) records its
 completed SDK release gates; actual wire-v2 host qualification remains separate.
 No record migration is added.
 
