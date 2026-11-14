@@ -1,9 +1,9 @@
 # @pegma/support-desk-application
 
-The synchronized `0.2.11` release is published and strictly verified. It
-corrects the optional AI checker policy/wire v2 boundary without adding an
-application API. See the [publication receipt](../../docs/RELEASING.md#verified-0211-publication-2026-11-14)
-and [notes](../../docs/RELEASE_NOTES.md#0211-trusted-independent-check-policy).
+The synchronized `0.2.12` release is published and strictly verified. It
+adds opt-in provider-group routing for optional AI independent checks without
+adding an application API. See the [publication receipt](../../docs/RELEASING.md#verified-0212-publication-2026-11-14)
+and [notes](../../docs/RELEASE_NOTES.md#0212-opt-in-provider-group-checks).
 
 The earlier verified `0.2.10` release introduced optional final browser/authority guards
 and cancellation to customer success confirmation and resolution evidence.

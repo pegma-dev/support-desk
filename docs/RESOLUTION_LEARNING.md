@@ -3,8 +3,8 @@
 SD-03's source merged in [PR #39](https://github.com/pegma-dev/support-desk/pull/39)
 and first shipped in the verified synchronized
 [`0.2.0` release](RELEASING.md#verified-sd-06-publication-2026-11-08).
-The current verified synchronized release is `0.2.11`; its dated
-[publication receipt](RELEASING.md#verified-0211-publication-2026-11-14) records
+The current verified synchronized release is `0.2.12`; its dated
+[publication receipt](RELEASING.md#verified-0212-publication-2026-11-14) records
 the public graph. It retains the final success/evidence guards introduced in
 `0.2.10`. Host adoption retains its own acceptance gates.
 The ticket application implements enrollment, structured resolution evidence,

@@ -4,14 +4,17 @@
 
 <a id="0212-source-candidate--opt-in-provider-group-checks"></a>
 
-## 0.2.12 source candidate — opt-in provider-group checks
+## 0.2.12 — opt-in provider-group checks
 
-Source preparation dated 2026-11-14 synchronizes all five package versions,
-exact internal Support pins, root Support development pins and lock importers
-at `0.2.12`. The root stays private at `0.0.0`; all external dependency
-selections remain unchanged. This candidate is not published. The verified
-`0.2.11` release and its original artifacts/receipts remain unchanged; see the
-[source checkpoint](RELEASING.md#source-version-0212).
+Published and strictly verified on 2026-11-14: all five synchronized packages
+and exact internal Support pins select `0.2.12`. The root stays private at
+`0.0.0`; exact KB application/contracts `0.1.8`, `zod@4.6.7` and all other external
+selections remain unchanged. The
+[dated publication receipt](RELEASING.md#verified-0212-publication-2026-11-14)
+binds the original signed-tag artifacts, successful workflow, strict native
+registry/source verification and permanent public assets. The
+[source preparation checkpoint](RELEASING.md#source-version-0212) and verified
+`0.2.11` release retain their original history.
 
 Learning and engineering independent checks may explicitly opt into
 `providerSelectionScope: "provider_group"` on the route, matching static
@@ -36,10 +39,10 @@ No metadata network port, automatic paid retry, permission or durable layout
 is added. Unknown usage retains conservative accounting.
 
 See the [adapter contract](../packages/ai/README.md#opt-in-provider-group-checks-source-only)
-for approval and qualification requirements. Normal source/release gates,
-actual provider privacy and price enforcement, model quality and each host's
-deployment, client and activation acceptance remain required. Structural
-support does not authorize a live call.
+for approval and qualification requirements. The dated receipt records the
+completed source/release gates. Actual provider privacy and price enforcement,
+model quality and each host's deployment, client and activation acceptance remain
+separate requirements. Structural support does not authorize a live call.
 
 <a id="0211-trusted-independent-check-policy"></a>
 
